@@ -62,6 +62,8 @@ export interface BrainActivity {
   /** Distinct recalled note ids, first-seen order. */
   recalledIds: string[];
   learnings: Array<{ noteId: string; kind: TransitiveKind | 'canonical-proposal' | 'episode'; title: string }>;
+  /** Latest context-window occupancy snapshot from `context.usage` (newest wins). */
+  context?: { usedTokens: number; budgetTokens: number; agentId?: string };
 }
 
 export interface RunView {
@@ -192,6 +194,16 @@ export function reduce(state: TuiState, event: EduEvent): TuiState {
         brain: {
           ...s.brain,
           learnings: [...s.brain.learnings, { noteId: event.noteId, kind: event.kind, title: event.title }],
+        },
+      };
+    case 'context.usage':
+      // A snapshot, not a delta: the newest one wins. Ignore unusable windows.
+      if (!(event.windowTokens > 0) || !Number.isFinite(event.usedTokens)) return s;
+      return {
+        ...s,
+        brain: {
+          ...s.brain,
+          context: { usedTokens: Math.max(0, event.usedTokens), budgetTokens: event.windowTokens, ...(event.agentId ? { agentId: event.agentId } : {}) },
         },
       };
     case 'agent.end': {

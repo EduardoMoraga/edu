@@ -1,8 +1,16 @@
 #!/usr/bin/env node
-// Entry point. Commands are wired in src/cli/ by the frontend role (see docs/ARCHITECTURE.md §13).
-const [, , cmd] = process.argv;
-if (cmd === '--version' || cmd === '-v') {
-  console.log('0.1.0');
-} else {
-  console.log('edu — under construction. See docs/ARCHITECTURE.md');
-}
+// `edu` entry point. Command wiring lives in ./program.ts (see docs/ARCHITECTURE.md §13).
+import { createProgram } from './program.js';
+
+// A closed pipe (`edu demo | head`) is a normal way to stop reading, not a crash.
+process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EPIPE') process.exit(0);
+  throw error;
+});
+
+createProgram()
+  .parseAsync(process.argv)
+  .catch((error: unknown) => {
+    process.stderr.write(`edu: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });

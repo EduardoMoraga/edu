@@ -15,8 +15,10 @@ export interface BrainStripProps {
 }
 
 /** Live second-brain activity: `🧠 recalled 4 · learned 1 lesson · ctx 41% of 8k`. */
-export function BrainStrip({ brain, context, width }: BrainStripProps) {
+export function BrainStrip({ brain, context: override, width }: BrainStripProps) {
   const { glyphs } = useUi();
+  // An explicit prop wins; otherwise use the latest `context.usage` event folded into state.
+  const context = override ?? brain.context;
   const sep = ` ${glyphs.sep} `;
   const parts = [`recalled ${brain.recalledIds.length}`, learnedLabel(brain)];
   if (context && context.budgetTokens > 0) {

@@ -1,0 +1,148 @@
+/** `edu` (home), `edu run`, `edu ui`, `edu demo`. */
+import type { Command } from 'commander';
+import type { EduEvent, OrchestrationMode } from '../../core/contracts.js';
+import { getGlyphs, renderBanner } from '../../identity/index.js';
+import type { CliContext, Resolved } from '../context.js';
+import { t } from '../i18n.js';
+import { action, look, parsePositive } from '../kit.js';
+import { packageVersion } from '../package.js';
+import { coreEvents, isCoreEvent } from '../run/events.js';
+import { createPlainFormatter } from '../run/plain.js';
+import { identityName, lessonCount, openWorkspace } from '../workspace.js';
+import { parseCli } from './setup.js';
+
+interface RunOpts { solo?: boolean; crew?: boolean; cli?: string; yes?: boolean }
+interface UiOpts { replay?: string; speed?: string }
+
+/** Prints events as plain lines (non-TTY output). */
+export function printPlain(ctx: CliContext, events: Iterable<EduEvent>): void {
+  const format = createPlainFormatter(getGlyphs(ctx.env));
+  for (const event of events) {
+    const line = format(event);
+    if (line) ctx.out(line);
+  }
+}
+
+/** TUI home: banner, brain stats, detected CLIs, then the live view with a composer. */
+export async function openHome(ctx: CliContext, g: Resolved): Promise<void> {
+  const style = look(ctx);
+  const ws = await openWorkspace(ctx, g.cwd);
+  const [stats, name, clis] = await Promise.all([ws.brain.stats(), identityName(ws.primary.root), ctx.detectClis()]);
+  ctx.out(renderBanner({ unicode: style.glyphs.unicode, theme: style.theme, name, version: packageVersion() }));
+  ctx.out('');
+  ctx.out(t(g.lang, 'home.brain', { total: stats.total, lessons: lessonCount(stats.byStatus) }));
+  ctx.out(clis.length ? t(g.lang, 'home.clis', { clis: clis.join(', ') }) : t(g.lang, 'home.noClis'));
+  ctx.out(t(g.lang, 'home.hint'));
+  const { runHome } = await import('../run/live.js');
+  await runHome(ctx, { cwd: g.cwd, lang: g.lang, name });
+}
+
+function modeFrom(opts: RunOpts): OrchestrationMode | undefined {
+  if (opts.solo && opts.crew) throw new Error('choose one of --solo or --crew');
+  return opts.solo ? 'solo' : opts.crew ? 'crew' : undefined;
+}
+
+export function registerLive(program: Command, ctx: CliContext): void {
+  program
+    .command('run')
+    .description('run a goal: plan, approve, execute, review, learn')
+    .argument('<goal...>', 'what you want done')
+    .option('--solo', 'one CLI plays every role')
+    .option('--crew', 'roles mapped to different CLIs')
+    .option('--cli <cli>', 'CLI to use as the default engine')
+    .option('-y, --yes', 'approve every step automatically')
+    .action(
+      action<RunOpts>(ctx, async ({ g, opts }, goal) => {
+        const mode = modeFrom(opts);
+        const cli = opts.cli ? parseCli(opts.cli) : undefined;
+        const text = (goal ?? '').trim();
+        if (!text) throw new Error('a goal is required');
+        if (ctx.isTTY) {
+          const ws = await openWorkspace(ctx, g.cwd);
+          const { runInTui } = await import('../run/live.js');
+          const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, cli, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
+          if (result) ctx.out(t(g.lang, 'run.done', { status: t(g.lang, result.ok ? 'run.ok' : 'run.failed'), summary: result.summary }));
+          if (!result?.ok) ctx.setExitCode(1);
+          return;
+        }
+        await runPlain(ctx, g, text, mode, cli, Boolean(opts.yes));
+      }),
+    );
+
+  program
+    .command('ui')
+    .description('open the live view, or replay a recorded run')
+    .option('--replay <file>', 'runs/<id>.jsonl to replay')
+    .option('--speed <n>', 'replay speed multiplier', '1')
+    .action(
+      action<UiOpts>(ctx, async ({ g, opts }) => {
+        if (!opts.replay) {
+          if (ctx.isTTY) await openHome(ctx, g);
+          else ctx.out(program.helpInformation());
+          return;
+        }
+        const speed = parsePositive(opts.speed ?? '1', '--speed');
+        const { loadRun, timedEvents } = await import('../../tui/replay.js');
+        const run = await loadRun(opts.replay);
+        for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
+        if (!ctx.isTTY) return printPlain(ctx, run.events.filter(isCoreEvent));
+        const { playInTui } = await import('../run/live.js');
+        await playInTui(coreEvents(timedEvents(run.events, { speed, maxDelayMs: 2000 })), 'Edu');
+      }),
+    );
+
+  program
+    .command('demo')
+    .description('watch a scripted crew in the live view (no LLM needed)')
+    .option('--speed <n>', 'playback speed multiplier', '1')
+    .action(
+      action<{ speed?: string }>(ctx, async ({ g, opts }) => {
+        const speed = parsePositive(opts.speed ?? '1', '--speed');
+        const { demoScript } = await import('../../engine/fake.js');
+        const events = demoScript();
+        if (!ctx.isTTY) {
+          ctx.out(t(g.lang, 'demo.plain'));
+          return printPlain(ctx, events);
+        }
+        const [{ timedEvents }, { playInTui }] = await Promise.all([import('../../tui/replay.js'), import('../run/live.js')]);
+        await playInTui(coreEvents(timedEvents(events, { speed })), 'Edu');
+      }),
+    );
+}
+
+async function runPlain(
+  ctx: CliContext,
+  g: Resolved,
+  goal: string,
+  mode: OrchestrationMode | undefined,
+  cli: ReturnType<typeof parseCli> | undefined,
+  yes: boolean,
+): Promise<void> {
+  const { executeRun } = await import('../run/session.js');
+  const format = createPlainFormatter(getGlyphs(ctx.env));
+  const abort = new AbortController();
+  const onSigint = () => {
+    ctx.err(t(g.lang, 'run.cancelling'));
+    abort.abort();
+  };
+  process.once('SIGINT', onSigint);
+  try {
+    const result = await executeRun(ctx, {
+      goal,
+      cwd: g.cwd,
+      lang: g.lang,
+      mode,
+      cli,
+      signal: abort.signal,
+      onEvent: (event) => {
+        const line = format(event);
+        if (line) ctx.out(line);
+        if (event.type === 'approval.request' && !yes) ctx.err(t(g.lang, 'run.approvalDenied', { title: event.title }));
+      },
+      approve: async () => yes,
+    });
+    if (!result.ok) ctx.setExitCode(1);
+  } finally {
+    process.removeListener('SIGINT', onSigint);
+  }
+}
