@@ -149,6 +149,28 @@ export type CliId = 'claude' | 'codex' | 'pi' | 'opencode' | 'agy';
 
 export type Autonomy = 'readonly' | 'ask' | 'auto' | 'full';
 
+export type CrewJobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+export type CrewJobMode = 'headless' | 'pane';
+
+/** A durable unit of work dispatched to one external coding CLI. */
+export interface CrewJob {
+  id: string;
+  cli: CliId;
+  task: string;
+  mode: CrewJobMode;
+  cwd: string;
+  autonomy: Autonomy;
+  status: CrewJobStatus;
+  pid?: number;
+  paneId?: string;
+  agentName?: string;
+  createdAt: string;
+  endedAt?: string;
+  summary: string;
+  usage: Usage;
+  note?: string;
+}
+
 export interface EngineRunRequest {
   cli: CliId;
   prompt: string;

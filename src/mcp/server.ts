@@ -4,8 +4,9 @@ import { z } from 'zod';
 import { openBrain } from '../brain/index.js';
 import { brief, truncateToTokens } from '../context/index.js';
 import type { BrainLocation, ClaimBand, Note, Tier } from '../core/contracts.js';
+import { createCrew, type CrewOptions } from '../crew/index.js';
 
-export interface EduMcpOptions { locations: BrainLocation[]; now?: Date; eduMdPath?: string }
+export interface EduMcpOptions { locations: BrainLocation[]; now?: Date; eduMdPath?: string; crewOptions?: CrewOptions }
 
 const tokenLimit = z.number().int().positive().optional().describe('Maximum response tokens (default 800)');
 const bands = z.enum(['verified', 'inferred', 'hypothesis']);
@@ -20,6 +21,7 @@ function line(note: Note): string {
 export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   const brain = openBrain(opts.locations);
   const server = new McpServer({ name: 'edu', version: '0.1.1' });
+  const crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   const eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
   const respond = async (maxTokens: number | undefined, operation: () => Promise<string>) => {
     const limit = maxTokens ?? 800;
@@ -117,5 +119,34 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     return `Closed ${line(note)}`;
   });
 
+  const cliIds = z.enum(['claude', 'codex', 'pi', 'opencode', 'agy']);
+  const autonomy = z.enum(['readonly', 'ask', 'auto', 'full']);
+  register('edu_crew_dispatch', 'Dispatch a crew job to a coding CLI', {
+    cli: cliIds, task: z.string().min(1), mode: z.enum(['headless', 'pane']).optional(), cwd: z.string().optional(), autonomy: autonomy.optional(), maxTokens: tokenLimit,
+  }, async ({ cli, task, mode, cwd, autonomy: selectedAutonomy }) => {
+    const job = await crew.dispatch({ cli, task, mode, cwd, autonomy: selectedAutonomy });
+    return JSON.stringify(job);
+  });
+
+  register('edu_crew_status', 'List crew jobs or inspect one job', {
+    jobId: z.string().optional(), maxTokens: tokenLimit,
+  }, async ({ jobId }) => JSON.stringify(await crew.status(jobId)));
+
+  register('edu_crew_result', 'Wait for and read a crew job result', {
+    jobId: z.string().min(1), waitSeconds: z.number().nonnegative().optional(), maxTokens: tokenLimit,
+  }, async ({ jobId, waitSeconds }) => JSON.stringify(await crew.result(jobId, waitSeconds ?? 0)));
+
+  register('edu_crew_review', 'Dispatch a read-only review using a different available CLI', {
+    cli: cliIds.optional(), base: z.string().optional(), maxTokens: tokenLimit,
+  }, async ({ cli, base }) => JSON.stringify(await crew.review({ cli, base, callerCli: detectCallerCli(process.env) })));
+
   return server;
+}
+
+export function detectCallerCli(env: NodeJS.ProcessEnv): import('../core/contracts.js').CliId | undefined {
+  if (env.CLAUDECODE) return 'claude';
+  if (Object.keys(env).some(key => key.startsWith('CODEX_'))) return 'codex';
+  if (Object.keys(env).some(key => key.startsWith('PI_'))) return 'pi';
+  if (env.OPENCODE) return 'opencode';
+  return undefined;
 }
