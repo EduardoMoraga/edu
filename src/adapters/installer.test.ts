@@ -23,7 +23,7 @@ describe('installer', () => {
     const opts = await fixture();
     const plan = await planInstall({ ...opts, scope: 'project', clis: ['claude', 'codex', 'pi', 'opencode', 'agy'] });
     expect(plan.actions.filter(a => a.path === join(opts.root, 'AGENTS.md') && a.kind === 'managed-block')).toHaveLength(1);
-    expect(plan.actions.filter(a => a.path.endsWith('edu-brain/SKILL.md'))).toHaveLength(2);
+    expect(plan.actions.filter(a => a.path.endsWith(join('edu-brain', 'SKILL.md')))).toHaveLength(2);
     expect(plan.notes).toContain('agy MCP: manual step');
     expect(plan.actions.some(a => a.cli === 'agy' && a.kind === 'json-merge')).toBe(false);
     expect(plan.actions.some(a => a.cli === 'opencode' && a.path === join(opts.root, 'opencode.json'))).toBe(true);

@@ -1,5 +1,5 @@
 import { access, readFile, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { captureContext, out, runCli } from './testkit.js';
 
@@ -67,7 +67,7 @@ describe('edu install', () => {
     const plan = JSON.parse(out(c));
     expect(plan.scope).toBe('project');
     expect(plan.actions.length).toBeGreaterThan(0);
-    expect(plan.actions.every((a: { path: string }) => a.path.startsWith('/'))).toBe(true);
+    expect(plan.actions.every((a: { path: string }) => isAbsolute(a.path))).toBe(true);
     expect(new Set(plan.actions.flatMap((a: { clis: string[] }) => a.clis))).toEqual(new Set(['codex', 'pi']));
   });
 
