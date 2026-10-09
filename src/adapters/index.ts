@@ -1,0 +1,12 @@
+export { upsertManagedBlock, removeManagedBlock } from './blocks.js';
+export { mergeJson, unmergeJson, mergeToml, unmergeToml } from './merge.js';
+export { pathsFor } from './paths.js';
+export { createClaudeIntegration } from './claude.js';
+export { createCodexIntegration } from './codex.js';
+export { createPiIntegration } from './pi.js';
+export { createOpenCodeIntegration } from './opencode.js';
+export { createAgyIntegration } from './agy.js';
+export { planInstall, applyInstall, uninstall, describePlan, resolveTemplatesDir, getManifestPath } from './installer.js';
+export { diagnose } from './doctor.js';
+export type { InstallPlan, PlannedAction, IntegrationOptions } from './types.js';
+export type { CliDiagnosis, DiagnoseOptions } from './doctor.js';
