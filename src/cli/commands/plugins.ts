@@ -57,6 +57,8 @@ export async function runPluginSetup(ctx: CliContext, g: Resolved, options: { cl
     for (const cli of clis) {
       const marker = report.installed.includes(cli) || report.alreadyInstalled.includes(cli) ? '✓' : report.fallback.includes(cli) ? '!' : '✗';
       ctx.out(`${marker} ${cli}${report.fallback.includes(cli) ? (g.lang === 'es' ? ' (integración administrada)' : ' (managed-file integration)') : ''}`);
+      const failure = report.failed.find(f => f.cli === cli);
+      if (failure) ctx.out(`  ${g.lang === 'es' ? 'instalador nativo falló' : 'native installer failed'}: ${failure.message.split('\n').slice(-2).join(' ').slice(0, 240)}`);
       ctx.out(`  ${promptFor(cli, g.lang)}`);
     }
     if (!clis.length) ctx.out(g.lang === 'es' ? 'No se detectaron CLI; instale uno y ejecute edu setup.' : 'No CLIs detected; install one and run edu setup.');

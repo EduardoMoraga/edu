@@ -151,6 +151,11 @@ export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {
   const pending = new Set(plan.fallback);
   const successful = new Set<CliId>();
   const failed = new Map<CliId, string>();
+  // Codex refuses to run when CODEX_HOME points to a missing directory (fresh machines, custom homes).
+  if (plan.commands.some(c => c.cli === 'codex')) {
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(process.env.CODEX_HOME || join(plan.home, '.codex'), { recursive: true }).catch(() => undefined);
+  }
   for (const command of plan.commands) {
     if (failed.has(command.cli)) continue;
     const result = await runner(command);
