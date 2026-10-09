@@ -1,7 +1,7 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { CliId, EduConfig, RoleSpec } from '../core/contracts.js';
+import { atomicWrite } from '../brain/store.js';
 
 const CliSchema = z.enum(['claude', 'codex', 'pi', 'opencode', 'agy']);
 const RoleSchema = z.object({ id: z.string().min(1), title: z.string().min(1), icon: z.string().min(1), mission: z.string(), autonomy: z.enum(['readonly', 'ask', 'auto', 'full']), cli: CliSchema.optional(), model: z.string().optional() });
@@ -31,6 +31,5 @@ export async function loadConfig(path: string): Promise<EduConfig> {
 
 export async function saveConfig(path: string, config: EduConfig): Promise<void> {
   const validated = EduConfigSchema.parse(config);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(validated, null, 2)}\n`, 'utf8');
+  await atomicWrite(path, `${JSON.stringify(validated, null, 2)}\n`);
 }

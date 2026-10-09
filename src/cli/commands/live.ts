@@ -1,6 +1,8 @@
 /** `edu` (home), `edu run`, `edu ui`, `edu demo`. */
 import type { Command } from 'commander';
 import type { EduEvent, HarnessLevel, OrchestrationMode } from '../../core/contracts.js';
+import { atomicWrite } from '../../brain/store.js';
+import { resolve } from 'node:path';
 import { getGlyphs, renderBanner } from '../../identity/index.js';
 import type { CliContext, Resolved } from '../context.js';
 import { t } from '../i18n.js';
@@ -12,6 +14,7 @@ import { parseCli } from './setup.js';
 
 interface RunOpts { solo?: boolean; crew?: boolean; cli?: string; yes?: boolean; harness?: string }
 interface UiOpts { replay?: string; speed?: string }
+interface DemoOpts { speed?: string; save?: string }
 
 /** Prints events as plain lines (non-TTY output). */
 export function printPlain(ctx: CliContext, events: Iterable<EduEvent>): void {
@@ -102,11 +105,13 @@ export function registerLive(program: Command, ctx: CliContext): void {
     .command('demo')
     .description('watch a scripted crew in the live view (no LLM needed)')
     .option('--speed <n>', 'playback speed multiplier', '1')
+    .option('--save <file>', 'save the demo event stream as JSONL for replay')
     .action(
-      action<{ speed?: string }>(ctx, async ({ g, opts }) => {
+      action<DemoOpts>(ctx, async ({ g, opts }) => {
         const speed = parsePositive(opts.speed ?? '1', '--speed');
         const { demoScript } = await import('../../engine/fake.js');
         const events = demoScript();
+        if (opts.save) await atomicWrite(resolve(g.cwd, opts.save), `${events.map(event => JSON.stringify(event)).join('\n')}\n`);
         if (!ctx.isTTY) {
           ctx.out(t(g.lang, 'demo.plain'));
           return printPlain(ctx, events);

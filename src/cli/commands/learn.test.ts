@@ -14,3 +14,13 @@ describe('edu context', () => {
     expect((await brain.read(note.meta.id))?.meta.usage).toBeUndefined();
   });
 });
+
+describe('edu reflect', () => {
+  it('succeeds with a clear message when the brain has no closed episodes and no CLI', async () => {
+    const c = await captureContext({ detected: [] });
+    await runCli(c, ['init']);
+    await runCli(c, ['reflect']);
+    expect(c.exitCode).toBeUndefined();
+    expect(c.stdout.join('\n')).toContain('Nothing to reflect yet.');
+  });
+});

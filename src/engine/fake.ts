@@ -37,6 +37,7 @@ export function demoScript(): EduEvent[] {
     { type: 'approval.resolve', approvalId: 'approval-1', approved: true, by: 'user', at },
     { type: 'brain.learn', noteId: 'L-check-empty-input', kind: 'lesson', title: 'Validate empty input at the boundary', at },
     { type: 'agent.end', agentId: 'builder-1', ok: true, summary: 'Change implemented and tested.', sessionId: 'fake-session-builder', at },
+    { type: 'agent.end', agentId: 'lead-1', ok: true, summary: 'Plan and delegation complete.', at },
     { type: 'run.end', runId: 'demo-001', ok: true, summary: 'Demo crew completed successfully.', at },
   ];
   const base = new Date(at).getTime();

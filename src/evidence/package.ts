@@ -1,6 +1,7 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EduEvent, Requirement } from '../core/contracts.js';
+import { atomicWrite } from '../brain/store.js';
 
 export interface PackageOptions {
   limitations?: string[];
@@ -40,7 +41,7 @@ export async function buildEpisodePackage(root: string, runId: string, events: E
     'outcome.json': `${JSON.stringify(outcome, null, 2)}\n`,
     'report.md': makeReport(task.requirements, types(events, 'verify.result'), task.limitations),
   };
-  await Promise.all(Object.entries(content).map(([name, body]) => writeFile(join(directory, name), body, 'utf8')));
+  await Promise.all(Object.entries(content).map(([name, body]) => atomicWrite(join(directory, name), body)));
   return directory;
 }
 

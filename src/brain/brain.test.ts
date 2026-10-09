@@ -121,4 +121,10 @@ describe('brain API', () => {
     const root = await temp(); const file = join(root, 'nested', 'note.md');
     await atomicWrite(file, 'ok'); expect(await readFile(file, 'utf8')).toBe('ok');
   });
+
+  it('rejects an invalid canonical kind before writing outside the brain root', async () => {
+    const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
+    await expect(brain.write({ title: 'Escape', body: 'no', tier: 'canonical', kind: '../../outside' as never })).rejects.toThrow(/kind/i);
+    await expect(readFile(join(root, 'outside', 'escape.md'), 'utf8')).rejects.toThrow();
+  });
 });

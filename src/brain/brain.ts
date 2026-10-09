@@ -1,7 +1,7 @@
 import { access, mkdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { stringify } from 'yaml';
-import type { BrainLocation, ClaimBand, Note, NoteMeta, RecallHit, Tier } from '../core/contracts.js';
+import type { BrainLocation, CanonicalKind, ClaimBand, Note, NoteMeta, RecallHit, Tier } from '../core/contracts.js';
 import { INDEX_DIR, atomicWrite, createId, encodeNote, notePath, overlayNotes } from './store.js';
 import { assertDecisionReversion, isClosedEpisode, validateTransition, validateStatus } from './lifecycle.js';
 import { feedbackUsage, applyLearning, recordUsage } from './learning.js';
@@ -21,6 +21,7 @@ export interface NewNote {
   due?: string;
   supersedes?: string;
   created?: string;
+  updated?: string;
 }
 export interface MaintenanceReport { changed: string[]; promoted: string[]; retired: string[]; overdue: string[]; indexRebuilt: boolean }
 export interface BrainStats { total: number; byTier: Record<Tier, number>; byKind: Record<string, number>; byStatus: Record<string, number> }
@@ -97,12 +98,15 @@ export function openBrain(locations: BrainLocation[]): Brain {
     async list(filter = {}) { return (await all()).filter(n => Object.entries(filter).every(([key, value]) => value === undefined || n.meta[key as keyof NoteMeta] === value)); },
     read: find,
     async write(input) {
+      if (input.tier === 'canonical' && input.kind && !(['identity', 'standard', 'lexicon', 'domain', 'person', 'preference'] as CanonicalKind[]).includes(input.kind as CanonicalKind)) {
+        throw new Error(`Invalid canonical kind: ${input.kind}`);
+      }
       if (input.tier === 'canonical' && input.status && input.status !== 'proposed') throw new Error('Canonical notes must be written as proposed; use acceptCanonical for human confirmation');
       const now = new Date(input.created ?? Date.now());
       const meta: NoteMeta = {
         id: createId({ tier: input.tier, kind: input.kind, title: input.title }, now), tier: input.tier, title: input.title,
         ...(input.kind ? { kind: input.kind } : {}), ...(input.tier === 'canonical' ? { status: 'proposed' as const } : input.status || defaultStatus(input.tier, input.kind) ? { status: input.status ?? defaultStatus(input.tier, input.kind) } : {}), ...(input.band ? { band: input.band } : {}),
-        tags: [...new Set([...(input.tags ?? []), ...(input.kind ? [input.kind] : [])])], links: input.links ?? [], created: iso(now), updated: iso(now), source: input.source ?? 'user',
+        tags: [...new Set([...(input.tags ?? []), ...(input.kind ? [input.kind] : [])])], links: input.links ?? [], created: iso(now), updated: input.updated ? iso(new Date(input.updated)) : iso(now), source: input.source ?? 'user',
         ...(input.owner ? { owner: input.owner } : {}), ...(input.due ? { due: input.due } : {}), ...(input.supersedes ? { supersedes: input.supersedes } : {}),
       };
       if (meta.status && meta.kind) validateStatus(meta.tier === 'canonical' ? 'canonical' : meta.kind, meta.status);

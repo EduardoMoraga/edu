@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -25,6 +25,7 @@ describe('orchestrator contracts', () => {
       const config = defaultConfig('codex');
       await saveConfig(path, config);
       expect(await loadConfig(path)).toEqual(config);
+      await expect(readdir(dir)).resolves.toEqual(['config.json']);
       await expect(saveConfig(path, { ...config, mode: 'invalid' } as never)).rejects.toThrow();
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
@@ -63,6 +64,7 @@ describe('orchestrator contracts', () => {
       const result = await orchestrate('goal', { config, brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true });
       expect(result.ok).toBe(true);
       expect(requests[0]?.model).toBe('lead-model');
+      expect(await readFile(join(dir, 'reflect-queue', `${result.runId}.json`), 'utf8')).toContain('sessionId');
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
@@ -141,6 +143,60 @@ describe('orchestrator contracts', () => {
       const timeline = observed.map(event => event.type === 'agent.spawn' ? `${event.role}:${event.task.slice(0, 4)}` : event.type === 'agent.end' ? `end:${event.agentId.slice(-4)}` : event.type);
       expect(ends.every(event => observed.indexOf(event) < builderStart), timeline.join(', ')).toBe(true);
     } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it('cancels and settles parallel siblings before emitting the terminal run event', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu-parallel-failure-'));
+    const plan = { steps: [
+      { id: 'fail', role: 'explorer', task: 'fail step', dependsOn: [], parallelSafe: true },
+      { id: 'wait', role: 'explorer', task: 'wait step', dependsOn: [], parallelSafe: true },
+    ] };
+    const observed: EduEvent[] = [];
+    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+      if (request.prompt.startsWith('Create a safe')) { yield { type: 'agent.text', agentId, text: JSON.stringify(plan), at } as EduEvent; return; }
+      if (request.prompt.startsWith('fail step')) { yield { type: 'error', agentId, message: 'expected failure', at } as EduEvent; return; }
+      await new Promise<void>(resolve => request.signal?.addEventListener('abort', () => resolve(), { once: true }));
+      yield { type: 'agent.text', agentId, text: 'settled after cancellation', at } as EduEvent;
+    } };
+    const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
+    try {
+      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true });
+      expect(result.ok).toBe(false);
+      expect(observed).toContainEqual(expect.objectContaining({ type: 'agent.status', status: 'cancelled' }));
+      expect(observed.at(-1)?.type).toBe('run.end');
+      expect(observed.slice(0, -1).every(event => event.type !== 'run.end')).toBe(true);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it('does not await a blocked composer iterator during terminal teardown', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu-blocked-composer-'));
+    let releaseComposer!: () => void;
+    const composerMessages = (async function* () {
+      await new Promise<void>(resolve => { releaseComposer = resolve; });
+      yield 'late message';
+    })();
+    const plan = { steps: [] };
+    const observed: EduEvent[] = [];
+    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+      const text = request.prompt.startsWith('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}';
+      yield { type: 'agent.text', agentId, text, at } as EduEvent;
+      yield { type: 'agent.end', agentId, ok: true, summary: 'done', at } as EduEvent;
+    } };
+    const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
+    let running: ReturnType<typeof orchestrate> | undefined;
+    try {
+      running = orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H0', composerMessages });
+      const completedPromptly = await Promise.race([running.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 1_000))]);
+      expect(completedPromptly).toBe(true);
+      releaseComposer();
+      await running;
+      const runEndIndex = observed.findIndex(event => event.type === 'run.end');
+      expect(observed.slice(runEndIndex + 1)).toEqual([]);
+    } finally {
+      releaseComposer?.();
+      await running?.catch(() => {});
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('allows at most one builder fix round after reviewer requests changes', async () => {

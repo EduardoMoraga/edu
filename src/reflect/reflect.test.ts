@@ -11,6 +11,17 @@ const response = { lessons: [{ title: 'Keep boundaries small', body: 'Small boun
 const fake: Engine = { cli: 'claude', available: async () => true, async *run(_request: EngineRunRequest, agentId: string): AsyncIterable<EduEvent> { yield { type: 'agent.text', agentId, text: JSON.stringify(response), at: new Date().toISOString() }; } };
 
 describe('reflect', () => {
+  it('returns a clear no-op report for an empty brain without invoking an engine', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu-reflect-empty-'));
+    const root = join(dir, '.edu');
+    const brain = openBrain([{ scope: 'project', root }]);
+    const never: Engine = { ...fake, async *run() { throw new Error('engine must not run'); } };
+    try {
+      await brain.init({ scope: 'project', root });
+      const report = await reflect({ brain, engine: never, brainRoot: root });
+      expect(report).toMatchObject({ episodesRead: 0, message: 'Nothing to reflect yet.', lessons: [], hypotheses: [] });
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
   it('writes evidence-linked notes and skill proposals without applying them', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-reflect-'));
     const root = join(dir, '.edu');
@@ -19,6 +30,8 @@ describe('reflect', () => {
       await brain.init({ scope: 'project', root });
       const episode = await brain.openSession('Recent run', 'edu:orchestrator');
       await brain.closeSession(episode.meta.id, 'A completed run.');
+      await mkdir(join(root, 'reflect-queue'), { recursive: true });
+      await writeFile(join(root, 'reflect-queue', 'queued.json'), '{"runId":"queued"}');
       const report = await reflect({ brain, engine: fake, since: '7d', now: new Date() });
       expect(report.lessons).toHaveLength(1);
       expect((await brain.list({ kind: 'lesson' })).length).toBe(1);
@@ -28,6 +41,7 @@ describe('reflect', () => {
       const proposalFiles = await readFile(report.skillProposals[0]!.path, 'utf8');
       expect(proposalFiles).toContain('Check risks.');
       await expect(readFile(join(root, 'skills/review-helper/SKILL.md'), 'utf8')).rejects.toThrow();
+      await expect(readFile(join(root, 'reflect-queue/queued.json'), 'utf8')).rejects.toThrow();
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
@@ -38,6 +52,7 @@ describe('reflect', () => {
     const bad: Engine = { ...fake, async *run(_request, agentId) { yield { type: 'agent.text', agentId, text: '{bad', at: new Date().toISOString() }; } };
     try {
       await brain.init({ scope: 'project', root });
+      await brain.openSession('Invalid JSON test', 'test').then(note => brain.closeSession(note.meta.id, 'Closed'));
       await expect(reflect({ brain, engine: bad })).rejects.toThrow(/JSON|reflection/i);
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
@@ -49,6 +64,7 @@ describe('reflect', () => {
     const incomplete: Engine = { ...fake, async *run(_request, agentId) { yield { type: 'agent.text', agentId, text: '{"lessons":[]}', at: new Date().toISOString() }; } };
     try {
       await brain.init({ scope: 'project', root });
+      await brain.openSession('Schema test', 'test').then(note => brain.closeSession(note.meta.id, 'Closed'));
       await expect(reflect({ brain, engine: incomplete, brainRoot: root })).rejects.toThrow();
     } finally { await rm(dir, { recursive: true, force: true }); }
   });

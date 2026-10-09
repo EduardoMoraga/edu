@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { packageVersion } from './package.js';
 import { captureContext, out, runCli } from './testkit.js';
 
@@ -92,6 +94,19 @@ describe('createProgram', () => {
     const c = await captureContext({ detected: [] });
     await runCli(c, ['run', 'algo', '--lang', 'es']);
     expect(c.stderr.join('\n')).toContain('Instala uno o prueba: edu demo');
+  });
+
+  it('saves a demo stream and replays it non-interactively', async () => {
+    const c = await captureContext();
+    const file = join(c.dirs.cwd, 'demo.jsonl');
+    try {
+      await runCli(c, ['demo', '--save', file]);
+      const rows = (await readFile(file, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { type: string; agentId?: string });
+      expect(rows.at(-1)?.type).toBe('run.end');
+      expect(rows).toContainEqual(expect.objectContaining({ type: 'agent.end', agentId: 'lead-1' }));
+      await runCli(c, ['ui', '--replay', file]);
+      expect(c.stdout.join('\n')).toContain('Demo crew completed successfully.');
+    } finally { await rm(join(c.dirs.cwd, '..'), { recursive: true, force: true }); }
   });
 });
 

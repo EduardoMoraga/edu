@@ -1,4 +1,4 @@
-import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readdir, readFile, mkdir, writeFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { stringify, parse } from 'yaml';
@@ -15,10 +15,11 @@ export const ReflectionSchema = z.object({
 }).strict();
 export type ReflectionOutput = z.infer<typeof ReflectionSchema>;
 export interface ReflectInput { brain: Brain; engine: Engine; since?: string; now?: Date; brainRoot?: string }
-export interface ReflectReport { lessons: string[]; hypotheses: string[]; feedback: string[]; skillProposals: { id: string; path: string }[]; canonicalProposals: string[]; episodesRead: number }
+export interface ReflectReport { lessons: string[]; hypotheses: string[]; feedback: string[]; skillProposals: { id: string; path: string }[]; canonicalProposals: string[]; episodesRead: number; message?: string }
 
 export async function reflect({ brain, engine, since = '7d', now = new Date(), brainRoot }: ReflectInput): Promise<ReflectReport> {
   const episodes = (await brain.list({ tier: 'episodic', kind: 'session', status: 'closed' })).filter(note => note.meta.created >= cutoff(since, now));
+  if (!episodes.length) return { lessons: [], hypotheses: [], feedback: [], skillProposals: [], canonicalProposals: [], episodesRead: 0, message: 'Nothing to reflect yet.' };
   const root = brainRoot ?? (episodes[0] ? dirname(dirname(dirname(episodes[0].path))) : undefined);
   const sinceAt = cutoff(since, now);
   const runSummaries = root ? (await readRunSummaries(join(root, 'runs'))).filter(run => !run.at || run.at >= sinceAt) : [];
@@ -67,7 +68,17 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
     const note = await brain.proposeCanonical({ tier: 'canonical', kind: 'standard', title: lesson.meta.title, body: lesson.body, links: [lesson.meta.id], source: 'edu:reflect', band: lesson.meta.band ?? 'inferred' });
     report.canonicalProposals.push(note.meta.id);
   }
+  if (root) await consumeReflectionQueue(root);
   return report;
+}
+
+async function consumeReflectionQueue(root: string): Promise<void> {
+  const queue = join(root, 'reflect-queue');
+  let entries;
+  try { entries = await readdir(queue, { withFileTypes: true }); }
+  catch { return; }
+  const pending = entries.filter(entry => entry.isFile() && entry.name.endsWith('.json'));
+  for (const entry of pending) await unlink(join(queue, entry.name));
 }
 
 async function writeInterventionLessons(brain: Brain, interventions: EpisodeIntervention[]): Promise<string[]> {

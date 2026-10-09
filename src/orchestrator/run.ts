@@ -1,6 +1,7 @@
 import { appendFile, mkdir, open, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { atomicWrite } from '../brain/store.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
@@ -57,20 +58,21 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
   };
   let composerClosed = false;
   const composerIterator = deps.composerMessages?.[Symbol.asyncIterator]();
-  let composerTask: Promise<void> | undefined;
+  let composerEmission: Promise<void> | undefined;
   const observeComposer = () => composerIterator ? (async () => {
     try {
       while (!composerClosed) {
         const next = await composerIterator.next();
         if (composerClosed || next.done) break;
         const avoidable = isAvoidableComposerMessage(next.value);
-        await emitEvidence({ type: 'intervention', by: 'user', action: 'composer-message', detail: next.value, avoidable, harnessGap: avoidable ? 'context' : 'unknown', at: at() });
+        composerEmission = emitEvidence({ type: 'intervention', by: 'user', action: 'composer-message', detail: next.value, avoidable, harnessGap: avoidable ? 'context' : 'unknown', at: at() });
+        await composerEmission;
       }
     } catch { /* A closing composer stream must not invalidate the run. */ }
   })() : undefined;
   const start: EduEvent = { type: 'run.start', runId, goal, mode: deps.config.mode, at: at() };
   await emit(start);
-  composerTask = observeComposer();
+  void observeComposer();
   let sessionId: string | undefined;
   let episodeClosed = false;
   let pack: ContextPack = { text: '', tokens: 0, budgetTokens: deps.config.context.budgetTokens, sections: [], deferred: [] };
@@ -169,8 +171,17 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       const batch = first.parallelSafe && firstReadonly
         ? ready.filter(step => step.parallelSafe && deps.config.roles.find(role => role.id === step.role)?.autonomy === 'readonly').slice(0, 3)
         : [first];
-      const outcomes = await Promise.all(batch.map(step => executeStep(step)));
-      for (const outcome of outcomes) {
+      const batchController = new AbortController();
+      const batchSignal = deps.signal ? AbortSignal.any([deps.signal, batchController.signal]) : batchController.signal;
+      const settled = await Promise.allSettled(batch.map(step => executeStep(step, batchSignal).catch(error => {
+        batchController.abort();
+        throw error;
+      })));
+      const failed = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+      if (failed) throw failed.reason;
+      for (const result of settled) {
+        if (result.status !== 'fulfilled') continue;
+        const outcome = result.value;
         pending.delete(outcome.id);
         steps.push(outcome);
         if (!outcome.ok) throw new Error(`Step '${outcome.id}' failed: ${outcome.summary}`);
@@ -253,7 +264,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     return await finish(false);
   }
 
-  async function executeStep(step: { id: string; role: string; task: string; dependsOn: string[] }): Promise<StepResult> {
+  async function executeStep(step: { id: string; role: string; task: string; dependsOn: string[] }, signal?: AbortSignal): Promise<StepResult> {
     const role = deps.config.roles.find(candidate => candidate.id === step.role);
     const cli = assignCli(step.role, deps.config, deps.available);
     const agentId = `${runId}-${step.id}`;
@@ -261,7 +272,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     const prompt = step.role === 'builder'
       ? builderPrompt(step.task, goal, supportContext(), workflowEvidence, harnessLevel)
       : `${step.task}\n\nGoal: ${goal}\n\nContext:\n${supportContext()}\n\nDependencies:\n${dependencyContext}`;
-    const response = await runText(deps, emit, cli, agentId, step.role, prompt, role?.autonomy ?? 'readonly', supportContext());
+    const response = await runText(deps, emit, cli, agentId, step.role, prompt, role?.autonomy ?? 'readonly', supportContext(), signal);
     return { id: step.id, ok: true, summary: response.summary || response.text };
   }
   async function closeEpisode(id: string | undefined, text: string) {
@@ -269,10 +280,12 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     await deps.brain.closeSession(id, text);
     episodeClosed = true;
     await emit({ type: 'brain.learn', noteId: id, kind: 'episode', title: `Run: ${goal}`, at: at() });
+    await atomicWrite(join(dirname(deps.runsDir), 'reflect-queue', `${runId}.json`), `${JSON.stringify({ runId, sessionId: id, queuedAt: at() }, null, 2)}\n`);
   }
   async function finish(success: boolean): Promise<RunResult> {
     composerClosed = true;
-    void composerIterator?.return?.();
+    try { void Promise.resolve(composerIterator?.return?.()).catch(() => {}); } catch { /* Iterator cleanup is best-effort and must not block the run. */ }
+    await composerEmission?.catch(() => {});
     let entropyUnsafe = false;
     if (startCommit) {
       try {
@@ -377,11 +390,11 @@ function parseJson(value: string): unknown {
   catch (error) { throw new Error(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
-async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise<void>, cli: CliId, agentId: string, roleId: RoleId, prompt: string, autonomy: EngineRunRequest['autonomy'], context: string): Promise<{ text: string; summary: string; sessionId?: string }> {
+async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise<void>, cli: CliId, agentId: string, roleId: RoleId, prompt: string, autonomy: EngineRunRequest['autonomy'], context: string, signal: AbortSignal | undefined = deps.signal): Promise<{ text: string; summary: string; sessionId?: string }> {
   const role = deps.config.roles.find(candidate => candidate.id === roleId);
   await emit({ type: 'agent.spawn', agentId, role: roleId, cli, task: prompt.slice(0, 160), at: (deps.now?.() ?? new Date()).toISOString() });
   await emit({ type: 'agent.status', agentId, status: 'running', at: (deps.now?.() ?? new Date()).toISOString() });
-  const request: EngineRunRequest = { cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, ...(role?.mission ? { systemPrompt: role.mission } : {}), ...(role?.model ? { model: role.model } : {}), signal: deps.signal };
+  const request: EngineRunRequest = { cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, ...(role?.mission ? { systemPrompt: role.mission } : {}), ...(role?.model ? { model: role.model } : {}), signal };
   let text = ''; let summary = ''; let sessionId: string | undefined;
   try {
     for await (const event of deps.engines(cli).run(request, agentId)) {
@@ -389,14 +402,14 @@ async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise
       if (stamped.type === 'agent.text') text += stamped.text;
       if (stamped.type === 'agent.end') { summary = stamped.summary; sessionId = stamped.sessionId; }
       await emit(stamped);
-      if (deps.signal?.aborted) throw new Error('Run cancelled.');
+      if (signal?.aborted) throw new Error('Run cancelled.');
       if (stamped.type === 'error') throw new Error(`Engine reported an error: ${stamped.message}`);
       if (stamped.type === 'agent.end' && !stamped.ok) throw new Error(`Engine run failed: ${stamped.summary}`);
     }
-    if (deps.signal?.aborted) throw new Error('Run cancelled.');
+    if (signal?.aborted) throw new Error('Run cancelled.');
     return { text, summary, ...(sessionId ? { sessionId } : {}) };
   } catch (error) {
-    await emit({ type: 'agent.status', agentId, status: deps.signal?.aborted ? 'cancelled' : 'failed', at: (deps.now?.() ?? new Date()).toISOString() });
+    await emit({ type: 'agent.status', agentId, status: signal?.aborted ? 'cancelled' : 'failed', at: (deps.now?.() ?? new Date()).toISOString() });
     throw error;
   }
 }

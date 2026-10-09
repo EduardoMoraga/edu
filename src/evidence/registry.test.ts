@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadChecks, saveChecks, runCheck } from './registry.js';
+import { checkSpawnOptions, loadChecks, saveChecks, runCheck } from './registry.js';
 
 const roots: string[] = [];
 async function tempRoot() {
@@ -13,12 +13,17 @@ async function tempRoot() {
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 describe('evidence registry', () => {
+  it('uses the platform shell without creating Windows process groups', () => {
+    expect(checkSpawnOptions('win32')).toEqual({ shell: true, detached: false });
+    expect(checkSpawnOptions('darwin')).toEqual({ shell: true, detached: true });
+  });
   it('round-trips validated checks in .edu/harness/checks.json', async () => {
     const root = await tempRoot();
     const checks = [{ id: 'unit', requirementIds: ['req-1'], command: 'printf green', expect: { exitCode: 0, stdoutIncludes: 'green' }, timeoutMs: 1000 }];
     await saveChecks(root, checks);
     expect(JSON.parse(await readFile(join(root, '.edu/harness/checks.json'), 'utf8'))).toEqual(checks);
     expect(await loadChecks(root)).toEqual(checks);
+    await expect(readdir(join(root, '.edu/harness'))).resolves.toEqual(['checks.json']);
   });
 
   it('records passing and failing command results', async () => {

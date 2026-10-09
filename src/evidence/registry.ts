@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { z } from 'zod';
 import type { DeterministicCheck } from '../core/contracts.js';
+import { atomicWrite } from '../brain/store.js';
 
 export const ToolSchema = z.object({
   id: z.string().min(1),
@@ -60,8 +61,7 @@ async function readRegistry<T>(path: string, schema: z.ZodType<T>, fallback: T):
 
 async function writeRegistry<T>(path: string, schema: z.ZodType<T>, value: T): Promise<void> {
   const validated = schema.parse(value);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(validated, null, 2)}\n`, 'utf8');
+  await atomicWrite(path, `${JSON.stringify(validated, null, 2)}\n`);
 }
 
 /** Executes a trusted, project-configured check through the platform shell. */
@@ -72,7 +72,7 @@ export async function runCheck(check: DeterministicCheck, cwd: string, signal?: 
       resolve({ checkId: check.id, ok: false, exitCode: null, durationMs: 0, timedOut: false, output: 'aborted', stdout: '', stderr: '' });
       return;
     }
-    const child = spawn('sh', ['-c', check.command], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(check.command, { cwd, ...checkSpawnOptions(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let output = '';
     let stdout = '';
     let stderr = '';
@@ -84,7 +84,11 @@ export async function runCheck(check: DeterministicCheck, cwd: string, signal?: 
       forceKill.unref();
     }, check.timeoutMs);
     timer.unref();
-    const onAbort = () => killProcessGroup(child.pid, 'SIGTERM');
+    const onAbort = () => {
+      killProcessGroup(child.pid, 'SIGTERM');
+      const forceKill = setTimeout(() => killProcessGroup(child.pid, 'SIGKILL'), 250);
+      forceKill.unref();
+    };
     signal?.addEventListener('abort', onAbort, { once: true });
     child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); output += chunk.toString(); });
     child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); output += chunk.toString(); });
@@ -107,8 +111,21 @@ export async function runCheck(check: DeterministicCheck, cwd: string, signal?: 
   });
 }
 
+export function checkSpawnOptions(platform: NodeJS.Platform = process.platform) {
+  return { shell: true, detached: platform !== 'win32' } as const;
+}
+
 function killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): void {
   if (pid === undefined) return;
+  if (process.platform === 'win32') {
+    if (signal === 'SIGKILL') {
+      const killer = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
+      killer.unref();
+    } else {
+      try { process.kill(pid, signal); } catch { /* The process may have already exited. */ }
+    }
+    return;
+  }
   try { process.kill(-pid, signal); }
   catch { /* The process may have already exited or the platform may not support groups. */ }
 }

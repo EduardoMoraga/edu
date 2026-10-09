@@ -64,7 +64,115 @@ describe('installer', () => {
     await expect(uninstall({ manifestPath: join(opts.root, '.edu/manifest.json') })).rejects.toThrow(/drift/i);
     expect(await readFile(join(opts.root, 'CLAUDE.md'), 'utf8')).toBe('changed');
     await uninstall({ manifestPath: join(opts.root, '.edu/manifest.json'), force: true });
-    await expect(readFile(join(opts.root, 'CLAUDE.md'))).rejects.toThrow();
+    expect(await readFile(join(opts.root, 'CLAUDE.md'), 'utf8')).toBe('changed');
+  });
+
+  it('force-uninstalls only Edu-managed regions and preserves later user edits', async () => {
+    const opts = await fixture();
+    const target = join(opts.root, 'CLAUDE.md');
+    await writeFile(target, '# User start\n');
+    const manifestPath = join(opts.root, '.edu/manifest.json');
+    await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['claude'] }));
+    await writeFile(target, `${await readFile(target, 'utf8')}\n# Added later by user\n`);
+    await uninstall({ manifestPath, force: true });
+    const finalText = await readFile(target, 'utf8');
+    expect(finalText).toContain('# User start');
+    expect(finalText).toContain('# Added later by user');
+    expect(finalText).not.toContain('<!-- edu:core:start -->');
+  });
+
+  it('force-uninstalls Edu JSON entries without restoring a stale whole-file backup', async () => {
+    const opts = await fixture();
+    const settings = join(opts.root, '.claude/settings.json');
+    await mkdir(join(opts.root, '.claude'), { recursive: true });
+    await writeFile(settings, '{"hooks":{"SessionStart":[{"matcher":"user"}]}}\n');
+    const manifestPath = join(opts.root, '.edu/manifest.json');
+    await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['claude'] }));
+    const current = JSON.parse(await readFile(settings, 'utf8')) as Record<string, unknown>;
+    current.custom = { preserved: true };
+    await writeFile(settings, `${JSON.stringify(current)}\n`);
+    await uninstall({ manifestPath, force: true });
+    const final = JSON.parse(await readFile(settings, 'utf8')) as { hooks: { SessionStart: unknown[] }; custom: { preserved: boolean } };
+    expect(final.custom).toEqual({ preserved: true });
+    expect(final.hooks.SessionStart).toEqual([{ matcher: 'user' }]);
+  });
+
+  it('keeps an empty JSON inverse when force removal finds deleted preinstall keys', async () => {
+    const opts = await fixture();
+    const settings = join(opts.root, '.claude/settings.json');
+    await mkdir(join(opts.root, '.claude'), { recursive: true });
+    await writeFile(settings, '{"hooks":{"SessionStart":[{"matcher":"user"}]}}\n');
+    const manifestPath = join(opts.root, '.edu/manifest.json');
+    const manifest = await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['claude'] }));
+    const action = manifest.actions.find(item => item.path === settings)! as typeof manifest.actions[number] & { jsonPatch?: Record<string, unknown> };
+    expect(action.jsonPatch).toBeDefined();
+    await writeFile(settings, `${JSON.stringify(action.jsonPatch)}\n`);
+    await uninstall({ manifestPath, force: true });
+    expect(JSON.parse(await readFile(settings, 'utf8'))).toEqual({});
+  });
+
+  it('keeps an empty shared JSON inverse after the final owner is force-uninstalled', async () => {
+    const opts = await fixture();
+    const target = join(opts.home, '.pi/agent/mcp.json');
+    await mkdir(join(opts.home, '.pi/agent'), { recursive: true });
+    await writeFile(target, '{"mcpServers":{"user":{"command":"user"}}}\n');
+    const projectManifest = join(opts.root, '.edu/manifest.json');
+    const globalManifest = join(opts.home, '.edu/manifest.json');
+    await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['pi'] }));
+    const global = await applyInstall(await planInstall({ ...opts, scope: 'global', clis: ['pi'] }));
+    const action = global.actions.find(item => item.path === target)! as typeof global.actions[number] & { jsonPatch?: Record<string, unknown> };
+    expect(action.jsonPatch).toBeDefined();
+    await writeFile(target, `${JSON.stringify(action.jsonPatch)}\n`);
+    await uninstall({ manifestPath: projectManifest, force: true });
+    await uninstall({ manifestPath: globalManifest, force: true });
+    expect(JSON.parse(await readFile(target, 'utf8'))).toEqual({});
+  });
+
+  it('keeps an empty shared TOML inverse after the final owner is force-uninstalled', async () => {
+    const opts = await fixture();
+    const target = join(opts.home, '.codex/config.toml');
+    await mkdir(join(opts.home, '.codex'), { recursive: true });
+    await writeFile(target, '[mcp_servers.user]\ncommand = "user"\n');
+    const projectManifest = join(opts.root, '.edu/manifest.json');
+    const globalManifest = join(opts.home, '.edu/manifest.json');
+    await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['codex'] }));
+    await applyInstall(await planInstall({ ...opts, scope: 'global', clis: ['codex'] }));
+    const installed = await readFile(target, 'utf8');
+    const edu = installed.match(/# edu:top:start[\s\S]*?# edu:top:end\n?|# edu:start[\s\S]*?# edu:end\n?/)?.[0];
+    expect(edu).toBeDefined();
+    await writeFile(target, edu!);
+    await uninstall({ manifestPath: projectManifest, force: true });
+    await uninstall({ manifestPath: globalManifest, force: true });
+    expect(await readFile(target, 'utf8')).toBe('');
+  });
+
+  it('preserves an empty managed-block inverse for a preexisting whitespace-only file', async () => {
+    const opts = await fixture();
+    const target = join(opts.root, 'CLAUDE.md');
+    await writeFile(target, '  \n');
+    const manifestPath = join(opts.root, '.edu/manifest.json');
+    await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['claude'] }));
+    const installed = await readFile(target, 'utf8');
+    const block = installed.match(/<!-- edu:core:start -->[\s\S]*?<!-- edu:core:end -->/)?.[0];
+    expect(block).toBeDefined();
+    await writeFile(target, `${block}\n`);
+    await uninstall({ manifestPath, force: true });
+    await expect(readFile(target, 'utf8')).resolves.toBe('');
+  });
+
+  it('refuses destructive force-uninstall for a legacy JSON action without ownership metadata', async () => {
+    const opts = await fixture();
+    const target = join(opts.root, 'settings.json');
+    const manifestPath = join(opts.root, '.edu/manifest.json');
+    const backupPath = join(opts.root, '.edu/backups/settings.json');
+    const current = '{"mcpServers":{"edu":{"command":"edu"}},"addedByUser":true}\n';
+    await mkdir(join(opts.root, '.edu/backups'), { recursive: true });
+    await writeFile(target, current);
+    await writeFile(backupPath, '{"beforeInstall":true}\n');
+    await writeFile(manifestPath, JSON.stringify({ version: 1, eduVersion: '0.1.0', installedAt: new Date().toISOString(), scope: 'project', actions: [{ cli: 'claude', kind: 'json-merge', path: target, description: 'legacy action', sha256: 'old-hash', backup: backupPath }] }));
+    await expect(uninstall({ manifestPath, force: true })).rejects.toThrow(/legacy.*json|ownership/i);
+    expect(await readFile(target, 'utf8')).toBe(current);
+    await expect(readFile(manifestPath, 'utf8')).resolves.toBeTruthy();
   });
 
   it('uses injectable HOME for global paths and reports integration health', async () => {

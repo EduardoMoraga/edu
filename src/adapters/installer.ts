@@ -11,9 +11,11 @@ import { createPiIntegration } from './pi.js';
 import { createOpenCodeIntegration } from './opencode.js';
 import { createAgyIntegration } from './agy.js';
 import { ensureParents, materialize, readTarget, sha256 } from './operations.js';
+import { removeManagedBlock } from './blocks.js';
+import { unmergeJson, unmergeToml } from './merge.js';
 import { CLI_IDS, type InstallPlan, type PlannedAction } from './types.js';
 
-interface StoredAction extends InstallAction { clis?: CliId[]; shared?: boolean }
+interface StoredAction extends InstallAction { clis?: CliId[]; shared?: boolean; jsonPatch?: Record<string, unknown>; tomlBody?: string }
 interface StoredManifest extends InstallManifest { actions: StoredAction[]; createdDirs?: string[]; home?: string }
 interface SharedTarget { sha256: string; owners: string[]; backup?: string }
 interface SharedRegistry { version: 1; targets: Record<string, SharedTarget>; createdDirs: string[] }
@@ -128,7 +130,7 @@ async function loadManifest(path: string): Promise<StoredManifest | undefined> {
 }
 
 function publicAction(action: PlannedAction, hash: string, backup?: string, shared = false): StoredAction {
-  return { cli: action.cli, clis: action.clis ?? [action.cli], kind: action.kind, path: action.path, description: action.description, sha256: hash, ...(backup ? { backup } : {}), ...(shared ? { shared: true } : {}) };
+  return { cli: action.cli, clis: action.clis ?? [action.cli], kind: action.kind, path: action.path, description: action.description, sha256: hash, ...(backup ? { backup } : {}), ...(shared ? { shared: true } : {}), ...(action.jsonPatch ? { jsonPatch: action.jsonPatch } : {}), ...(action.tomlBody ? { tomlBody: action.tomlBody } : {}) };
 }
 
 export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> {
@@ -245,6 +247,15 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
 export async function uninstall(options: { manifestPath: string; force?: boolean }): Promise<void> {
   const manifest = await loadManifest(options.manifestPath);
   if (!manifest) throw new Error(`Edu manifest not found: ${options.manifestPath}`);
+  if (options.force) {
+    for (const action of manifest.actions) {
+      if (action.kind !== 'json-merge' || action.jsonPatch) continue;
+      const current = await readTarget(action.path);
+      if (!current || !action.sha256 || sha256(current) !== action.sha256) {
+        throw new Error(`Cannot safely force-uninstall legacy JSON merge without ownership metadata: ${action.path}`);
+      }
+    }
+  }
   const shared = manifest.home ? await loadSharedRegistry(manifest.home) : undefined;
   for (const action of manifest.actions.filter(action => action.shared)) {
     if (!shared?.targets[action.path]?.owners.includes(options.manifestPath)) {
@@ -264,7 +275,27 @@ export async function uninstall(options: { manifestPath: string; force?: boolean
       const target = shared!.targets[action.path]!;
       target.owners = target.owners.filter(owner => owner !== options.manifestPath);
       if (!target.owners.length) {
-        if (target.backup) {
+        const current = await readTarget(action.path);
+        if (current && action.kind === 'json-merge' && action.jsonPatch) {
+          const remaining = unmergeJson(current.toString('utf8'), action.jsonPatch);
+          if (!options.force && target.backup) await writeFile(action.path, await readFile(target.backup));
+          else if (options.force && target.backup) await writeFile(action.path, remaining);
+          else if (isEmptyJson(remaining)) await unlink(action.path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+          else await writeFile(action.path, remaining);
+          if (!options.force && target.backup) sharedBackups.push(target.backup);
+        } else if (current && action.kind === 'toml-merge') {
+          const remaining = unmergeToml(current.toString('utf8'));
+          if (!options.force && target.backup) await writeFile(action.path, await readFile(target.backup));
+          else if (options.force && target.backup) await writeFile(action.path, remaining);
+          else if (!remaining.trim()) await unlink(action.path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+          else await writeFile(action.path, remaining);
+          if (!options.force && target.backup) sharedBackups.push(target.backup);
+        } else if (current && action.kind === 'managed-block') {
+          const remaining = removeManagedBlock(current.toString('utf8'));
+          if (options.force && target.backup) await writeFile(action.path, remaining);
+          else if (!remaining.trim()) await unlink(action.path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+          else await writeFile(action.path, remaining);
+        } else if (target.backup) {
           await writeFile(action.path, await readFile(target.backup));
           sharedBackups.push(target.backup);
         } else {
@@ -277,7 +308,25 @@ export async function uninstall(options: { manifestPath: string; force?: boolean
       sharedChanged = true;
       continue;
     }
-    if (action.backup) {
+    const current = await readTarget(action.path);
+    if (!options.force && action.backup) {
+      await writeFile(action.path, await readFile(action.backup));
+    } else if (action.kind === 'managed-block' && current) {
+      const remaining = removeManagedBlock(current.toString('utf8'));
+      if (!remaining.trim() && options.force && action.backup) await writeFile(action.path, remaining);
+      else if (!remaining.trim()) await unlink(action.path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+      else await writeFile(action.path, remaining);
+    } else if (action.kind === 'json-merge' && current && action.jsonPatch) {
+      const remaining = unmergeJson(current.toString('utf8'), action.jsonPatch);
+      if (options.force && action.backup) await writeFile(action.path, remaining);
+      else if (isEmptyJson(remaining)) await unlink(action.path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+      else await writeFile(action.path, remaining);
+    } else if (action.kind === 'toml-merge' && current) {
+      const remaining = unmergeToml(current.toString('utf8'));
+      if (options.force && action.backup) await writeFile(action.path, remaining);
+      else if (!remaining.trim()) await unlink(action.path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+      else await writeFile(action.path, remaining);
+    } else if (action.backup) {
       const original = await readFile(action.backup);
       await writeFile(action.path, original);
     } else {
@@ -304,4 +353,9 @@ export async function uninstall(options: { manifestPath: string; force?: boolean
       });
     }
   }
+}
+
+function isEmptyJson(value: string): boolean {
+  try { return Object.keys(JSON.parse(value) as Record<string, unknown>).length === 0; }
+  catch { return false; }
 }

@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { INDEX_DIR, TRANSITIVE_PREFIX, TIER_DIRS, type BrainLocation, type Note, type NoteMeta, type TransitiveKind } from '../core/contracts.js';
 import { parseMarkdown, serializeMarkdown } from './frontmatter.js';
@@ -15,14 +15,26 @@ export function createId(meta: Pick<NoteMeta, 'tier' | 'kind' | 'title'>, date =
 }
 
 export function notePath(root: string, meta: NoteMeta, now = new Date()): string {
-  if (meta.tier === 'canonical') return join(root, 'brain', TIER_DIRS.canonical, String(meta.kind ?? 'domain'), `${slugify(meta.title)}.md`);
-  if (meta.tier === 'episodic') {
+  let path: string;
+  if (meta.tier === 'canonical') {
+    const canonicalKinds = ['identity', 'standard', 'lexicon', 'domain', 'person', 'preference'];
+    if (meta.kind && !canonicalKinds.includes(meta.kind)) throw new Error(`Invalid canonical kind: ${meta.kind}`);
+    path = join(root, 'brain', TIER_DIRS.canonical, slugify(String(meta.kind ?? 'domain')), `${slugify(meta.title)}.md`);
+  }
+  else if (meta.tier === 'episodic') {
     const stamp = `${now.toISOString().slice(0, 10)}_${now.toISOString().slice(11, 16).replace(':', '')}`;
     const suffix = /-([a-f0-9]{8})$/.exec(meta.id)?.[1];
-    return join(root, 'brain', TIER_DIRS.episodic, `${stamp}_${slugify(meta.title)}${suffix ? `-${suffix}` : ''}.md`);
+    path = join(root, 'brain', TIER_DIRS.episodic, `${stamp}_${slugify(meta.title)}${suffix ? `-${suffix}` : ''}.md`);
+  } else {
+    const prefix = TRANSITIVE_PREFIX[meta.kind as TransitiveKind];
+    if (!prefix) throw new Error(`Invalid transitive kind: ${String(meta.kind)}`);
+    path = join(root, 'brain', TIER_DIRS.transitive, `${prefix}${slugify(meta.title)}.md`);
   }
-  const prefix = TRANSITIVE_PREFIX[(meta.kind as TransitiveKind) ?? 'lesson'];
-  return join(root, 'brain', TIER_DIRS.transitive, `${prefix}${slugify(meta.title)}.md`);
+  const base = resolve(root);
+  const resolved = resolve(path);
+  const rel = relative(base, resolved);
+  if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) throw new Error('Brain note path escapes the brain root');
+  return resolved;
 }
 
 export async function atomicWrite(path: string, content: string): Promise<void> {

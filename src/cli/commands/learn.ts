@@ -57,6 +57,11 @@ export function registerLearn(program: Command, ctx: CliContext): void {
     .action(
       action<{ since?: string; json?: boolean }>(ctx, async ({ g, opts }) => {
         const ws = await openWorkspace(ctx, g.cwd);
+        const episodes = await ws.brain.list({ tier: 'episodic', kind: 'session', status: 'closed' });
+        if (!episodes.length) {
+          if (g.json || opts.json) return printJson(ctx, { lessons: [], hypotheses: [], feedback: [], skillProposals: [], canonicalProposals: [], episodesRead: 0, message: 'Nothing to reflect yet.' });
+          return ctx.out('Nothing to reflect yet.');
+        }
         const available = await ctx.detectClis();
         if (!available.length) throw new Error(t(g.lang, 'reflect.noCli'));
         const config = await effectiveConfig(ws.primary.root, available);
@@ -64,6 +69,7 @@ export function registerLearn(program: Command, ctx: CliContext): void {
         const [{ reflect }, { createEngine }] = await Promise.all([import('../../reflect/index.js'), import('../../engine/index.js')]);
         const report = await reflect({ brain: ws.brain, engine: createEngine(cli), since: opts.since ?? '7d', brainRoot: ws.primary.root });
         if (g.json || opts.json) return printJson(ctx, report);
+        if (report.message) return ctx.out(report.message);
         ctx.out(t(g.lang, 'reflect.done', {
           episodes: report.episodesRead,
           lessons: report.lessons.length,

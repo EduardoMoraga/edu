@@ -228,5 +228,6 @@ describe('process and fake engine', () => {
     expect(events[0]?.type).toBe('run.start');
     expect(events.at(-1)?.type).toBe('run.end');
     expect(events.findIndex((event) => event.type === 'tool.call')).toBeLessThan(events.findIndex((event) => event.type === 'tool.result'));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'agent.end', agentId: 'lead-1', ok: true }));
   });
 });
