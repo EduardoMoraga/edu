@@ -22,12 +22,12 @@ Work-unit commits per integrated wave.
 | E2 | Engines: 5 CLI adapters, stream normalization, FakeEngine, fixtures | delegated (mora → codex) | backend | ✅ |
 | E3 | Identity + TUI (Ink) against EduEvent, demo/replay | delegated (mora → claude) | frontend | ✅ |
 | E4 | Tooling: CI (macOS+Linux), smoke-install script, packaging | delegated (mora → pi) | dev | ✅ |
-| E5 | Context budget + MCP server | delegated (mora → codex) | backend | 🔄 |
-| E6 | CLI integrations installer/uninstaller + hooks | delegated (mora → codex) | backend | 🔄 |
-| E7 | Orchestrator (solo/crew, approvals) + reflect | delegated (mora → codex) | backend | 🔄 |
-| E8 | CLI commands wiring + README/docs | delegated (mora → claude) | frontend | ☐ |
-| E9 | Audit: cross review (agy) + independent verification (pi); fix round | delegated | helper, dev | ☐ |
-| E11 | Evidence layer (episode packages, H3 workflow, ladder H0–H3, AVSR/M-HIR metrics) per arXiv:2605.13357 | delegated (mora → codex) | backend | ☐ |
+| E5 | Context budget + MCP server | delegated (mora → codex) | backend | ✅ |
+| E6 | CLI integrations installer/uninstaller + hooks | delegated (mora → codex) | backend | ✅ |
+| E7 | Orchestrator (solo/crew, approvals) + reflect | delegated (mora → codex) | backend | ✅ |
+| E8 | CLI commands wiring + README/docs | delegated (mora → claude) | frontend | ✅ |
+| E9 | Audit: cross review (agy) + independent verification (pi); fix round | delegated | helper, dev | ✅ |
+| E11 | Evidence layer (episode packages, H3 workflow, ladder H0–H3, AVSR/M-HIR metrics) per arXiv:2605.13357 | delegated (mora → codex) | backend | ✅ |
 | E10 | Publish: GitHub repo, push, tag v0.1.0 | inline | lead | ☐ |
 
 Waves: W1 = E1, E2, E3, E4 (parallel, disjoint paths) · W2 = E5, E6, E7, E8 · W2b = E11 (after E7) · W3 = E8, E9 · W4 = E10.
@@ -44,5 +44,11 @@ See `docs/ARCHITECTURE.md` §14.
   e15d0b9, 676d9f3; contract change 8e8627e (context.usage event, usage = delta) per frontend request.
 - W2 dispatched: T-0008 (E5), T-0009 (E6), T-0010 (E7), all Codex in parallel on disjoint paths.
 
+- W2: context+MCP, adapters, orchestrator+reflect (216 tests). Lead added Brain.recordUse.
+- E11 evidence layer + E8 CLI/README + E12 integration (328 tests). Lead fixed TOML top-level key scoping.
+- E9 audits: agy verdict ship-with-fixes (8 findings); pi 6/8 black-box. E13 fix round: 7 fixed, 2 refuted
+  with evidence (audit/fixes.md). Lead added tolerant frontmatter: real Albert vault imports 40/40, 0 errors.
+- Final: 348 tests passed (1 env-gated skip), typecheck clean, build ok, smoke install ok.
+
 ## Next step
-Integrate W2, then E8 (CLI wiring + README) and audits.
+E10 publish: public repo EduardoMoraga/edu, push, tag v0.1.0, verify install from GitHub.
