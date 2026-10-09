@@ -1,0 +1,11 @@
+{"type":"session","version":3,"id":"pi-demo-session","timestamp":"2026-10-08T12:00:00.000Z","cwd":"/synthetic/workspace"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_update","usage":{"input":120,"output":30,"cacheRead":15,"cacheWrite":4,"totalTokens":169,"cost":{"input":0.001,"output":0.0002,"cacheRead":0,"cacheWrite":0,"total":0.0012}},"assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"I should inspect the input first."}}
+{"type":"message_update","usage":{"input":120,"output":30,"cacheRead":15,"cacheWrite":4,"totalTokens":169,"cost":{"input":0.001,"output":0.0002,"cacheRead":0,"cacheWrite":0,"total":0.0012}},"assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"I will inspect the input."}}
+{"type":"tool_execution_start","toolCallId":"tool-pi-1","toolName":"read","args":{"path":"src/example.ts"}}
+{"type":"tool_execution_end","toolCallId":"tool-pi-1","toolName":"read","result":{"content":[{"type":"text","text":"export const answer = 42;"}],"details":{}},"isError":false}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"I should inspect the input first."},{"type":"text","text":"I will inspect the input."}],"usage":{"input":120,"output":30,"cacheRead":15,"cacheWrite":4,"totalTokens":169,"cost":{"input":0.001,"output":0.0002,"cacheRead":0,"cacheWrite":0,"total":0.0012}}}}
+{"type":"turn_end","message":{"role":"assistant","content":[]},"toolResults":[]}
+{"type":"agent_end","messages":[],"willRetry":false}
+{"type":"agent_settled","aborted":false}

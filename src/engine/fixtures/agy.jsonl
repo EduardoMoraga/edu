@@ -1,0 +1,5 @@
+{"event":"init","conversation_id":"agy-demo-session","init":{"cwd":"/synthetic/workspace","tools":["run_command"],"permission_mode":"request-review"}}
+{"event":"step_update","step_update":{"conversation_id":"agy-demo-session","step_index":0,"state":"DONE","step_type":"user_input"}}
+{"event":"step_update","step_update":{"conversation_id":"agy-demo-session","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"I will inspect the input."}}
+{"event":"step_update","step_update":{"conversation_id":"agy-demo-session","step_index":2,"state":"DONE","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"cat src/example.ts"},"output":"export const answer = 42;\r\n"}}}
+{"event":"result","result":{"conversation_id":"agy-demo-session","status":"SUCCESS","response":"I will inspect the input.\n","duration_seconds":1.2,"num_turns":1,"usage":{"input_tokens":120,"output_tokens":30,"thinking_tokens":6,"cache_read_tokens":15,"total_tokens":150}}}

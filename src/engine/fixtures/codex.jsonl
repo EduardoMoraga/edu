@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"codex-demo-session"}
+{"type":"item.completed","item":{"id":"reason-1","type":"reasoning","text":"I should inspect the input first."}}
+{"type":"item.completed","item":{"id":"msg-1","type":"agent_message","text":"I will inspect the input."}}
+{"type":"item.started","item":{"id":"tool-codex-1","type":"command_execution","command":"cat src/example.ts"}}
+{"type":"item.completed","item":{"id":"tool-codex-1","type":"command_execution","aggregated_output":"export const answer = 42;","status":"completed"}}
+{"type":"turn.completed","thread_id":"codex-demo-session","usage":{"input_tokens":120,"output_tokens":30,"cached_input_tokens":12,"cache_write_input_tokens":8}}

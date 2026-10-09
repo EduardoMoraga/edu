@@ -1,0 +1,4 @@
+{"type":"reasoning","timestamp":1791460800000,"sessionID":"opencode-demo-session","part":{"type":"reasoning","text":"I should inspect the input first."}}
+{"type":"text","timestamp":1791460800100,"sessionID":"opencode-demo-session","part":{"type":"text","text":"I will inspect the input."}}
+{"type":"tool_use","timestamp":1791460800200,"sessionID":"opencode-demo-session","part":{"type":"tool","callID":"tool-open-1","tool":"read","state":{"status":"completed","input":{"path":"src/example.ts"},"output":"export const answer = 42;"}}}
+{"type":"step_finish","timestamp":1791460800300,"sessionID":"opencode-demo-session","part":{"type":"step-finish","reason":"stop","cost":0.0012,"tokens":{"input":120,"output":30,"reasoning":6,"cache":{"read":15,"write":4}}}}
