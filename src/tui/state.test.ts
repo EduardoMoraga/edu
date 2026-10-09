@@ -47,6 +47,18 @@ describe('reduce: run lifecycle', () => {
     const s = reduceAll([crew[0]!, spawn('lead', 'lead', 30), spawn('late', 'builder', 10)]);
     expect(s.now).toBe(T0 + 30_000);
   });
+  it('retains the final evidence label and routes evidence into the focus log', () => {
+    const state = reduceAll([
+      spawn('builder', 'builder', 0),
+      { type: 'verify.result', checkId: 'C1', requirementIds: ['R1'], ok: false, output: 'assertion failed', kind: 'deterministic', at: at(1) },
+      { type: 'failure.attribution', observed: 'assertion failed', expected: 'success', failureType: 'verify', evidence: ['test'], alternatives: ['fixture'], next: 'inspect test', at: at(2) },
+      { type: 'intervention', by: 'user', action: 'corrected task', detail: 'clarified', avoidable: true, harnessGap: 'context', at: at(3) },
+      { type: 'outcome', label: 'assisted_verified_success', metrics: {}, at: at(4) },
+      { type: 'run.end', runId: 'r', ok: true, summary: 'done', at: at(5) },
+    ]);
+    expect(state.run.outcomeLabel).toBe('assisted_verified_success');
+    expect(state.agents.builder?.log.map(entry => entry.kind)).toEqual(['verify', 'attribution', 'intervention']);
+  });
 });
 
 describe('reduce: agents', () => {

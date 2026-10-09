@@ -87,26 +87,73 @@ export function unmergeJson(text: string, patch: JsonRecord): string {
 
 const TOML_START = '# edu:start';
 const TOML_END = '# edu:end';
+// Top-level keys (e.g. Codex `notify`) must precede every table header, otherwise TOML scopes
+// them to the preceding table. They live in their own managed block at the top of the file.
+const TOML_TOP_START = '# edu:top:start';
+const TOML_TOP_END = '# edu:top:end';
 
-function tomlBounds(text: string): [number, number] | undefined {
-  const start = text.indexOf(TOML_START);
-  const end = text.indexOf(TOML_END);
+function markerBounds(text: string, startMarker: string, endMarker: string): [number, number] | undefined {
+  const start = text.indexOf(startMarker);
+  const end = text.indexOf(endMarker);
   if ((start < 0) !== (end < 0)) throw new Error('Malformed Edu TOML section');
   if (start < 0) return undefined;
-  if (end < start || text.indexOf(TOML_START, start + TOML_START.length) >= 0 || text.indexOf(TOML_END, end + TOML_END.length) >= 0) throw new Error('Malformed Edu TOML section');
-  return [start, end + TOML_END.length];
+  if (end < start || text.indexOf(startMarker, start + startMarker.length) >= 0 || text.indexOf(endMarker, end + endMarker.length) >= 0) throw new Error('Malformed Edu TOML section');
+  return [start, end + endMarker.length];
+}
+
+const tomlBounds = (text: string) => markerBounds(text, TOML_START, TOML_END);
+const tomlTopBounds = (text: string) => markerBounds(text, TOML_TOP_START, TOML_TOP_END);
+
+/** Splits a TOML body into the keys before the first table header and the rest. */
+function splitTopLevel(body: string): { top: string; tables: string } {
+  const lines = body.trim().split(/\r?\n/);
+  const firstTable = lines.findIndex(line => /^\s*\[/.test(line));
+  const cut = firstTable < 0 ? lines.length : firstTable;
+  return { top: lines.slice(0, cut).join('\n').trim(), tables: lines.slice(cut).join('\n').trim() };
+}
+
+function removeTopSection(text: string): string {
+  const span = tomlTopBounds(text);
+  if (!span) return text;
+  const [start, end] = span;
+  return text.slice(0, start) + text.slice(text[end] === '\n' ? end + 1 : end);
 }
 
 export function mergeToml(text: string, body: string): string {
-  const section = `${TOML_START}\n[mcp_servers.edu]\n${body.trim()}\n${TOML_END}`;
-  const span = tomlBounds(text);
-  if (span) return text.slice(0, span[0]) + section + text.slice(span[1]);
-  if (/^\s*\[mcp_servers\.edu\]\s*$/m.test(text)) throw new Error('Unmanaged Edu MCP TOML section already exists');
-  const separator = !text ? '' : '\n';
-  return `${text}${separator}${section}\n`;
+  const prior = unmergeToml(text);
+  let { top, tables } = splitTopLevel(body);
+  if (hasTopLevelTomlKey(prior, 'notify')) {
+    top = top.split(/\r?\n/).filter(line => !/^\s*notify\s*=/.test(line)).join('\n').trim();
+  }
+  let result = removeTopSection(text);
+  if (tables) {
+    const section = `${TOML_START}\n${tables}\n${TOML_END}`;
+    const span = tomlBounds(result);
+    if (span) result = result.slice(0, span[0]) + section + result.slice(span[1]);
+    else {
+      if (/^\s*\[mcp_servers\.edu\]\s*$/m.test(result)) throw new Error('Unmanaged Edu MCP TOML section already exists');
+      result = `${result}${result ? '\n' : ''}${section}\n`;
+    }
+  }
+  if (top) result = `${TOML_TOP_START}\n${top}\n${TOML_TOP_END}\n${result}`;
+  return result;
 }
 
-export function unmergeToml(text: string): string {
+/** Checks only TOML keys before the first table header (the true top-level scope). */
+export function hasTopLevelTomlKey(text: string, key: string): boolean {
+  const unmanaged = unmergeToml(text);
+  let topLevel = true;
+  for (const line of unmanaged.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (/^\[\[?.*\]\]?$/.test(trimmed)) { topLevel = false; continue; }
+    if (topLevel && new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=`).test(trimmed)) return true;
+  }
+  return false;
+}
+
+export function unmergeToml(input: string): string {
+  const text = removeTopSection(input);
   const span = tomlBounds(text);
   if (!span) return text;
   const [start, end] = span;

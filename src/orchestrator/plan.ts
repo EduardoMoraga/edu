@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CheckSchema } from '../evidence/registry.js';
-import type { HarnessLevel } from '../evidence/contracts.js';
+import type { HarnessLevel } from '../core/contracts.js';
 
 const RequirementSchema = z.object({ id: z.string().min(1), text: z.string().min(1) }).strict();
 export const PlanSchema = z.object({

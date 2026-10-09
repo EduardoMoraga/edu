@@ -2,8 +2,7 @@
  * Replay of persisted runs (`runs/<id>.jsonl`). Parsing is pure; timing lives
  * in a separate async iterator with an injectable sleep so it is testable.
  *
- * Runtime validation is structural. Locally owned evidence event extensions
- * are accepted here while their shared EduEvent contract additions are pending.
+ * Runtime validation is structural and covers the complete shared EduEvent contract.
  */
 import { readFile } from 'node:fs/promises';
 import type { EduEvent } from '../core/contracts.js';

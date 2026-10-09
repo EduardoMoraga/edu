@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { CliId, InstallManifest, InstallScope } from '../core/contracts.js';
 import { binaryOnPath } from './common.js';
 import { getManifestPath } from './installer.js';
+import { hasTopLevelTomlKey } from './merge.js';
 import { readTarget, sha256 } from './operations.js';
 import { CLI_IDS } from './types.js';
 
@@ -40,9 +41,12 @@ export async function diagnose(options: DiagnoseOptions): Promise<CliDiagnosis[]
   const manifests = await Promise.all((['project', 'global'] as const).map(async scope => ({
     scope, manifest: await readManifest(getManifestPath(scope, root, home)),
   })));
+  const codexConfig = await readTarget(join(home, '.codex/config.toml'));
+  const userOwnsCodexNotify = codexConfig !== undefined && hasTopLevelTomlKey(codexConfig.toString('utf8'), 'notify');
   const detect = options.detectBinary ?? binaryOnPath;
   return Promise.all(CLI_IDS.map(async cli => {
     const notes: string[] = cli === 'agy' ? ['agy MCP: manual step'] : [];
+    if (cli === 'codex' && userOwnsCodexNotify) notes.push('A user-owned top-level Codex notify command is preserved; Edu did not add its notify hook.');
     const scopes: InstallScope[] = [];
     let drift = false;
     for (const { scope, manifest } of manifests) {

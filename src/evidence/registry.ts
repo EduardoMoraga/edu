@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
-import type { DeterministicCheck } from './contracts.js';
+import type { DeterministicCheck } from '../core/contracts.js';
 
 export const ToolSchema = z.object({
   id: z.string().min(1),

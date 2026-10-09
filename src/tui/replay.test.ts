@@ -50,6 +50,13 @@ describe('parseRunJsonl', () => {
       { type: 'brain.learn', noteId: 'L-x', kind: 'lesson', title: 't', at },
       { type: 'agent.end', agentId: 'a', ok: true, summary: 's', at },
       { type: 'error', message: 'm', at },
+      { type: 'task.define', requirements: [{ id: 'R1', text: 'working' }], successCriteria: ['done'], at },
+      { type: 'context.trace', noteId: 'L-x', contribution: 'context', influenced: true, at },
+      { type: 'verify.result', checkId: 'C1', requirementIds: ['R1'], ok: true, output: 'passed', kind: 'deterministic', at },
+      { type: 'failure.attribution', observed: 'broken', expected: 'working', failureType: 'verify', evidence: ['test'], alternatives: ['input'], next: 'fix', at },
+      { type: 'intervention', by: 'user', action: 'approval', avoidable: false, harnessGap: 'unknown', at },
+      { type: 'entropy.finding', category: 'residue', severity: 1, path: 'src/x.ts', detail: 'temporary file', at },
+      { type: 'outcome', label: 'autonomous_verified_success', metrics: {}, at },
     ];
     expect(all.filter((e) => !isEduEvent(e))).toEqual([]);
     expect(eventProblem(null)).toBe('not an object');

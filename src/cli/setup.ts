@@ -3,7 +3,7 @@
  * EDU.md contract with the identity name, writes config.json and seeds the
  * brain with the bundled agent roles and skills (never overwriting).
  */
-import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openBrain } from '../brain/index.js';
 import type { BrainLocation, CliId } from '../core/contracts.js';
@@ -32,12 +32,6 @@ export async function initBrain(opts: InitOptions): Promise<InitReport> {
   const name = opts.name?.trim() || 'Edu';
   await mkdir(location.root, { recursive: true });
 
-  // Render the contract ourselves so the installed template is used (not the caller's cwd).
-  const eduMd = join(location.root, 'EDU.md');
-  if (!(await exists(eduMd))) {
-    const template = await readFile(join(templatesDir, 'EDU.md'), 'utf8');
-    await writeFile(eduMd, template.replaceAll('{{name}}', name), 'utf8');
-  }
   await openBrain([location]).init(location, { identityName: name });
 
   const { defaultConfig, saveConfig } = await import('../orchestrator/config.js');

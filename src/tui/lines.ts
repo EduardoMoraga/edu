@@ -80,6 +80,20 @@ export function logLines(entries: readonly LogEntry[], width: number, glyphs: Gl
           { text: truncate(entry.message, w - 2, glyphs.ellipsis), tone: 'danger' },
         ]);
         break;
+      case 'verify':
+        lines.push([
+          { text: `${entry.ok ? glyphs.ok : glyphs.fail} `, tone: entry.ok ? 'success' : 'danger', bold: true },
+          { text: `${entry.kindName}${entry.checkId ? ` ${entry.checkId}` : ''}: `, bold: true },
+          { text: truncate(entry.output.replace(/\s+/g, ' ').trim(), Math.max(4, w - 24), glyphs.ellipsis), dim: entry.ok },
+        ]);
+        break;
+      case 'attribution':
+        lines.push([{ text: `attribution [${entry.failureType}]: ${truncate(entry.observed.replace(/\s+/g, ' ').trim(), Math.max(4, w - 20), glyphs.ellipsis)}`, tone: 'danger' }]);
+        lines.push([{ text: `  next: ${truncate(entry.next.replace(/\s+/g, ' ').trim(), Math.max(4, w - 8), glyphs.ellipsis)}`, dim: true }]);
+        break;
+      case 'intervention':
+        lines.push([{ text: `intervention: ${entry.action}${entry.avoidable ? ` (avoidable; ${entry.harnessGap})` : ''}${entry.detail ? ` — ${entry.detail.replace(/\s+/g, ' ').trim()}` : ''}`, dim: !entry.avoidable }]);
+        break;
       case 'end':
         lines.push([]);
         lines.push([

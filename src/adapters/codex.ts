@@ -9,7 +9,7 @@ async function plan(scope: InstallScope, root: string, options: IntegrationOptio
   return [
     ...instructionActions('codex', scope, root, options),
     ...await skillActions('codex', scope, root, options),
-    { cli: 'codex', kind: 'toml-merge', path: paths.mcp!, description: 'Register Edu MCP server', tomlBody: 'command = "edu"\nargs = ["mcp"]' },
+    { cli: 'codex', kind: 'toml-merge', path: paths.mcp!, description: 'Register Edu MCP server and Codex notify hook', tomlBody: 'notify = ["edu", "hook", "codex-notify"]\n\n[mcp_servers.edu]\ncommand = "edu"\nargs = ["mcp"]' },
   ];
 }
 

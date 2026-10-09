@@ -20,6 +20,18 @@ describe('wrapText', () => {
 });
 
 describe('logLines', () => {
+  it('renders verification outcomes and attribution/intervention details', () => {
+    const lines = logLines([
+      { kind: 'verify', ok: true, kindName: 'deterministic', checkId: 'C1', output: 'passed' },
+      { kind: 'verify', ok: false, kindName: 'targeted-test', output: 'failed' },
+      { kind: 'attribution', observed: 'test failed', failureType: 'verify', next: 'inspect fixture' },
+      { kind: 'intervention', action: 'clarified', detail: 'provided a path', avoidable: true, harnessGap: 'context' },
+    ], 80, UNICODE_GLYPHS).map(plain);
+    expect(lines.join('\n')).toContain('✓ deterministic C1: passed');
+    expect(lines.join('\n')).toContain('✗ targeted-test: failed');
+    expect(lines.join('\n')).toContain('attribution [verify]: test failed');
+    expect(lines.join('\n')).toContain('intervention: clarified (avoidable; context)');
+  });
   it('collapses tool calls into a header and a one-line result', () => {
     const lines = logLines(
       [

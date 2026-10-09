@@ -11,6 +11,13 @@ async function temp() { const path = await mkdtemp(join(tmpdir(), 'edu-brain-'))
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
 describe('brain API', () => {
+  it('loads the bundled identity template and renders the requested name', async () => {
+    const root = await temp();
+    await openBrain([{ scope: 'project', root }]).init({ scope: 'project', root }, { identityName: 'Ada' });
+    const contract = await readFile(join(root, 'EDU.md'), 'utf8');
+    expect(contract.split('\n')[0]).toBe('# Ada — the contract');
+    expect(contract).not.toContain('{{name}}');
+  });
   it('atomically writes and reads notes, then records recall usage feedback', async () => {
     const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
     const note = await brain.write({ title: 'Keep contracts frozen', body: 'Stable contract', tier: 'transitive', kind: 'lesson' });

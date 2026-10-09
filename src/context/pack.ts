@@ -5,7 +5,7 @@ import { learnedWeight, rankNotes } from '../brain/index.js';
 import type { ContextPack, ContextRequest, ContextSection, Note } from '../core/contracts.js';
 import { estimateTokens, truncateToTokens } from './tokens.js';
 
-export interface ContextOptions { eduMdPath?: string; now?: Date }
+export interface ContextOptions { eduMdPath?: string; now?: Date; trackUsage?: boolean }
 
 function byNewest(a: Note, b: Note): number {
   return b.meta.created.localeCompare(a.meta.created) || a.meta.id.localeCompare(b.meta.id);
@@ -98,10 +98,10 @@ async function assembleContext(brain: Brain, req: ContextRequest, opts: ContextO
 }
 
 export async function buildContext(brain: Brain, req: ContextRequest, opts: ContextOptions = {}): Promise<ContextPack> {
-  return assembleContext(brain, req, opts, true);
+  return assembleContext(brain, req, opts, opts.trackUsage ?? true);
 }
 
 /** Internal read-only form used for deterministic session-start briefs. */
 export async function buildBriefContext(brain: Brain, budgetTokens: number, opts: ContextOptions): Promise<ContextPack> {
-  return assembleContext(brain, { budgetTokens }, opts, false);
+  return assembleContext(brain, { budgetTokens }, opts, opts.trackUsage ?? false);
 }

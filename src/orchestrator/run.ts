@@ -5,9 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import type { Brain } from '../brain/index.js';
-import type { ApprovalPolicy, CliId, ContextPack, EduConfig, EduEvent, Engine, EngineRunRequest, RoleId } from '../core/contracts.js';
-import type { EvidenceEvent, EvidenceOnlyEvent } from '../evidence/package.js';
-import type { HarnessLevel, OutcomeLabel } from '../evidence/contracts.js';
+import type { ApprovalPolicy, CliId, ContextPack, EduConfig, EduEvent, Engine, EngineRunRequest, HarnessLevel, OutcomeLabel, RoleId } from '../core/contracts.js';
 import { buildEpisodePackage } from '../evidence/package.js';
 import { loadChecks, loadTools, runCheck } from '../evidence/registry.js';
 import { auditGitDiff } from '../evidence/entropy.js';
@@ -19,13 +17,12 @@ export interface ApprovalRequest { agentId: string; stepId: string; title: strin
 export interface OrchestrateDeps {
   config: EduConfig; brain: Brain; context: ContextProvider; engines: (cli: CliId) => Engine;
   available: CliId[]; cwd: string; onEvent(event: EduEvent): void | Promise<void>;
-  onEvidenceEvent?(event: EvidenceOnlyEvent): void | Promise<void>;
   approve(request: ApprovalRequest): Promise<boolean>; signal?: AbortSignal; runsDir: string; now?: () => Date;
   harnessLevel?: HarnessLevel;
   composerMessages?: AsyncIterable<string>;
 }
 export interface StepResult { id: string; ok: boolean; summary: string; skipped?: boolean }
-export interface RunResult { runId: string; ok: boolean; summary: string; events: EduEvent[]; steps: StepResult[]; evidenceEvents?: EvidenceOnlyEvent[]; episodeDir?: string }
+export interface RunResult { runId: string; ok: boolean; summary: string; events: EduEvent[]; steps: StepResult[]; episodeDir?: string }
 const VerdictSchema = z.object({ verdict: z.enum(['pass', 'fix']), issues: z.array(z.string()) }).strict();
 const exec = promisify(execFile);
 const iso = (deps: OrchestrateDeps) => (deps.now?.() ?? new Date()).toISOString();
@@ -34,8 +31,8 @@ const iso = (deps: OrchestrateDeps) => (deps.now?.() ?? new Date()).toISOString(
 export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<RunResult> {
   const runId = randomUUID();
   const events: EduEvent[] = [];
-  const evidenceEvents: EvidenceOnlyEvent[] = [];
-  const allEvents: EvidenceEvent[] = [];
+  const evidenceEvents: EduEvent[] = [];
+  const allEvents: EduEvent[] = [];
   const harnessLevel = deps.harnessLevel ?? 'H3';
   const startCommit = await exec('git', ['rev-parse', 'HEAD'], { cwd: deps.cwd }).then(result => result.stdout.trim()).catch(() => undefined);
   const steps: StepResult[] = [];
@@ -51,11 +48,12 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     } finally { await file.close(); }
     await deps.onEvent(event);
   };
-  const emitEvidence = async (event: EvidenceOnlyEvent) => {
+  const emitEvidence = async (event: EduEvent) => {
     evidenceEvents.push(event);
+    events.push(event);
     allEvents.push(event);
     await appendFile(join(deps.runsDir, `${runId}.jsonl`), `${JSON.stringify(event)}\n`, 'utf8');
-    await deps.onEvidenceEvent?.(event);
+    await deps.onEvent(event);
   };
   let composerClosed = false;
   const composerIterator = deps.composerMessages?.[Symbol.asyncIterator]();
@@ -303,7 +301,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     const end: EduEvent = { type: 'run.end', runId, ok: success, summary, at: at() };
     await emit(end);
     const episodeDir = await buildEpisodePackage(dirname(deps.runsDir), runId, allEvents, { limitations: [...limitations, ...(success ? [] : [summary])] });
-    return { runId, ok: success, summary, events, steps, evidenceEvents, episodeDir };
+    return { runId, ok: success, summary, events, steps, episodeDir };
   }
 
   async function recordApprovalIntervention(approved: boolean, detail: string): Promise<void> {

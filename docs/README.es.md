@@ -101,11 +101,15 @@ Muestra el paquete y una tabla de tokens por sección; lo que no cupo aparece co
 | Revisión | el revisor es una sesión nueva | el revisor prefiere un proveedor distinto al del constructor |
 
 ```bash
-edu run "migra el cargador de configuración" --solo --cli codex
+edu run "migra el cargador de configuración" --solo --cli codex --harness H3
 edu run "migra el cargador de configuración" --crew
 ```
 
 Roles: lead (planifica), explorer (lee), builder (escribe), reviewer (veredicto pass/fix, una ronda de corrección). Los pasos que pueden escribir piden aprobación (`ask-on-write`); `--yes` aprueba automáticamente. En una terminal obtienes la vista en vivo; en pipes y CI, líneas de log simples. `Ctrl+C` cancela de forma limpia.
+
+### Por qué registrar evidencia
+
+Edu registra evidencia de tareas, contexto, verificación, atribución, intervenciones y resultados para poder comprobarlos, en lugar de inferirlos a partir de un parche que parece correcto. Esto sigue el enfoque sistémico de harness descrito en [AI Harness Engineering](https://arxiv.org/abs/2605.13357).
 
 ## CLIs compatibles
 
@@ -137,10 +141,12 @@ Crea `<vault>/Edu/<proyecto>` apuntando a la carpeta del cerebro (enlace simból
 | `edu init [--global] [--name Edu] [--cli X]` | crea un cerebro |
 | `edu install` / `edu uninstall [--force]` | conecta / desconecta CLIs de código |
 | `edu doctor [--json]` | Node, CLIs, integraciones, cerebros, vínculo con Obsidian |
-| `edu run "<objetivo>" [--solo\|--crew] [--cli X] [--yes]` | orquesta un objetivo |
+| `edu run "<objetivo>" [--solo\|--crew] [--cli X] [--harness H0\|H1\|H2\|H3] [--yes]` | orquesta un objetivo; H3 es el nivel predeterminado |
 | `edu ui [--replay runs/<id>.jsonl] [--speed n]` / `edu demo` | vista en vivo, repeticiones, demo |
 | `edu brain status \| recall <q> \| remember <título> \| maintain \| import albert\|moragent <ruta> \| link <vault>` | trabajar con el cerebro |
 | `edu context [--query q] [--budget n]` | muestra el paquete de contexto |
+| `edu metrics [--since 30d] [--by cli\|role\|level] [--json]` | resume evidencia de episodios (AVSR, M-HIR y calidad de verificación/recuperación) |
+| `edu checks list\|add\|run` | administra y ejecuta checks deterministas en `.edu/harness/checks.json` |
 | `edu reflect [--since 7d]` · `edu proposals list\|accept\|reject` | ciclo de automejora |
 | `edu mcp` · `edu statusline` · `edu hook …` | integraciones usadas por tus CLIs |
 

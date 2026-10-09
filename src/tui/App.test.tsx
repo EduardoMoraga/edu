@@ -30,6 +30,14 @@ describe('App: wide layout', () => {
     expect(header).toContain('solo · claude');
     expect(header).toContain('$0.42 · 38.1k tok');
   });
+  it('shows the computed evidence outcome in the ended run header', () => {
+    instance = mount({ events: [
+      { type: 'run.start', runId: 'r', goal: 'verify', mode: 'solo', at: fixtureAt(0) },
+      { type: 'outcome', label: 'autonomous_verified_success', metrics: {}, at: fixtureAt(1) },
+      { type: 'run.end', runId: 'r', ok: true, summary: 'done', at: fixtureAt(2) },
+    ] });
+    expect(instance.lastFrame()).toContain('autonomous_verified_success');
+  });
   it('renders the agent tree with role icons and status glyphs', () => {
     instance = mount();
     const frame = instance.lastFrame()!;

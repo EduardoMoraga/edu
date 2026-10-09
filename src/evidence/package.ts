@@ -1,28 +1,17 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { EduEvent } from '../core/contracts.js';
-import type { FailureType, OutcomeLabel, Requirement } from './contracts.js';
-
-export type EvidenceEvent = EduEvent | EvidenceOnlyEvent;
-export type EvidenceOnlyEvent =
-  | { type: 'task.define'; requirements: Requirement[]; successCriteria?: string[]; at: string }
-  | { type: 'context.trace'; noteId: string; contribution: string; influenced: boolean; at: string }
-  | { type: 'verify.result'; checkId?: string; method?: string; requirementIds: string[]; ok: boolean; output: string; exitCode?: number | null; durationMs?: number; timedOut?: boolean; kind: 'reproduction' | 'deterministic' | 'targeted-test' | 'regression' | 'lint' | 'review'; at: string }
-  | { type: 'failure.attribution'; observed: string; expected: string; failureType: FailureType; evidence: string[]; alternatives: string[]; next: string; at: string }
-  | { type: 'intervention'; by: 'user'; action: string; detail?: string; avoidable: boolean; harnessGap: FailureType; at: string }
-  | { type: 'entropy.finding'; category: string; severity: 0 | 1 | 2 | 3; path: string; detail: string; at: string }
-  | { type: 'outcome'; label: OutcomeLabel; metrics: Record<string, unknown>; at: string };
+import type { EduEvent, Requirement } from '../core/contracts.js';
 
 export interface PackageOptions {
   limitations?: string[];
   entropyFindings?: Array<{ category: string; severity: 0 | 1 | 2 | 3; path: string; detail: string }>;
 }
 
-const types = (events: EvidenceEvent[], ...names: string[]) => events.filter((event) => names.includes(event.type));
-const jsonl = (events: EvidenceEvent[]) => events.length ? `${events.map((event) => JSON.stringify(event)).join('\n')}\n` : '';
+const types = (events: EduEvent[], ...names: string[]) => events.filter((event) => names.includes(event.type));
+const jsonl = (events: EduEvent[]) => events.length ? `${events.map((event) => JSON.stringify(event)).join('\n')}\n` : '';
 
 /** Materializes the normalized event stream as a portable, inspectable episode. */
-export async function buildEpisodePackage(root: string, runId: string, events: EvidenceEvent[], options: PackageOptions = {}): Promise<string> {
+export async function buildEpisodePackage(root: string, runId: string, events: EduEvent[], options: PackageOptions = {}): Promise<string> {
   const directory = join(root, 'runs', runId);
   await mkdir(directory, { recursive: true });
   const taskEvent = events.find((event) => event.type === 'task.define');
@@ -55,7 +44,7 @@ export async function buildEpisodePackage(root: string, runId: string, events: E
   return directory;
 }
 
-function makeReport(requirements: Requirement[], verification: EvidenceEvent[], limitations: string[]): string {
+function makeReport(requirements: Requirement[], verification: EduEvent[], limitations: string[]): string {
   const lines = ['# Verification report', '', '| Requirement | Evidence | Status |', '|---|---|---|'];
   for (const requirement of requirements) {
     const evidence = verification.filter((event) => event.type === 'verify.result' && event.kind !== 'reproduction' && event.requirementIds.includes(requirement.id));

@@ -1,4 +1,4 @@
-import type { FailureType, HarnessLevel, OutcomeLabel } from './contracts.js';
+import type { FailureType, HarnessLevel, OutcomeLabel } from '../core/contracts.js';
 
 export interface EpisodeSummary {
   runId: string;

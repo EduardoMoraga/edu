@@ -128,6 +128,21 @@ export interface ContextPack {
   deferred: string[];
 }
 
+// ─── Evidence ────────────────────────────────────────────────────────────────
+
+export type FailureType = 'context' | 'tool' | 'feedback' | 'verify' | 'recovery' | 'entropy' | 'model' | 'unknown';
+export type OutcomeLabel = 'autonomous_verified_success' | 'assisted_verified_success' | 'unverified_success' | 'failed' | 'unsafe_invalid';
+export type HarnessLevel = 'H0' | 'H1' | 'H2' | 'H3';
+
+export interface Requirement { id: string; text: string }
+export interface DeterministicCheck {
+  id: string;
+  requirementIds: string[];
+  command: string;
+  expect: { exitCode?: number; stdoutIncludes?: string };
+  timeoutMs: number;
+}
+
 // ─── Engines (the CLIs Edu drives) ───────────────────────────────────────────
 
 export type CliId = 'claude' | 'codex' | 'pi' | 'opencode' | 'agy';
@@ -177,7 +192,14 @@ export type EduEvent =
   | { type: 'brain.recall'; agentId?: string; noteIds: string[]; at: string }
   | { type: 'brain.learn'; noteId: string; kind: TransitiveKind | 'canonical-proposal' | 'episode'; title: string; at: string }
   | { type: 'agent.end'; agentId: string; ok: boolean; summary: string; sessionId?: string; at: string }
-  | { type: 'error'; agentId?: string; message: string; at: string };
+  | { type: 'error'; agentId?: string; message: string; at: string }
+  | { type: 'task.define'; requirements: Requirement[]; successCriteria?: string[]; at: string }
+  | { type: 'context.trace'; noteId: string; contribution: string; influenced: boolean; at: string }
+  | { type: 'verify.result'; checkId?: string; method?: string; requirementIds: string[]; ok: boolean; output: string; exitCode?: number | null; durationMs?: number; timedOut?: boolean; kind: 'reproduction' | 'deterministic' | 'targeted-test' | 'regression' | 'lint' | 'review'; at: string }
+  | { type: 'failure.attribution'; observed: string; expected: string; failureType: FailureType; evidence: string[]; alternatives: string[]; next: string; at: string }
+  | { type: 'intervention'; by: 'user'; action: string; detail?: string; avoidable: boolean; harnessGap: FailureType; at: string }
+  | { type: 'entropy.finding'; category: string; severity: 0 | 1 | 2 | 3; path: string; detail: string; at: string }
+  | { type: 'outcome'; label: OutcomeLabel; metrics: Record<string, unknown>; at: string };
 
 export type AgentStatus = 'queued' | 'running' | 'awaiting-approval' | 'done' | 'failed' | 'cancelled';
 

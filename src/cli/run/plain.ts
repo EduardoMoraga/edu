@@ -46,6 +46,14 @@ export function createPlainFormatter(glyphs: Glyphs): PlainFormatter {
         return `${who(event.agentId)}${event.ok ? glyphs.ok : glyphs.fail} ${oneLine(event.summary)}`;
       case 'error':
         return `${glyphs.fail} ${who(event.agentId)}${oneLine(event.message)}`;
+      case 'verify.result':
+        return `${event.ok ? glyphs.ok : glyphs.fail} verify ${event.kind}${event.checkId ? ` ${event.checkId}` : ''}: ${oneLine(event.output)}`;
+      case 'failure.attribution':
+        return `${glyphs.fail} attribution ${event.failureType}: ${oneLine(event.observed)}`;
+      case 'intervention':
+        return `${glyphs.approval} intervention ${oneLine(event.action)}${event.avoidable ? ` (avoidable: ${event.harnessGap})` : ''}`;
+      case 'outcome':
+        return `${glyphs.brain} outcome ${event.label}`;
       case 'run.end':
         return `${event.ok ? glyphs.ok : glyphs.fail} run ${event.ok ? 'finished' : 'failed'}: ${oneLine(event.summary)}`;
       default:

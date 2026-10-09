@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildEpisodePackage, type EvidenceEvent } from './package.js';
+import type { EduEvent } from '../core/contracts.js';
+import { buildEpisodePackage } from './package.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -11,7 +12,7 @@ describe('episode package', () => {
   it('writes the complete event package and requirement report', async () => {
     const root = await mkdtemp(join(tmpdir(), 'edu-evidence-package-'));
     roots.push(root);
-    const events: EvidenceEvent[] = [
+    const events: EduEvent[] = [
       { type: 'run.start', runId: 'run-1', goal: 'fix bug', mode: 'solo', at: '2026-01-01T00:00:00Z' },
       { type: 'task.define', requirements: [{ id: 'r1', text: 'returns value' }], at: '2026-01-01T00:00:01Z' },
       { type: 'tool.call', agentId: 'builder', callId: 'c1', tool: 'shell', input: 'npm test', at: '2026-01-01T00:00:02Z' },
@@ -31,7 +32,7 @@ describe('episode package', () => {
   it('reports the latest non-reproduction verification instead of any historical pass', async () => {
     const root = await mkdtemp(join(tmpdir(), 'edu-evidence-package-latest-'));
     roots.push(root);
-    const events: EvidenceEvent[] = [
+    const events: EduEvent[] = [
       { type: 'task.define', requirements: [{ id: 'r1', text: 'returns value' }], at: '2026-01-01T00:00:00Z' },
       { type: 'verify.result', checkId: 'unit', requirementIds: ['r1'], ok: true, output: 'reproduced', kind: 'reproduction', at: '2026-01-01T00:00:01Z' },
       { type: 'verify.result', checkId: 'unit', requirementIds: ['r1'], ok: true, output: 'passed', kind: 'deterministic', at: '2026-01-01T00:00:02Z' },

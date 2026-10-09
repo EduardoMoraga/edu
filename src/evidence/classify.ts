@@ -1,9 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { OutcomeLabel } from './contracts.js';
+import type { OutcomeLabel, Requirement } from '../core/contracts.js';
 
 interface Verification { requirementIds?: string[]; ok?: boolean; kind?: string }
-interface Requirement { id: string }
 
 /** Derives the outcome from immutable package evidence rather than model assertions. */
 export async function classifyPackage(directory: string): Promise<OutcomeLabel> {

@@ -5,7 +5,7 @@
  */
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import type { CliId } from '../core/contracts.js';
+import type { CliId, Engine } from '../core/contracts.js';
 import type { Lang } from './i18n.js';
 
 export interface CliContext {
@@ -26,6 +26,10 @@ export interface CliContext {
   confirm(question: string): Promise<boolean>;
   /** Installed coding CLIs, in preference order. */
   detectClis(): Promise<CliId[]>;
+  /** Optional engine factory for embedding and deterministic CLI tests. */
+  engineFactory?: (cli: CliId) => Engine;
+  /** Optional detected CLI list for an injected engine factory. */
+  availableClis?: CliId[];
   /** Sets the process exit code without exiting. */
   setExitCode(code: number): void;
 }

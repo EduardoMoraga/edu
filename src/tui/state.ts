@@ -6,6 +6,7 @@ import type {
   AgentStatus,
   CliId,
   EduEvent,
+  OutcomeLabel,
   OrchestrationMode,
   RoleId,
   TransitiveKind,
@@ -18,6 +19,9 @@ export type LogEntry =
   | { kind: 'tool'; callId: string; tool: string; input: string; state: 'pending' | 'ok' | 'failed'; output?: string }
   | { kind: 'approval'; title: string; approved?: boolean; by?: 'user' | 'policy' }
   | { kind: 'error'; message: string }
+  | { kind: 'verify'; ok: boolean; kindName: string; checkId?: string; output: string }
+  | { kind: 'attribution'; observed: string; failureType: string; next: string }
+  | { kind: 'intervention'; action: string; detail?: string; avoidable: boolean; harnessGap: string }
   | { kind: 'end'; ok: boolean; summary: string };
 
 export interface AgentUsage {
@@ -74,6 +78,7 @@ export interface RunView {
   endedAt?: number;
   ok?: boolean;
   summary?: string;
+  outcomeLabel?: OutcomeLabel;
 }
 
 export interface TuiState {
@@ -119,6 +124,8 @@ export function reduce(state: TuiState, event: EduEvent): TuiState {
         approvals: [],
         run: { ...s.run, runId: s.run.runId ?? event.runId, endedAt: at, ok: event.ok, summary: event.summary },
       };
+    case 'outcome':
+      return { ...s, run: { ...s.run, outcomeLabel: event.label } };
     case 'agent.spawn': {
       const prev = s.agents[event.agentId];
       const agent: AgentView = {
@@ -225,6 +232,19 @@ export function reduce(state: TuiState, event: EduEvent): TuiState {
         ? updateAgent(next, event.agentId, at, (a) => pushLog(a, { kind: 'error', message: event.message }))
         : next;
     }
+    case 'verify.result':
+      return appendFocusedLog(s, at, {
+        kind: 'verify', ok: event.ok, kindName: event.kind,
+        ...(event.checkId ? { checkId: event.checkId } : {}), output: event.output,
+      });
+    case 'failure.attribution':
+      return appendFocusedLog(s, at, { kind: 'attribution', observed: event.observed, failureType: event.failureType, next: event.next });
+    case 'intervention':
+      return appendFocusedLog(s, at, { kind: 'intervention', action: event.action, ...(event.detail ? { detail: event.detail } : {}), avoidable: event.avoidable, harnessGap: event.harnessGap });
+    case 'task.define':
+    case 'context.trace':
+    case 'entropy.finding':
+      return s;
     default:
       return s;
   }
@@ -273,6 +293,11 @@ function updateAgent(s: TuiState, id: string, at: number, fn: (a: AgentView) => 
 function autoFocus(s: TuiState, agentId: string): TuiState {
   if (s.focus.pinned) return s;
   return { ...s, focus: { agentId, pinned: false } };
+}
+
+function appendFocusedLog(s: TuiState, at: number, entry: LogEntry): TuiState {
+  const id = s.focus.agentId ?? s.order.at(-1) ?? 'evidence';
+  return updateAgent(s, id, at, (agent) => pushLog(agent, entry));
 }
 
 function withStatus(a: AgentView, status: AgentStatus, at: number): AgentView {

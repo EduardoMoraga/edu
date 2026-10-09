@@ -3,7 +3,7 @@
  * (composer starts a solo run), demos and replays. Non-TTY callers use the
  * plain formatter instead. Ink/React are imported lazily.
  */
-import type { CliId, EduEvent, OrchestrationMode } from '../../core/contracts.js';
+import type { CliId, EduEvent, HarnessLevel, OrchestrationMode } from '../../core/contracts.js';
 import type { RunResult } from '../../orchestrator/index.js';
 import type { CliContext } from '../context.js';
 import type { Lang } from '../i18n.js';
@@ -16,6 +16,7 @@ export interface LiveRunOptions {
   cwd: string;
   lang: Lang;
   mode?: OrchestrationMode;
+  harnessLevel?: HarnessLevel;
   cli?: CliId;
   autoApprove: boolean;
   name: string;
@@ -45,6 +46,8 @@ export async function runInTui(ctx: CliContext, opts: LiveRunOptions): Promise<R
     result = await executeRun(ctx, {
       ...opts,
       signal: abort.signal,
+      engines: ctx.engineFactory,
+      available: ctx.availableClis,
       onEvent: (event) => {
         bridge.observe(event);
         channel.push(event);

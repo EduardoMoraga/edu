@@ -37,7 +37,7 @@ export function registerLearn(program: Command, ctx: CliContext): void {
         const config = await effectiveConfig(ws.primary.root, []);
         const budgetTokens = opts.budget ? parseIntOption(opts.budget, '--budget') : config.context.budgetTokens;
         const { buildContext } = await import('../../context/index.js');
-        const pack = await buildContext(ws.brain, { budgetTokens, ...(opts.query ? { query: opts.query } : {}) }, { eduMdPath: join(ws.primary.root, 'EDU.md') });
+        const pack = await buildContext(ws.brain, { budgetTokens, ...(opts.query ? { query: opts.query } : {}) }, { eduMdPath: join(ws.primary.root, 'EDU.md'), trackUsage: false });
         if (g.json || opts.json) return printJson(ctx, pack);
         const { glyphs } = look(ctx);
         ctx.out(t(g.lang, 'context.title', { tokens: pack.tokens, budget: pack.budgetTokens }));

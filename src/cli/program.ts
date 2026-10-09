@@ -7,6 +7,7 @@ import { Command } from 'commander';
 import { detectTheme, getGlyphs, renderBanner } from '../identity/index.js';
 import { registerBrain } from './commands/brain.js';
 import { registerDoctor } from './commands/doctor.js';
+import { registerEvidence } from './commands/evidence.js';
 import { registerIntegrations } from './commands/integrations.js';
 import { registerLearn } from './commands/learn.js';
 import { openHome, registerLive } from './commands/live.js';
@@ -18,7 +19,7 @@ import { packageVersion } from './package.js';
 const GROUPS: Array<[string, string[]]> = [
   ['Get started:', ['init', 'install', 'uninstall', 'doctor']],
   ['Work:', ['run', 'ui', 'demo']],
-  ['Brain:', ['brain', 'context', 'reflect', 'proposals']],
+  ['Brain:', ['brain', 'context', 'reflect', 'proposals', 'metrics', 'checks']],
   ['Integrations:', ['mcp', 'statusline', 'hook']],
 ];
 
@@ -68,6 +69,7 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerBrain(program, ctx);
   registerLearn(program, ctx);
   registerDoctor(program, ctx);
+  registerEvidence(program, ctx);
   registerIntegrations(program, ctx);
 
   for (const [heading, names] of GROUPS) {

@@ -1,17 +1,16 @@
 /** `edu` (home), `edu run`, `edu ui`, `edu demo`. */
 import type { Command } from 'commander';
-import type { EduEvent, OrchestrationMode } from '../../core/contracts.js';
+import type { EduEvent, HarnessLevel, OrchestrationMode } from '../../core/contracts.js';
 import { getGlyphs, renderBanner } from '../../identity/index.js';
 import type { CliContext, Resolved } from '../context.js';
 import { t } from '../i18n.js';
 import { action, look, parsePositive } from '../kit.js';
 import { packageVersion } from '../package.js';
-import { coreEvents, isCoreEvent } from '../run/events.js';
 import { createPlainFormatter } from '../run/plain.js';
 import { identityName, lessonCount, openWorkspace } from '../workspace.js';
 import { parseCli } from './setup.js';
 
-interface RunOpts { solo?: boolean; crew?: boolean; cli?: string; yes?: boolean }
+interface RunOpts { solo?: boolean; crew?: boolean; cli?: string; yes?: boolean; harness?: string }
 interface UiOpts { replay?: string; speed?: string }
 
 /** Prints events as plain lines (non-TTY output). */
@@ -42,6 +41,12 @@ function modeFrom(opts: RunOpts): OrchestrationMode | undefined {
   return opts.solo ? 'solo' : opts.crew ? 'crew' : undefined;
 }
 
+function harnessFrom(value: string | undefined): HarnessLevel {
+  const harness = value ?? 'H3';
+  if (!['H0', 'H1', 'H2', 'H3'].includes(harness)) throw new Error('--harness must be H0, H1, H2, or H3');
+  return harness as HarnessLevel;
+}
+
 export function registerLive(program: Command, ctx: CliContext): void {
   program
     .command('run')
@@ -50,22 +55,24 @@ export function registerLive(program: Command, ctx: CliContext): void {
     .option('--solo', 'one CLI plays every role')
     .option('--crew', 'roles mapped to different CLIs')
     .option('--cli <cli>', 'CLI to use as the default engine')
+    .option('--harness <level>', 'evidence support level: H0 | H1 | H2 | H3', 'H3')
     .option('-y, --yes', 'approve every step automatically')
     .action(
       action<RunOpts>(ctx, async ({ g, opts }, goal) => {
         const mode = modeFrom(opts);
+        const harnessLevel = harnessFrom(opts.harness);
         const cli = opts.cli ? parseCli(opts.cli) : undefined;
         const text = (goal ?? '').trim();
         if (!text) throw new Error('a goal is required');
         if (ctx.isTTY) {
           const ws = await openWorkspace(ctx, g.cwd);
           const { runInTui } = await import('../run/live.js');
-          const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, cli, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
+          const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
           if (result) ctx.out(t(g.lang, 'run.done', { status: t(g.lang, result.ok ? 'run.ok' : 'run.failed'), summary: result.summary }));
           if (!result?.ok) ctx.setExitCode(1);
           return;
         }
-        await runPlain(ctx, g, text, mode, cli, Boolean(opts.yes));
+        await runPlain(ctx, g, text, mode, cli, harnessLevel, Boolean(opts.yes));
       }),
     );
 
@@ -85,9 +92,9 @@ export function registerLive(program: Command, ctx: CliContext): void {
         const { loadRun, timedEvents } = await import('../../tui/replay.js');
         const run = await loadRun(opts.replay);
         for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
-        if (!ctx.isTTY) return printPlain(ctx, run.events.filter(isCoreEvent));
+        if (!ctx.isTTY) return printPlain(ctx, run.events);
         const { playInTui } = await import('../run/live.js');
-        await playInTui(coreEvents(timedEvents(run.events, { speed, maxDelayMs: 2000 })), 'Edu');
+        await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2000 }), 'Edu');
       }),
     );
 
@@ -105,7 +112,7 @@ export function registerLive(program: Command, ctx: CliContext): void {
           return printPlain(ctx, events);
         }
         const [{ timedEvents }, { playInTui }] = await Promise.all([import('../../tui/replay.js'), import('../run/live.js')]);
-        await playInTui(coreEvents(timedEvents(events, { speed })), 'Edu');
+        await playInTui(timedEvents(events, { speed }), 'Edu');
       }),
     );
 }
@@ -116,6 +123,7 @@ async function runPlain(
   goal: string,
   mode: OrchestrationMode | undefined,
   cli: ReturnType<typeof parseCli> | undefined,
+  harnessLevel: HarnessLevel,
   yes: boolean,
 ): Promise<void> {
   const { executeRun } = await import('../run/session.js');
@@ -133,6 +141,9 @@ async function runPlain(
       lang: g.lang,
       mode,
       cli,
+      harnessLevel,
+      engines: ctx.engineFactory,
+      available: ctx.availableClis,
       signal: abort.signal,
       onEvent: (event) => {
         const line = format(event);

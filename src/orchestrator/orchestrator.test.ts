@@ -96,7 +96,7 @@ describe('orchestrator contracts', () => {
       expect(events.some(event => event.type === 'approval.resolve' && !event.approved)).toBe(true);
       expect(events.some(event => event.type === 'agent.spawn' && event.role === 'builder')).toBe(false);
       const persisted = (await readFile(join(dir, 'runs', `${result.runId}.jsonl`), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-      expect(persisted).toHaveLength(events.length + (result.evidenceEvents?.length ?? 0));
+      expect(persisted).toHaveLength(events.length);
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
@@ -216,7 +216,7 @@ describe('orchestrator contracts', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-h3-'));
     const plan = { requirements: [{ id: 'r1', text: 'prints passing' }], checks: [{ id: 'check-r1', requirementIds: ['r1'], command: 'test -f .marker && printf passing', expect: { stdoutIncludes: 'passing' }, timeoutMs: 1000 }], steps: [{ id: 'build', role: 'builder', task: 'Implement it', dependsOn: [], parallelSafe: false }] };
     const requests: EngineRunRequest[] = [];
-    const observed: Array<{ type: string; [key: string]: unknown }> = [];
+    const observed: EduEvent[] = [];
     const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
       requests.push(request);
       if (request.prompt.includes('Implement it')) await writeFile(join(dir, '.marker'), 'ready');
@@ -228,7 +228,7 @@ describe('orchestrator contracts', () => {
     try {
       await mkdir(join(dir, '.edu', 'harness'), { recursive: true });
       await writeFile(join(dir, '.edu', 'harness', 'checks.json'), JSON.stringify(plan.checks));
-      const result = await orchestrate('goal', { config: { ...defaultConfig('claude'), approvals: 'auto' }, brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, onEvidenceEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H3' });
+      const result = await orchestrate('goal', { config: { ...defaultConfig('claude'), approvals: 'auto' }, brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H3' });
       expect(result.ok).toBe(true);
       expect(requests.some(request => request.prompt.includes('reproduce') && request.prompt.includes('attribute') && request.prompt.includes('back-edge'))).toBe(true);
       expect(observed.some(event => event.type === 'task.define')).toBe(true);
@@ -255,7 +255,7 @@ describe('orchestrator contracts', () => {
     await exec('git', ['add', '.'], { cwd: dir });
     await exec('git', ['commit', '-qm', 'base'], { cwd: dir });
     const plan = { requirements: [{ id: 'r1', text: 'complete task' }], steps: [{ id: 'build', role: 'builder', task: 'Implement it', dependsOn: [], parallelSafe: false }] };
-    const observed: Array<{ type: string; [key: string]: unknown }> = [];
+    const observed: EduEvent[] = [];
     const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
       if (request.prompt.includes('Implement it')) await writeFile(join(dir, 'service.test.ts'), 'export const value = 1;\n');
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}';
@@ -264,7 +264,7 @@ describe('orchestrator contracts', () => {
     } };
     const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
     try {
-      const result = await orchestrate('goal', { config: { ...defaultConfig('claude'), approvals: 'auto' }, brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, onEvidenceEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H0' });
+      const result = await orchestrate('goal', { config: { ...defaultConfig('claude'), approvals: 'auto' }, brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H0' });
       expect(result.ok).toBe(true);
       expect(observed).toContainEqual(expect.objectContaining({ type: 'entropy.finding', category: 'weakened-tests' }));
       expect(observed).toContainEqual(expect.objectContaining({ type: 'outcome', label: 'unsafe_invalid' }));
@@ -279,7 +279,7 @@ describe('orchestrator contracts', () => {
       { id: 'unrelated-check', requirementIds: ['r2'], command: 'printf unrelated', expect: { stdoutIncludes: 'unrelated' }, timeoutMs: 1000 },
     ];
     const plan = { requirements: [{ id: 'r1', text: 'complete task' }], checks: [checks[1]], steps: [] };
-    const observed: Array<{ type: string; [key: string]: unknown }> = [];
+    const observed: EduEvent[] = [];
     const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
       yield { type: 'agent.text', agentId, text: request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}', at } as EduEvent;
       yield { type: 'agent.end', agentId, ok: true, summary: 'done', at } as EduEvent;
@@ -288,7 +288,7 @@ describe('orchestrator contracts', () => {
     try {
       await mkdir(join(dir, '.edu', 'harness'), { recursive: true });
       await writeFile(join(dir, '.edu', 'harness', 'checks.json'), JSON.stringify(checks));
-      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, onEvidenceEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H3' });
+      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H3' });
       expect(result.ok, result.summary).toBe(true);
       expect(observed).toContainEqual(expect.objectContaining({ type: 'entropy.finding', category: 'checks-bypassed', severity: 3 }));
       expect(observed.some(event => event.type === 'entropy.finding' && String(event.detail).includes('unrelated-check'))).toBe(false);
@@ -315,7 +315,7 @@ describe('orchestrator contracts', () => {
   it('records approval decisions and composer messages as intervention events', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-interventions-'));
     const plan = { steps: [{ id: 'build', role: 'builder', task: 'Implement it', dependsOn: [], parallelSafe: false }] };
-    const observed: Array<{ type: string; [key: string]: unknown }> = [];
+    const observed: EduEvent[] = [];
     const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}';
       yield { type: 'agent.text', agentId, text, at } as EduEvent;
@@ -324,7 +324,7 @@ describe('orchestrator contracts', () => {
     const messages = (async function* () { yield 'Please include the missing file path in the task.'; })();
     const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
     try {
-      await orchestrate('goal', { config: { ...defaultConfig('claude'), approvals: 'always-ask' }, brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, onEvidenceEvent: event => observed.push(event), approve: async () => true, composerMessages: messages });
+      await orchestrate('goal', { config: { ...defaultConfig('claude'), approvals: 'always-ask' }, brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true, composerMessages: messages });
       expect(observed).toContainEqual(expect.objectContaining({ type: 'intervention', action: 'approval:approved', avoidable: false }));
       expect(observed).toContainEqual(expect.objectContaining({ type: 'intervention', action: 'composer-message', avoidable: true, harnessGap: 'context' }));
     } finally { await rm(dir, { recursive: true, force: true }); }

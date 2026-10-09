@@ -45,6 +45,7 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
           else if (d.drift) lines.push({ level: 'fail', text: t(lang, 'doctor.cliDrift', { cli: d.cli }) });
           else if (d.integrated) lines.push({ level: 'ok', text: t(lang, 'doctor.cliReady', { cli: d.cli, scopes: d.scopes.join(', ') }) });
           else lines.push({ level: 'warn', text: t(lang, 'doctor.cliNotIntegrated', { cli: d.cli }) });
+          for (const note of d.notes) lines.push({ level: 'warn', text: note });
           if (d.installed) lines.push({ level: 'ok', text: t(lang, 'doctor.auth', { hint: AUTH_HINTS[d.cli] }) });
         }
 

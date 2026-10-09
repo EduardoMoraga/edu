@@ -25,7 +25,7 @@ export function Header({ state, layout, name, now, cancelling }: HeaderProps) {
   const meta = [state.run.mode, clis.length ? clis.join('+') : undefined].filter(Boolean).join(sep);
   const clock = now ?? state.now;
   const elapsed = state.run.startedAt !== undefined ? formatDuration((state.run.endedAt ?? clock) - state.run.startedAt) : '';
-  const metaLine = [meta, elapsed].filter(Boolean).join(sep);
+  const metaLine = [meta, elapsed, state.run.endedAt !== undefined ? state.run.outcomeLabel : undefined].filter(Boolean).join(sep);
 
   const costPrefix = totals.costPartial && totals.costUsd !== undefined ? (glyphs.unicode ? '≥' : '>=') : '';
   const money = `${costPrefix}${formatCost(totals.costUsd)}${sep}${formatTokens(totals.tokens)} tok`;

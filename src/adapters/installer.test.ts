@@ -128,6 +128,36 @@ describe('installer', () => {
     await expect(readFile(target)).rejects.toThrow();
   });
 
+  it('adds Codex notify at TOML top level and restores it on uninstall', async () => {
+    const opts = await fixture();
+    await mkdir(join(opts.home, '.codex'), { recursive: true });
+    const path = join(opts.home, '.codex/config.toml');
+    const original = '[mcp_servers.other]\ncommand = "other"\n';
+    await writeFile(path, original);
+    await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['codex'] }));
+    const installed = await readFile(path, 'utf8');
+    const top = /# edu:top:start\n([\s\S]*?)\n# edu:top:end/.exec(installed)?.[1] ?? '';
+    expect(top).toBe('notify = ["edu", "hook", "codex-notify"]');
+    expect(installed.indexOf('notify =')).toBeLessThan(installed.indexOf('[mcp_servers.other]'));
+    expect(installed).toContain('[mcp_servers.edu]');
+    await uninstall({ manifestPath: join(opts.root, '.edu/manifest.json') });
+    expect(await readFile(path, 'utf8')).toBe(original);
+  });
+
+  it('preserves a user-owned Codex notify and reports the conflict in doctor', async () => {
+    const opts = await fixture();
+    await mkdir(join(opts.home, '.codex'), { recursive: true });
+    const path = join(opts.home, '.codex/config.toml');
+    const original = 'notify = ["my-hook"]\n\n[mcp_servers.other]\ncommand = "other"\n';
+    await writeFile(path, original);
+    await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['codex'] }));
+    const installed = await readFile(path, 'utf8');
+    expect(installed).toContain('notify = ["my-hook"]');
+    expect(installed).not.toContain('notify = ["edu", "hook", "codex-notify"]');
+    expect((await diagnose({ ...opts, detectBinary: async () => false })).find(item => item.cli === 'codex')?.notes)
+      .toContain('A user-owned top-level Codex notify command is preserved; Edu did not add its notify hook.');
+  });
+
   it('uses injected binary detection for a CliIntegration', async () => {
     const opts = await fixture();
     const seen: string[] = [];

@@ -101,11 +101,15 @@ It prints the pack and a per-section token table; what did not fit is listed as 
 | Review | reviewer is a fresh session | reviewer prefers a different vendor than the builder |
 
 ```bash
-edu run "migrate the config loader" --solo --cli codex
+edu run "migrate the config loader" --solo --cli codex --harness H3
 edu run "migrate the config loader" --crew
 ```
 
 Roles: lead (plans), explorer (reads), builder (writes), reviewer (pass/fix verdict, one fix round). Steps that can write ask for approval (`ask-on-write`); `--yes` approves automatically. In a terminal you get the live view; in pipes and CI you get plain log lines. `Ctrl+C` cancels cleanly.
+
+### Why evidence
+
+Edu records task, context, verification, attribution, intervention and outcome evidence so results can be checked instead of inferred from a successful-looking patch. This follows the system-level harness framing in [AI Harness Engineering](https://arxiv.org/abs/2605.13357).
 
 ## Supported CLIs
 
@@ -137,10 +141,12 @@ Creates `<vault>/Edu/<project>` pointing at the brain folder (a symlink; a junct
 | `edu init [--global] [--name Edu] [--cli X]` | create a brain |
 | `edu install` / `edu uninstall [--force]` | connect / disconnect coding CLIs |
 | `edu doctor [--json]` | Node, CLIs, integrations, brains, Obsidian link |
-| `edu run "<goal>" [--solo\|--crew] [--cli X] [--yes]` | orchestrate a goal |
+| `edu run "<goal>" [--solo\|--crew] [--cli X] [--harness H0\|H1\|H2\|H3] [--yes]` | orchestrate a goal with H3 evidence support by default |
 | `edu ui [--replay runs/<id>.jsonl] [--speed n]` / `edu demo` | live view, replays, demo |
 | `edu brain status \| recall <q> \| remember <title> \| maintain \| import albert\|moragent <path> \| link <vault>` | work with the brain |
 | `edu context [--query q] [--budget n]` | show the context pack |
+| `edu metrics [--since 30d] [--by cli\|role\|level] [--json]` | summarize episode evidence (AVSR, M-HIR and verification/recovery quality) |
+| `edu checks list\|add\|run` | manage and execute deterministic checks in `.edu/harness/checks.json` |
 | `edu reflect [--since 7d]` · `edu proposals list\|accept\|reject` | self-improvement loop |
 | `edu mcp` · `edu statusline` · `edu hook …` | integrations used by your CLIs |
 

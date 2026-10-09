@@ -86,8 +86,11 @@ export function openBrain(locations: BrainLocation[]): Brain {
       try { await access(join(loc.root, 'EDU.md')); }
       catch {
         let contract = fallbackEdu;
-        try { contract = await readFile(join(process.cwd(), 'templates/EDU.md'), 'utf8'); } catch { /* template is optional */ }
-        if (opts.identityName) contract = contract.replace('# EDU', `# ${opts.identityName}`);
+        try {
+          const { resolveTemplatesDir } = await import('../adapters/index.js');
+          contract = await readFile(join(resolveTemplatesDir(), 'EDU.md'), 'utf8');
+        } catch { /* The bundled contract is optional for minimal installations. */ }
+        contract = contract.replaceAll('{{name}}', opts.identityName ?? 'Edu');
         await atomicWrite(join(loc.root, 'EDU.md'), contract);
       }
     },

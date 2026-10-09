@@ -94,15 +94,3 @@ describe('edu ui --replay', () => {
     expect(c.stderr.join('\n')).toMatch(/run\.jsonl:\d+: invalid JSON/);
   });
 });
-
-describe('core event filter', () => {
-  it('drops non-core records from recorded runs', async () => {
-    const { coreEvents, isCoreEvent } = await import('./events.js');
-    const mixed = [{ type: 'outcome', at }, ...demoScript().slice(0, 2)];
-    expect(mixed.filter(isCoreEvent)).toHaveLength(2);
-    async function* source() { yield* mixed; }
-    const seen: string[] = [];
-    for await (const e of coreEvents(source())) seen.push(e.type);
-    expect(seen).toEqual(['run.start', 'agent.spawn']);
-  });
-});

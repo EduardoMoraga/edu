@@ -3,7 +3,7 @@
  * context provider) and runs one goal. Shared by `edu run` and the TUI home.
  */
 import { join } from 'node:path';
-import type { CliId, EduEvent, Engine, OrchestrationMode } from '../../core/contracts.js';
+import type { CliId, EduEvent, Engine, HarnessLevel, OrchestrationMode } from '../../core/contracts.js';
 import type { ApprovalRequest, RunResult } from '../../orchestrator/index.js';
 import type { CliContext } from '../context.js';
 import { t, type Lang } from '../i18n.js';
@@ -16,6 +16,7 @@ export interface RunSetup {
   cwd: string;
   lang: Lang;
   mode?: OrchestrationMode;
+  harnessLevel?: HarnessLevel;
   cli?: CliId;
   onEvent(event: EduEvent): void | Promise<void>;
   approve(request: ApprovalRequest): Promise<boolean>;
@@ -27,7 +28,7 @@ export interface RunSetup {
 }
 
 export async function executeRun(ctx: CliContext, setup: RunSetup): Promise<RunResult> {
-  const available = setup.available ?? (await ctx.detectClis());
+  const available = setup.available ?? ctx.availableClis ?? (await ctx.detectClis());
   if (!available.length) throw new Error(t(setup.lang, 'run.noCli'));
   if (setup.cli && !available.includes(setup.cli)) throw new Error(`${setup.cli} is not installed (found: ${available.join(', ')})`);
 
@@ -48,12 +49,13 @@ export async function executeRun(ctx: CliContext, setup: RunSetup): Promise<RunR
     config,
     brain: ws.brain,
     context: { build: (req) => buildContext(ws.brain, req, { eduMdPath }) },
-    engines: setup.engines ?? engineModule.createEngine,
+    engines: setup.engines ?? ctx.engineFactory ?? engineModule.createEngine,
     available,
     cwd: setup.cwd,
     onEvent: setup.onEvent,
     approve: setup.approve,
     signal: setup.signal,
+    harnessLevel: setup.harnessLevel,
     runsDir: join(ws.primary.root, 'runs'),
   });
 }

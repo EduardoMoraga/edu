@@ -58,7 +58,7 @@ describe('context packs', () => {
   it('makes a deterministic brief with only the last three episodes', async () => {
     const { brain, eduMdPath } = await fixture();
     for (let i = 1; i <= 4; i++) await brain.write({ tier: 'episodic', title: `Episode ${i}`, body: 'Summary', created: `2026-10-0${i}T00:00:00Z` });
-    const opts = { eduMdPath, now: new Date('2026-10-08T00:00:00Z') };
+    const opts = { eduMdPath, now: new Date('2026-10-08T00:00:00Z'), trackUsage: false };
     const first = await brief(brain, 1500, opts);
     expect(await brief(brain, 1500, opts)).toBe(first);
     expect(first).not.toContain('Episode 1');
@@ -71,10 +71,25 @@ describe('context packs', () => {
     const stale = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Alpha weighted lesson', body: 'Old lesson' });
     await brain.update(stale.meta.id, { usage: { uses: 1, wins: 4, losses: 0, lastUsed: '2026-01-01T00:00:00Z' } });
     await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Beta fresh lesson', body: 'New lesson' });
-    const opts = { eduMdPath, now: new Date('2026-10-08T00:00:00Z') };
+    const opts = { eduMdPath, now: new Date('2026-10-08T00:00:00Z'), trackUsage: false };
     const first = await brief(brain, 1500, opts);
     const second = await brief(brain, 1500, opts);
     expect(first).toBe(second);
     expect(first.indexOf('Beta fresh lesson')).toBeLessThan(first.indexOf('Alpha weighted lesson'));
+  });
+
+  it('can preview a context pack without recording note usage', async () => {
+    const { brain, eduMdPath } = await fixture();
+    const note = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Preview lesson', body: 'read only' });
+    await buildContext(brain, { query: 'preview', budgetTokens: 200 }, { eduMdPath, trackUsage: false });
+    expect((await brain.read(note.meta.id))?.meta.usage).toBeUndefined();
+  });
+
+  it('records usage for an injected session brief', async () => {
+    const { brain, eduMdPath } = await fixture();
+    const note = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Injected lesson', body: 'brief content' });
+    const { brief } = await import('./brief.js');
+    await brief(brain, 400, { eduMdPath });
+    expect((await brain.read(note.meta.id))?.meta.usage?.uses).toBe(1);
   });
 });
