@@ -6,10 +6,13 @@
 import { Command } from 'commander';
 import { detectTheme, getGlyphs, renderBanner } from '../identity/index.js';
 import { registerBrain } from './commands/brain.js';
+import { registerCrew } from './commands/crew.js';
 import { registerDoctor } from './commands/doctor.js';
 import { registerEvidence } from './commands/evidence.js';
 import { registerIntegrations } from './commands/integrations.js';
 import { registerLearn } from './commands/learn.js';
+import { registerPluginSetup } from './commands/plugins.js';
+import { registerWatch } from './commands/watch.js';
 import { openHome, registerLive } from './commands/live.js';
 import { registerSetup } from './commands/setup.js';
 import { processContext, resolveGlobals, type CliContext } from './context.js';
@@ -71,6 +74,9 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerDoctor(program, ctx);
   registerEvidence(program, ctx);
   registerIntegrations(program, ctx);
+  registerPluginSetup(program, ctx);
+  registerCrew(program, ctx);
+  registerWatch(program, ctx);
 
   for (const [heading, names] of GROUPS) {
     for (const name of names) program.commands.find((c) => c.name() === name)?.helpGroup(heading);
