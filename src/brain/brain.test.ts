@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { openBrain } from './brain.js';
@@ -52,7 +52,7 @@ describe('brain API', () => {
     await expect(brain.feedback(session.meta.id, true)).rejects.toThrow('immutable');
     expect((await brain.read(session.meta.id))?.meta.usage).toBeUndefined();
     await brain.rebuildIndex();
-    const sessionFile = session.path.split('/').at(-1)!.replace(/\.md$/, '');
+    const sessionFile = basename(session.path).replace(/\.md$/, '');
     expect(await readFile(join(root, 'brain/0-index/INDEX.md'), 'utf8')).toContain(`[[${sessionFile}|Pairing]]`);
     const base = await readFile(join(root, 'brain/0-index/Sessions.base'), 'utf8');
     expect(base).toContain('file.inFolder("brain/2-episodic")');
@@ -115,7 +115,7 @@ describe('brain API', () => {
     const b = await brain.openSession('Daily sync', 'test');
     expect(a.meta.id).not.toBe(b.meta.id);
     expect(a.path).not.toBe(b.path);
-    expect(a.path.split('/').at(-1)).toMatch(/^\d{4}-\d{2}-\d{2}_\d{4}_daily-sync/);
+    expect(basename(a.path)).toMatch(/^\d{4}-\d{2}-\d{2}_\d{4}_daily-sync/);
   });
   it('uses temp-and-rename writes without leaving temp artifacts', async () => {
     const root = await temp(); const file = join(root, 'nested', 'note.md');
