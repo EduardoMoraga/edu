@@ -11,169 +11,128 @@
 a second brain that learns · a crew you can see
 ```
 
-**Edu gives any coding CLI an identity, a second brain that learns, a context budget, an orchestrator, and a live view of what your agents are doing.**
+**Edu lives inside the coding agent you already use.** It gives Claude Code, Codex, Pi,
+OpenCode and Antigravity one identity, a second brain that learns, and a crew: from any of
+them, hand work to the others and watch it happen.
 
-Works with Claude Code, Codex, Pi, OpenCode and Antigravity. One CLI is enough; more is a bonus.
-
-[Español](docs/README.es.md) · [Architecture](docs/ARCHITECTURE.md)
+[Español](docs/README.es.md) · [Guides](docs/guides/) · [Architecture](docs/ARCHITECTURE.md)
 
 ---
 
-## Why Edu
-
-Coding agents forget everything between sessions, bloat their own context, and work in a black box.
-
-- **Memory that survives the session** — decisions, lessons and commitments live as plain Markdown you own.
-- **Memory that learns** — notes that help rise, notes that mislead decay; nothing becomes "truth" without you.
-- **Context on a budget** — a compact brief at start, everything else pulled on demand.
-- **One model or a crew** — solo mode runs every role with one CLI; crew mode mixes vendors.
-- **You can see it** — a terminal view of agents, tokens, cost, approvals and what the brain recalled.
-
-## 60-second quickstart
-
-Works on **macOS, Linux and Windows** (Node ≥ 22; on Windows use PowerShell, cmd or Git Bash). CI runs on all three.
+## Quickstart
 
 ```bash
-npm i -g github:EduardoMoraga/edu   # Node >= 22
-edu init                            # creates ./.edu (brain, contract, config, roles, skills)
-edu install --cli claude            # connects Claude Code (prints the plan, asks first)
-edu demo                            # the live view with a scripted crew, no LLM needed
-edu run "add a health-check endpoint"
+npm i -g edu-agent      # Node >= 22 · or: npm i -g github:EduardoMoraga/edu
+edu setup               # detects your CLIs and installs Edu into each one
 ```
 
-`edu doctor` tells you what is installed, integrated and linked.
+Open your CLI and ask: **"what do you remember?"** — Edu answers from its brain.
+
+`edu setup` installs globally with each CLI's own plugin system, creates the global brain
+(`~/.edu`), and records every change so `edu uninstall` can reverse it. `edu doctor` shows
+what is connected.
+
+## Use Edu inside the agent you already love
+
+| CLI | Install (or just `edu setup`) | What you get | How to call it |
+|---|---|---|---|
+| **Claude Code** | `/plugin marketplace add EduardoMoraga/edu` then `/plugin install edu@edu` | skills, slash commands, roles, MCP, identity hook, statusline | `/edu:brief`, `/edu:crew …`, or just ask |
+| **Codex** | `codex plugin marketplace add EduardoMoraga/edu` then `codex plugin add edu@edu` | skills, MCP, identity hook | ask, or name a skill: `edu-crew` |
+| **Pi** | `pi install git:github.com/EduardoMoraga/edu` | extension (MCP + identity), prompts, skills | `/edu-brief`, `/edu-crew …` |
+| **OpenCode** | `edu setup` | commands, agents, plugin, MCP | `/edu-brief`, `/edu-crew …` |
+| **Antigravity** | `agy plugin install "$(npm root -g)/edu-agent/plugins/agy"` | skills, agents, rules (identity), MCP | ask, or name a skill: `edu-review` |
+| **DeepSeek** | use it as a model provider in OpenCode or Pi | everything the host CLI gets | same as the host CLI |
+
+Seven workflows, the same everywhere: **brief · recall · remember · reflect · crew · review ·
+status**. Per-CLI details: [Claude Code](docs/guides/claude.md) · [Codex](docs/guides/codex.md) ·
+[Pi](docs/guides/pi.md) · [OpenCode](docs/guides/opencode.md) ·
+[Antigravity](docs/guides/antigravity.md).
+
+## The crew
+
+Ask Codex to write tests from inside Claude, and watch it work:
+
+```
+/edu:crew codex: write tests for src/auth
+```
+
+Edu dispatches the job (`edu_crew_dispatch`), polls it (`edu_crew_status`), and brings back
+a summary (`edu_crew_result`). With herdr running,
+jobs can open in a visible pane next to you; otherwise they run headless.
+
+```
+/edu:review main
+```
+
+A read-only reviewer from a **different vendor** checks your diff (`edu_crew_review`) and
+returns ranked findings. Same-vendor review is used only when nothing else is installed.
+
+**Mission control.** `edu watch` in a second terminal shows every crew job live: agents,
+status, tokens and cost.
 
 ## The brain
 
-Plain Markdown with YAML frontmatter and `[[wikilinks]]`. Readable by any LLM, graphable in Obsidian, versionable with git. No database.
+Plain Markdown with YAML frontmatter and `[[wikilinks]]`: readable by any LLM, graphable in
+Obsidian (`edu brain link <vault>`), versionable with git. No database.
 
-```
-.edu/
-├── EDU.md              the contract: identity, claim bands, session protocol
-├── config.json         mode, default CLI, roles, approvals, context budget
-├── brain/
-│   ├── 0-index/        generated index + Obsidian dashboards
-│   ├── 1-canonical/    stable truth — proposed → accepted only by you
-│   ├── 2-episodic/     one note per session, immutable once closed
-│   └── 3-transitive/   D- decisions · H- hypotheses · C- commitments · L- lessons
-├── skills/  agents/  proposals/  runs/
-```
-
-**Three layers.** *Canonical* is what is true here (standards, preferences, lexicon). *Episodic* is what happened. *Transitive* is what carries forward:
-
-| Prefix | Kind | Lifecycle |
-|---|---|---|
-| `D-` | decision | active → reverted (by a new `D-` that supersedes it) |
-| `H-` | hypothesis | open → confirmed / refuted / no-evidence |
-| `C-` | commitment | pending → delivered / overdue |
-| `L-` | lesson | candidate → proven / retired |
-
-**Claim bands.** Every note is `verified`, `inferred` or `hypothesis`. Recall shows the band; Edu never states a hypothesis as fact.
-
-A global brain (`~/.edu`, or `EDU_HOME`) holds personal preferences; a project brain overlays it.
-
-## How it learns
-
-```
-recall → feedback → maintain → reflect → proposals
-```
-
-1. **Recall** ranks notes by relevance × learned weight, and records the use.
-2. **Feedback** marks a note as helpful or misleading (wins / losses).
-3. **Maintain** (`edu brain maintain`) decays unused notes, promotes lessons with ≥ 3 wins and a learned weight ≥ 0.7, retires misleading ones, flags overdue commitments.
-4. **Reflect** (`edu reflect --since 7d`) reads recent episodes and runs and proposes lessons, hypotheses and skill changes — schema-validated, never guessed.
-5. **Proposals** wait for you: `edu proposals list | accept <id> | reject <id>`. Proven lessons become canonical *proposals*; only you accept them.
-
-## Context budget
-
-Sessions start with a short brief (identity, open commitments and hypotheses, proven lessons, last episodes, an index pointer). Everything else is fetched on demand through MCP (`edu_recall`, `edu_read`). Inspect exactly what would be injected:
-
-```bash
-edu context --query "auth" --budget 4000
-```
-
-It prints the pack and a per-section token table; what did not fit is listed as deferred.
-
-## Solo vs crew
-
-| | Solo (default) | Crew |
-|---|---|---|
-| Engines | one CLI plays every role | roles mapped to different CLIs |
-| Sessions | each role is its own session | same |
-| Review | reviewer is a fresh session | reviewer prefers a different vendor than the builder |
-
-```bash
-edu run "migrate the config loader" --solo --cli codex --harness H3
-edu run "migrate the config loader" --crew
-```
-
-Roles: lead (plans), explorer (reads), builder (writes), reviewer (pass/fix verdict, one fix round). Steps that can write ask for approval (`ask-on-write`); `--yes` approves automatically. In a terminal you get the live view; in pipes and CI you get plain log lines. `Ctrl+C` cancels cleanly.
-
-### Why evidence
-
-Edu records task, context, verification, attribution, intervention and outcome evidence so results can be checked instead of inferred from a successful-looking patch. This follows the system-level harness framing in [AI Harness Engineering](https://arxiv.org/abs/2605.13357).
-
-## Supported CLIs
-
-`edu install [--cli claude,codex,pi,opencode,agy | all] [--scope project|global] [--dry-run] [--yes]`
-
-| CLI | Instructions | Skills | Agents | MCP | Extras |
-|---|---|---|---|---|---|
-| Claude Code | managed block in `CLAUDE.md` | `.claude/skills/` | `.claude/agents/` | `.mcp.json` / `~/.claude.json` | output style, `edu statusline`, SessionStart/SessionEnd hooks |
-| Codex | managed block in `AGENTS.md` | `.agents/skills/` | — | `~/.codex/config.toml` | — |
-| Pi | managed block in `AGENTS.md` | `.agents/skills/` | — | `~/.pi/agent/mcp.json` | — |
-| OpenCode | managed block in `AGENTS.md` | `.agents/skills/` | `opencode.json` | `opencode.json` | — |
-| Antigravity | managed block in `GEMINI.md` + `AGENTS.md` | `.agents/skills/` | — | manual step | — |
-
-Managed blocks touch only the text between `<!-- edu:core:start -->` and `<!-- edu:core:end -->`; JSON/TOML merges touch only Edu keys. Every write is recorded in `.edu/manifest.json`.
-
-## Obsidian
-
-```bash
-edu brain link ~/Obsidian/MyVault
-```
-
-Creates `<vault>/Edu/<project>` pointing at the brain folder (a symlink; a junction on Windows). It never replaces anything that already exists. Graph view, backlinks and the generated `.base` dashboards work out of the box.
-
-## Commands
-
-| Command | What it does |
+| Layer | What lives there |
 |---|---|
-| `edu` | live view home (in a terminal); type a goal to start a solo run |
-| `edu init [--global] [--name Edu] [--cli X]` | create a brain |
-| `edu install` / `edu uninstall [--force]` | connect / disconnect coding CLIs |
-| `edu doctor [--json]` | Node, CLIs, integrations, brains, Obsidian link |
-| `edu run "<goal>" [--solo\|--crew] [--cli X] [--harness H0\|H1\|H2\|H3] [--yes]` | orchestrate a goal with H3 evidence support by default |
-| `edu ui [--replay runs/<id>.jsonl] [--speed n]` / `edu demo` | live view, replays, demo |
-| `edu brain status \| recall <q> \| remember <title> \| maintain \| import albert\|moragent <path> \| link <vault>` | work with the brain |
-| `edu context [--query q] [--budget n]` | show the context pack |
-| `edu metrics [--since 30d] [--by cli\|role\|level] [--json]` | summarize episode evidence (AVSR, M-HIR and verification/recovery quality) |
-| `edu checks list\|add\|run` | manage and execute deterministic checks in `.edu/harness/checks.json` |
-| `edu reflect [--since 7d]` · `edu proposals list\|accept\|reject` | self-improvement loop |
-| `edu mcp` · `edu statusline` · `edu hook …` | integrations used by your CLIs |
+| `canonical` | stable truth: standards, preferences, lexicon. Changes only when you accept a proposal |
+| `episodic` | one note per session, immutable once closed |
+| `transitive` | what carries forward: `D-` decisions · `H-` hypotheses · `C-` commitments · `L-` lessons |
 
-Global flags: `--cwd <dir>`, `--lang en|es`, and `--json` where it makes sense.
+Every note has a **claim band** — `verified`, `inferred` or `hypothesis` — and Edu never
+states a hypothesis as fact. Sessions start with a small brief; everything else is pulled on
+demand (`edu_recall`, `edu_read`), so context stays lean.
+
+**It learns.** Notes that help rise, notes that mislead decay (`edu_feedback`).
+`edu reflect` proposes lessons and skill changes from recent work; nothing becomes truth
+until you run `edu proposals accept <id>`.
+
+## Evidence and metrics
+
+A change counts when it is verified, not when it looks right. Edu records context, tool,
+verification, attribution and intervention traces per episode, following
+[AI Harness Engineering](https://arxiv.org/abs/2605.13357).
+
+```bash
+edu checks run         # deterministic checks Edu runs itself
+edu metrics --by cli    # AVSR, human-intervention rate, verification autonomy
+```
+
+## Standalone
+
+Edu also runs on its own: `edu run "<goal>" [--solo|--crew]` orchestrates lead, explorer,
+builder and reviewer roles; `edu demo` shows the live view without any LLM.
 
 ## Uninstall
 
 ```bash
-edu uninstall                 # project scope; --scope global for global installs
+edu uninstall --scope global   # reverses everything edu setup recorded
 npm rm -g edu-agent
 ```
 
-Uninstall restores every file from the manifest and refuses to clobber files you edited since install (`--force` to override). Your `.edu/` brain is never deleted — it is your data.
+Native alternatives: `claude plugin uninstall edu@edu` · `codex plugin remove edu@edu` ·
+`pi remove git:github.com/EduardoMoraga/edu` · `agy plugin uninstall edu`. Edu refuses to
+overwrite files you edited since install (`--force` to override). Your brain (`~/.edu`,
+`.edu/`) is never deleted: it is your data.
+
+## Windows
+
+- Works in PowerShell, cmd and Git Bash with Node ≥ 22; CI runs on Windows, macOS and Linux.
+- In PowerShell the Antigravity path is `"$(npm root -g)\edu-agent\plugins\agy"`.
+- `edu brain link` creates a junction instead of a symlink; no admin rights needed.
+- Crew pane mode needs herdr; without it, jobs run headless and `edu watch` shows them.
 
 ## FAQ
 
-**Do I need several LLM subscriptions?** No. Everything works with one CLI.
+**Do I need several LLM subscriptions?** No. Everything works with one CLI; the crew is a bonus.
 
-**Does Edu send my code anywhere?** Edu itself makes no network calls. It runs the CLIs you already use, with their own settings.
+**Does Edu send my code anywhere?** Edu makes no network calls. It runs the CLIs you already
+use, with their own settings.
 
-**Can I edit the brain by hand?** Yes — it is Markdown. Canonical notes you accept are protected from automatic edits.
-
-**What does `edu demo` need?** Nothing but Node. It replays a scripted crew.
-
-**Where are runs stored?** `.edu/runs/<runId>.jsonl`; replay any of them with `edu ui --replay`.
+**Can I edit the brain by hand?** Yes, it is Markdown. Accepted canonical notes are protected
+from automatic edits.
 
 ## License
 

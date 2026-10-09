@@ -8,172 +8,135 @@
 ███████╗██████╔╝╚██████╔╝
 ╚══════╝╚═════╝  ╚═════╝
 
-a second brain that learns · a crew you can see
+un segundo cerebro que aprende · un equipo que se ve
 ```
 
-**Edu le da a cualquier CLI de código una identidad, un segundo cerebro que aprende, un presupuesto de contexto, un orquestador y una vista en vivo de lo que hacen tus agentes.**
+**Edu vive dentro del agente de programación que ya usa.** Da a Claude Code, Codex, Pi,
+OpenCode y Antigravity una identidad, un segundo cerebro que aprende y un equipo: desde
+cualquiera de ellos se puede delegar trabajo a los demás y verlo en curso.
 
-Funciona con Claude Code, Codex, Pi, OpenCode y Antigravity. Un solo CLI es suficiente; tener más es un complemento.
-
-[English](../README.md) · [Arquitectura](ARCHITECTURE.md)
+[English](../README.md) · [Guías](guides/) · [Arquitectura](ARCHITECTURE.md)
 
 ---
 
-## Por qué Edu
-
-Los agentes de código olvidan todo entre sesiones, saturan su propio contexto y trabajan como una caja negra.
-
-- **Memoria que sobrevive a la sesión**: decisiones, lecciones y compromisos en Markdown plano que te pertenece.
-- **Memoria que aprende**: lo que ayuda sube, lo que confunde decae; nada se vuelve "verdad" sin tu confirmación.
-- **Contexto con presupuesto**: un resumen breve al inicio y el resto bajo demanda.
-- **Un modelo o un equipo**: el modo solo usa un CLI para todos los roles; el modo crew combina proveedores.
-- **Visible**: una vista de terminal con agentes, tokens, costo, aprobaciones y lo que el cerebro recordó.
-
-## Inicio en 60 segundos
-
-Funciona en **macOS, Linux y Windows** (Node ≥ 22; en Windows sirve PowerShell, cmd o Git Bash). La CI corre en los tres.
+## Inicio rápido
 
 ```bash
-npm i -g github:EduardoMoraga/edu   # Node >= 22
-edu init                            # crea ./.edu (cerebro, contrato, configuración, roles, skills)
-edu install --cli claude            # conecta Claude Code (muestra el plan y pregunta antes)
-edu demo                            # la vista en vivo con un equipo simulado, sin LLM
-edu run "agrega un endpoint de health-check"
+npm i -g edu-agent      # Node >= 22 · o bien: npm i -g github:EduardoMoraga/edu
+edu setup               # detecta sus CLIs e instala Edu en cada una
 ```
 
-`edu doctor` indica qué está instalado, integrado y vinculado.
+Abra su CLI y pregunte: **"what do you remember?"** (o "¿qué recuerdas?"). Edu responde desde
+su cerebro.
+
+`edu setup` instala de forma global con el sistema de plugins propio de cada CLI, crea el
+cerebro global (`~/.edu`) y registra cada cambio para que `edu uninstall` pueda revertirlo.
+`edu doctor` muestra qué está conectado.
+
+## Edu dentro del agente que ya usa
+
+| CLI | Instalación (o simplemente `edu setup`) | Qué obtiene | Cómo usarlo |
+|---|---|---|---|
+| **Claude Code** | `/plugin marketplace add EduardoMoraga/edu` y luego `/plugin install edu@edu` | skills, comandos, roles, MCP, hook de identidad, statusline | `/edu:brief`, `/edu:crew …` o en lenguaje natural |
+| **Codex** | `codex plugin marketplace add EduardoMoraga/edu` y luego `codex plugin add edu@edu` | skills, MCP, hook de identidad | en lenguaje natural o nombrando la skill: `edu-crew` |
+| **Pi** | `pi install git:github.com/EduardoMoraga/edu` | extensión (MCP + identidad), prompts, skills | `/edu-brief`, `/edu-crew …` |
+| **OpenCode** | `edu setup` | comandos, agentes, plugin, MCP | `/edu-brief`, `/edu-crew …` |
+| **Antigravity** | `agy plugin install "$(npm root -g)/edu-agent/plugins/agy"` | skills, agentes, reglas (identidad), MCP | en lenguaje natural o nombrando la skill: `edu-review` |
+| **DeepSeek** | como proveedor de modelos en OpenCode o Pi | todo lo que obtiene la CLI anfitriona | igual que la CLI anfitriona |
+
+Siete flujos, iguales en todas partes: **brief · recall · remember · reflect · crew · review ·
+status**. Las skills reconocen frases en español ("ponme al día", "recuerda esto", "pídele a
+codex que…"). Detalle por CLI: [Claude Code](guides/claude.md) · [Codex](guides/codex.md) ·
+[Pi](guides/pi.md) · [OpenCode](guides/opencode.md) · [Antigravity](guides/antigravity.md).
+
+## El equipo (crew)
+
+Pida a Codex que escriba pruebas desde Claude y observe cómo trabaja:
+
+```
+/edu:crew codex: write tests for src/auth
+```
+
+Edu despacha el trabajo (`edu_crew_dispatch`), consulta su estado (`edu_crew_status`) y
+devuelve un resumen (`edu_crew_result`). Con herdr en ejecución, el trabajo puede abrirse en
+un panel visible a su lado; si no, corre en segundo plano.
+
+```
+/edu:review main
+```
+
+Un revisor de solo lectura de **otro proveedor** revisa su diff (`edu_crew_review`) y
+devuelve hallazgos ordenados por severidad. Solo se usa el mismo proveedor cuando no hay otro
+instalado.
+
+**Centro de control.** `edu watch` en una segunda terminal muestra cada trabajo del equipo en
+vivo: agentes, estado, tokens y costo.
 
 ## El cerebro
 
-Markdown plano con frontmatter YAML y `[[wikilinks]]`. Cualquier LLM puede leerlo, Obsidian puede graficarlo y git puede versionarlo. Sin base de datos.
+Markdown plano con frontmatter YAML y `[[wikilinks]]`: legible por cualquier LLM, navegable
+en Obsidian (`edu brain link <vault>`) y versionable con git. Sin base de datos.
 
-```
-.edu/
-├── EDU.md              el contrato: identidad, bandas de afirmación, protocolo de sesión
-├── config.json         modo, CLI por defecto, roles, aprobaciones, presupuesto de contexto
-├── brain/
-│   ├── 0-index/        índice generado + paneles de Obsidian
-│   ├── 1-canonical/    verdad estable — propuesta → aceptada solo por ti
-│   ├── 2-episodic/     una nota por sesión, inmutable al cerrarse
-│   └── 3-transitive/   D- decisiones · H- hipótesis · C- compromisos · L- lecciones
-├── skills/  agents/  proposals/  runs/
-```
-
-**Tres capas.** *Canónica* es lo que es cierto aquí (estándares, preferencias, léxico). *Episódica* es lo que ocurrió. *Transitiva* es lo que se arrastra hacia adelante:
-
-| Prefijo | Tipo | Ciclo de vida |
-|---|---|---|
-| `D-` | decisión | active → reverted (mediante una nueva `D-` que la reemplaza) |
-| `H-` | hipótesis | open → confirmed / refuted / no-evidence |
-| `C-` | compromiso | pending → delivered / overdue |
-| `L-` | lección | candidate → proven / retired |
-
-**Bandas de afirmación.** Cada nota es `verified`, `inferred` o `hypothesis`. La búsqueda muestra la banda; Edu nunca presenta una hipótesis como un hecho.
-
-Un cerebro global (`~/.edu`, o `EDU_HOME`) guarda preferencias personales; el cerebro del proyecto se superpone a él.
-
-## Cómo aprende
-
-```
-recall → feedback → maintain → reflect → proposals
-```
-
-1. **Recall** ordena las notas por relevancia × peso aprendido y registra su uso.
-2. **Feedback** marca una nota como útil o engañosa (aciertos / fallos).
-3. **Maintain** (`edu brain maintain`) hace decaer notas sin uso, promueve lecciones con ≥ 3 aciertos y peso aprendido ≥ 0,7, retira las engañosas y marca compromisos vencidos.
-4. **Reflect** (`edu reflect --since 7d`) lee episodios y ejecuciones recientes y propone lecciones, hipótesis y cambios de skills, validados contra un esquema, nunca adivinados.
-5. **Proposals** esperan tu decisión: `edu proposals list | accept <id> | reject <id>`. Las lecciones probadas se convierten en *propuestas* canónicas; solo tú las aceptas.
-
-## Presupuesto de contexto
-
-Cada sesión comienza con un resumen breve (identidad, compromisos e hipótesis abiertos, lecciones probadas, últimos episodios y un puntero al índice). El resto se obtiene bajo demanda vía MCP (`edu_recall`, `edu_read`). Para ver exactamente qué se inyectaría:
-
-```bash
-edu context --query "auth" --budget 4000
-```
-
-Muestra el paquete y una tabla de tokens por sección; lo que no cupo aparece como diferido.
-
-## Solo o crew
-
-| | Solo (por defecto) | Crew |
-|---|---|---|
-| Motores | un CLI cumple todos los roles | cada rol asignado a un CLI distinto |
-| Sesiones | cada rol es su propia sesión | igual |
-| Revisión | el revisor es una sesión nueva | el revisor prefiere un proveedor distinto al del constructor |
-
-```bash
-edu run "migra el cargador de configuración" --solo --cli codex --harness H3
-edu run "migra el cargador de configuración" --crew
-```
-
-Roles: lead (planifica), explorer (lee), builder (escribe), reviewer (veredicto pass/fix, una ronda de corrección). Los pasos que pueden escribir piden aprobación (`ask-on-write`); `--yes` aprueba automáticamente. En una terminal obtienes la vista en vivo; en pipes y CI, líneas de log simples. `Ctrl+C` cancela de forma limpia.
-
-### Por qué registrar evidencia
-
-Edu registra evidencia de tareas, contexto, verificación, atribución, intervenciones y resultados para poder comprobarlos, en lugar de inferirlos a partir de un parche que parece correcto. Esto sigue el enfoque sistémico de harness descrito en [AI Harness Engineering](https://arxiv.org/abs/2605.13357).
-
-## CLIs compatibles
-
-`edu install [--cli claude,codex,pi,opencode,agy | all] [--scope project|global] [--dry-run] [--yes]`
-
-| CLI | Instrucciones | Skills | Agentes | MCP | Extras |
-|---|---|---|---|---|---|
-| Claude Code | bloque gestionado en `CLAUDE.md` | `.claude/skills/` | `.claude/agents/` | `.mcp.json` / `~/.claude.json` | estilo de salida, `edu statusline`, hooks SessionStart/SessionEnd |
-| Codex | bloque gestionado en `AGENTS.md` | `.agents/skills/` | — | `~/.codex/config.toml` | — |
-| Pi | bloque gestionado en `AGENTS.md` | `.agents/skills/` | — | `~/.pi/agent/mcp.json` | — |
-| OpenCode | bloque gestionado en `AGENTS.md` | `.agents/skills/` | `opencode.json` | `opencode.json` | — |
-| Antigravity | bloque gestionado en `GEMINI.md` + `AGENTS.md` | `.agents/skills/` | — | paso manual | — |
-
-Los bloques gestionados solo modifican el texto entre `<!-- edu:core:start -->` y `<!-- edu:core:end -->`; las fusiones JSON/TOML solo tocan claves de Edu. Cada escritura queda registrada en `.edu/manifest.json`.
-
-## Obsidian
-
-```bash
-edu brain link ~/Obsidian/MiVault
-```
-
-Crea `<vault>/Edu/<proyecto>` apuntando a la carpeta del cerebro (enlace simbólico; junction en Windows). Nunca reemplaza algo que ya exista. La vista de grafo, los backlinks y los paneles `.base` generados funcionan de inmediato.
-
-## Comandos
-
-| Comando | Qué hace |
+| Capa | Qué contiene |
 |---|---|
-| `edu` | inicio de la vista en vivo (en una terminal); escribe un objetivo para iniciar una ejecución solo |
-| `edu init [--global] [--name Edu] [--cli X]` | crea un cerebro |
-| `edu install` / `edu uninstall [--force]` | conecta / desconecta CLIs de código |
-| `edu doctor [--json]` | Node, CLIs, integraciones, cerebros, vínculo con Obsidian |
-| `edu run "<objetivo>" [--solo\|--crew] [--cli X] [--harness H0\|H1\|H2\|H3] [--yes]` | orquesta un objetivo; H3 es el nivel predeterminado |
-| `edu ui [--replay runs/<id>.jsonl] [--speed n]` / `edu demo` | vista en vivo, repeticiones, demo |
-| `edu brain status \| recall <q> \| remember <título> \| maintain \| import albert\|moragent <ruta> \| link <vault>` | trabajar con el cerebro |
-| `edu context [--query q] [--budget n]` | muestra el paquete de contexto |
-| `edu metrics [--since 30d] [--by cli\|role\|level] [--json]` | resume evidencia de episodios (AVSR, M-HIR y calidad de verificación/recuperación) |
-| `edu checks list\|add\|run` | administra y ejecuta checks deterministas en `.edu/harness/checks.json` |
-| `edu reflect [--since 7d]` · `edu proposals list\|accept\|reject` | ciclo de automejora |
-| `edu mcp` · `edu statusline` · `edu hook …` | integraciones usadas por tus CLIs |
+| `canonical` | verdad estable: estándares, preferencias, léxico. Cambia solo cuando usted acepta una propuesta |
+| `episodic` | una nota por sesión, inmutable una vez cerrada |
+| `transitive` | lo que se arrastra entre sesiones: `D-` decisiones · `H-` hipótesis · `C-` compromisos · `L-` lecciones |
 
-Opciones globales: `--cwd <dir>`, `--lang en|es` y `--json` donde corresponde. Usa `--lang es` (o `EDU_LANG=es`) para ver los mensajes en español.
+Cada nota tiene una **banda de certeza** —`verified`, `inferred` o `hypothesis`— y Edu nunca
+presenta una hipótesis como un hecho. Cada sesión empieza con un brief breve; el resto se
+consulta bajo demanda (`edu_recall`, `edu_read`), de modo que el contexto se mantiene ligero.
+
+**Aprende.** Las notas útiles suben y las que confunden decaen (`edu_feedback`).
+`edu reflect` propone lecciones y cambios de skills a partir del trabajo reciente; nada se
+vuelve verdad hasta que usted ejecuta `edu proposals accept <id>`.
+
+## Evidencia y métricas
+
+Un cambio cuenta cuando está verificado, no cuando parece correcto. Edu registra trazas de
+contexto, herramientas, verificación, atribución e intervención por episodio, siguiendo
+[AI Harness Engineering](https://arxiv.org/abs/2605.13357).
+
+```bash
+edu checks run          # verificaciones deterministas que ejecuta Edu
+edu metrics --by cli    # AVSR, tasa de intervención humana, autonomía de verificación
+```
+
+## Uso independiente
+
+Edu también funciona por sí solo: `edu run "<objetivo>" [--solo|--crew]` orquesta los roles
+lead, explorer, builder y reviewer; `edu demo` muestra la vista en vivo sin ningún LLM.
 
 ## Desinstalar
 
 ```bash
-edu uninstall                 # alcance de proyecto; --scope global para instalaciones globales
+edu uninstall --scope global   # revierte todo lo que registró edu setup
 npm rm -g edu-agent
 ```
 
-La desinstalación restaura cada archivo desde el manifiesto y se niega a sobrescribir archivos que editaste después de instalar (`--force` para forzarlo). Tu cerebro `.edu/` nunca se elimina: son tus datos.
+Alternativas nativas: `claude plugin uninstall edu@edu` · `codex plugin remove edu@edu` ·
+`pi remove git:github.com/EduardoMoraga/edu` · `agy plugin uninstall edu`. Edu no sobrescribe
+archivos que usted editó después de instalar (`--force` para forzarlo). Su cerebro (`~/.edu`,
+`.edu/`) nunca se borra: son sus datos.
+
+## Windows
+
+- Funciona en PowerShell, cmd y Git Bash con Node ≥ 22; la CI corre en Windows, macOS y Linux.
+- En PowerShell la ruta de Antigravity es `"$(npm root -g)\edu-agent\plugins\agy"`.
+- `edu brain link` crea una junction en lugar de un symlink; no requiere permisos de administrador.
+- El modo panel del equipo requiere herdr; sin él, los trabajos corren en segundo plano y
+  `edu watch` los muestra.
 
 ## Preguntas frecuentes
 
-**¿Necesito varias suscripciones de LLM?** No. Todo funciona con un solo CLI.
+**¿Necesito varias suscripciones de LLM?** No. Todo funciona con una sola CLI; el equipo es un
+extra.
 
-**¿Edu envía mi código a algún lugar?** Edu no hace llamadas de red por sí mismo. Ejecuta los CLIs que ya usas, con su propia configuración.
+**¿Edu envía mi código a algún lugar?** Edu no hace llamadas de red. Ejecuta las CLIs que usted
+ya usa, con su propia configuración.
 
-**¿Puedo editar el cerebro a mano?** Sí, es Markdown. Las notas canónicas que aceptaste están protegidas de ediciones automáticas.
-
-**¿Qué necesita `edu demo`?** Solo Node. Reproduce un equipo simulado.
-
-**¿Dónde se guardan las ejecuciones?** En `.edu/runs/<runId>.jsonl`; puedes repetir cualquiera con `edu ui --replay`.
+**¿Puedo editar el cerebro a mano?** Sí, es Markdown. Las notas canónicas aceptadas están
+protegidas contra ediciones automáticas.
 
 ## Licencia
 
