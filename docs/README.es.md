@@ -31,6 +31,8 @@ Los agentes de código olvidan todo entre sesiones, saturan su propio contexto y
 
 ## Inicio en 60 segundos
 
+Funciona en **macOS, Linux y Windows** (Node ≥ 22; en Windows sirve PowerShell, cmd o Git Bash). La CI corre en los tres.
+
 ```bash
 npm i -g github:EduardoMoraga/edu   # Node >= 22
 edu init                            # crea ./.edu (cerebro, contrato, configuración, roles, skills)

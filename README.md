@@ -31,6 +31,8 @@ Coding agents forget everything between sessions, bloat their own context, and w
 
 ## 60-second quickstart
 
+Works on **macOS, Linux and Windows** (Node ≥ 22; on Windows use PowerShell, cmd or Git Bash). CI runs on all three.
+
 ```bash
 npm i -g github:EduardoMoraga/edu   # Node >= 22
 edu init                            # creates ./.edu (brain, contract, config, roles, skills)
