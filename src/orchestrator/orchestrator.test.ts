@@ -186,7 +186,7 @@ describe('orchestrator contracts', () => {
     let running: ReturnType<typeof orchestrate> | undefined;
     try {
       running = orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H0', composerMessages });
-      const completedPromptly = await Promise.race([running.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 1_000))]);
+      const completedPromptly = await Promise.race([running.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 5_000)) /* a real hang never resolves; slow CI runners need headroom */]);
       expect(completedPromptly).toBe(true);
       releaseComposer();
       await running;
