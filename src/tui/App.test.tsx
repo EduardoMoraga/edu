@@ -114,10 +114,6 @@ describe('App: keyboard', () => {
     const onSubmit = vi.fn();
     instance = mount({ onSubmit });
     await tick();
-    instance.stdin.write('\t');
-    await tick();
-    instance.stdin.write('\t');
-    await tick();
     for (const ch of 'ship it') {
       instance.stdin.write(ch);
       await tick(5);
@@ -203,5 +199,29 @@ describe('App: live stream', () => {
     instance = mount({ events: broken() });
     await tick(40);
     expect(instance.lastFrame()).toContain('✗ event stream: pipe closed');
+  });
+});
+
+describe('App: home screen typing', () => {
+  it('focuses the composer on mount so typing works without tab, and submits on enter', async () => {
+    const onSubmit = vi.fn();
+    instance = mount({ events: [], onSubmit });
+    await tick();
+    expect(instance.lastFrame()).toContain('type what you want Edu to do');
+    instance.stdin.write('hola');
+    await tick();
+    expect(instance.lastFrame()).toContain('hola');
+    instance.stdin.write('\r');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('hola');
+  });
+
+  it('quits on ctrl+c when nothing is running instead of waiting for a cancel', async () => {
+    const onCancel = vi.fn();
+    instance = mount({ events: [], onSubmit: () => {}, onCancel });
+    await tick();
+    instance.stdin.write('\u0003');
+    await tick();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });

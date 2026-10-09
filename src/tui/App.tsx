@@ -36,6 +36,8 @@ export interface AppProps {
   columns?: number;
   rows?: number;
   context?: ContextUsage;
+  /** Pane focused on mount. Defaults to the composer when onSubmit is wired, so typing works immediately. */
+  initialPane?: Pane;
 }
 
 type Action = { kind: 'event'; event: EduEvent } | { kind: 'move'; delta: number } | { kind: 'select'; agentId: string };
@@ -62,7 +64,7 @@ export function App(props: AppProps) {
   const window = useWindowSize();
   const layout = computeLayout(props.columns ?? window.columns, props.rows ?? window.rows);
 
-  const [pane, setPane] = useState<Pane>('agents');
+  const [pane, setPane] = useState<Pane>(props.initialPane ?? (onSubmit ? 'composer' : 'agents'));
   const [help, setHelp] = useState(false);
   const [draft, setDraft] = useState('');
   const [detail, setDetail] = useState(false);
@@ -107,7 +109,9 @@ export function App(props: AppProps) {
 
   useInput((input: string, key: Key) => {
     if (key.ctrl && input === 'c') {
-      if (onCancel && !cancelling && state.run.endedAt === undefined) {
+      // Nothing running yet (home screen) or already finished: quit right away.
+      const running = state.run.startedAt !== undefined && state.run.endedAt === undefined;
+      if (onCancel && !cancelling && running) {
         setCancelling(true);
         onCancel();
       } else {

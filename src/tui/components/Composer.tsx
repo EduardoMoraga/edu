@@ -20,6 +20,17 @@ export function Composer({ value, active, width }: ComposerProps) {
       </Text>
     );
   }
+  if (!value && active) {
+    return (
+      <Text wrap="truncate-end">
+        <Tx tone="accent" bold>
+          {prompt}
+        </Tx>
+        <Tx tone="accent">{glyphs.cursor}</Tx>
+        <Tx dim>{' type what you want Edu to do, then press enter'}</Tx>
+      </Text>
+    );
+  }
   const room = Math.max(4, width - displayWidth(prompt) - 1);
   const shown = tail(value, room);
   return (

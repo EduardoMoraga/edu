@@ -19,7 +19,7 @@ function line(note: Note): string {
 
 export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   const brain = openBrain(opts.locations);
-  const server = new McpServer({ name: 'edu', version: '0.1.0' });
+  const server = new McpServer({ name: 'edu', version: '0.1.1' });
   const eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
   const respond = async (maxTokens: number | undefined, operation: () => Promise<string>) => {
     const limit = maxTokens ?? 800;
