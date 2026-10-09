@@ -1,6 +1,7 @@
 /** `edu init`, `edu install`, `edu uninstall`. */
 import { join } from 'node:path';
 import type { Command } from 'commander';
+import { exists } from '../workspace.js';
 import type { CliId, InstallScope } from '../../core/contracts.js';
 import { globalHome, type CliContext } from '../context.js';
 import { t } from '../i18n.js';
@@ -120,6 +121,15 @@ export function registerSetup(program: Command, ctx: CliContext): void {
       action<UninstallOpts>(ctx, async ({ g, opts }) => {
         const scope = parseScope(opts.scope);
         const { uninstall, getManifestPath } = await import('../../adapters/index.js');
+        if (scope === 'global') {
+          // `edu setup` installs native plugins and records them in its own manifest.
+          const { setupManifestPath, uninstallSetup } = await import('../../setup/index.js');
+          if (await exists(await setupManifestPath(ctx.home))) {
+            await uninstallSetup({ home: ctx.home, force: Boolean(opts.force) });
+            ctx.out(t(g.lang, 'uninstall.done', { scope }));
+            return;
+          }
+        }
         await uninstall({ manifestPath: getManifestPath(scope, g.cwd, ctx.home), force: Boolean(opts.force) });
         ctx.out(t(g.lang, 'uninstall.done', { scope }));
       }),

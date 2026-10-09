@@ -1,0 +1,23 @@
+{
+  "name": "edu",
+  "displayName": "Edu Agent Harness",
+  "version": "0.1.1",
+  "description": "Edu — an installable, LLM-agnostic agentic harness with a learning second brain and CLI-native workflows.",
+  "shortDescription": "A second brain and native workflows for coding CLIs.",
+  "author": {
+    "name": "Eduardo Moraga"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Edu",
+    "shortDescription": "Memory and agent workflows",
+    "category": "Productivity",
+    "capabilities": [
+      "memory",
+      "orchestration"
+    ],
+    "defaultPrompt": "Start with edu_brief and follow the Edu identity."
+  }
+}

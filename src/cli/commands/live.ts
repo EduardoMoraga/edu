@@ -5,7 +5,7 @@ import { atomicWrite } from '../../brain/store.js';
 import { resolve } from 'node:path';
 import { getGlyphs, renderBanner } from '../../identity/index.js';
 import type { CliContext, Resolved } from '../context.js';
-import { t } from '../i18n.js';
+import { t, uiLang } from '../i18n.js';
 import { action, look, parsePositive } from '../kit.js';
 import { packageVersion } from '../package.js';
 import { createPlainFormatter } from '../run/plain.js';
@@ -27,6 +27,11 @@ export function printPlain(ctx: CliContext, events: Iterable<EduEvent>): void {
 
 /** TUI home: banner, brain stats, detected CLIs, then the live view with a composer. */
 export async function openHome(ctx: CliContext, g: Resolved): Promise<void> {
+  const { shouldRunFirstSetup, runPluginSetup } = await import('./plugins.js');
+  if (await shouldRunFirstSetup(ctx)) {
+    await runPluginSetup(ctx, g);
+    return;
+  }
   const style = look(ctx);
   const ws = await openWorkspace(ctx, g.cwd);
   const [stats, name, clis] = await Promise.all([ws.brain.stats(), identityName(ws.primary.root), ctx.detectClis()]);
@@ -97,7 +102,7 @@ export function registerLive(program: Command, ctx: CliContext): void {
         for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
         if (!ctx.isTTY) return printPlain(ctx, run.events);
         const { playInTui } = await import('../run/live.js');
-        await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2000 }), 'Edu');
+        await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2000 }), 'Edu', uiLang(g.lang, ctx.env));
       }),
     );
 
@@ -117,7 +122,7 @@ export function registerLive(program: Command, ctx: CliContext): void {
           return printPlain(ctx, events);
         }
         const [{ timedEvents }, { playInTui }] = await Promise.all([import('../../tui/replay.js'), import('../run/live.js')]);
-        await playInTui(timedEvents(events, { speed }), 'Edu');
+        await playInTui(timedEvents(events, { speed }), 'Edu', uiLang(g.lang, ctx.env));
       }),
     );
 }

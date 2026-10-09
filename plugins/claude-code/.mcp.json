@@ -1,0 +1,8 @@
+{
+  "edu": {
+    "command": "edu",
+    "args": [
+      "mcp"
+    ]
+  }
+}

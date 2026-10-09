@@ -40,8 +40,16 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Test plugin generator
+        run: |
+          printf 'export default { test: { include: ["scripts/build-plugins.test.ts"] } }\n' > "$RUNNER_TEMP/vitest-plugins.config.mjs"
+          npx vitest run --config "$RUNNER_TEMP/vitest-plugins.config.mjs"
+
       - name: Build
         run: npm run build
+
+      - name: Check generated plugins
+        run: npm run build:plugins -- --check
 
       - name: Smoke install
         run: bash scripts/smoke-install.sh

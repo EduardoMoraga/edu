@@ -6,7 +6,8 @@ coverage/
 # MORAGENT dev-harness (local orchestration of the crew that builds Edu)
 .moragent/
 .claude/
-.agents/
+.agents/*
+!.agents/plugins/
 .pi/
 AGENTS.md
 CLAUDE.md

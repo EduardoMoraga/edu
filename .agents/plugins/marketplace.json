@@ -1,0 +1,19 @@
+{
+  "name": "edu",
+  "interface": {
+    "displayName": "Edu Agent Harness"
+  },
+  "plugins": [
+    {
+      "name": "edu",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

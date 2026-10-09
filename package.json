@@ -11,6 +11,9 @@
   "files": [
     "dist",
     "templates",
+    "plugins",
+    ".claude-plugin",
+    ".agents/plugins",
     "README.md",
     "LICENSE"
   ],
@@ -22,6 +25,7 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "build:plugins": "node --experimental-strip-types scripts/build-plugins.ts",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm test && npm run build",
     "prepack": "npm run build",
@@ -38,8 +42,14 @@
     "harness",
     "second-brain",
     "mcp",
-    "obsidian"
+    "obsidian",
+    "pi-package"
   ],
+  "pi": {
+    "extensions": ["./plugins/pi/extensions"],
+    "prompts": ["./plugins/pi/prompts"],
+    "skills": ["./plugins/pi/skills"]
+  },
   "author": "Eduardo Moraga",
   "license": "MIT",
   "repository": {
