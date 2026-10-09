@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+.DS_Store
+# MORAGENT dev-harness (local orchestration of the crew that builds Edu)
+.moragent/
+.claude/
+.agents/
+.pi/
+AGENTS.md
+CLAUDE.md
+GEMINI.md

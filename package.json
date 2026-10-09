@@ -1,0 +1,62 @@
+{
+  "name": "edu-agent",
+  "version": "0.1.0",
+  "description": "Edu — an installable, LLM-agnostic agentic harness: a self-improving second brain, an orchestrator with identity, and a live terminal view of your agents.",
+  "type": "module",
+  "bin": {
+    "edu": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "keywords": [
+    "agents",
+    "llm",
+    "claude-code",
+    "codex",
+    "pi",
+    "opencode",
+    "harness",
+    "second-brain",
+    "mcp",
+    "obsidian"
+  ],
+  "author": "Eduardo Moraga",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EduardoMoraga/edu.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "commander": "^15.0.0",
+    "ink": "^8.0.0",
+    "react": "^19.3.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "ink-testing-library": "^4.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  }
+}
