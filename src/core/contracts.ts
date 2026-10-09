@@ -168,7 +168,10 @@ export type EduEvent =
   | { type: 'agent.thinking'; agentId: string; text: string; at: string }
   | { type: 'tool.call'; agentId: string; callId: string; tool: string; input: string; at: string }
   | { type: 'tool.result'; agentId: string; callId: string; ok: boolean; output: string; at: string }
+  /** Usage is a DELTA for this turn/step; consumers sum per agent and per run. */
   | { type: 'usage'; agentId: string; usage: Usage; at: string }
+  /** Context-window occupancy snapshot (not a delta), when the engine or Edu can measure it. */
+  | { type: 'context.usage'; agentId?: string; usedTokens: number; windowTokens: number; at: string }
   | { type: 'approval.request'; agentId: string; approvalId: string; title: string; detail: string; at: string }
   | { type: 'approval.resolve'; approvalId: string; approved: boolean; by: 'user' | 'policy'; at: string }
   | { type: 'brain.recall'; agentId?: string; noteIds: string[]; at: string }
