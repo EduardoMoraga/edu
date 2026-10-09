@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { resolveBrainLocations } from './locations.js';
 
 const roots: string[] = [];
@@ -17,4 +17,15 @@ it('finds the nearest project .edu and honors EDU_HOME for the global brain', as
     { scope: 'project', root: join(root, '.edu') },
     { scope: 'global', root: join(root, 'custom-global') },
   ]);
+});
+
+describe('launchDirectory', () => {
+  it('prefers the inherited PWD only when the process runs from a plugin folder', async () => {
+    const { launchDirectory } = await import('./stdio.js');
+    const { tmpdir } = await import('node:os');
+    const home = tmpdir();
+    expect(launchDirectory({ PWD: home }, '/x/.gemini/antigravity-cli/plugins/edu')).toBe(home);
+    expect(launchDirectory({ PWD: home }, '/work/project')).toBe('/work/project');
+    expect(launchDirectory({}, '/x/plugins/edu')).toBe('/x/plugins/edu');
+  });
 });

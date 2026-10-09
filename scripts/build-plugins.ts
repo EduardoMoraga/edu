@@ -45,7 +45,8 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
     skills: './skills/', mcpServers: './.mcp.json', hooks: './hooks/hooks.json',
     interface: { displayName: 'Edu', shortDescription: 'Memory and agent workflows', category: 'Productivity', capabilities: ['memory', 'orchestration'], defaultPrompt: 'Start with edu_brief and follow the Edu identity.' },
   }));
-  add('plugins/codex/.mcp.json', json({ mcpServers: { edu: mcp } }));
+  // Codex rejects MCP tool calls in non-interactive runs unless the server opts in.
+  add('plugins/codex/.mcp.json', json({ mcpServers: { edu: { ...mcp, default_tools_approval_mode: 'approve' } } }));
   add('plugins/codex/hooks/hooks.json', json(hook));
   for (const skill of skills) add(`plugins/codex/skills/${skill.name}/SKILL.md`, skill.content);
   for (const agent of agents) add(`plugins/codex/agents/${agent.name}.md`, agent.content);

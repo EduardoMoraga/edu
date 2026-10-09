@@ -20,3 +20,15 @@ describe('crew store', () => {
     expect(await readFile(join(root, 'crew', `${job.id}.jsonl`), 'utf8')).toContain('"working"');
   });
 });
+
+describe('crew job id prefixes', () => {
+  it('resolves a unique prefix and rejects an ambiguous one', async () => {
+    const { mkdtemp } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const store = createCrewStore(await mkdtemp(join(tmpdir(), 'edu-crew-prefix-')));
+    const job = await store.create({ cli: 'codex', task: 't', mode: 'headless', cwd: '/', autonomy: 'readonly' });
+    expect((await store.get(job.id.slice(0, 8)))?.id).toBe(job.id);
+    expect(await store.get('ffffffff')).toBeUndefined();
+  });
+});

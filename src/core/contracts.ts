@@ -169,6 +169,15 @@ export interface CrewJob {
   summary: string;
   usage: Usage;
   note?: string;
+  /** Prompt not yet delivered because the agent is waiting on a human answer (trust, login…) in its pane. */
+  pendingPrompt?: string;
+  /** Set once the pane agent was seen working, so a later idle means the turn finished. */
+  observedWorking?: boolean;
+  /** herdr `state_change_seq` right after the prompt was delivered; a later idle with a higher seq means done. */
+  promptSeq?: number;
+  /** Hash of the pane text right after the prompt; changed text plus idle means the agent answered. */
+  promptPaneHash?: string;
+  promptedAt?: string;
 }
 
 export interface EngineRunRequest {

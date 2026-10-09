@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { binaryOnPath } from '../adapters/common.js';
@@ -49,9 +50,23 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
     const autonomyPrompt = job.autonomy === 'readonly'
       ? 'Autonomy policy: readonly. Do not modify files or take other write actions.'
       : `Autonomy policy: ${job.autonomy}. Follow this level for all requested actions.`;
-    await runner(['agent', 'start', agentName, '--kind', job.cli, '--pane', paneId]);
-    await runner(['agent', 'prompt', agentName, `${autonomyPrompt}\n\nMission: ${job.task}`]);
-    return store.update(job.id, { status: 'running', paneId, agentName, note: undefined });
+    // Interactive Codex can refuse its shared background server; --no-daemon runs it standalone.
+    const agentArgs = job.cli === 'codex' ? ['--', '--no-daemon'] : [];
+    const prompt = `${autonomyPrompt}\n\nMission: ${job.task}`;
+    try {
+      await runner(['agent', 'start', agentName, '--kind', job.cli, '--pane', paneId, ...agentArgs]);
+    } catch (error) {
+      // The CLI is up but asking the human something (folder trust, sign-in). That is the user's call:
+      // keep the job alive, point them to the pane, and deliver the prompt once the agent is ready.
+      if (!/agent_not_ready/.test(errorMessage(error))) throw error;
+      const question = await lastPaneLines(paneId, options).catch(() => '');
+      return store.update(job.id, {
+        status: 'running', paneId, agentName, pendingPrompt: prompt,
+        note: `${job.cli} is waiting for your answer in herdr pane ${paneId}. Answer it there; Edu sends the task as soon as it is ready.${question ? `\n${question}` : ''}`,
+      });
+    }
+    await runner(['agent', 'prompt', agentName, prompt]);
+    return store.update(job.id, { status: 'running', paneId, agentName, note: undefined, ...await promptBaseline(agentName, paneId, options, now) });
   } catch (error) {
     return store.update(job.id, { status: 'failed', endedAt: now().toISOString(), summary: errorMessage(error) });
   }
@@ -61,17 +76,58 @@ export async function refreshPane(job: CrewJob, options: HerdrOptions & { brainR
   if (job.status === 'done' || job.status === 'failed' || job.status === 'cancelled' || !job.agentName) return job;
   const store = options.store ?? createCrewStore(options.brainRoot ?? process.env.EDU_HOME ?? `${process.env.HOME ?? ''}/.edu`);
   try {
-    const raw = parse((await (options.runner ?? defaultRunner)(['agent', 'get', job.agentName])).stdout);
-    const result = raw.result as Record<string, unknown> | undefined;
-    const agent = result?.agent as Record<string, unknown> | undefined;
-    const status = String(agent?.status ?? agent?.state ?? result?.status ?? raw.status ?? '').toLowerCase();
-    if (status === 'done' || status === 'idle') {
+    const { status, seq } = await agentState(job.agentName, options);
+    if (job.pendingPrompt) {
+      if (status !== 'idle' && status !== 'done') return job;
+      await (options.runner ?? defaultRunner)(['agent', 'prompt', job.agentName, job.pendingPrompt]);
+      return store.update(job.id, { pendingPrompt: undefined, note: undefined, ...await promptBaseline(job.agentName, job.paneId, options, options.now ?? (() => new Date())) });
+    }
+    if (status === 'working' || status === 'blocked') {
+      return job.observedWorking ? job : store.update(job.id, { observedWorking: true });
+    }
+    // herdr reports `done` for a finished, unseen turn; `idle` alone may mean the prompt was not picked up yet.
+    let changedSincePrompt = seq !== undefined && job.promptSeq !== undefined && seq > job.promptSeq;
+    // Very short turns can finish without herdr ever reporting `working`; fall back to the pane text.
+    const settledFor = job.promptedAt ? (options.now ?? (() => new Date()))().getTime() - Date.parse(job.promptedAt) : 0;
+    if (!changedSincePrompt && status === 'idle' && job.paneId && job.promptPaneHash && settledFor >= 5000) {
+      changedSincePrompt = (await paneHash(job.paneId, options).catch(() => job.promptPaneHash)) !== job.promptPaneHash;
+    }
+    if (status === 'done' || (status === 'idle' && (job.observedWorking || changedSincePrompt))) {
       const output = await (options.runner ?? defaultRunner)(['agent', 'read', job.agentName, '--source', 'recent-unwrapped', '--lines', '200']);
       return store.update(job.id, { status: 'done', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary: readResult(output.stdout) });
     }
     if (status === 'failed' || status === 'error') return store.update(job.id, { status: 'failed', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary: `Herdr agent ${status}` });
     return job;
   } catch (error) {
-    return store.update(job.id, { status: 'failed', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary: errorMessage(error) });
+    // The agent is gone (crashed or exited): surface what the pane last showed instead of a bare lookup error.
+    const paneTail = job.paneId ? await lastPaneLines(job.paneId, options).catch(() => '') : '';
+    const summary = paneTail ? `Agent exited. Last pane output:\n${paneTail}` : errorMessage(error);
+    return store.update(job.id, { status: 'failed', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary });
   }
+}
+
+async function agentState(name: string, options: HerdrOptions): Promise<{ status: string; seq?: number }> {
+  const raw = parse((await (options.runner ?? defaultRunner)(['agent', 'get', name])).stdout);
+  const result = raw.result as Record<string, unknown> | undefined;
+  const agent = result?.agent as Record<string, unknown> | undefined;
+  const status = String(agent?.agent_status ?? agent?.status ?? agent?.state ?? result?.agent_status ?? result?.status ?? raw.status ?? '').toLowerCase();
+  const seq = typeof agent?.state_change_seq === 'number' ? agent.state_change_seq : undefined;
+  return { status, seq };
+}
+
+async function paneHash(paneId: string, options: HerdrOptions): Promise<string> {
+  const output = await (options.runner ?? defaultRunner)(['pane', 'read', paneId, '--source', 'recent-unwrapped', '--lines', '200']);
+  return createHash('sha256').update(output.stdout).digest('hex');
+}
+
+/** Captured right after a prompt is delivered, to tell later "answered" from "not started yet". */
+async function promptBaseline(name: string, paneId: string | undefined, options: HerdrOptions, now: () => Date) {
+  const state = await agentState(name, options).catch(() => undefined);
+  const hash = paneId ? await paneHash(paneId, options).catch(() => undefined) : undefined;
+  return { promptSeq: state?.seq, promptPaneHash: hash, promptedAt: now().toISOString() };
+}
+
+async function lastPaneLines(paneId: string, options: HerdrOptions): Promise<string> {
+  const output = await (options.runner ?? defaultRunner)(['pane', 'read', paneId, '--source', 'recent-unwrapped', '--lines', '12']);
+  return output.stdout.trim().split('\n').slice(-8).join('\n');
 }

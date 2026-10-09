@@ -1,7 +1,7 @@
 {
   "name": "edu",
   "displayName": "Edu Agent Harness",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Edu — an installable, LLM-agnostic agentic harness with a learning second brain and CLI-native workflows.",
   "shortDescription": "A second brain and native workflows for coding CLIs.",
   "author": {

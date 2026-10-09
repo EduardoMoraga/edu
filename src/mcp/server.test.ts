@@ -74,3 +74,36 @@ describe('Edu MCP tools', () => {
     }
   });
 });
+
+describe('workspace binding', () => {
+  it('rebinds to the brain of the client root before the first tool call', async () => {
+    const pluginDir = await mkdtemp(join(tmpdir(), 'edu-plugin-'));
+    const project = await mkdtemp(join(tmpdir(), 'edu-project-'));
+    roots.push(pluginDir, project);
+    const wrong = { scope: 'project' as const, root: pluginDir };
+    const right = { scope: 'project' as const, root: project };
+    await openBrain([wrong]).init(wrong);
+    const projectBrain = openBrain([right]);
+    await projectBrain.init(right);
+    await projectBrain.write({ title: 'Prefer small pull requests', body: 'Small PRs', tier: 'transitive', kind: 'lesson' });
+    const server = createEduMcpServer({
+      locations: [wrong],
+      resolveLocations: async (mcp) => {
+        const { roots: listed } = await mcp.server.listRoots();
+        return listed[0]?.uri === `file://${project}` ? [right] : undefined;
+      },
+    });
+    const client = new Client({ name: 'edu-test', version: '1.0.0' }, { capabilities: { roots: {} } });
+    client.setRequestHandler((await import('@modelcontextprotocol/sdk/types.js')).ListRootsRequestSchema, async () => ({ roots: [{ uri: `file://${project}`, name: 'project' }] }));
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const result = await client.callTool({ name: 'edu_recall', arguments: { query: 'pull requests' } });
+      const text = result.content.filter(item => item.type === 'text').map(item => item.text).join('');
+      expect(text).toContain('Prefer small pull requests');
+    } finally {
+      await client.close();
+    }
+  });
+});

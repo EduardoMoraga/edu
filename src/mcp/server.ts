@@ -6,7 +6,17 @@ import { brief, truncateToTokens } from '../context/index.js';
 import type { BrainLocation, ClaimBand, Note, Tier } from '../core/contracts.js';
 import { createCrew, type CrewOptions } from '../crew/index.js';
 
-export interface EduMcpOptions { locations: BrainLocation[]; now?: Date; eduMdPath?: string; crewOptions?: CrewOptions }
+export interface EduMcpOptions {
+  locations: BrainLocation[];
+  now?: Date;
+  eduMdPath?: string;
+  crewOptions?: CrewOptions;
+  /**
+   * Called once, before the first tool call. Lets the host rebind to the client's real workspace
+   * (MCP roots) when the CLI launched the server from another directory, e.g. a plugin folder.
+   */
+  resolveLocations?: (server: McpServer) => Promise<BrainLocation[] | undefined>;
+}
 
 const tokenLimit = z.number().int().positive().optional().describe('Maximum response tokens (default 800)');
 const bands = z.enum(['verified', 'inferred', 'hypothesis']);
@@ -19,13 +29,22 @@ function line(note: Note): string {
 }
 
 export function createEduMcpServer(opts: EduMcpOptions): McpServer {
-  const brain = openBrain(opts.locations);
-  const server = new McpServer({ name: 'edu', version: '0.1.1' });
-  const crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
-  const eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
+  const server = new McpServer({ name: 'edu', version: '0.2.0' });
+  let brain = openBrain(opts.locations);
+  let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
+  let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
+  let bound: Promise<void> | undefined;
+  const bind = () => (bound ??= (async () => {
+    const locations = await opts.resolveLocations?.(server).catch(() => undefined);
+    if (!locations?.length) return;
+    brain = openBrain(locations);
+    crew = createCrew({ ...opts.crewOptions, locations });
+    eduMdPath = join(locations[0]!.root, 'EDU.md');
+  })());
   const respond = async (maxTokens: number | undefined, operation: () => Promise<string>) => {
     const limit = maxTokens ?? 800;
     try {
+      await bind();
       return { content: [{ type: 'text' as const, text: truncateToTokens(await operation(), limit) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

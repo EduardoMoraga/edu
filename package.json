@@ -1,6 +1,6 @@
 {
   "name": "edu-agent",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Edu — an installable, LLM-agnostic agentic harness: a self-improving second brain, an orchestrator with identity, and a live terminal view of your agents.",
   "type": "module",
   "bin": {
@@ -46,9 +46,15 @@
     "pi-package"
   ],
   "pi": {
-    "extensions": ["./plugins/pi/extensions"],
-    "prompts": ["./plugins/pi/prompts"],
-    "skills": ["./plugins/pi/skills"]
+    "extensions": [
+      "./plugins/pi/extensions"
+    ],
+    "prompts": [
+      "./plugins/pi/prompts"
+    ],
+    "skills": [
+      "./plugins/pi/skills"
+    ]
   },
   "author": "Eduardo Moraga",
   "license": "MIT",

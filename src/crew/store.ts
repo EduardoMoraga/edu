@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Autonomy, CliId, CrewJob, CrewJobMode, CrewJobStatus, EduEvent } from '../core/contracts.js';
 
 export interface NewCrewJob { cli: CliId; task: string; mode: CrewJobMode; cwd: string; autonomy: Autonomy }
-export type CrewJobPatch = Partial<Pick<CrewJob, 'status' | 'pid' | 'paneId' | 'agentName' | 'endedAt' | 'summary' | 'usage' | 'note'>>;
+export type CrewJobPatch = Partial<Pick<CrewJob, 'status' | 'pid' | 'paneId' | 'agentName' | 'endedAt' | 'pendingPrompt' | 'observedWorking' | 'promptSeq' | 'promptPaneHash' | 'promptedAt' | 'summary' | 'usage' | 'note'>>;
 
 export interface CrewStore {
   create(input: NewCrewJob): Promise<CrewJob>;
@@ -46,7 +46,16 @@ export function createCrewStore(brainRoot: string): CrewStore {
       await writeFile(eventPath(job.id), '', { flag: 'wx' });
       return job;
     },
-    async get(id) {
+    async get(input) {
+      // Accept a unique id prefix (as printed by `edu crew status`) as well as the full id.
+      let id = input;
+      if (/^[a-f0-9-]{4,35}$/i.test(input)) {
+        const { readdir } = await import('node:fs/promises');
+        const matches = (await readdir(root).catch(() => [] as string[])).filter(f => f.endsWith('.json') && f.startsWith(input.toLowerCase()));
+        if (matches.length > 1) throw new Error(`Ambiguous crew job id prefix: ${input}`);
+        if (matches.length === 0) return undefined;
+        id = matches[0]!.slice(0, -'.json'.length);
+      }
       try {
         const job: unknown = JSON.parse(await readFile(metaPath(id), 'utf8'));
         if (!job || typeof job !== 'object' || !('id' in job) || !('status' in job) || !statuses.has((job as CrewJob).status)) throw new Error(`Invalid crew job record: ${id}`);

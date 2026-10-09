@@ -66,6 +66,105 @@ describe('crew jobs', () => {
     expect(job.note).toContain('Herdr unavailable');
   });
 
+  it('keeps a pane job alive while the agent waits for a human answer, then delivers the task', async () => {
+    const f = await fixture();
+    const job = await f.store.create({ cli: 'codex', task: 'Write tests', mode: 'pane', cwd: f.root, autonomy: 'ask' });
+    const calls: string[][] = [];
+    let agentStatus = 'blocked';
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      if (args[0] === 'pane' && args[1] === 'split') return { stdout: JSON.stringify({ result: { pane: { pane_id: 'pane-9' } } }), stderr: '' };
+      if (args[0] === 'pane' && args[1] === 'read') return { stdout: 'Trust this folder?\n1. Trust and continue', stderr: '' };
+      if (args[1] === 'start') throw new Error('{"error":{"code":"agent_not_ready"}}');
+      if (args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { agent_status: agentStatus } } }), stderr: '' };
+      return { stdout: '{}', stderr: '' };
+    };
+    const options = { env: { HERDR_ENV: '1' }, hasBinary: async () => true, runner, store: f.store };
+    const waiting = await dispatchPane(job, options);
+    expect(waiting.status).toBe('running');
+    expect(waiting.note).toContain('waiting for your answer in herdr pane pane-9');
+    expect(waiting.note).toContain('Trust this folder?');
+    expect(calls.find(c => c[1] === 'start')).toContain('--no-daemon');
+    const herdr = await import('./herdr.js');
+    const stillWaiting = await herdr.refreshPane(waiting, options);
+    expect(stillWaiting.pendingPrompt).toBeDefined();
+    expect(calls.some(c => c[1] === 'prompt')).toBe(false);
+    agentStatus = 'idle';
+    const delivered = await herdr.refreshPane(stillWaiting, options);
+    expect(delivered.status).toBe('running');
+    expect(delivered.pendingPrompt).toBeUndefined();
+    expect(calls.filter(c => c[1] === 'prompt')).toHaveLength(1);
+  });
+
+  it('does not finish a pane job on the idle state seen before the agent starts working', async () => {
+    const f = await fixture();
+    const job = await f.store.create({ cli: 'pi', task: 'Say READY', mode: 'pane', cwd: f.root, autonomy: 'ask' });
+    let agentStatus = 'idle';
+    const runner: HerdrRunner = async args => {
+      if (args[0] === 'pane') return { stdout: JSON.stringify({ result: { pane: { pane_id: 'pane-5' } } }), stderr: '' };
+      if (args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { agent_status: agentStatus } } }), stderr: '' };
+      if (args[1] === 'read') return { stdout: 'READY', stderr: '' };
+      return { stdout: '{}', stderr: '' };
+    };
+    const options = { env: { HERDR_ENV: '1' }, hasBinary: async () => true, runner, store: f.store };
+    const herdr = await import('./herdr.js');
+    let current = await dispatchPane(job, options);
+    current = await herdr.refreshPane(current, options);
+    expect(current.status).toBe('running');
+    agentStatus = 'working';
+    current = await herdr.refreshPane(current, options);
+    expect(current.observedWorking).toBe(true);
+    agentStatus = 'idle';
+    current = await herdr.refreshPane(current, options);
+    expect(current.status).toBe('done');
+    expect(current.summary).toBe('READY');
+  });
+
+  it('finishes a fast pane job whose turn completed between polls, using the state change sequence', async () => {
+    const f = await fixture();
+    const job = await f.store.create({ cli: 'pi', task: 'Say READY', mode: 'pane', cwd: f.root, autonomy: 'ask' });
+    let seq = 10;
+    const runner: HerdrRunner = async args => {
+      if (args[0] === 'pane') return { stdout: JSON.stringify({ result: { pane: { pane_id: 'pane-6' } } }), stderr: '' };
+      if (args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { agent_status: 'idle', state_change_seq: seq } } }), stderr: '' };
+      if (args[1] === 'read') return { stdout: 'READY', stderr: '' };
+      return { stdout: '{}', stderr: '' };
+    };
+    const options = { env: { HERDR_ENV: '1' }, hasBinary: async () => true, runner, store: f.store };
+    const herdr = await import('./herdr.js');
+    let current = await dispatchPane(job, options);
+    expect(current.promptSeq).toBe(10);
+    current = await herdr.refreshPane(current, options);
+    expect(current.status).toBe('running');
+    seq = 12; // idle → working → idle happened between polls
+    current = await herdr.refreshPane(current, options);
+    expect(current.status).toBe('done');
+  });
+
+  it('finishes a fast pane job from the pane text when herdr never reports the turn', async () => {
+    const f = await fixture();
+    const job = await f.store.create({ cli: 'pi', task: 'Say READY', mode: 'pane', cwd: f.root, autonomy: 'ask' });
+    let pane = 'Mission: Say READY';
+    let clock = Date.parse('2026-10-09T12:00:00Z');
+    const runner: HerdrRunner = async args => {
+      if (args[0] === 'pane' && args[1] === 'split') return { stdout: JSON.stringify({ result: { pane: { pane_id: 'pane-7' } } }), stderr: '' };
+      if (args[0] === 'pane' && args[1] === 'read') return { stdout: pane, stderr: '' };
+      if (args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { agent_status: 'idle', state_change_seq: 5 } } }), stderr: '' };
+      if (args[1] === 'read') return { stdout: pane, stderr: '' };
+      return { stdout: '{}', stderr: '' };
+    };
+    const options = { env: { HERDR_ENV: '1' }, hasBinary: async () => true, runner, store: f.store, now: () => new Date(clock) };
+    const herdr = await import('./herdr.js');
+    let current = await dispatchPane(job, options);
+    pane = 'Mission: Say READY\nREADY';
+    clock += 2000;
+    current = await herdr.refreshPane(current, options);
+    expect(current.status).toBe('running'); // inside the grace period
+    clock += 4000;
+    current = await herdr.refreshPane(current, options);
+    expect(current.status).toBe('done');
+  });
+
   it('dispatches pane arguments in order, parses JSON, and reads completed output', async () => {
     const f = await fixture();
     const job = await f.store.create({ cli: 'claude', task: 'Check this', mode: 'pane', cwd: f.root, autonomy: 'readonly' });
@@ -73,7 +172,7 @@ describe('crew jobs', () => {
     const runner: HerdrRunner = async args => {
       calls.push(args);
       if (args[0] === 'pane') return { stdout: JSON.stringify({ result: { pane: { pane_id: 'pane-3' } } }), stderr: '' };
-      if (args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { status: 'done' } } }), stderr: '' };
+      if (args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { agent_status: 'done' } } }), stderr: '' };
       if (args[1] === 'read') return { stdout: 'Review complete', stderr: '' };
       return { stdout: '{}', stderr: '' };
     };
@@ -88,8 +187,8 @@ describe('crew jobs', () => {
     const completed = await (await import('./herdr.js')).refreshPane(started, options);
     expect(completed.status).toBe('done');
     expect(completed.summary).toBe('Review complete');
-    expect(calls[3]).toEqual(['agent', 'get', started.agentName]);
-    expect(calls[4]).toEqual(['agent', 'read', started.agentName, '--source', 'recent-unwrapped', '--lines', '200']);
+    expect(calls.filter(c => c[0] === 'agent' && c[1] === 'get').length).toBeGreaterThanOrEqual(2); // baseline + poll
+    expect(calls).toContainEqual(['agent', 'read', started.agentName, '--source', 'recent-unwrapped', '--lines', '200']);
     const endedAt = completed.endedAt;
     const callCount = calls.length;
     const repeated = await (await import('./herdr.js')).refreshPane(completed, options);
