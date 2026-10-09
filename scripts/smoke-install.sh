@@ -12,7 +12,12 @@ export HOME="$TMP/home"
 export npm_config_cache="$TMP/npm-cache"
 mkdir -p "$HOME" "$npm_config_cache" "$TMP/prefix"
 
-VERSION=$(node -p "require('$ROOT/package.json').version")
+VERSION=$(cd "$ROOT" && node -p "require('./package.json').version")
+
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) WINDOWS=1 ;;
+  *) WINDOWS=0 ;;
+esac
 
 npm pack "$ROOT" --pack-destination "$TMP" >"$TMP/pack.log"
 (
@@ -20,29 +25,36 @@ npm pack "$ROOT" --pack-destination "$TMP" >"$TMP/pack.log"
   npm i -g --prefix "$TMP/prefix" edu-agent-*.tgz >"$TMP/install.log"
 )
 
-EDU="$TMP/prefix/bin/edu"
-if [[ ! -x "$EDU" ]]; then
+# npm places global bins in <prefix>/bin on POSIX and directly in <prefix> on Windows.
+if [[ "$WINDOWS" == 1 ]]; then
+  EDU="$TMP/prefix/edu"
+  ENTRY="$TMP/prefix/node_modules/edu-agent/dist/cli.js"
+else
+  EDU="$TMP/prefix/bin/edu"
+  ENTRY="$TMP/prefix/lib/node_modules/edu-agent/dist/cli.js"
+fi
+
+if [[ ! -f "$EDU" ]]; then
+  echo "Expected installed edu binary at $EDU" >&2
+  exit 1
+fi
+if [[ "$WINDOWS" == 0 && ! -x "$EDU" ]]; then
   echo "Expected installed edu binary to be executable at $EDU" >&2
   exit 1
 fi
 
-FIRST_LINE=$(head -n 1 "$EDU")
+FIRST_LINE=$(head -n 1 "$ENTRY" | tr -d '\r')
 if [[ "$FIRST_LINE" != "#!/usr/bin/env node" ]]; then
-  echo "Expected installed edu binary to preserve the Node shebang, got: $FIRST_LINE" >&2
+  echo "Expected the installed CLI entry to keep the Node shebang, got: $FIRST_LINE" >&2
   exit 1
 fi
 
-INSTALLED_VERSION=$("$EDU" --version)
+INSTALLED_VERSION=$("$EDU" --version | tr -d '\r')
 if [[ "$INSTALLED_VERSION" != "$VERSION" ]]; then
   echo "Expected edu --version to print $VERSION, got $INSTALLED_VERSION" >&2
   exit 1
 fi
 
-HELP_OUTPUT=$("$EDU" --help 2>&1 || true)
-if [[ "$HELP_OUTPUT" == *"under construction"* ]]; then
-  echo "Notice: edu --help is not wired yet; version smoke check passed."
-else
-  "$EDU" --help >/dev/null
-fi
+"$EDU" --help >/dev/null
 
 echo "Smoke install passed for edu-agent@$VERSION"
