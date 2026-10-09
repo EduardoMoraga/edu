@@ -18,13 +18,13 @@ Work-unit commits per integrated wave.
 | ID | Task | Route | Owner | Status |
 |---|---|---|---|---|
 | E0 | Scaffold, contracts, spec, CI-less check | inline (lead, spec work) | lead | ✅ |
-| E1 | Brain core: store, frontmatter, lifecycles, recall+learned weight, maintain, index, importers | delegated (mora → codex) | backend | ☐ |
-| E2 | Engines: 5 CLI adapters, stream normalization, FakeEngine, fixtures | delegated (mora → codex) | backend | ☐ |
-| E3 | Identity + TUI (Ink) against EduEvent, demo/replay | delegated (mora → claude) | frontend | ☐ |
-| E4 | Tooling: CI (macOS+Linux), smoke-install script, packaging | delegated (mora → pi) | dev | ☐ |
-| E5 | Context budget + MCP server | delegated (mora → codex) | backend | ☐ |
-| E6 | CLI integrations installer/uninstaller + hooks | delegated (mora → codex) | backend | ☐ |
-| E7 | Orchestrator (solo/crew, approvals) + reflect | delegated (mora → codex) | backend | ☐ |
+| E1 | Brain core: store, frontmatter, lifecycles, recall+learned weight, maintain, index, importers | delegated (mora → codex) | backend | ✅ |
+| E2 | Engines: 5 CLI adapters, stream normalization, FakeEngine, fixtures | delegated (mora → codex) | backend | ✅ |
+| E3 | Identity + TUI (Ink) against EduEvent, demo/replay | delegated (mora → claude) | frontend | ✅ |
+| E4 | Tooling: CI (macOS+Linux), smoke-install script, packaging | delegated (mora → pi) | dev | ✅ |
+| E5 | Context budget + MCP server | delegated (mora → codex) | backend | 🔄 |
+| E6 | CLI integrations installer/uninstaller + hooks | delegated (mora → codex) | backend | 🔄 |
+| E7 | Orchestrator (solo/crew, approvals) + reflect | delegated (mora → codex) | backend | 🔄 |
 | E8 | CLI commands wiring + README/docs | delegated (mora → claude) | frontend | ☐ |
 | E9 | Audit: cross review (agy) + independent verification (pi); fix round | delegated | helper, dev | ☐ |
 | E10 | Publish: GitHub repo, push, tag v0.1.0 | inline | lead | ☐ |
@@ -38,5 +38,10 @@ See `docs/ARCHITECTURE.md` §14.
 - E0: `npm run check` green (typecheck, 2 tests, build). Crew smoke: codex ✓, agy ✓, pi ✓ after
   upgrading pi 0.85.1 → 0.99.2 (gentle-pi extension requires ≥0.99.1).
 
+- W1 (T-0004..T-0007): brain 17 tests, engines 37, identity+tui 116, tooling smoke ✓. Lead verification:
+  typecheck clean, 172/172 tests, build ok, `scripts/smoke-install.sh` passed. Commits d286987, bd0913b,
+  e15d0b9, 676d9f3; contract change 8e8627e (context.usage event, usage = delta) per frontend request.
+- W2 dispatched: T-0008 (E5), T-0009 (E6), T-0010 (E7), all Codex in parallel on disjoint paths.
+
 ## Next step
-Commit E0, dispatch W1.
+Integrate W2, then E8 (CLI wiring + README) and audits.
