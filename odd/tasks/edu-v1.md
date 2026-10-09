@@ -27,9 +27,10 @@ Work-unit commits per integrated wave.
 | E7 | Orchestrator (solo/crew, approvals) + reflect | delegated (mora → codex) | backend | 🔄 |
 | E8 | CLI commands wiring + README/docs | delegated (mora → claude) | frontend | ☐ |
 | E9 | Audit: cross review (agy) + independent verification (pi); fix round | delegated | helper, dev | ☐ |
+| E11 | Evidence layer (episode packages, H3 workflow, ladder H0–H3, AVSR/M-HIR metrics) per arXiv:2605.13357 | delegated (mora → codex) | backend | ☐ |
 | E10 | Publish: GitHub repo, push, tag v0.1.0 | inline | lead | ☐ |
 
-Waves: W1 = E1, E2, E3, E4 (parallel, disjoint paths) · W2 = E5, E6, E7, E8 · W3 = E9 · W4 = E10.
+Waves: W1 = E1, E2, E3, E4 (parallel, disjoint paths) · W2 = E5, E6, E7, E8 · W2b = E11 (after E7) · W3 = E8, E9 · W4 = E10.
 
 ## Acceptance
 See `docs/ARCHITECTURE.md` §14.
