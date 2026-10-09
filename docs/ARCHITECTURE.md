@@ -281,3 +281,62 @@ The brain closes the loop: every *avoidable* intervention becomes a candidate le
 its harness gap (e.g. human named the file → `context` gap → lesson/known-failure note); reflection
 prioritizes gaps with the highest M-HIR contribution. "Self-improving" is then a falsifiable claim:
 M-HIR down and AVSR up across releases.
+
+## 16. Plugin-first (v0.2)
+
+Edu's primary surface is **inside the CLI the user already uses**. The standalone TUI becomes an
+optional mission-control viewer (`edu watch`). Formats below were verified against the installed CLIs
+and their official docs (Claude Code 2.1, Codex 0.160, Pi 0.99, OpenCode 2.0, Antigravity 1.3).
+
+### 16.1 One source, generated plugins
+
+`templates/` stays the single source (EDU.md, skills, agents, commands). `scripts/build-plugins.ts`
+generates every native package into `plugins/` (checked in, because marketplaces install from git;
+CI fails if `plugins/` is stale):
+
+```
+.claude-plugin/marketplace.json      → plugins/claude-code   (Claude Code marketplace)
+.agents/plugins/marketplace.json     → plugins/codex         (Codex marketplace)
+plugins/
+  claude-code/ .claude-plugin/plugin.json · skills/ · agents/ · hooks/hooks.json · .mcp.json (bare map) · output-styles/edu.md
+  codex/       .codex-plugin/plugin.json · skills/ · .mcp.json ({"mcpServers":…}) · hooks/hooks.json
+  pi/          extensions/edu.ts (registerMcpServer + before_agent_start identity) · prompts/ · skills/
+  opencode/    commands/*.md · agents/*.md · plugins/edu.ts
+  agy/         plugin.json · mcp_config.json · skills/ · agents/ · rules/edu.md
+```
+Root `package.json` declares `"pi": {extensions, prompts, skills}` → `plugins/pi/*` and keyword
+`pi-package`, so `pi install git:github.com/EduardoMoraga/edu` works.
+
+### 16.2 Same capabilities everywhere
+
+Workflows ship as **skills** (portable; Codex deprecates custom prompts), plus slash commands where
+the CLI supports them:
+
+| Workflow | Claude | Pi | OpenCode | Codex / agy |
+|---|---|---|---|---|
+| brief, recall, remember, reflect, crew, review, status | `/edu:<name>` | `/edu-<name>` | `/edu-<name>` | skill `edu-<name>` |
+
+Identity (EDU.md core) per CLI: Claude/Codex SessionStart hook → `edu hook session-start`;
+Pi `before_agent_start`; agy `rules/edu.md`; OpenCode managed block in `~/.config/opencode/AGENTS.md`.
+
+### 16.3 `edu setup` — one command
+
+Detects CLIs and installs **globally** using each CLI's native installer, pointing at the installed
+package root (so plugin version == binary version):
+claude `plugin marketplace add <pkg>` + `plugin install edu@edu` · codex `plugin marketplace add <pkg>`
++ `plugin add edu@edu` · pi `install <pkg>` · agy `plugin install <pkg>/plugins/agy` · opencode
+managed copy of commands/agents/plugin + `mcp.edu`. Falls back to v0.1 managed-file adapters when a
+native command is unavailable. Creates the global brain. Records everything for `edu uninstall`.
+Bare `edu` on first run runs setup, then prints what to do inside each CLI.
+
+### 16.4 Crew from inside any CLI (MCP)
+
+| Tool | Behavior |
+|---|---|
+| `edu_crew_dispatch {cli, task, mode: headless|pane, cwd?, autonomy?}` | Starts a job. `headless`: detached `edu crew worker <jobId>` runs the engine and appends EduEvents to `.edu/crew/<jobId>.jsonl`. `pane` (herdr present): `herdr pane split` + `herdr agent start --kind <cli>` + `herdr agent prompt`, visible to the user. Returns `jobId` immediately. |
+| `edu_crew_status {jobId?}` | Jobs with cli, status, elapsed, tokens/cost. |
+| `edu_crew_result {jobId, waitSeconds?}` | Final summary (and last text) when done; waits up to `waitSeconds`. |
+| `edu_crew_review {cli?, base?}` | Dispatches a read-only reviewer on `git diff <base>` to a vendor different from the caller when available; returns findings. |
+
+`edu watch` renders `.edu/crew/*.jsonl` live (the v0.1 TUI, fixed: wrapped text, multi-line composer,
+`/` options palette, locale-aware Spanish).
