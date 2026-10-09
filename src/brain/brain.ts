@@ -33,6 +33,8 @@ export interface Brain {
   update(id: string, patch: Partial<NoteMeta>, body?: string): Promise<Note>;
   recall(query: string, opts?: { limit?: number; tiers?: Tier[] }): Promise<RecallHit[]>;
   feedback(id: string, helpful: boolean): Promise<Note>;
+  /** Records that notes were used (injected into context). Usage stats are learning signal, not content, so they are allowed on accepted canonical notes; closed episodes are skipped. */
+  recordUse(ids: string[], now?: Date): Promise<void>;
   openSession(title: string, source: string): Promise<Note>;
   closeSession(id: string, summary: string): Promise<Note>;
   proposeCanonical(input: NewNote): Promise<Note>;
@@ -121,6 +123,13 @@ export function openBrain(locations: BrainLocation[]): Brain {
       const hits = rankNotes(query, notes, new Date(), opts.limit);
       for (const hit of hits) if (!isClosedEpisode(hit.note.meta)) await persist({ ...hit.note, meta: { ...hit.note.meta, usage: recordUsage(hit.note.meta.usage), updated: iso() } });
       return hits;
+    },
+    async recordUse(ids, now = new Date()) {
+      for (const id of new Set(ids)) {
+        const note = await find(id);
+        if (!note || isClosedEpisode(note.meta)) continue;
+        await persist({ ...note, meta: { ...note.meta, usage: recordUsage(note.meta.usage, now), updated: iso() } });
+      }
     },
     async feedback(id, helpful) {
       const note = await find(id); if (!note) throw new Error(`Note not found: ${id}`);

@@ -18,6 +18,16 @@ describe('brain API', () => {
     expect((await brain.read(note.meta.id))?.meta.usage?.uses).toBe(1);
     expect((await brain.feedback(note.meta.id, true)).meta.usage?.wins).toBe(1);
   });
+  it('records usage on accepted canonical notes without opening them to content edits', async () => {
+    const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
+    const rule = await brain.proposeCanonical({ title: 'Test before merge', body: 'Always', tier: 'canonical', kind: 'standard' });
+    await brain.acceptCanonical(rule.meta.id);
+    await brain.recordUse([rule.meta.id, rule.meta.id]);
+    const after = await brain.read(rule.meta.id);
+    expect(after?.meta.usage?.uses).toBe(1);
+    expect(after?.meta.status).toBe('accepted');
+    await expect(brain.update(rule.meta.id, {}, 'rewrite')).rejects.toThrow('immutable');
+  });
   it('overlays project notes over global notes with matching ids', async () => {
     const global = await temp(), project = await temp();
     const g = openBrain([{ scope: 'global', root: global }]);
