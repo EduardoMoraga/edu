@@ -41,15 +41,32 @@ export function computeLayout(columns: number, rows: number): Layout {
   return { mode: 'narrow', columns: cols, rows: r, inner, treeWidth, focusWidth: inner, showTreeTokens: false };
 }
 
+export interface ChromeLines {
+  /** Approval card lines (0 when no card). */
+  approvalLines: number;
+  /** Agent rows (stacked above the focus pane in narrow mode). */
+  treeRows: number;
+  /** Header lines; defaults to 1 (2 when narrow). */
+  headerLines?: number;
+  /** Everything under the bottom rule: brain strip, notice, composer rows. Defaults to 1 (2 when narrow). */
+  bottomLines?: number;
+  /** Focus pane task lines; defaults to 1. */
+  taskLines?: number;
+  /** Extra framed blocks above the bottom rule (e.g. a run error), including their rule. */
+  extraLines?: number;
+}
+
 /**
- * Lines available for the focus log. Chrome = frame (2) + header (1) + rules
- * (2) + bottom strip (1, or 2 when narrow) + focus title/task (2) + approval
- * card (2 + detail lines) + stacked tree in narrow mode.
+ * Lines available for the focus log. Chrome = frame (2) + header + rules (2)
+ * + bottom block + focus title (1) + task + approval card (+1 rule) + stacked
+ * tree in narrow mode + extra blocks.
  */
-export function focusLogHeight(layout: Layout, opts: { approvalLines: number; treeRows: number }): number {
-  const bottom = layout.mode === 'narrow' ? 2 : 1;
-  const tree = layout.mode === 'narrow' ? opts.treeRows + 2 : 0;
+export function focusLogHeight(layout: Layout, opts: ChromeLines): number {
+  const narrow = layout.mode === 'narrow';
+  const header = opts.headerLines ?? (narrow ? 2 : 1);
+  const bottom = opts.bottomLines ?? (narrow ? 2 : 1);
+  const tree = narrow ? opts.treeRows + 2 : 0;
   const approval = opts.approvalLines > 0 ? opts.approvalLines + 1 : 0;
-  const chrome = 2 + 1 + 2 + bottom + 2 + approval + tree;
+  const chrome = 2 + header + 2 + bottom + 1 + (opts.taskLines ?? 1) + approval + tree + (opts.extraLines ?? 0);
   return Math.max(3, layout.rows - chrome);
 }

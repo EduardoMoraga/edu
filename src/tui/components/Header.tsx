@@ -1,94 +1,98 @@
 import { Box, Text } from 'ink';
-import { displayWidth, formatCost, formatDuration, formatTokens, truncate } from '../../identity/index.js';
+import { displayWidth, formatCost, formatDuration, formatTokens, type Glyphs } from '../../identity/index.js';
 import type { Layout } from '../layout.js';
 import { runClis, runTotals } from '../selectors.js';
 import type { TuiState } from '../state.js';
+import type { UiStrings } from '../strings.js';
+import { wrapPlain } from '../wrap.js';
 import { Tx, useUi } from './ui.js';
 
-export interface HeaderProps {
+/** A goal never takes more than this many header lines. */
+export const GOAL_LINES = 3;
+
+export interface HeaderModel {
+  mark: string;
+  status?: { text: string; tone: 'success' | 'danger' | 'accent' };
+  metaLine: string;
+  money: string;
+  /** Goal on the first line when it fits beside the totals. */
+  inlineGoal?: string;
+  /** Otherwise the goal, wrapped below the first line. */
+  goalLines: string[];
+  height: number;
+}
+
+export interface HeaderInput {
   state: TuiState;
   layout: Layout;
   name: string;
-  /** Display clock (ms); defaults to the reducer clock. */
   now?: number;
   cancelling?: boolean;
+  glyphs: Glyphs;
+  strings: UiStrings;
 }
 
-/** Identity, goal, mode · cli, elapsed, and run totals on one line (two when narrow). */
-export function Header({ state, layout, name, now, cancelling }: HeaderProps) {
-  const { glyphs } = useUi();
+/** Pure header layout so App can budget its height before rendering. */
+export function headerModel({ state, layout, name, now, cancelling, glyphs, strings }: HeaderInput): HeaderModel {
   const totals = runTotals(state);
   const sep = ` ${glyphs.sep} `;
   const mark = `${glyphs.roles.lead} ${name.toUpperCase()}`;
-
   const clis = runClis(state);
   const meta = [state.run.mode, clis.length ? clis.join('+') : undefined].filter(Boolean).join(sep);
   const clock = now ?? state.now;
   const elapsed = state.run.startedAt !== undefined ? formatDuration((state.run.endedAt ?? clock) - state.run.startedAt) : '';
   const metaLine = [meta, elapsed, state.run.endedAt !== undefined ? state.run.outcomeLabel : undefined].filter(Boolean).join(sep);
-
   const costPrefix = totals.costPartial && totals.costUsd !== undefined ? (glyphs.unicode ? '≥' : '>=') : '';
   const money = `${costPrefix}${formatCost(totals.costUsd)}${sep}${formatTokens(totals.tokens)} tok`;
 
-  const status = runStatus(state, cancelling, glyphs.ok, glyphs.fail, glyphs.ellipsis);
+  let status: HeaderModel['status'];
+  if (state.run.endedAt !== undefined) {
+    status = state.run.ok ? { text: `${glyphs.ok} ${strings.header.done}`, tone: 'success' } : { text: `${glyphs.fail} ${strings.header.failed}`, tone: 'danger' };
+  } else if (cancelling) {
+    status = { text: `${strings.header.cancelling}${glyphs.ellipsis}`, tone: 'accent' };
+  }
+
   const right = [status?.text, metaLine].filter(Boolean).join('  ');
   const rightWidth = displayWidth(right) + 3 + displayWidth(money);
+  const goal = `"${state.run.goal ?? strings.header.waiting}"`;
+  const room = layout.inner - displayWidth(mark) - 2 - rightWidth - 2;
+  if (layout.mode !== 'narrow' && displayWidth(goal) <= room) {
+    return { mark, status, metaLine, money, inlineGoal: goal, goalLines: [], height: 1 };
+  }
+  const goalLines = wrapPlain(goal, layout.inner, { maxLines: GOAL_LINES, ellipsis: glyphs.ellipsis });
+  return { mark, status, metaLine, money, goalLines, height: 1 + goalLines.length };
+}
 
-  const goal = state.run.goal ?? 'waiting for a run';
-  const goalRoom =
-    layout.mode === 'narrow' ? layout.inner - 2 : layout.inner - displayWidth(mark) - 2 - rightWidth - 2;
-  const goalText = goalRoom >= 8 ? truncate(`"${goal}"`, goalRoom, glyphs.ellipsis) : '';
-
-  const Right = (
-    <Text wrap="truncate-end">
-      {status ? (
-        <Tx tone={status.tone} bold>
-          {status.text}
-          {'  '}
-        </Tx>
-      ) : null}
-      <Tx tone="muted">{metaLine}</Tx>
-      {metaLine ? <Tx tone="border">{glyphs.unicode ? ' │ ' : ' | '}</Tx> : null}
-      <Tx bold>{money}</Tx>
-    </Text>
-  );
-
-  if (layout.mode === 'narrow') {
-    return (
-      <Box flexDirection="column">
-        <Box justifyContent="space-between">
+/** Identity, goal, mode · cli, elapsed and run totals; a long goal wraps below. */
+export function Header({ model, hasGoal }: { model: HeaderModel; hasGoal: boolean }) {
+  const { glyphs } = useUi();
+  const { mark, status, metaLine, money, inlineGoal, goalLines } = model;
+  return (
+    <Box flexDirection="column">
+      <Box justifyContent="space-between">
+        <Text wrap="truncate-end">
           <Tx tone="accent" bold>
             {mark}
           </Tx>
-          {Right}
-        </Box>
-        <Tx dim={!state.run.goal}>{truncate(`"${goal}"`, layout.inner, glyphs.ellipsis)}</Tx>
+          {inlineGoal ? <Tx dim={!hasGoal}>{`  ${inlineGoal}`}</Tx> : null}
+        </Text>
+        <Text wrap="truncate-end">
+          {status ? (
+            <Tx tone={status.tone} bold>
+              {status.text}
+              {'  '}
+            </Tx>
+          ) : null}
+          <Tx tone="muted">{metaLine}</Tx>
+          {metaLine ? <Tx tone="border">{glyphs.unicode ? ' │ ' : ' | '}</Tx> : null}
+          <Tx bold>{money}</Tx>
+        </Text>
       </Box>
-    );
-  }
-  return (
-    <Box justifyContent="space-between">
-      <Text wrap="truncate-end">
-        <Tx tone="accent" bold>
-          {mark}
+      {goalLines.map((line, i) => (
+        <Tx key={i} dim={!hasGoal} wrap="truncate-end">
+          {line}
         </Tx>
-        {goalText ? <Tx dim={!state.run.goal}>{`  ${goalText}`}</Tx> : null}
-      </Text>
-      {Right}
+      ))}
     </Box>
   );
-}
-
-function runStatus(
-  state: TuiState,
-  cancelling: boolean | undefined,
-  ok: string,
-  fail: string,
-  ellipsis: string,
-): { text: string; tone: 'success' | 'danger' | 'accent' } | undefined {
-  if (state.run.endedAt !== undefined) {
-    return state.run.ok ? { text: `${ok} done`, tone: 'success' } : { text: `${fail} failed`, tone: 'danger' };
-  }
-  if (cancelling) return { text: `cancelling${ellipsis}`, tone: 'accent' };
-  return undefined;
 }

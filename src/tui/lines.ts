@@ -1,10 +1,13 @@
 /**
  * Pure conversion of an agent log into styled display lines, so the focus
- * pane can show exactly the newest lines that fit (Ink clips from the top).
+ * pane can show exactly the lines that fit. Long entries wrap to the pane
+ * width; only collapsed thinking and tool calls are capped (with an ellipsis).
  */
 import type { Glyphs, ToneToken } from '../identity/index.js';
 import { displayWidth, truncate } from '../identity/index.js';
 import type { LogEntry } from './state.js';
+import { uiStrings, type UiStrings } from './strings.js';
+import { wrapSegments } from './wrap.js';
 
 export interface Segment {
   text: string;
@@ -47,9 +50,16 @@ export function wrapText(text: string, width: number): string[] {
   return out;
 }
 
-export function logLines(entries: readonly LogEntry[], width: number, glyphs: Glyphs): DisplayLine[] {
+export function logLines(
+  entries: readonly LogEntry[],
+  width: number,
+  glyphs: Glyphs,
+  strings: UiStrings = uiStrings('en'),
+): DisplayLine[] {
   const lines: DisplayLine[] = [];
   const w = Math.max(8, width);
+  // Wrapped entries hang under their glyph so the left edge stays scannable.
+  const push = (line: DisplayLine, indent = 2) => lines.push(...wrapSegments(line, w, { indent, ellipsis: glyphs.ellipsis }));
   for (const entry of entries) {
     switch (entry.kind) {
       case 'text':
@@ -68,38 +78,38 @@ export function logLines(entries: readonly LogEntry[], width: number, glyphs: Gl
         break;
       }
       case 'tool':
-        lines.push(toolHeader(entry, w, glyphs));
-        lines.push(toolResult(entry, w, glyphs));
+        lines.push(...wrapSegments(toolHeader(entry, glyphs), w, { indent: 2, maxLines: TOOL_LINES, ellipsis: glyphs.ellipsis }));
+        lines.push(...wrapSegments(toolResult(entry, glyphs, strings), w, { indent: 4, maxLines: TOOL_LINES, ellipsis: glyphs.ellipsis }));
         break;
       case 'approval':
-        lines.push(approvalLine(entry, w, glyphs));
+        push(approvalLine(entry, glyphs, strings));
         break;
       case 'error':
-        lines.push([
+        push([
           { text: `${glyphs.fail} `, tone: 'danger' },
-          { text: truncate(entry.message, w - 2, glyphs.ellipsis), tone: 'danger' },
+          { text: entry.message.trim(), tone: 'danger' },
         ]);
         break;
       case 'verify':
-        lines.push([
+        push([
           { text: `${entry.ok ? glyphs.ok : glyphs.fail} `, tone: entry.ok ? 'success' : 'danger', bold: true },
           { text: `${entry.kindName}${entry.checkId ? ` ${entry.checkId}` : ''}: `, bold: true },
-          { text: truncate(entry.output.replace(/\s+/g, ' ').trim(), Math.max(4, w - 24), glyphs.ellipsis), dim: entry.ok },
+          { text: oneLine(entry.output), dim: entry.ok },
         ]);
         break;
       case 'attribution':
-        lines.push([{ text: `attribution [${entry.failureType}]: ${truncate(entry.observed.replace(/\s+/g, ' ').trim(), Math.max(4, w - 20), glyphs.ellipsis)}`, tone: 'danger' }]);
-        lines.push([{ text: `  next: ${truncate(entry.next.replace(/\s+/g, ' ').trim(), Math.max(4, w - 8), glyphs.ellipsis)}`, dim: true }]);
+        push([{ text: `attribution [${entry.failureType}]: ${oneLine(entry.observed)}`, tone: 'danger' }]);
+        push([{ text: `  next: ${oneLine(entry.next)}`, dim: true }], 4);
         break;
       case 'intervention':
-        lines.push([{ text: `intervention: ${entry.action}${entry.avoidable ? ` (avoidable; ${entry.harnessGap})` : ''}${entry.detail ? ` — ${entry.detail.replace(/\s+/g, ' ').trim()}` : ''}`, dim: !entry.avoidable }]);
+        push([{ text: `intervention: ${entry.action}${entry.avoidable ? ` (avoidable; ${entry.harnessGap})` : ''}${entry.detail ? ` — ${oneLine(entry.detail)}` : ''}`, dim: !entry.avoidable }]);
         break;
       case 'end':
         lines.push([]);
-        lines.push([
+        push([
           { text: `${entry.ok ? glyphs.ok : glyphs.fail} `, tone: entry.ok ? 'success' : 'danger', bold: true },
-          { text: entry.ok ? 'done' : 'failed', bold: true },
-          ...(entry.summary ? [{ text: ` ${glyphs.sep} ${truncate(entry.summary, w - 10, glyphs.ellipsis)}`, dim: true }] : []),
+          { text: entry.ok ? strings.log.done : strings.log.failed, bold: true },
+          ...(entry.summary ? [{ text: ` ${glyphs.sep} ${entry.summary.trim()}`, dim: true }] : []),
         ]);
         break;
     }
@@ -107,43 +117,43 @@ export function logLines(entries: readonly LogEntry[], width: number, glyphs: Gl
   return lines;
 }
 
-function toolHeader(entry: Extract<LogEntry, { kind: 'tool' }>, w: number, glyphs: Glyphs): DisplayLine {
-  const head = `${glyphs.arrow} ${entry.tool}`;
+/** Collapsed tool calls keep at most this many lines for the call and for its result. */
+export const TOOL_LINES = 2;
+
+function toolHeader(entry: Extract<LogEntry, { kind: 'tool' }>, glyphs: Glyphs): DisplayLine {
   const input = oneLine(entry.input);
-  const room = w - displayWidth(head) - 1;
   return [
     { text: `${glyphs.arrow} `, tone: 'accent' },
     { text: entry.tool, bold: true },
-    ...(input && room > 3 ? [{ text: ` ${truncate(input, room, glyphs.ellipsis)}`, dim: true }] : []),
+    ...(input ? [{ text: ` ${input}`, dim: true }] : []),
   ];
 }
 
-function toolResult(entry: Extract<LogEntry, { kind: 'tool' }>, w: number, glyphs: Glyphs): DisplayLine {
-  if (entry.state === 'pending') return [{ text: `  ${glyphs.pending} running`, dim: true }];
+function toolResult(entry: Extract<LogEntry, { kind: 'tool' }>, glyphs: Glyphs, strings: UiStrings): DisplayLine {
+  if (entry.state === 'pending') return [{ text: `  ${glyphs.pending} ${strings.focus.toolRunning}`, dim: true }];
   const ok = entry.state === 'ok';
   const output = entry.output ?? '';
   const nonEmpty = output.split(/\r?\n/).filter((l) => l.trim() !== '');
   const extra = nonEmpty.length > 1 ? ` (+${nonEmpty.length - 1} lines)` : '';
   const first = nonEmpty[0]?.trim() ?? (ok ? 'ok' : 'failed');
-  const room = w - 4 - extra.length;
   return [
     { text: `  ${ok ? glyphs.ok : glyphs.fail} `, tone: ok ? 'success' : 'danger' },
-    { text: truncate(first, Math.max(4, room), glyphs.ellipsis), dim: ok },
+    { text: first, dim: ok },
     ...(extra ? [{ text: extra, dim: true }] : []),
   ];
 }
 
-function approvalLine(entry: Extract<LogEntry, { kind: 'approval' }>, w: number, glyphs: Glyphs): DisplayLine {
+function approvalLine(entry: Extract<LogEntry, { kind: 'approval' }>, glyphs: Glyphs, strings: UiStrings): DisplayLine {
   if (entry.approved === undefined) {
     return [
       { text: `${glyphs.approval} `, tone: 'accent' },
-      { text: truncate(`approval requested ${glyphs.sep} ${entry.title}`, w - 2, glyphs.ellipsis), tone: 'accent' },
+      { text: `${strings.log.approvalRequested} ${glyphs.sep} ${entry.title}`, tone: 'accent' },
     ];
   }
-  const verdict = `${entry.approved ? 'approved' : 'rejected'} by ${entry.by ?? 'user'}`;
+  const verdict = `${entry.approved ? strings.log.approvedBy : strings.log.rejectedBy} ${entry.by ?? 'user'}`;
   return [
     { text: `${entry.approved ? glyphs.ok : glyphs.fail} `, tone: entry.approved ? 'success' : 'danger' },
-    { text: truncate(`${verdict} ${glyphs.sep} ${entry.title}`, w - 2, glyphs.ellipsis), dim: true },
+    { text: `${verdict} ${glyphs.sep} ${entry.title}`, dim: true },
   ];
 }
 

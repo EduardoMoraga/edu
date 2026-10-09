@@ -1,9 +1,22 @@
 /**
  * Tiny dictionary for user-facing CLI messages. English is the default;
  * Spanish is selected with `--lang es` or EDU_LANG=es. Machine output
- * (`--json`), identifiers and file content are never translated.
+ * (`--json`), identifiers and file content are never translated. The live
+ * view (TUI) additionally follows the POSIX locale (`LC_ALL`/`LANG` = es*).
  */
+import { langFromEnv } from '../tui/strings.js';
+
 export type Lang = 'en' | 'es';
+
+/**
+ * Language for the live view: an explicit Spanish choice wins, otherwise the
+ * environment (`EDU_LANG`, then `LC_ALL` > `LC_MESSAGES` > `LANG`). Callers
+ * that know `--lang en` was passed explicitly should pass `explicit = true`.
+ */
+export function uiLang(lang: Lang, env: Readonly<Record<string, string | undefined>>, explicit = false): Lang {
+  if (lang === 'es' || explicit) return lang;
+  return langFromEnv(env);
+}
 
 const en = {
   'init.done': 'Edu brain ready at {root}',
@@ -60,6 +73,14 @@ const en = {
   'proposals.accepted': 'Accepted {id} → {path}',
   'proposals.rejected': 'Rejected {id}',
   'error.prefix': 'edu: {message}',
+  'tui.brainStats': 'brain: {total} notes · {lessons} lessons',
+  'tui.recallNone': 'no notes match "{query}"',
+  'tui.recallHits': '{count} note(s): {titles}',
+  'tui.crewNone': 'no crew jobs yet — try /dispatch <cli> <task>',
+  'tui.crewStatus': '{count} job(s): {summary}',
+  'tui.dispatchUsage': 'usage: /dispatch <cli> <task>',
+  'tui.dispatched': 'dispatched: {output}',
+  'watch.none': 'No crew jobs yet. Dispatch one with: edu crew dispatch <cli> "<task>"',
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -119,6 +140,14 @@ const es: Record<MessageKey, string> = {
   'proposals.accepted': 'Aceptada {id} → {path}',
   'proposals.rejected': 'Rechazada {id}',
   'error.prefix': 'edu: {message}',
+  'tui.brainStats': 'cerebro: {total} notas · {lessons} lecciones',
+  'tui.recallNone': 'ninguna nota coincide con "{query}"',
+  'tui.recallHits': '{count} nota(s): {titles}',
+  'tui.crewNone': 'aún no hay trabajos del equipo — prueba /dispatch <cli> <tarea>',
+  'tui.crewStatus': '{count} trabajo(s): {summary}',
+  'tui.dispatchUsage': 'uso: /dispatch <cli> <tarea>',
+  'tui.dispatched': 'lanzado: {output}',
+  'watch.none': 'Aún no hay trabajos del equipo. Lanza uno con: edu crew dispatch <cli> "<tarea>"',
 };
 
 const DICTS: Record<Lang, Record<MessageKey, string>> = { en, es };

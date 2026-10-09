@@ -7,16 +7,22 @@ import { Text } from 'ink';
 import { createContext, use, type ReactNode } from 'react';
 import { UNICODE_GLYPHS, createTheme, type Glyphs, type Theme, type ToneToken } from '../../identity/index.js';
 import type { DisplayLine } from '../lines.js';
+import { uiStrings, type UiStrings } from '../strings.js';
 
 export interface UiContextValue {
   theme: Theme;
   glyphs: Glyphs;
+  /** Localized labels; English when absent. */
+  strings?: UiStrings;
 }
 
-export const UiContext = createContext<UiContextValue>({ theme: createTheme(0), glyphs: UNICODE_GLYPHS });
+const EN = uiStrings('en');
 
-export function useUi(): UiContextValue {
-  return use(UiContext);
+export const UiContext = createContext<UiContextValue>({ theme: createTheme(0), glyphs: UNICODE_GLYPHS, strings: uiStrings('en') });
+
+export function useUi(): Required<UiContextValue> {
+  const value = use(UiContext);
+  return value.strings ? (value as Required<UiContextValue>) : { ...value, strings: EN };
 }
 
 export interface TxProps {

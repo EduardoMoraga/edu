@@ -48,7 +48,9 @@ export interface Resolved {
 }
 
 export function resolveGlobals(ctx: CliContext, opts: GlobalOptions): Resolved {
-  const raw = opts.lang ?? ctx.env.EDU_LANG ?? 'en';
+  // Explicit flag wins, then EDU_LANG, then the system locale (LC_ALL / LANG).
+  const locale = ctx.env.LC_ALL || ctx.env.LANG || '';
+  const raw = opts.lang ?? ctx.env.EDU_LANG ?? (locale.toLowerCase().startsWith('es') ? 'es' : 'en');
   const lang: Lang = raw === 'es' ? 'es' : 'en';
   return { cwd: resolve(ctx.cwd, opts.cwd ?? '.'), lang, json: Boolean(opts.json) };
 }

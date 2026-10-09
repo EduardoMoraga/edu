@@ -1,4 +1,4 @@
-export { App, type AppProps, type Pane } from './App.js';
+export { App, type AppProps, type CommandHandler, type Pane } from './App.js';
 export { renderTui, type RenderTuiOptions } from './render.js';
 export { demoEvents } from './demo.js';
 export type { ContextUsage } from './components/BrainStrip.js';
@@ -7,3 +7,7 @@ export * from './selectors.js';
 export * from './replay.js';
 export * from './layout.js';
 export { logLines, wrapText, type DisplayLine, type Segment } from './lines.js';
+export { fsCrewSource, watchCrew, type CrewChunk, type CrewJobInfo, type CrewJobStatus, type CrewSource, type WatchOptions } from './crew.js';
+export { langFromEnv, uiStrings, type UiLang, type UiStrings } from './strings.js';
+export { wrapSegments, wrapPlain, type WrapOptions } from './wrap.js';
+export { COMMANDS, type CommandName, type PaletteCommand } from './palette.js';

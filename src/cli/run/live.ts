@@ -6,9 +6,11 @@
 import type { CliId, EduEvent, HarnessLevel, OrchestrationMode } from '../../core/contracts.js';
 import type { RunResult } from '../../orchestrator/index.js';
 import type { CliContext } from '../context.js';
-import type { Lang } from '../i18n.js';
+import { uiLang, type Lang } from '../i18n.js';
+import { openWorkspace } from '../workspace.js';
 import { ApprovalBridge } from './bridge.js';
 import { createChannel } from './channel.js';
+import { createCommandHandler } from './commands.js';
 import { executeRun } from './session.js';
 
 export interface LiveRunOptions {
@@ -31,7 +33,9 @@ export async function runInTui(ctx: CliContext, opts: LiveRunOptions): Promise<R
   const app = renderTui({
     events: channel,
     name: opts.name,
+    lang: uiLang(opts.lang, ctx.env),
     onApprove: bridge.answer,
+    onCommand: createCommandHandler({ lang: opts.lang, brain: (await openWorkspace(ctx, opts.cwd)).brain }),
     onCancel: () => {
       abort.abort();
       bridge.rejectAll();
@@ -100,7 +104,9 @@ export async function runHome(ctx: CliContext, opts: HomeOptions): Promise<void>
   const app = renderTui({
     events: channel,
     name: opts.name,
+    lang: uiLang(opts.lang, ctx.env),
     onSubmit: startRun,
+    onCommand: createCommandHandler({ lang: opts.lang, brain: (await openWorkspace(ctx, opts.cwd)).brain }),
     onApprove: bridge.answer,
     onCancel: () => {
       abort?.abort();
@@ -114,8 +120,8 @@ export async function runHome(ctx: CliContext, opts: HomeOptions): Promise<void>
 }
 
 /** Plays a finished or scripted event list through the live view. */
-export async function playInTui(events: AsyncIterable<EduEvent>, name: string): Promise<void> {
+export async function playInTui(events: AsyncIterable<EduEvent>, name: string, lang: Lang = 'en'): Promise<void> {
   const { renderTui } = await import('../../tui/index.js');
-  const app = renderTui({ events, name });
+  const app = renderTui({ events, name, lang });
   await app.waitUntilExit();
 }

@@ -33,20 +33,20 @@ export interface AgentTreeProps {
 }
 
 export function AgentTree({ state, layout, now, active }: AgentTreeProps) {
-  const { glyphs } = useUi();
+  const { glyphs, strings } = useUi();
   const rows = agentTree(state);
   const selected = focusedAgent(state)?.id;
   const running = rows.filter((r) => r.agent.status === 'running' || r.agent.status === 'awaiting-approval').length;
   return (
     <Box flexDirection="column" width={layout.treeWidth} flexShrink={0}>
       <Text>
-        <Label active={active}>AGENTS</Label>
-        {rows.length > 0 ? <Tx tone="muted">{`  ${running}/${rows.length} active`}</Tx> : null}
+        <Label active={active}>{strings.tree.title}</Label>
+        {rows.length > 0 ? <Tx tone="muted">{`  ${running}/${rows.length} ${strings.tree.active}`}</Tx> : null}
       </Text>
-      {rows.length === 0 ? <Tx dim>no agents yet</Tx> : null}
+      {rows.length === 0 ? <Tx dim>{strings.tree.empty}</Tx> : null}
       {rows.map((row) => (
         <TreeLine key={row.agent.id} row={row} width={layout.treeWidth} now={now} selected={row.agent.id === selected}
-          showTokens={layout.showTreeTokens} glyphs={glyphs} />
+          showTokens={layout.showTreeTokens} glyphs={glyphs} queuedLabel={strings.tree.queued} />
       ))}
     </Box>
   );
@@ -59,9 +59,10 @@ interface TreeLineProps {
   selected: boolean;
   showTokens: boolean;
   glyphs: Glyphs;
+  queuedLabel: string;
 }
 
-function TreeLine({ row, width, now, selected, showTokens, glyphs }: TreeLineProps) {
+function TreeLine({ row, width, now, selected, showTokens, glyphs, queuedLabel }: TreeLineProps) {
   const { agent } = row;
   const marker = selected ? `${glyphs.selected} ` : '  ';
   const rails =
@@ -72,7 +73,7 @@ function TreeLine({ row, width, now, selected, showTokens, glyphs }: TreeLinePro
   const icon = padEndDisplay(roleIcon(agent.role, glyphs), 2);
 
   const glyph = statusGlyph(agent.status, glyphs);
-  const time = agent.status === 'queued' ? 'queued' : formatDuration(agentElapsed(agent, now));
+  const time = agent.status === 'queued' ? queuedLabel : formatDuration(agentElapsed(agent, now));
   const tokens = showTokens && agentTokens(agent) > 0 ? formatTokens(agentTokens(agent)) : '';
   const right = `${glyph} ${time.padStart(6)}${showTokens ? ` ${tokens.padStart(5)}` : ''}`;
 

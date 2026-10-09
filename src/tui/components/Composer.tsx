@@ -1,58 +1,68 @@
-import { Text } from 'ink';
-import { displayWidth } from '../../identity/index.js';
+import { Box, Text } from 'ink';
+import { composerView, type EditorState } from '../editor.js';
+import { glyphSafe } from '../strings.js';
 import { Tx, useUi } from './ui.js';
 
+/** The composer grows up to this many rows, then scrolls with the cursor. */
+export const COMPOSER_ROWS = 5;
+const PROMPT_WIDTH = 2;
+
 export interface ComposerProps {
-  value: string;
+  editor: EditorState;
   active: boolean;
   width: number;
 }
 
-/** Single-line message box to the lead. Input is owned by App; this only renders. */
-export function Composer({ value, active, width }: ComposerProps) {
-  const { glyphs } = useUi();
-  const prompt = `${glyphs.arrow} `;
-  if (!value && !active) {
-    return (
-      <Text wrap="truncate-end">
-        <Tx tone="muted">{prompt}</Tx>
-        <Tx dim>{`message the lead ${glyphs.sep} tab ${glyphs.sep} ? help`}</Tx>
-      </Text>
-    );
-  }
-  if (!value && active) {
-    return (
-      <Text wrap="truncate-end">
-        <Tx tone="accent" bold>
-          {prompt}
-        </Tx>
-        <Tx tone="accent">{glyphs.cursor}</Tx>
-        <Tx dim>{' type what you want Edu to do, then press enter'}</Tx>
-      </Text>
-    );
-  }
-  const room = Math.max(4, width - displayWidth(prompt) - 1);
-  const shown = tail(value, room);
-  return (
-    <Text wrap="truncate-end">
-      <Tx tone={active ? 'accent' : 'muted'} bold={active}>
-        {prompt}
-      </Tx>
-      <Tx>{shown}</Tx>
-      {active ? <Tx tone="accent">{glyphs.cursor}</Tx> : null}
-    </Text>
-  );
+/** Rows the composer occupies at `width` (always at least one, for the placeholder). */
+export function composerHeight(editor: EditorState, width: number): number {
+  return editor.text ? composerView(editor, width - PROMPT_WIDTH, COMPOSER_ROWS).rows.length : 1;
 }
 
-/** Keeps the end of the input visible while typing. */
-function tail(text: string, max: number): string {
-  if (displayWidth(text) <= max) return text;
-  const chars = [...text];
-  let out = '';
-  for (let i = chars.length - 1; i >= 0; i--) {
-    const next = chars[i] + out;
-    if (displayWidth(next) > max) break;
-    out = next;
+/**
+ * Multi-line message box to the lead. Input is owned by App; this only
+ * renders the text, the cursor (a thin bar between characters) and scroll
+ * markers when rows are hidden above or below.
+ */
+export function Composer({ editor, active, width }: ComposerProps) {
+  const { glyphs, strings } = useUi();
+  const prompt = `${glyphs.arrow} `;
+  if (!editor.text) {
+    return (
+      <Text wrap="truncate-end">
+        <Tx tone={active ? 'accent' : 'muted'} bold={active}>
+          {prompt}
+        </Tx>
+        {active ? <Tx tone="accent">{glyphs.cursor}</Tx> : null}
+        <Tx dim>{active ? ` ${strings.composer.active}` : glyphSafe(strings.composer.idle, glyphs.unicode)}</Tx>
+      </Text>
+    );
   }
-  return out;
+  const view = composerView(editor, width - PROMPT_WIDTH, COMPOSER_ROWS);
+  return (
+    <Box flexDirection="column" width={width}>
+      {view.rows.map((row, i) => {
+        const first = i === 0;
+        const last = i === view.rows.length - 1;
+        const marker = first && view.above > 0 ? (glyphs.unicode ? '↑ ' : '^ ') : last && view.below > 0 ? (glyphs.unicode ? '↓ ' : 'v ') : first ? prompt : '  ';
+        const chars = [...row.text];
+        const at = active ? row.cursorAt : undefined;
+        return (
+          <Text key={i} wrap="truncate-end">
+            <Tx tone={active ? 'accent' : 'muted'} bold={active}>
+              {marker}
+            </Tx>
+            {at === undefined ? (
+              <Tx>{row.text}</Tx>
+            ) : (
+              <>
+                <Tx>{chars.slice(0, at).join('')}</Tx>
+                <Tx tone="accent">{glyphs.cursor}</Tx>
+                <Tx>{chars.slice(at).join('')}</Tx>
+              </>
+            )}
+          </Text>
+        );
+      })}
+    </Box>
+  );
 }
