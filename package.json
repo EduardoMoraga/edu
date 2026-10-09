@@ -23,7 +23,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "prepack": "npm run build",
+    "prepare": "npm run build",
+    "smoke": "bash scripts/smoke-install.sh"
   },
   "keywords": [
     "agents",
