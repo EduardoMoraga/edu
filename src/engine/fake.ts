@@ -16,7 +16,7 @@ export class FakeEngine implements Engine {
 
 export function demoScript(): EduEvent[] {
   const at = '2026-10-08T12:00:00.000Z';
-  return [
+  const events: EduEvent[] = [
     { type: 'run.start', runId: 'demo-001', goal: 'Prepare a small, reviewed feature', mode: 'crew', at },
     { type: 'agent.spawn', agentId: 'lead-1', role: 'lead', cli: 'claude', task: 'Plan the implementation', at },
     { type: 'agent.status', agentId: 'lead-1', status: 'running', at },
@@ -34,9 +34,11 @@ export function demoScript(): EduEvent[] {
     { type: 'agent.text', agentId: 'builder-1', text: 'Implementation and focused tests are complete.', at },
     { type: 'usage', agentId: 'builder-1', usage: { inputTokens: 1840, outputTokens: 520, costUsd: 0.0124 }, at },
     { type: 'approval.request', agentId: 'builder-1', approvalId: 'approval-1', title: 'Apply the planned file change?', detail: 'This demo pauses before a mutating tool.', at },
+    { type: 'approval.resolve', approvalId: 'approval-1', approved: true, by: 'user', at },
     { type: 'brain.learn', noteId: 'L-check-empty-input', kind: 'lesson', title: 'Validate empty input at the boundary', at },
     { type: 'agent.end', agentId: 'builder-1', ok: true, summary: 'Change implemented and tested.', sessionId: 'fake-session-builder', at },
     { type: 'run.end', runId: 'demo-001', ok: true, summary: 'Demo crew completed successfully.', at },
   ];
+  const base = new Date(at).getTime();
+  return events.map((event, index) => ({ ...event, at: new Date(base + index * 450).toISOString() } as EduEvent));
 }
-
