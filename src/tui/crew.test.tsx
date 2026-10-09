@@ -92,7 +92,9 @@ describe('watchCrew', () => {
     await new Promise((r) => setTimeout(r, 40));
     await appendFile(join(root, 'crew', `${JOB_A}.jsonl`), `${JSON.stringify({ type: 'agent.text', agentId: 'e', text: 'late', at: at(3) })}\n`);
     await writeJob({ id: JOB_B, cli: 'pi', task: 'b', status: 'queued', createdAt: at(4) });
-    await new Promise((r) => setTimeout(r, 60));
+    const until = Date.now() + 5000;
+    const ready = () => seen.some((e) => e.type === 'agent.text' && e.text === 'late') && seen.some((e) => e.type === 'agent.spawn' && e.agentId === JOB_B);
+    while (Date.now() < until && !ready()) await new Promise((r) => setTimeout(r, 25));
     abort.abort();
     await done;
     expect(seen.some((e) => e.type === 'agent.text' && e.text === 'late')).toBe(true);
@@ -108,7 +110,9 @@ describe('watchCrew', () => {
     const view = render(
       <App events={watchCrew(fsCrewSource(root), { pollMs: 10, signal: abort.signal })} crew theme={createTheme(0)} glyphs={UNICODE_GLYPHS} columns={100} rows={30} />,
     );
-    await new Promise((r) => setTimeout(r, 80));
+    // Poll instead of a fixed sleep: slower runners (Windows CI) need more than one poll cycle.
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !view.lastFrame()?.includes('claude 222222')) await new Promise((r) => setTimeout(r, 25));
     const frame = view.lastFrame()!;
     expect(frame).toContain('codex 111111');
     expect(frame).toContain('claude 222222');
