@@ -22,17 +22,20 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
   const root = brainRoot ?? (episodes[0] ? dirname(dirname(dirname(episodes[0].path))) : undefined);
   const sinceAt = cutoff(since, now);
   const runSummaries = root ? (await readRunSummaries(join(root, 'runs'))).filter(run => !run.at || run.at >= sinceAt) : [];
+  const evidence = root ? await readEpisodeEvidence(join(root, 'runs'), sinceAt) : { episodeCount: 0, interventions: [] as EpisodeIntervention[] };
+  const interventionLessonIds = await writeInterventionLessons(brain, evidence.interventions);
   const prompt = [
     'Analyze the supplied completed episodes and run summaries. Return JSON only with this schema: {"lessons":[{"title":"...","body":"...","evidence":["note-id"]}],"hypotheses":[{"title":"...","body":"...","evidence":[]}],"feedback":[{"id":"note-id","helpful":true}],"skillProposals":[{"name":"safe-name","rationale":"...","content":"..."}],"canonicalProposals":[{"title":"...","body":"...","evidence":[]}]}.',
     'Only derive claims supported by the input. Do not claim a proposal was applied.',
     `Episodes: ${JSON.stringify(episodes.map(note => ({ id: note.meta.id, title: note.meta.title, body: note.body, created: note.meta.created })))}`,
     `Run summaries: ${JSON.stringify(runSummaries)}`,
+    `M-HIR by gap (episodes with an avoidable intervention / evidence packages): ${JSON.stringify(mhirByGap(evidence.interventions, evidence.episodeCount))}`,
   ].join('\n\n');
   let response = '';
   const request: EngineRunRequest = { cli: engine.cli, prompt, cwd: process.cwd(), autonomy: 'readonly' };
   for await (const event of engine.run(request, 'reflect')) if (event.type === 'agent.text') response += event.text;
   const output = ReflectionSchema.parse(parseJson(response));
-  const report: ReflectReport = { lessons: [], hypotheses: [], feedback: [], skillProposals: [], canonicalProposals: [], episodesRead: episodes.length };
+  const report: ReflectReport = { lessons: interventionLessonIds, hypotheses: [], feedback: [], skillProposals: [], canonicalProposals: [], episodesRead: episodes.length };
   for (const lesson of output.lessons) {
     const note = await brain.write(noteInput(lesson, 'lesson', 'transitive'));
     report.lessons.push(note.meta.id);
@@ -65,6 +68,84 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
     report.canonicalProposals.push(note.meta.id);
   }
   return report;
+}
+
+async function writeInterventionLessons(brain: Brain, interventions: EpisodeIntervention[]): Promise<string[]> {
+  const existingLessons = await brain.list({ tier: 'transitive', kind: 'lesson' });
+  const existingKeys = new Set(existingLessons.map(note => `${note.meta.title}\n${note.meta.tags.join(',')}`));
+  const created: string[] = [];
+  for (const intervention of interventions.filter(event => event.avoidable)) {
+    const gap = safeGap(intervention.harnessGap);
+    const tag = `harness-gap:${gap}`;
+    const evidenceTitle = intervention.detail ? `: ${intervention.detail.replace(/\s+/g, ' ').slice(0, 48)}` : '';
+    const title = `Harness gap: ${gap} — ${intervention.action || 'human intervention'}${evidenceTitle}`;
+    const key = `${title}\n${tag}`;
+    if (existingKeys.has(key)) continue;
+    const note = await brain.write({
+      title,
+      body: `An avoidable user intervention identified a ${gap} harness gap.\n\nAction: ${intervention.action || 'Not recorded.'}${intervention.detail ? `\n\nEvidence: ${intervention.detail}` : ''}`,
+      tier: 'transitive', kind: 'lesson', band: 'inferred', tags: [tag], source: 'edu:reflect',
+    });
+    created.push(note.meta.id);
+    existingKeys.add(key);
+  }
+  return created;
+}
+
+interface EpisodeIntervention {
+  runId?: string;
+  type?: string;
+  avoidable?: boolean;
+  harnessGap?: string;
+  action?: string;
+  detail?: string;
+}
+
+async function readEpisodeEvidence(runsDir: string, sinceAt: string): Promise<{ episodeCount: number; interventions: EpisodeIntervention[] }> {
+  let entries;
+  try { entries = await readdir(runsDir, { withFileTypes: true }); }
+  catch { return { episodeCount: 0, interventions: [] }; }
+  const directories = entries.filter(entry => entry.isDirectory());
+  let episodeCount = 0;
+  const interventions: EpisodeIntervention[] = [];
+  for (const entry of directories) {
+    const dir = join(runsDir, entry.name);
+    try {
+      const [taskText, outcomeText, eventText] = await Promise.all([
+        readFile(join(dir, 'task.json'), 'utf8'),
+        readFile(join(dir, 'outcome.json'), 'utf8'),
+        readFile(join(dir, 'intervention.jsonl'), 'utf8'),
+      ]);
+      const task = JSON.parse(taskText) as { startedAt?: string };
+      const outcome = JSON.parse(outcomeText) as { at?: string };
+      const created = task.startedAt ?? outcome.at;
+      if (created && created < sinceAt) continue;
+      episodeCount++;
+      for (const line of eventText.split(/\r?\n/).filter(Boolean)) {
+        try {
+          const event = JSON.parse(line) as EpisodeIntervention;
+          if (event.type === 'intervention' || event.avoidable !== undefined) interventions.push({ ...event, runId: entry.name });
+        } catch { /* Ignore an incomplete package line. */ }
+      }
+    } catch { /* Incomplete packages are not counted as evidence. */ }
+  }
+  return { episodeCount, interventions };
+}
+
+function mhirByGap(interventions: EpisodeIntervention[], episodeCount: number): Record<string, { episodes: number; rate: number }> {
+  const grouped = new Map<string, Set<string>>();
+  for (const [index, event] of interventions.entries()) {
+    if (!event.avoidable) continue;
+    const gap = safeGap(event.harnessGap);
+    const ids = grouped.get(gap) ?? new Set<string>();
+    ids.add(event.runId ?? `${event.action ?? 'intervention'}:${index}`);
+    grouped.set(gap, ids);
+  }
+  return Object.fromEntries([...grouped].map(([gap, rows]) => [gap, { episodes: rows.size, rate: episodeCount ? rows.size / episodeCount : 0 }]));
+}
+
+function safeGap(value: string | undefined): string {
+  return value && /^[a-z][a-z0-9_-]*$/.test(value) ? value : 'unknown';
 }
 
 function noteInput(item: z.infer<typeof Item>, kind: 'lesson' | 'hypothesis', tier: 'transitive'): NewNote {

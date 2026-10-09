@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -66,6 +66,30 @@ describe('reflect', () => {
       const report = await reflect({ brain, engine: diffEngine });
       await expect(acceptProposal(brain, report.skillProposals[0]!.id)).rejects.toThrow(/diff-only/i);
       await expect(readFile(join(root, 'skills/patch-only/SKILL.md'), 'utf8')).rejects.toThrow();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it('turns avoidable harness interventions into tagged candidate lessons and reports M-HIR by gap', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu-harness-gap-'));
+    const root = join(dir, '.edu');
+    const runs = join(root, 'runs');
+    const brain = openBrain([{ scope: 'project', root }]);
+    const prompts: string[] = [];
+    const engine: Engine = { ...fake, async *run(request, agentId) { prompts.push(request.prompt); yield { type: 'agent.text', agentId, text: JSON.stringify({ ...response, lessons: [] }), at: new Date().toISOString() }; } };
+    try {
+      await brain.init({ scope: 'project', root });
+      await brain.openSession('Recent run', 'edu:orchestrator').then(note => brain.closeSession(note.meta.id, 'A completed run.'));
+      const episodeDir = join(runs, 'run-one');
+      await mkdir(episodeDir, { recursive: true });
+      await writeFile(join(episodeDir, 'task.json'), JSON.stringify({ runId: 'run-one' }));
+      await writeFile(join(episodeDir, 'outcome.json'), JSON.stringify({ label: 'assisted_verified_success' }));
+      await writeFile(join(episodeDir, 'intervention.jsonl'), `${JSON.stringify({ type: 'intervention', by: 'user', avoidable: true, harnessGap: 'context', action: 'composer-message', detail: 'The request omitted a required file path.' })}\n`);
+      const report = await reflect({ brain, engine, brainRoot: root });
+      const lessons = await brain.list({ tier: 'transitive', kind: 'lesson' });
+      expect(report.lessons).toHaveLength(1);
+      expect(lessons[0]?.meta.tags).toContain('harness-gap:context');
+      expect(prompts[0]).toContain('M-HIR by gap');
+      expect(prompts[0]).toContain('context');
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });

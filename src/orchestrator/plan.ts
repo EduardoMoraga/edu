@@ -1,14 +1,35 @@
 import { z } from 'zod';
+import { CheckSchema } from '../evidence/registry.js';
+import type { HarnessLevel } from '../evidence/contracts.js';
 
-export const PlanSchema = z.object({ steps: z.array(z.object({
+const RequirementSchema = z.object({ id: z.string().min(1), text: z.string().min(1) }).strict();
+export const PlanSchema = z.object({
+  requirements: z.array(RequirementSchema).default([]),
+  checks: z.array(CheckSchema).default([]),
+  steps: z.array(z.object({
   id: z.string().min(1), role: z.string().min(1), task: z.string().min(1),
   dependsOn: z.array(z.string()), parallelSafe: z.boolean(),
-}).strict()) }).strict();
+}).strict()),
+}).strict().superRefine((plan, context) => {
+  const ids = new Set(plan.requirements.map((requirement) => requirement.id));
+  for (const check of plan.checks) for (const requirementId of check.requirementIds) {
+    if (!ids.has(requirementId)) context.addIssue({ code: 'custom', path: ['checks'], message: `Check '${check.id}' references unknown requirement '${requirementId}'.` });
+  }
+});
 export type Plan = z.infer<typeof PlanSchema>;
 
-export const planningPrompt = (goal: string, context: string) => [
-  'Create a safe, concise execution plan for the user goal. Return only JSON matching {"steps":[{"id":"...","role":"explorer|builder|reviewer","task":"...","dependsOn":[],"parallelSafe":false}]}.',
+export interface PlanningPromptOptions {
+  harnessLevel?: HarnessLevel;
+  registryInfo?: string;
+  taskState?: string;
+}
+
+export const planningPrompt = (goal: string, context: string, options: PlanningPromptOptions = {}) => [
+  'Create a safe, concise execution plan for the user goal. Return only JSON matching {"requirements":[{"id":"...","text":"..."}],"checks":[{"id":"...","requirementIds":["..."],"command":"...","expect":{"exitCode":0,"stdoutIncludes":"..."},"timeoutMs":30000}],"steps":[{"id":"...","role":"explorer|builder|reviewer","task":"...","dependsOn":[],"parallelSafe":false}]}. requirements must express observable success conditions; checks must be deterministic and bind to requirement ids. Select checks only from the supplied registry; never invent commands.',
   'Use unique step ids; dependencies must reference earlier steps. Mark parallelSafe only for independent read-only work. Use builder for changes.',
+  ...(options.harnessLevel === 'H3' ? ['Builder steps must follow reproduce → attribute → fix → verify → report; if verification disproves attribution, return to attribution before one bounded fix. Edu will run deterministic checks.'] : []),
+  ...(options.registryInfo ? [`Available tool and deterministic-check registry:\n${options.registryInfo}`] : []),
+  ...(options.taskState ? [`Current task state:\n${options.taskState}`] : []),
   `Goal:\n${goal}\n\nContext:\n${context}`,
 ].join('\n\n');
 

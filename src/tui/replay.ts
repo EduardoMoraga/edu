@@ -2,15 +2,15 @@
  * Replay of persisted runs (`runs/<id>.jsonl`). Parsing is pure; timing lives
  * in a separate async iterator with an injectable sleep so it is testable.
  *
- * The contracts do not ship a runtime schema for EduEvent, so validation here
- * is structural: known `type`, string `at`, and the required fields per type.
+ * Runtime validation is structural. Locally owned evidence event extensions
+ * are accepted here while their shared EduEvent contract additions are pending.
  */
 import { readFile } from 'node:fs/promises';
 import type { EduEvent } from '../core/contracts.js';
 
 type FieldKind = 'string' | 'number' | 'boolean' | 'object' | 'array';
 
-const REQUIRED: Record<EduEvent['type'], Record<string, FieldKind>> = {
+const REQUIRED: Record<string, Record<string, FieldKind>> = {
   'run.start': { runId: 'string', goal: 'string', mode: 'string' },
   'run.end': { runId: 'string', ok: 'boolean', summary: 'string' },
   'agent.spawn': { agentId: 'string', role: 'string', cli: 'string', task: 'string' },
@@ -27,6 +27,13 @@ const REQUIRED: Record<EduEvent['type'], Record<string, FieldKind>> = {
   'brain.learn': { noteId: 'string', kind: 'string', title: 'string' },
   'agent.end': { agentId: 'string', ok: 'boolean', summary: 'string' },
   error: { message: 'string' },
+  'task.define': { requirements: 'array' },
+  'context.trace': { noteId: 'string', contribution: 'string', influenced: 'boolean' },
+  'verify.result': { requirementIds: 'array', ok: 'boolean', output: 'string', kind: 'string' },
+  'failure.attribution': { observed: 'string', expected: 'string', failureType: 'string', evidence: 'array', alternatives: 'array', next: 'string' },
+  intervention: { by: 'string', action: 'string', avoidable: 'boolean', harnessGap: 'string' },
+  'entropy.finding': { category: 'string', severity: 'number', path: 'string', detail: 'string' },
+  outcome: { label: 'string', metrics: 'object' },
 };
 
 export interface ParseIssue {
@@ -39,18 +46,31 @@ export interface ParsedRun {
   issues: ParseIssue[];
 }
 
-/** Returns a reason the value is not an EduEvent, or undefined when it is. */
+/** Returns a reason the value is not a recognized persisted run event. */
 export function eventProblem(value: unknown): string | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'not an object';
   const v = value as Record<string, unknown>;
-  if (typeof v.type !== 'string' || !(v.type in REQUIRED)) return `unknown event type ${JSON.stringify(v.type)}`;
+  if (typeof v.type !== 'string' || !Object.hasOwn(REQUIRED, v.type)) return `unknown event type ${JSON.stringify(v.type)}`;
   if (typeof v.at !== 'string' || Number.isNaN(Date.parse(v.at))) return `${v.type}: missing or invalid "at"`;
-  for (const [field, kind] of Object.entries(REQUIRED[v.type as EduEvent['type']])) {
+  const fields = REQUIRED[v.type];
+  if (!fields) return `unknown event type ${JSON.stringify(v.type)}`;
+  for (const [field, kind] of Object.entries(fields)) {
     const f = v[field];
     const ok =
       kind === 'array' ? Array.isArray(f) : kind === 'object' ? typeof f === 'object' && f !== null : typeof f === kind;
     if (!ok) return `${v.type}: field "${field}" must be ${kind}`;
   }
+  const validFailures = ['context', 'tool', 'feedback', 'verify', 'recovery', 'entropy', 'model', 'unknown'];
+  const validLabels = ['autonomous_verified_success', 'assisted_verified_success', 'unverified_success', 'failed', 'unsafe_invalid'];
+  if (v.type === 'task.define' && !(v.requirements as unknown[]).every(item => item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string' && typeof (item as Record<string, unknown>).text === 'string')) return 'task.define: requirements must contain id and text strings';
+  if (v.type === 'verify.result') {
+    if (typeof v.checkId !== 'string' && typeof v.method !== 'string') return 'verify.result: checkId or method is required';
+    if (!['reproduction', 'deterministic', 'targeted-test', 'regression', 'lint', 'review'].includes(String(v.kind))) return 'verify.result: invalid kind';
+  }
+  if (v.type === 'failure.attribution' && !validFailures.includes(String(v.failureType))) return 'failure.attribution: invalid failureType';
+  if (v.type === 'intervention' && (v.by !== 'user' || !validFailures.includes(String(v.harnessGap)))) return 'intervention: invalid by or harnessGap';
+  if (v.type === 'entropy.finding' && ![0, 1, 2, 3].includes(Number(v.severity))) return 'entropy.finding: severity must be 0, 1, 2, or 3';
+  if (v.type === 'outcome' && !validLabels.includes(String(v.label))) return 'outcome: invalid label';
   return undefined;
 }
 
