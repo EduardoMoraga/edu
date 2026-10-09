@@ -233,3 +233,51 @@ Ink app. Layout (≥ 100 cols; degrades to a single column under 80):
 - `edu run` completes a small goal in solo mode with at least one real CLI.
 - `edu mcp` answers `edu_brief` and `edu_recall` from Claude Code.
 - `npm run check` green on CI (macOS + Linux, Node 22).
+
+## 15. Evidence layer — grounded in *AI Harness Engineering* (Zhong & Zhu, arXiv:2605.13357, 2026)
+
+The paper's thesis: capability is a property of the **model–harness–environment system**, and a
+harness is judged by whether it produces a **verifiable, attributed, maintainable** change — not a
+patch plus an assertion. Edu adopts its vocabulary and makes it executable.
+
+### 15.1 Coverage of the eleven harness responsibilities
+
+| Responsibility | Edu component | Evidence artifact (episode package) |
+|---|---|---|
+| Task interface | plan with `requirements[]` + success criteria | `task.json` |
+| Context manager | `src/context` budgeted pack | **context trace**: notes consulted, contribution, influenced? |
+| Tool registry | `.edu/harness/tools.json` + test-command registry | **tool trace**: cmd, exit, duration, timeout, recovered |
+| Project memory | brain (canonical/episodic/transitive) | memory references |
+| Task state | `task-state.md` per run (hypotheses, inspected files, open questions, next steps) | task-state file |
+| Observability | `EduEvent` stream, `runs/*.jsonl` | **action trace** |
+| Failure attribution | reproduce → attribute step | **attribution log**: observed, expected, `F_*` type, evidence, alternatives |
+| Verification protocol | deterministic check registry `.edu/harness/checks.json` | **verification trace** + verification report |
+| Permission boundary | autonomy + approvals | permission record (approval events) |
+| Entropy auditor | post-run diff audit (residue, stale docs, dep churn, weakened tests) | **entropy audit** (0–3 severity) |
+| Intervention logger | every human approval/reject/correction/composer message mid-run | **intervention log** (avoidable?, harness gap) |
+
+Failure taxonomy: `context | tool | feedback | verify | recovery | entropy | model | unknown`.
+Outcome taxonomy (per episode): `autonomous_verified_success | assisted_verified_success |
+unverified_success | failed | unsafe_invalid`.
+
+### 15.2 H3 workflow in the orchestrator
+
+For builder steps that fix behavior: **reproduce → attribute → fix → verify → report**, with a
+back-edge to attribute when verification disproves the diagnosis. Deterministic checks (command +
+expected substring/exit code, bound to requirement ids) run in Edu itself — not trusted to the model.
+
+### 15.3 Harness ladder as a product feature
+
+`edu run --harness H0|H1|H2|H3` (default H3) exposes runtime support per the paper's visibility
+matrix. `edu eval <suite>` runs the same task across levels (and across CLIs) and reports the
+contribution of each support class. Edu can therefore **measure itself**.
+
+### 15.4 Metrics → self-improvement
+
+`edu metrics` computes over episode packages: **AVSR** (autonomous verified success rate),
+**M-HIR** (missing-harness human intervention rate), verification autonomy, tool recovery rate,
+attribution completeness, entropy delta — per CLI, per role, over time.
+The brain closes the loop: every *avoidable* intervention becomes a candidate lesson tagged with
+its harness gap (e.g. human named the file → `context` gap → lesson/known-failure note); reflection
+prioritizes gaps with the highest M-HIR contribution. "Self-improving" is then a falsifiable claim:
+M-HIR down and AVSR up across releases.
