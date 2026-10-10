@@ -1,30 +1,31 @@
 /** `edu connect hermes`: let Hermes (Telegram, Slack…) use Edu's MCP tools, reversibly. */
-import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { promisify } from 'node:util';
 import type { Command } from 'commander';
 import {
   applyHermesPlan, commandExistsOn, hermesConfigPath, hermesEntry, HERMES_SERVER, listHermesBackups, planHermesConnect, undoHermes,
 } from '../../connect/hermes.js';
-import { eduServiceMcpLaunch, whichSync } from '../../platform/index.js';
+import { eduServiceMcpLaunch, spawnCli, whichSync } from '../../platform/index.js';
 import { globalHome, type CliContext } from '../context.js';
 import { action } from '../kit.js';
 
-const execFile = promisify(execFileCallback);
-
 export type HermesRunner = (bin: string, args: string[], env: NodeJS.ProcessEnv) => Promise<{ ok: boolean; output: string }>;
-const defaultRunner: HermesRunner = async (bin, args, env) => {
-  try {
-    const { stdout, stderr } = await execFile(bin, args, { env, encoding: 'utf8', timeout: 120_000, maxBuffer: 4 * 1024 * 1024 });
-    return { ok: true, output: `${stdout}${stderr}` };
-  } catch (error) {
-    const e = error as { stdout?: string; stderr?: string; message: string };
-    return { ok: false, output: `${e.stdout ?? ''}${e.stderr ?? ''}` || e.message };
-  }
-};
+/**
+ * Runs Hermes without a shell on every platform: `spawnCli` resolves `hermes.exe`, and unwraps or
+ * escapes a `hermes.cmd` shim (Node's execFile refuses .cmd/.bat files on Windows).
+ */
+const defaultRunner: HermesRunner = (bin, args, env) => new Promise((resolve) => {
+  let output = '';
+  const child = spawnCli(bin, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const collect = (chunk: Buffer) => { if (output.length < 4 * 1024 * 1024) output += chunk.toString('utf8'); };
+  child.stdout?.on('data', collect);
+  child.stderr?.on('data', collect);
+  const timer = setTimeout(() => child.kill(), 120_000);
+  child.on('error', (error) => { clearTimeout(timer); resolve({ ok: false, output: output || error.message }); });
+  child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, output: output || (code === 0 ? '' : `hermes exited with ${code ?? 'a signal'}`) }); });
+});
 
 interface Options { project?: string; undo?: string | boolean; config?: string; removeDead?: boolean; restart?: boolean; test?: boolean; dryRun?: boolean; force?: boolean; list?: boolean }
 

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile, chmod } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { deadServers, hermesEntry, planHermesConnect } from '../../connect/hermes.js';
@@ -9,6 +9,11 @@ import { registerConnect, type HermesRunner } from './connect.js';
 import { captureContext, out } from '../testkit.js';
 import { createProgram } from '../program.js';
 import { CommanderError } from 'commander';
+
+// Windows resolves commands through PATHEXT and has no POSIX permission bits.
+const windows = process.platform === 'win32';
+const hermesShim = windows ? 'hermes.cmd' : 'hermes';
+const configMode = windows ? 0o666 : 0o640;
 
 // Shaped like a real ~/.hermes/config.yaml: comments, reflowed long strings, two sequence styles.
 const HERMES = `model:
@@ -96,7 +101,7 @@ describe('edu connect hermes', () => {
     const c = await captureContext();
     const bin = join(c.dirs.home, 'bin');
     await mkdir(bin, { recursive: true });
-    if (hermesOnPath) { await writeFile(join(bin, 'hermes'), '#!/bin/sh\n'); await chmod(join(bin, 'hermes'), 0o755); }
+    if (hermesOnPath) { await writeFile(join(bin, hermesShim), windows ? '@exit /b 0\r\n' : '#!/bin/sh\n'); await chmod(join(bin, hermesShim), 0o755); }
     c.ctx.env.PATH = bin;
     const hermesHome = join(c.dirs.home, '.hermes');
     await mkdir(hermesHome, { recursive: true });
@@ -124,9 +129,9 @@ describe('edu connect hermes', () => {
     expect(s.c.exitCode).toBeUndefined();
     const edu = (parse(after) as { mcp_servers: Record<string, { command: string; args: string[] }> }).mcp_servers.edu!;
     expect(edu.args.slice(-3)).toEqual(['mcp', '--project', 'global']);
-    expect(edu.command.startsWith('/')).toBe(true);
+    expect(isAbsolute(edu.command)).toBe(true);
     expect(s.calls).toEqual([{ args: ['mcp', 'test', 'edu'], env: expect.objectContaining({ HERMES_HOME: join(s.c.dirs.home, '.hermes') }) }]);
-    expect((await stat(s.config)).mode & 0o777).toBe(0o640);
+    expect((await stat(s.config)).mode & 0o777).toBe(configMode);
 
     s.c.stdout.length = 0;
     await s.run(['connect', 'hermes', '--project', 'global', '--no-test']);
@@ -135,7 +140,7 @@ describe('edu connect hermes', () => {
 
     await s.run(['connect', 'hermes', '--undo']);
     expect(sha(await readFile(s.config))).toBe(sha(HERMES));
-    expect((await stat(s.config)).mode & 0o777).toBe(0o640);
+    expect((await stat(s.config)).mode & 0o777).toBe(configMode);
     await s.run(['connect', 'hermes', '--undo']);
     expect(s.c.stderr.join('\n')).toContain('No Hermes connect backup to restore');
   });

@@ -59,6 +59,7 @@ import {
 } from "./chunk-3XK4452K.js";
 import {
   eduServiceMcpLaunch,
+  spawnCli,
   whichSync
 } from "./chunk-5U2RISJO.js";
 import {
@@ -506,12 +507,10 @@ function notesLine(lang, report) {
 }
 
 // src/cli/commands/connect.ts
-import { execFile as execFileCallback } from "child_process";
 import { createHash as createHash2 } from "crypto";
 import { existsSync as existsSync2 } from "fs";
 import { readFile as readFile2 } from "fs/promises";
 import { dirname as dirname3 } from "path";
-import { promisify } from "util";
 
 // src/connect/hermes.ts
 import { createHash, randomUUID } from "crypto";
@@ -746,16 +745,24 @@ async function undoHermes(eduHome, input = {}) {
 }
 
 // src/cli/commands/connect.ts
-var execFile = promisify(execFileCallback);
-var defaultRunner = async (bin, args, env) => {
-  try {
-    const { stdout, stderr } = await execFile(bin, args, { env, encoding: "utf8", timeout: 12e4, maxBuffer: 4 * 1024 * 1024 });
-    return { ok: true, output: `${stdout}${stderr}` };
-  } catch (error) {
-    const e = error;
-    return { ok: false, output: `${e.stdout ?? ""}${e.stderr ?? ""}` || e.message };
-  }
-};
+var defaultRunner = (bin, args, env) => new Promise((resolve11) => {
+  let output = "";
+  const child = spawnCli(bin, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+  const collect2 = (chunk) => {
+    if (output.length < 4 * 1024 * 1024) output += chunk.toString("utf8");
+  };
+  child.stdout?.on("data", collect2);
+  child.stderr?.on("data", collect2);
+  const timer = setTimeout(() => child.kill(), 12e4);
+  child.on("error", (error) => {
+    clearTimeout(timer);
+    resolve11({ ok: false, output: output || error.message });
+  });
+  child.on("close", (code) => {
+    clearTimeout(timer);
+    resolve11({ ok: code === 0, output: output || (code === 0 ? "" : `hermes exited with ${code ?? "a signal"}`) });
+  });
+});
 var sha2562 = (data) => createHash2("sha256").update(data).digest("hex");
 var tail = (text, lines = 8) => {
   const all = text.replace(/\x1b\[[0-9;]*m/g, "").trim().split("\n").map((line) => line.trim()).filter(Boolean);
@@ -2183,7 +2190,7 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes) {
 }
 
 // src/cli/commands/update.ts
-import { dirname as dirname7 } from "path";
+import { dirname as dirname6 } from "path";
 
 // src/update/release.ts
 var RELEASES_API = "https://api.github.com/repos/EduardoMoraga/edu/releases";
@@ -2249,7 +2256,7 @@ function whatsNew(body, maxLines = 6, width = 160) {
 
 // src/update/update.ts
 import { access } from "fs/promises";
-import { basename as basename3, dirname as dirname6, join as join14 } from "path";
+import { posix, win32 as win322 } from "path";
 async function checkForUpdate(deps, tag) {
   const release = await fetchRelease({
     fetch: deps.fetch,
@@ -2260,19 +2267,23 @@ async function checkForUpdate(deps, tag) {
   const cmp = compareVersions(release.version, deps.currentVersion);
   return { current: deps.currentVersion, release, relation: cmp > 0 ? "newer" : cmp < 0 ? "older" : "same" };
 }
+var pathFor = (platform) => platform === "win32" ? win322 : posix;
 async function resolveNpm(deps) {
-  const candidate = join14(dirname6(deps.execPath), deps.platform === "win32" ? "npm.cmd" : "npm");
+  const { dirname: dirname8, join: join16 } = pathFor(deps.platform);
+  const candidate = join16(dirname8(deps.execPath), deps.platform === "win32" ? "npm.cmd" : "npm");
   return await deps.exists(candidate) ? candidate : "npm";
 }
 function installPrefix(packageRoot, platform) {
-  const modules = dirname6(packageRoot);
-  if (basename3(modules) !== "node_modules") return void 0;
-  if (platform === "win32") return dirname6(modules);
-  return basename3(dirname6(modules)) === "lib" ? dirname6(dirname6(modules)) : void 0;
+  const { basename: basename4, dirname: dirname8 } = pathFor(platform);
+  const modules = dirname8(packageRoot);
+  if (basename4(modules) !== "node_modules") return void 0;
+  if (platform === "win32") return dirname8(modules);
+  return basename4(dirname8(modules)) === "lib" ? dirname8(dirname8(modules)) : void 0;
 }
 var tail2 = (text, lines = 8) => text.trim().split("\n").slice(-lines).join("\n");
 async function performUpdate(deps, release, onStep = () => {
 }) {
+  const { join: join16 } = pathFor(deps.platform);
   const steps = [];
   const done = (outcome) => ({ ...outcome, steps });
   const npm = await resolveNpm(deps);
@@ -2287,8 +2298,8 @@ async function performUpdate(deps, release, onStep = () => {
   steps.push({ step: "install", status: "ok", detail: `${npm}${prefix ? ` (prefix ${prefix})` : ""}` });
   onStep("verify");
   const root = await deps.run(npm, ["root", "-g", ...prefixArgs], { env: deps.env });
-  const modules = root.code === 0 && root.stdout.trim() ? root.stdout.trim().split("\n").at(-1).trim() : prefix ? deps.platform === "win32" ? join14(prefix, "node_modules") : join14(prefix, "lib", "node_modules") : "";
-  const cli = modules ? join14(modules, "edu-agent", "dist", "cli.js") : "";
+  const modules = root.code === 0 && root.stdout.trim() ? root.stdout.trim().split("\n").at(-1).trim() : prefix ? deps.platform === "win32" ? join16(prefix, "node_modules") : join16(prefix, "lib", "node_modules") : "";
+  const cli = modules ? join16(modules, "edu-agent", "dist", "cli.js") : "";
   if (!cli || !await deps.exists(cli)) {
     steps.push({ step: "verify", status: "failed", detail: `installed, but the new edu was not found${cli ? ` at ${cli}` : ""}` });
     return done({ ok: false, installed: true });
@@ -2387,7 +2398,7 @@ function defaultUpdateDeps(ctx) {
     exists: fileExists,
     execPath: process.execPath,
     platform: process.platform,
-    packageRoot: dirname7(packageTemplatesDir()),
+    packageRoot: dirname6(packageTemplatesDir()),
     currentVersion: packageVersion(),
     env: ctx.env
   };
@@ -2484,21 +2495,21 @@ function registerUpdate(program, ctx, overrides = {}) {
 }
 
 // src/cli/commands/vault.ts
-import { join as join16, resolve as resolve10 } from "path";
+import { join as join15, resolve as resolve10 } from "path";
 
 // src/vault/vault.ts
 import { randomBytes } from "crypto";
 import { access as access2, copyFile, mkdir as mkdir4, readFile as readFile7, readdir as readdir6, realpath as realpath3, writeFile as writeFile3 } from "fs/promises";
-import { basename as basename4, dirname as dirname8, join as join15, posix, resolve as resolve9, win32 as win322 } from "path";
+import { basename as basename3, dirname as dirname7, join as join14, posix as posix2, resolve as resolve9, win32 as win323 } from "path";
 var START = "<!-- edu:projects -->";
 var END = "<!-- /edu:projects -->";
 var IGNORED = ["runs/", "crew/", "proposals/", "backups/"];
 function pathParts(path, platform) {
-  const api = platform === "win32" ? win322 : posix;
+  const api = platform === "win32" ? win323 : posix2;
   return api.resolve(path).split(/[\\/]+/).filter(Boolean).map((part) => platform === "win32" ? part.toLowerCase() : part);
 }
 function unsafeVaultPathReason(path, home, platform) {
-  const api = platform === "win32" ? win322 : posix;
+  const api = platform === "win32" ? win323 : posix2;
   const vault = api.resolve(path);
   const userHome = api.resolve(home);
   const compare = (value) => platform === "win32" ? value.toLowerCase() : value;
@@ -2540,9 +2551,9 @@ async function physicalCandidate(path) {
       return resolve9(await realpath3(ancestor), ...suffix.reverse());
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
-      const parent = dirname8(ancestor);
+      const parent = dirname7(ancestor);
       if (parent === ancestor) throw error;
-      suffix.push(basename4(ancestor));
+      suffix.push(basename3(ancestor));
       ancestor = parent;
     }
   }
@@ -2587,7 +2598,7 @@ async function validatePath(path, home, platform) {
   const physicalReason = unsafeVaultPathReason(physical, physicalHome, platform);
   if (physicalReason) throw new Error(`Unsafe vault path (${physicalReason}): ${physical}`);
   if (await exists2(path)) {
-    if (await exists2(join15(path, ".edu"))) throw new Error("Unsafe vault path: this folder contains a project brain (.edu/)");
+    if (await exists2(join14(path, ".edu"))) throw new Error("Unsafe vault path: this folder contains a project brain (.edu/)");
   }
 }
 async function createVault(options) {
@@ -2599,17 +2610,17 @@ async function createVault(options) {
     if (error.code === "ENOENT") return [];
     throw error;
   });
-  const homeFile = join15(path, "Home.md");
+  const homeFile = join14(path, "Home.md");
   if (current.length && !(await exists2(homeFile) && (await readFile7(homeFile, "utf8")).includes(START))) {
     throw new Error(`Folder is not empty and is not an Edu vault: ${path}`);
   }
-  await mkdir4(join15(path, ".obsidian"), { recursive: true });
-  await mkdir4(join15(path, "Edu"), { recursive: true });
-  await mkdir4(join15(path, "Notes"), { recursive: true });
-  const appFile = join15(path, ".obsidian", "app.json");
+  await mkdir4(join14(path, ".obsidian"), { recursive: true });
+  await mkdir4(join14(path, "Edu"), { recursive: true });
+  await mkdir4(join14(path, "Notes"), { recursive: true });
+  const appFile = join14(path, ".obsidian", "app.json");
   if (!await exists2(appFile)) await writeFile3(appFile, `${JSON.stringify({ userIgnoreFilters: IGNORED }, null, 2)}
 `);
-  const notesReadme = join15(path, "Notes", "README.md");
+  const notesReadme = join14(path, "Notes", "README.md");
   if (!await exists2(notesReadme)) await writeFile3(notesReadme, "# Notes\n\nKeep your own notes and drafts here. Edu does not write memory into this folder.\n");
   const name = options.name?.trim() || "Edu";
   const original = await readFile7(homeFile, "utf8").catch((error) => {
@@ -2622,19 +2633,19 @@ async function createVault(options) {
   const conflicts = [];
   const missingProjects = [];
   const entries = [
-    ...projects.map((project) => ({ name: segment(project.name), target: project.brain, root: join15(project.root, ".edu"), project: true })),
-    { name: "_global", target: join15(options.eduHome, "brain"), root: options.eduHome, project: false }
+    ...projects.map((project) => ({ name: segment(project.name), target: project.brain, root: join14(project.root, ".edu"), project: true })),
+    { name: "_global", target: join14(options.eduHome, "brain"), root: options.eduHome, project: false }
   ];
   for (const entry of entries) {
     if (entry.project && !await exists2(entry.target)) {
       missingProjects.push(entry.name);
       continue;
     }
-    const link = join15(path, "Edu", entry.name);
+    const link = join14(path, "Edu", entry.name);
     try {
       await createVaultLink(link, entry.target, platform);
       linked.push(entry.name);
-      await openBrain([{ scope: entry.project ? "project" : "global", root: entry.root, ...entry.target === join15(entry.root, "brain") ? {} : { brainDir: entry.target } }]).rebuildIndex().catch(() => void 0);
+      await openBrain([{ scope: entry.project ? "project" : "global", root: entry.root, ...entry.target === join14(entry.root, "brain") ? {} : { brainDir: entry.target } }]).rebuildIndex().catch(() => void 0);
     } catch (error) {
       if (error.code !== "ELINKCONFLICT") throw error;
       conflicts.push(link);
@@ -2644,8 +2655,8 @@ async function createVault(options) {
   return { path, name, linked, conflicts, missingProjects, registration };
 }
 async function registerObsidianVault(vault, options) {
-  const config = options.platform === "win32" ? join15(options.env.APPDATA || join15(options.home, "AppData", "Roaming"), "obsidian") : options.platform === "darwin" ? join15(options.home, "Library", "Application Support", "obsidian") : join15(options.home, ".config", "obsidian");
-  const configFile = join15(config, "obsidian.json");
+  const config = options.platform === "win32" ? join14(options.env.APPDATA || join14(options.home, "AppData", "Roaming"), "obsidian") : options.platform === "darwin" ? join14(options.home, "Library", "Application Support", "obsidian") : join14(options.home, ".config", "obsidian");
+  const configFile = join14(config, "obsidian.json");
   if (!await exists2(configFile)) return "skipped (Obsidian not installed)";
   const parsed = JSON.parse(await readFile7(configFile, "utf8"));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid Obsidian obsidian.json");
@@ -2665,7 +2676,7 @@ async function countNotes(dir) {
   let count = 0;
   for (const entry of await readdir6(dir, { withFileTypes: true }).catch(() => [])) {
     if (entry.isDirectory() && entry.name === "0-index") continue;
-    if (entry.isDirectory()) count += await countNotes(join15(dir, entry.name));
+    if (entry.isDirectory()) count += await countNotes(join14(dir, entry.name));
     else if (entry.isFile() && entry.name.endsWith(".md")) count++;
   }
   return count;
@@ -2674,18 +2685,18 @@ async function checkVault(options) {
   const path = resolve9(options.path);
   const platform = options.platform ?? process.platform;
   const physical = await physicalCandidate(path).catch(() => path);
-  const unsafe = unsafeVaultPathReason(path, options.home, platform) ?? unsafeVaultPathReason(physical, await physicalCandidate(options.home).catch(() => options.home), platform) ?? (await exists2(join15(path, ".edu")) ? "contains a project brain" : void 0);
+  const unsafe = unsafeVaultPathReason(path, options.home, platform) ?? unsafeVaultPathReason(physical, await physicalCandidate(options.home).catch(() => options.home), platform) ?? (await exists2(join14(path, ".edu")) ? "contains a project brain" : void 0);
   const projects = (await readProjects(options.eduHome)).projects;
   const entries = [
     ...projects.map((project) => ({ name: segment(project.name), target: project.brain, project: true })),
-    { name: "_global", target: join15(options.eduHome, "brain"), project: false }
+    { name: "_global", target: join14(options.eduHome, "brain"), project: false }
   ];
   const links = [];
   const missingProjects = [];
   for (const entry of entries) {
     const present = await exists2(entry.target);
     if (!present && entry.project) missingProjects.push(entry.name);
-    const state = await linkState(join15(path, "Edu", entry.name), entry.target);
+    const state = await linkState(join14(path, "Edu", entry.name), entry.target);
     links.push({
       name: entry.name,
       state: state === "conflict" ? "conflict" : state === "missing" || !present ? "broken" : "ok",
@@ -2695,7 +2706,7 @@ async function checkVault(options) {
   const warnings = [];
   for (const entry of await readdir6(path, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isDirectory() || ["Edu", "Notes", ".obsidian"].includes(entry.name)) continue;
-    const notes = await countNotes(join15(path, entry.name));
+    const notes = await countNotes(join14(path, entry.name));
     if (notes >= 20) warnings.push(`${entry.name}/ contains ${notes} notes outside Edu/ and Notes/; another tool may be writing generated notes`);
   }
   return { path, unsafe, links, missingProjects, warnings };
@@ -2705,7 +2716,7 @@ async function checkVault(options) {
 function registerVault(program, ctx) {
   program.command("vault").description("create or check a safe Obsidian window onto registered project brains").argument("[path]", "vault directory (default ~/EduVault)").option("--name <name>", "vault title", "Edu").option("--no-register", "do not add the vault to Obsidian").option("--check", "report unsafe paths, broken links and note counts without writing").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, path) => {
     const home = process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home;
-    const vaultPath = path ? resolve10(g.cwd, path) : join16(home, "EduVault");
+    const vaultPath = path ? resolve10(g.cwd, path) : join15(home, "EduVault");
     const common = { path: vaultPath, home, eduHome: globalHome(ctx) };
     if (opts.check) {
       const report2 = await checkVault(common);
@@ -2789,4 +2800,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-AE3NTAKZ.js.map
+//# sourceMappingURL=chunk-CDZV6XWI.js.map

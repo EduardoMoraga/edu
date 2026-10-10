@@ -5,7 +5,7 @@
  * Never leaves the user broken: a failed install stops before setup and keeps the current version.
  */
 import { access } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { posix, win32 } from 'node:path';
 import { compareVersions, fetchRelease, type Release } from './release.js';
 import type { WorkspaceMigration } from './migrate.js';
 
@@ -42,8 +42,12 @@ export async function checkForUpdate(deps: Pick<UpdateDeps, 'fetch' | 'currentVe
   return { current: deps.currentVersion, release, relation: cmp > 0 ? 'newer' : cmp < 0 ? 'older' : 'same' };
 }
 
+/** Path rules of the target platform (not the host), so paths match what that platform's npm and node report. */
+const pathFor = (platform: NodeJS.Platform) => (platform === 'win32' ? win32 : posix);
+
 /** The npm installed next to the running Node (so a non-default prefix like ~/.hermes/node is respected), else `npm` on PATH. */
 export async function resolveNpm(deps: Pick<UpdateDeps, 'execPath' | 'platform' | 'exists'>): Promise<string> {
+  const { dirname, join } = pathFor(deps.platform);
   const candidate = join(dirname(deps.execPath), deps.platform === 'win32' ? 'npm.cmd' : 'npm');
   return (await deps.exists(candidate)) ? candidate : 'npm';
 }
@@ -54,6 +58,7 @@ export async function resolveNpm(deps: Pick<UpdateDeps, 'execPath' | 'platform' 
  * undefined for a source checkout or `npm link`.
  */
 export function installPrefix(packageRoot: string, platform: NodeJS.Platform): string | undefined {
+  const { basename, dirname } = pathFor(platform);
   const modules = dirname(packageRoot);
   if (basename(modules) !== 'node_modules') return undefined;
   if (platform === 'win32') return dirname(modules);
@@ -63,6 +68,7 @@ export function installPrefix(packageRoot: string, platform: NodeJS.Platform): s
 const tail = (text: string, lines = 8) => text.trim().split('\n').slice(-lines).join('\n');
 
 export async function performUpdate(deps: UpdateDeps, release: Release, onStep: (step: StepName) => void = () => {}): Promise<UpdateOutcome> {
+  const { join } = pathFor(deps.platform);
   const steps: StepResult[] = [];
   const done = (outcome: Omit<UpdateOutcome, 'steps'>): UpdateOutcome => ({ ...outcome, steps });
   const npm = await resolveNpm(deps);

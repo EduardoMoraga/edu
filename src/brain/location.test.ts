@@ -31,7 +31,7 @@ describe('configurable brain directory', () => {
   it('rejects absolute or escaping brainDir values', () => {
     expect(() => resolveBrainDir('/w/.edu', '/etc')).toThrow(/brainDir/);
     expect(() => resolveBrainDir('/w/.edu', '../elsewhere')).toThrow(/brainDir/);
-    expect(resolveBrainDir('/w/.edu', undefined)).toBe('/w/.edu/brain');
+    expect(resolveBrainDir('/w/.edu', undefined)).toBe(join('/w/.edu', 'brain'));
   });
 
   it('writes notes and the index into the configured brain directory', async () => {
