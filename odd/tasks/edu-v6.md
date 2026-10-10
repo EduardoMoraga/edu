@@ -21,7 +21,7 @@ Context % / cost / model come from the host CLI, never from this command. Must r
 - [x] T2 Pi experience: EDU header, deck widget, footer, `/edu-deck` overlay, `edu` theme — route: delegated (Claude writer)
 - [x] T3 OpenCode experience: logo slot, sidebar deck, `edu` theme; setup writes tui.json plugin + theme — route: delegated (Claude writer)
 - [x] T4 detach: OpenCode tui.json plugin entries (gentle-logo) — route: same writer as T3
-- [ ] T5 live verification in Pi and OpenCode (herdr), release v0.6.0
+- [x] T5 live verification in Pi and OpenCode (herdr), release v0.6.0
 
 ## Progress
 - T1 done by Codex (pane): commit 176767a; verified `edu deck --json` in ~/Edu/marca-personal (~0.1s). Codex saw crew.test.ts fail only inside a Codex session (env-dependent); recheck in full suite.
@@ -30,3 +30,6 @@ Context % / cost / model come from the host CLI, never from this command. Must r
 - T4 detach: a7ceb28; live removed gentle-logo from tui.json (backup detach-2026-10-10T21-15-50-155Z-e866c83e).
 - Fix found live: Pi/OpenCode YAML frontmatter with ': ' (8a… fix(plugins) commit) + test.
 - Open: T6 Pi skill collisions, stale OpenCode 1.x leftovers, cli.json detach — delegated writer.
+- T5 released v0.6.0 (tag v0.6.0, CI green on 3 OS after 6beab3f Windows test fix); reinstalled from tarball; setup pi,opencode re-run.
+- Machine cleanup (user-approved): legacy OpenCode 1.x plugins (4 gentle-ai, herdr-agent-state, engram) moved to ~/Backups/pre-edu-2026-10-10/opencode-v2-legacy-plugins; subagent-statusline dropped from cli.json/tui.json.
+- Next: herdr OpenCode integration needs an OpenCode 2 build upstream; Pi collision fix not yet seen live.
