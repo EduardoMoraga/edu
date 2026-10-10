@@ -72,7 +72,7 @@ describe('detach transaction', () => {
     await mkdir(dir, { recursive: true });
     const logo = join(dir, 'tui-plugins/gentle-logo.tsx');
     const json = `${JSON.stringify({ $schema: 'https://opencode.ai/tui.json', plugin: ['opencode-subagent-statusline', logo] }, null, 2)}\n`;
-    const jsonc = `{\n  // mine\n  "plugin": [\n    "./herdr-tui-session.js", // keep\n    "${logo}",\n  ],\n}\n`;
+    const jsonc = `{\n  // mine\n  "plugin": [\n    "./herdr-tui-session.js", // keep\n    ${JSON.stringify(logo)},\n  ],\n}\n`;
     await writeFile(join(dir, 'tui.json'), json);
     await writeFile(join(dir, 'tui.jsonc'), jsonc);
     const plan = await createDetachPlan({ home, env: {}, hosts: ['opencode'], tools: ['gentle-ai'] });
@@ -93,7 +93,7 @@ describe('detach transaction', () => {
     const dir = join(home, '.config/opencode');
     await mkdir(dir, { recursive: true });
     const logo = join(dir, 'tui-plugins/gentle-logo.tsx');
-    const cli = `{\n  // OpenCode 2\n  "$schema": "https://opencode.ai/v2/cli.json",\n  "plugins": [\n    "opencode-subagent-statusline", // keep\n    "${logo}"\n  ]\n}\n`;
+    const cli = `{\n  // OpenCode 2\n  "$schema": "https://opencode.ai/v2/cli.json",\n  "plugins": [\n    "opencode-subagent-statusline", // keep\n    ${JSON.stringify(logo)}\n  ]\n}\n`;
     await writeFile(join(dir, 'cli.json'), cli);
     const plan = await createDetachPlan({ home, env: {}, hosts: ['opencode'], tools: ['gentle-ai'] });
     expect(plan.files.map(file => file.path)).toEqual([join(dir, 'cli.json')]);

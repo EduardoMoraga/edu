@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { join } from 'node:path';
 import { hostFiles } from './hosts.js';
 
 it('uses USERPROFILE and APPDATA for Windows host locations', () => {
@@ -17,6 +18,6 @@ it('includes the OpenCode TUI config files that hold TUI plugins', () => {
 it('includes OpenCode 2 cli.json, where TUI plugins are listed under `plugins`, parsed as JSONC', () => {
   const files = hostFiles('/home/me', {}, ['opencode']);
   expect(files.find((file) => file.relative === '.config/opencode/cli.json')).toEqual({
-    host: 'opencode', path: '/home/me/.config/opencode/cli.json', relative: '.config/opencode/cli.json', kind: 'jsonc',
+    host: 'opencode', path: join('/home/me', '.config/opencode/cli.json'), relative: '.config/opencode/cli.json', kind: 'jsonc',
   });
 });

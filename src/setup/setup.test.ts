@@ -192,7 +192,7 @@ describe('native setup planning', () => {
     const { stale } = await installOpenCode1Leftovers(home);
     expect(JSON.parse(await readFile(join(dir, 'tui.json'), 'utf8')).plugin).toEqual(['opencode-subagent-statusline', stale]);
     // OpenCode 2 migrated tui.json into cli.json once, edu entry included; the user has since commented it.
-    const cliJson = `{\n  // mine\n  "$schema": "https://opencode.ai/v2/cli.json",\n  "plugins": [\n    "opencode-subagent-statusline", // keep\n    "${stale}"\n  ]\n}\n`;
+    const cliJson = `{\n  // mine\n  "$schema": "https://opencode.ai/v2/cli.json",\n  "plugins": [\n    "opencode-subagent-statusline", // keep\n    ${JSON.stringify(stale)}\n  ]\n}\n`;
     await writeFile(join(dir, 'cli.json'), cliJson);
     const { runner } = fakeRunner();
     for (let run = 0; run < 2; run++) {
@@ -205,7 +205,7 @@ describe('native setup planning', () => {
     const cli = await readFile(join(dir, 'cli.json'), 'utf8');
     expect(cli).toContain('// mine');
     expect(cli).toContain('"opencode-subagent-statusline", // keep');
-    expect(cli).not.toContain('tui-plugins/edu.tsx');
+    expect(cli).not.toContain('edu.tsx');
     const manifest = JSON.parse(await readFile(join(home, '.edu/manifest.json'), 'utf8')) as { actions: Array<{ path: string }> };
     expect(manifest.actions.map(action => action.path).filter(path => path === stale || path.startsWith(join(dir, 'tui.')))).toEqual([]);
     await expect(readFile(join(dir, OPENCODE_TUI_PLUGIN), 'utf8')).resolves.toContain('export default { id, setup }');
@@ -220,7 +220,7 @@ describe('native setup planning', () => {
     await mkdir(join(home, '.config/opencode'), { recursive: true });
     await writeFile(join(home, '.config/opencode/tui.jsonc'), '{\n  // my TUI plugins\n  "plugin": [\n    "./herdr-tui-session.js", // keep\n  ],\n}\n');
     const { dir, stale } = await installOpenCode1Leftovers(home, 'tui.jsonc');
-    expect(await readFile(join(dir, 'tui.jsonc'), 'utf8')).toContain(stale);
+    expect(await readFile(join(dir, 'tui.jsonc'), 'utf8')).toContain(JSON.stringify(stale));
     const { runner } = fakeRunner();
     await applySetup(await planSetup({ clis: ['opencode'], packageRoot, home, runner }), { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' });
     await expect(readFile(stale, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
