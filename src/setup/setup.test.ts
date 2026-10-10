@@ -203,7 +203,8 @@ describe('Windows plugin localization', () => {
     await writeFile(join(root, 'plugins/claude-code/.mcp.json'), '{"edu":{"command":"edu","args":["mcp"]}}');
     await writeFile(join(root, 'plugins/codex/.mcp.json'), '{"mcpServers":{"edu":{"command":"edu","args":["mcp"]}}}');
     expect(await localizePluginsForPlatform(root, 'darwin')).toEqual([]);
-    const written = await localizePluginsForPlatform(root, 'win32');
+    expect(await localizePluginsForPlatform(root, 'win32')).toEqual([]); // a checkout outside node_modules is never rewritten
+    const written = await localizePluginsForPlatform(root, 'win32', { installedOnly: false });
     expect(written).toHaveLength(2);
     expect(JSON.parse(await readFile(join(root, 'plugins/claude-code/.mcp.json'), 'utf8'))).toEqual({ edu: { command: 'cmd', args: ['/c', 'edu', 'mcp'] } });
     expect(JSON.parse(await readFile(join(root, 'plugins/codex/.mcp.json'), 'utf8')).mcpServers.edu.command).toBe('cmd');

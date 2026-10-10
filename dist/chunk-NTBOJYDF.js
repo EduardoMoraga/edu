@@ -21,7 +21,7 @@ import {
   registerPluginSetup,
   resolveGlobals,
   statusLine
-} from "./chunk-EWNX4I6L.js";
+} from "./chunk-CVMEJUH7.js";
 import {
   packageTemplatesDir,
   packageVersion
@@ -859,7 +859,7 @@ function registerSetup(program, ctx) {
       const scope = parseScope(opts.scope);
       const { uninstall, getManifestPath } = await import("./adapters-2EITMVPW.js");
       if (scope === "global") {
-        const { setupManifestPath, uninstallSetup } = await import("./setup-HEKHLK6L.js");
+        const { setupManifestPath, uninstallSetup } = await import("./setup-GBHKT2WZ.js");
         if (await exists(await setupManifestPath(ctx.home))) {
           await uninstallSetup({ home: ctx.home, force: Boolean(opts.force) });
           ctx.out(t(g.lang, "uninstall.done", { scope }));
@@ -881,7 +881,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-2E6GMMJD.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-JKCLZKC7.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -1043,4 +1043,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-URNH7WY6.js.map
+//# sourceMappingURL=chunk-NTBOJYDF.js.map

@@ -150,8 +150,10 @@ async function writeManifest(path: string, manifest: SetupManifest): Promise<voi
  * the `edu.cmd` shim by name, so rewrite the installed package's plugin MCP files before the native
  * installers copy them.
  */
-export async function localizePluginsForPlatform(packageRoot: string, platform: NodeJS.Platform = process.platform): Promise<string[]> {
+export async function localizePluginsForPlatform(packageRoot: string, platform: NodeJS.Platform = process.platform, opts: { installedOnly?: boolean } = {}): Promise<string[]> {
   if (platform !== 'win32') return [];
+  // Only an installed copy (inside node_modules) is ours to rewrite; never touch a development checkout.
+  if ((opts.installedOnly ?? true) && !/[\\/]node_modules[\\/]/.test(packageRoot)) return [];
   const launch = eduMcpLaunch(platform);
   const targets: Array<[string, (edu: McpLaunch) => unknown]> = [
     ['plugins/claude-code/.mcp.json', edu => ({ edu })],

@@ -144,8 +144,9 @@ async function writeManifest(path, manifest) {
 `);
   await rename(temp, path);
 }
-async function localizePluginsForPlatform(packageRoot, platform = process.platform) {
+async function localizePluginsForPlatform(packageRoot, platform = process.platform, opts = {}) {
   if (platform !== "win32") return [];
+  if ((opts.installedOnly ?? true) && !/[\\/]node_modules[\\/]/.test(packageRoot)) return [];
   const launch = eduMcpLaunch(platform);
   const targets = [
     ["plugins/claude-code/.mcp.json", (edu) => ({ edu })],
@@ -301,4 +302,4 @@ export {
   uninstallSetup,
   needsFirstRunSetup
 };
-//# sourceMappingURL=chunk-PFWGYRAM.js.map
+//# sourceMappingURL=chunk-FBHKOBDF.js.map

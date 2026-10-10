@@ -5,7 +5,7 @@ import {
   applySetup,
   needsFirstRunSetup,
   planSetup
-} from "./chunk-PFWGYRAM.js";
+} from "./chunk-FBHKOBDF.js";
 import {
   t
 } from "./chunk-NQTHVZEM.js";
@@ -202,4 +202,4 @@ export {
   registerPluginSetup,
   shouldRunFirstSetup
 };
-//# sourceMappingURL=chunk-EWNX4I6L.js.map
+//# sourceMappingURL=chunk-CVMEJUH7.js.map

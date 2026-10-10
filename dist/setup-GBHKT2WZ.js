@@ -5,7 +5,7 @@ import {
   planSetup,
   setupManifestPath,
   uninstallSetup
-} from "./chunk-PFWGYRAM.js";
+} from "./chunk-FBHKOBDF.js";
 import "./chunk-IFIRJDFB.js";
 import "./chunk-IX5FXKNL.js";
 import "./chunk-PZTNRBLR.js";
@@ -22,4 +22,4 @@ export {
   setupManifestPath,
   uninstallSetup
 };
-//# sourceMappingURL=setup-HEKHLK6L.js.map
+//# sourceMappingURL=setup-GBHKT2WZ.js.map
