@@ -2,6 +2,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
+import { readMaintainState } from '../../brain/auto-maintain.js';
 import { parseMarkdownLenient } from '../../brain/frontmatter.js';
 import { TIER_DIRS, type Tier } from '../../core/contracts.js';
 import { getGlyphs } from '../../identity/index.js';
@@ -12,7 +13,10 @@ export interface DeckSnapshot {
   version: 1;
   project: { name: string; root: string };
   identity: string;
-  brain: { present: boolean; canonical: number; proposed: number; episodic: number; transitive: number; lessons: number };
+  /** `toApprove`: canonical notes with status proposed, waiting for a human. */
+  brain: { present: boolean; canonical: number; proposed: number; toApprove: number; episodic: number; transitive: number; lessons: number };
+  /** Last auto-maintenance stamp (promoted/retired from that run) and commitments currently overdue. */
+  maintenance: { lastRun: number | null; promoted: number; retired: number; overdue: number };
   spec: { name: string; requirements: number; checks: number } | null;
   jobs: Array<{ id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number }>;
   approvals: number;
@@ -112,7 +116,8 @@ export async function deckSnapshot(root: string): Promise<DeckSnapshot> {
     version: 1,
     project: { name: basename(projectRoot), root: projectRoot },
     identity: 'Edu',
-    brain: { present: false, canonical: 0, proposed: 0, episodic: 0, transitive: 0, lessons: 0 },
+    brain: { present: false, canonical: 0, proposed: 0, toApprove: 0, episodic: 0, transitive: 0, lessons: 0 },
+    maintenance: { lastRun: null, promoted: 0, retired: 0, overdue: 0 },
     spec: null,
     jobs: [],
     approvals: 0,
@@ -141,8 +146,10 @@ export async function deckSnapshot(root: string): Promise<DeckSnapshot> {
       else {
         empty.brain.transitive++;
         if (note.kind === 'lesson' || note.name.startsWith('L-')) byStatus[note.status] = (byStatus[note.status] ?? 0) + 1;
+        if ((note.kind === 'commitment' || note.name.startsWith('C-')) && note.status === 'overdue') empty.maintenance.overdue++;
       }
     }
+    empty.brain.toApprove = empty.brain.proposed;
     empty.brain.present = true;
     empty.brain.lessons = lessonCount(byStatus);
     empty.recent = notes
@@ -150,7 +157,8 @@ export async function deckSnapshot(root: string): Promise<DeckSnapshot> {
       .sort((a, b) => b.at - a.at)
       .slice(0, 5)
       .map(note => ({ title: note.title, tier: note.tier, at: note.at }));
-    const [identity, spec, jobs] = await Promise.all([identityName(eduRoot), latestSpec(eduRoot), crewJobs(eduRoot)]);
+    const [identity, spec, jobs, stamp] = await Promise.all([identityName(eduRoot), latestSpec(eduRoot), crewJobs(eduRoot), readMaintainState(eduRoot)]);
+    if (stamp) Object.assign(empty.maintenance, { lastRun: stamp.lastRun, promoted: stamp.promoted, retired: stamp.retired });
     empty.identity = identity;
     empty.spec = spec;
     empty.jobs = jobs;
@@ -170,7 +178,8 @@ export function registerDeck(program: Command, ctx: CliContext): void {
       const glyphs = getGlyphs(ctx.env);
       ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}`);
       const brain = deck.brain;
-      ctx.out(`Brain  ${brain.present ? `${brain.canonical} canonical · ${brain.proposed} proposed · ${brain.episodic} episodic · ${brain.transitive} transitive · ${brain.lessons} lessons` : 'not found'}`);
+      const attention = [brain.toApprove ? `${brain.toApprove} to approve` : '', deck.maintenance.overdue ? `${deck.maintenance.overdue} overdue` : ''].filter(Boolean).join(' · ');
+      ctx.out(`Brain  ${brain.present ? `${brain.canonical} canonical · ${brain.proposed} proposed · ${brain.episodic} episodic · ${brain.transitive} transitive · ${brain.lessons} lessons${attention ? ` · ${attention}` : ''}` : 'not found'}`);
       ctx.out(`Spec   ${deck.spec ? `${deck.spec.name} · ${deck.spec.requirements} requirements · ${deck.spec.checks} ${deck.spec.checks === 1 ? 'check' : 'checks'}` : 'none'}`);
       ctx.out(`Crew   ${deck.jobs.length} ${deck.jobs.length === 1 ? 'job' : 'jobs'} · ${deck.approvals} ${deck.approvals === 1 ? 'approval' : 'approvals'}`);
       for (const job of deck.jobs) ctx.out(`  ${job.status} ${job.cli} ${job.id} ${glyphs.sep} ${job.task}`);

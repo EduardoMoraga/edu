@@ -51,6 +51,14 @@ const clip = (text, max) => {
   return flat.length > max ? `${flat.slice(0, Math.max(0, max - 1))}…` : flat
 }
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+/** Coarse age for maintenance stamps: just now · 5m ago · 3h ago · 2d ago. */
+const ago = (from, to) => {
+  const m = Math.max(0, Math.floor((to - from) / 60000))
+  return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`
+}
+// edu ≥ 0.7 fields; older snapshots read as zero so nothing extra renders.
+const toApprove = (deck) => Number(deck?.brain?.toApprove) || 0
+const overdue = (deck) => Number(deck?.maintenance?.overdue) || 0
 
 /** `edu deck --json` (contract v1). Never throws; resolves undefined when edu is missing, old or slow. */
 function fetchDeck(cwd) {
@@ -76,6 +84,17 @@ function summary(deck, cwd) {
   lines.push(b.present
     ? `Brain   ${b.canonical} canonical · ${b.proposed} proposed · ${b.episodic} episodic · ${b.transitive} transitive · ${plural(b.lessons, 'lesson')}`
     : 'Brain   none here. Run `edu init` in this folder.')
+  if (b.present) {
+    const m = deck.maintenance
+    const upkeep = [
+      m?.lastRun ? `maintained ${ago(m.lastRun, now)}` : '',
+      m?.lastRun && m.promoted ? `${m.promoted} promoted` : '',
+      m?.lastRun && m.retired ? `${m.retired} retired` : '',
+      toApprove(deck) ? `${toApprove(deck)} to approve` : '',
+      overdue(deck) ? `${overdue(deck)} overdue` : '',
+    ].filter(Boolean)
+    if (upkeep.length) lines.push(`Upkeep  ${upkeep.join(' · ')}`)
+  }
   if (deck.spec) lines.push(`Spec    ${deck.spec.name} · ${plural(deck.spec.requirements, 'requirement')} · ${plural(deck.spec.checks, 'check')}`)
   const active = deck.jobs.filter((job) => ACTIVE.has(job.status)).length
   lines.push(`Crew    ${active} active · ${deck.jobs.length} recent${deck.approvals ? ` · ${deck.approvals} awaiting approval` : ''}`)
@@ -134,6 +153,12 @@ function setup(context) {
             <Show when={deck().approvals}>
               <text fg={WARN}>{`⏸ ${deck().approvals}`}</text>
             </Show>
+            <Show when={toApprove(deck())}>
+              <text fg={WARN}>{`· ${toApprove(deck())} to approve`}</text>
+            </Show>
+            <Show when={overdue(deck())}>
+              <text fg={BAD}>{`· ${overdue(deck())} overdue`}</text>
+            </Show>
             <Show when={deck().spec && dim().width >= 100}>
               <text fg={muted()}>· spec</text>
               <text fg={text()}>{clip(deck().spec.name, 20)}</text>
@@ -164,6 +189,12 @@ function setup(context) {
             <text fg={text()}>{`${deck().brain.episodic} epi`}</text>
             <text fg={muted()}>{`${deck().brain.transitive} trans`}</text>
           </box>
+          <Show when={toApprove(deck()) || overdue(deck())}>
+            <box flexDirection="row" gap={1}>
+              <Show when={toApprove(deck())}><text fg={WARN}>{`${toApprove(deck())} to approve`}</text></Show>
+              <Show when={overdue(deck())}><text fg={BAD}>{`${overdue(deck())} overdue`}</text></Show>
+            </box>
+          </Show>
         </Show>
         <Show when={deck().jobs.length} fallback={<text fg={muted()}>crew idle</text>}>
           <For each={deck().jobs.slice(0, 6)}>

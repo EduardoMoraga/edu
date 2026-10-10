@@ -25,7 +25,9 @@ interface Deck {
   version: 1;
   project: { name: string; root: string };
   identity: string;
-  brain: { present: boolean; canonical: number; proposed: number; episodic: number; transitive: number; lessons: number };
+  brain: { present: boolean; canonical: number; proposed: number; toApprove?: number; episodic: number; transitive: number; lessons: number };
+  /** edu ≥ 0.7: last auto-maintenance stamp and commitments currently overdue. */
+  maintenance?: { lastRun: number | null; promoted: number; retired: number; overdue: number };
   spec: { name: string; requirements: number; checks: number } | null;
   jobs: DeckJob[];
   approvals: number;
@@ -50,6 +52,20 @@ const GLYPH: Record<string, [string, Color]> = {
 const elapsed = (from: number, to: number): string => {
   const s = Math.max(0, Math.round((to - from) / 1000));
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s` : `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`;
+};
+/** Coarse age for maintenance stamps: just now · 5m · 3h · 2d. */
+const ago = (from: number, to: number): string => {
+  const m = Math.max(0, Math.floor((to - from) / 60000));
+  return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`;
+};
+/** Attention badges, empty when nothing needs the human: proposals to approve (warning) and overdue commitments. */
+const attention = (deck: Deck, t: Theme): string[] => {
+  const toApprove = deck.brain.toApprove ?? 0;
+  const overdue = deck.maintenance?.overdue ?? 0;
+  return [
+    ...(toApprove > 0 ? [t.fg('warning', `${toApprove} to approve`)] : []),
+    ...(overdue > 0 ? [t.fg('error', `${overdue} overdue`)] : []),
+  ];
 };
 const compact = (n: number): string => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n))).replace('.0', '');
 const bar = (percent: number, width: number): [string, string] => {
@@ -106,7 +122,7 @@ function brainLine(deck: Deck, t: Theme): string {
   ].join(sep);
 }
 
-/** Header stats: project · brain c/p/e/t · crew running/approvals · spec. */
+/** Header stats: project · brain c/p/e/t · to approve/overdue (only when > 0) · crew running/approvals · spec. */
 function statsLine(deck: Deck | undefined, cwd: string, t: Theme): string {
   const sep = t.fg('dim', ' · ');
   const slash = t.fg('dim', '/');
@@ -115,6 +131,7 @@ function statsLine(deck: Deck | undefined, cwd: string, t: Theme): string {
   const b = deck.brain;
   if (!b.present) return [...parts, t.fg('muted', 'no brain here · edu init')].join(sep);
   parts.push(t.fg('muted', 'brain ') + [t.fg('success', String(b.canonical)), t.fg('warning', String(b.proposed)), t.fg('text', String(b.episodic)), t.fg('muted', String(b.transitive))].join(slash));
+  parts.push(...attention(deck, t)); // before crew/spec so it survives narrow truncation
   const running = deck.jobs.filter(job => job.status === 'running').length;
   parts.push(t.fg('muted', 'crew ') + t.fg(running ? 'accent' : 'muted', String(running)) + slash + t.fg(deck.approvals ? 'warning' : 'muted', String(deck.approvals)));
   if (deck.spec) parts.push(t.fg('muted', 'spec ') + t.fg('text', deck.spec.name));
@@ -290,6 +307,16 @@ export default function (pi: ExtensionAPI): void {
           lines.push(row());
           section('BRAIN', b.present ? `${plural(b.canonical + b.proposed + b.episodic + b.transitive, 'note')} · ${plural(b.lessons, 'lesson')}` : '');
           lines.push(row(b.present ? brainLine(deck, t) : t.fg('muted', 'No Edu brain here. Run `edu init` in this folder.')));
+          if (b.present) {
+            const m = deck.maintenance;
+            const upkeep = [
+              ...attention(deck, t),
+              ...(m?.lastRun ? [t.fg('dim', `maintained ${ago(m.lastRun, now)}`)] : []),
+              ...(m?.lastRun && m.promoted ? [t.fg('success', `${m.promoted} promoted`)] : []),
+              ...(m?.lastRun && m.retired ? [t.fg('muted', `${m.retired} retired`)] : []),
+            ];
+            if (upkeep.length) lines.push(row(upkeep.join(t.fg('dim', ' · '))));
+          }
           if (deck.spec) {
             lines.push(row());
             section('SPEC', `${plural(deck.spec.requirements, 'requirement')} · ${plural(deck.spec.checks, 'check')}`);

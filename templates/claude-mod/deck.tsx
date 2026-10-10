@@ -31,6 +31,46 @@ async function countNotes($: EngineInterface, dir: string): Promise<number> {
   return total
 }
 
+/** The `status:` value from a note's YAML frontmatter, or '' when absent. */
+function frontStatus(text: string): string {
+  if (!text.startsWith('---')) return ''
+  const end = text.indexOf('\n---', 3)
+  const front = end === -1 ? '' : text.slice(3, end)
+  return /^status:\s*['"]?([\w-]+)['"]?\s*$/m.exec(front)?.[1] ?? ''
+}
+
+/** Counts notes whose frontmatter status matches, under `dir` and one level of sub-folders. */
+async function countStatus($: EngineInterface, dir: string, status: string, accept: (name: string) => boolean = () => true): Promise<number> {
+  if (!(await $.fs.exists(dir))) return 0
+  let total = 0
+  const check = async (path: string, name: string) => {
+    if (!name.endsWith('.md') || !accept(name)) return
+    try { if (frontStatus(await $.fs.read(path)) === status) total++ } catch { /* Being written; next refresh. */ }
+  }
+  for (const entry of await $.fs.list(dir)) {
+    if (entry.kind === 'file') await check(`${dir}/${entry.name}`, entry.name)
+    else if (entry.kind === 'dir') {
+      for (const inner of await $.fs.list(`${dir}/${entry.name}`)) {
+        if (inner.kind === 'file') await check(`${dir}/${entry.name}/${inner.name}`, inner.name)
+      }
+    }
+  }
+  return total
+}
+
+const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0)
+
+/** Last auto-maintenance stamp (edu ≥ 0.7); absent or corrupt reads as never maintained. */
+async function maintenance($: EngineInterface, overdue: number): Promise<NonNullable<DeckSnapshot['maintenance']>> {
+  const empty = { lastRun: null, promoted: 0, retired: 0, overdue }
+  try {
+    if (!(await $.fs.exists('.edu/state/maintain.json'))) return empty
+    const stamp = JSON.parse(await $.fs.read('.edu/state/maintain.json')) as Record<string, unknown>
+    if (typeof stamp.lastRun !== 'number' || !Number.isFinite(stamp.lastRun)) return empty
+    return { lastRun: stamp.lastRun, promoted: num(stamp.promoted), retired: num(stamp.retired), overdue }
+  } catch { return empty }
+}
+
 async function latestSpec($: EngineInterface): Promise<DeckSpec | undefined> {
   const dir = '.edu/specs'
   if (!(await $.fs.exists(dir))) return undefined
@@ -79,6 +119,11 @@ const elapsed = (from: number, to: number) => {
   const s = Math.max(0, Math.round((to - from) / 1000))
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s` : `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`
 }
+/** Coarse age for maintenance stamps: just now · 5m ago · 3h ago · 2d ago. */
+const ago = (from: number, to: number) => {
+  const m = Math.max(0, Math.floor((to - from) / 60000))
+  return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`
+}
 const compact = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 const bar = (percent: number, width: number) => {
   const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * width)
@@ -105,6 +150,10 @@ async function refresh($: EngineInterface): Promise<void> {
           transitive: await countNotes($, '.edu/brain/3-transitive'),
         }
       : { canonical: 0, episodic: 0, transitive: 0 },
+    toApprove: hasBrain ? await countStatus($, '.edu/brain/1-canonical', 'proposed') : 0,
+    maintenance: hasBrain
+      ? await maintenance($, await countStatus($, '.edu/brain/3-transitive', 'overdue', name => name.startsWith('C-')))
+      : { lastRun: null, promoted: 0, retired: 0, overdue: 0 },
     jobs: hasBrain ? await crewJobs($) : [],
     spec: hasBrain ? await latestSpec($) : undefined,
     context: usage?.context ? { tokens: usage.context.tokens, window: usage.context.window, percent: usage.context.percent } : undefined,
@@ -173,6 +222,8 @@ export const register: Register = on => {
               <Text>episodic {deck.notes.episodic}</Text>
               <Text color={MUTED}> · </Text>
               <Text color={WARN}>transitive {deck.notes.transitive}</Text>
+              {deck.toApprove ? <Text><Text color={MUTED}> · </Text><Text color={WARN}>{deck.toApprove} to approve</Text></Text> : null}
+              {deck.maintenance?.overdue ? <Text><Text color={MUTED}> · </Text><Text color={BAD}>{deck.maintenance.overdue} overdue</Text></Text> : null}
             </Text>)
           : section('BRAIN', undefined, <Text color={MUTED}>No Edu brain here. Run `edu init` in this folder.</Text>, MUTED)}
 
@@ -203,7 +254,7 @@ export const register: Register = on => {
               </Box>)}
 
         <Box paddingX={1}>
-          <Text color={MUTED}>updated {elapsed(deck.updatedAt, now)} ago · /edu-deck to reopen</Text>
+          <Text wrap="truncate-end" color={MUTED}>updated {elapsed(deck.updatedAt, now)} ago{deck.maintenance?.lastRun ? ` · maintained ${ago(deck.maintenance.lastRun, now)}` : ''} · /edu-deck to reopen</Text>
         </Box>
       </Box>
     )

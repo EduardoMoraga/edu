@@ -19,7 +19,8 @@ describe('edu deck', () => {
       version: 1,
       project: { name: 'project', root: c.dirs.cwd },
       identity: 'Edu',
-      brain: { present: false, canonical: 0, proposed: 0, episodic: 0, transitive: 0, lessons: 0 },
+      brain: { present: false, canonical: 0, proposed: 0, toApprove: 0, episodic: 0, transitive: 0, lessons: 0 },
+      maintenance: { lastRun: null, promoted: 0, retired: 0, overdue: 0 },
       spec: null, jobs: [], approvals: 0, recent: [],
     });
     await runCli(c, ['deck', '--json']);
@@ -44,7 +45,8 @@ describe('edu deck', () => {
 
     const snapshot = await deckSnapshot(root);
     expect(snapshot.identity).toBe('Ada');
-    expect(snapshot.brain).toEqual({ present: true, canonical: 1, proposed: 1, episodic: 1, transitive: 3, lessons: 2 });
+    expect(snapshot.brain).toEqual({ present: true, canonical: 1, proposed: 1, toApprove: 1, episodic: 1, transitive: 3, lessons: 2 });
+    expect(snapshot.maintenance).toEqual({ lastRun: null, promoted: 0, retired: 0, overdue: 0 });
     expect(snapshot.spec).toEqual({ name: 'new', requirements: 2, checks: 1 });
     expect(snapshot.jobs).toHaveLength(2);
     expect(snapshot.jobs[0]).toMatchObject({ id: '11111111', cli: 'pi', task: 'Verify', status: 'done', mode: 'pane', tokens: 0 });
@@ -79,5 +81,33 @@ describe('edu deck', () => {
     expect(snapshot.recent[0]?.title).toBe('Still readable');
     expect(snapshot.jobs).toHaveLength(1);
     expect(snapshot.jobs[0]).toMatchObject({ id: '12345678', status: 'running', task: 'Fine' });
+  });
+
+  it('reports proposals to approve, overdue commitments and the last maintenance stamp', async () => {
+    const c = await captureContext();
+    const root = c.dirs.cwd;
+    await fixture(root, 'brain/1-canonical/standard/a.md', '---\ntier: canonical\nstatus: proposed\ntitle: A\n---\nText\n', 1000);
+    await fixture(root, 'brain/1-canonical/standard/b.md', '---\ntier: canonical\nstatus: proposed\ntitle: B\n---\nText\n', 1000);
+    await fixture(root, 'brain/1-canonical/standard/c.md', '---\ntier: canonical\nstatus: accepted\ntitle: C\n---\nText\n', 1000);
+    await fixture(root, 'brain/3-transitive/C-late.md', '---\nkind: commitment\nstatus: overdue\ntitle: Late\n---\nBody\n', 1000);
+    await fixture(root, 'brain/3-transitive/C-fine.md', '---\nkind: commitment\nstatus: pending\ntitle: Fine\n---\nBody\n', 1000);
+    await fixture(root, 'state/maintain.json', JSON.stringify({ lastRun: 1_700_000_000_000, promoted: 2, retired: 1, overdue: 5, changed: 8 }), 1000);
+    const snapshot = await deckSnapshot(root);
+    expect(snapshot.brain.toApprove).toBe(2);
+    expect(snapshot.maintenance).toEqual({ lastRun: 1_700_000_000_000, promoted: 2, retired: 1, overdue: 1 });
+    await runCli(c, ['deck']);
+    expect(out(c)).toContain('2 to approve');
+    expect(out(c)).toContain('1 overdue');
+  });
+
+  it('degrades a corrupt maintenance stamp to lastRun null and stays quiet at zero', async () => {
+    const c = await captureContext();
+    const root = c.dirs.cwd;
+    await fixture(root, 'brain/2-episodic/s.md', '# Session\n', 1000);
+    await fixture(root, 'state/maintain.json', '{not json', 1000);
+    expect((await deckSnapshot(root)).maintenance).toEqual({ lastRun: null, promoted: 0, retired: 0, overdue: 0 });
+    await runCli(c, ['deck']);
+    expect(out(c)).not.toContain('to approve');
+    expect(out(c)).not.toContain('overdue');
   });
 });
