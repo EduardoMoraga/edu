@@ -7,6 +7,7 @@ import { Command } from 'commander';
 import { detectTheme, getGlyphs, renderBanner } from '../identity/index.js';
 import { registerBrain } from './commands/brain.js';
 import { registerCreate } from './commands/create.js';
+import { registerConnect } from './commands/connect.js';
 import { registerCrew } from './commands/crew.js';
 import { registerDeck } from './commands/deck.js';
 import { registerDoctor } from './commands/doctor.js';
@@ -14,20 +15,22 @@ import { registerDetach } from './commands/detach.js';
 import { registerEvidence } from './commands/evidence.js';
 import { registerIntegrations } from './commands/integrations.js';
 import { registerLearn } from './commands/learn.js';
+import { registerMcpProject } from './commands/mcp.js';
 import { registerPluginSetup } from './commands/plugins.js';
 import { registerWatch } from './commands/watch.js';
 import { openHome, registerLive } from './commands/live.js';
 import { registerSetup } from './commands/setup.js';
+import { registerUpdate } from './commands/update.js';
 import { registerVault } from './commands/vault.js';
 import { processContext, resolveGlobals, type CliContext } from './context.js';
 import { t } from './i18n.js';
 import { packageVersion } from './package.js';
 
 const GROUPS: Array<[string, string[]]> = [
-  ['Get started:', ['create', 'init', 'vault', 'install', 'uninstall', 'doctor', 'detach']],
+  ['Get started:', ['create', 'init', 'vault', 'install', 'uninstall', 'update', 'doctor', 'detach']],
   ['Work:', ['run', 'ui', 'demo', 'deck']],
   ['Brain:', ['brain', 'context', 'reflect', 'proposals', 'metrics', 'checks']],
-  ['Integrations:', ['mcp', 'statusline', 'hook']],
+  ['Integrations:', ['mcp', 'connect', 'statusline', 'hook']],
 ];
 
 export interface ProgramOptions {
@@ -81,10 +84,13 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerDetach(program, ctx);
   registerEvidence(program, ctx);
   registerIntegrations(program, ctx);
+  registerMcpProject(program, ctx);
+  registerConnect(program, ctx);
   registerPluginSetup(program, ctx);
   registerCrew(program, ctx);
   registerDeck(program, ctx);
   registerWatch(program, ctx);
+  registerUpdate(program, ctx);
 
   for (const [heading, names] of GROUPS) {
     for (const name of names) program.commands.find((c) => c.name() === name)?.helpGroup(heading);
