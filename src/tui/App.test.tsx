@@ -185,7 +185,9 @@ describe('App: live stream', () => {
       yield { type: 'agent.text', agentId: 'a', text: 'streaming now', at: fixtureAt(2) };
     }
     instance = mount({ events: stream() });
-    await tick(60);
+    // Poll rather than sleep a fixed time: slow CI runners (Windows) render later.
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !instance.lastFrame()?.includes('streaming now')) await tick(25);
     const frame = instance.lastFrame()!;
     expect(frame).toContain('"live goal"');
     expect(frame).toContain('streaming now');
