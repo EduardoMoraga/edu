@@ -58,8 +58,8 @@ what is connected.
 Manual plugin installation is incomplete: run `edu setup` afterward to initialize the global
 brain and install the Codex identity instructions. The marketplace commands alone do not do this.
 
-Seven workflows, the same everywhere: **brief · recall · remember · reflect · crew · review ·
-status**. Per-CLI details: [Claude Code](docs/guides/claude.md) · [Codex](docs/guides/codex.md) ·
+Eight workflows, the same everywhere: **brief · recall · remember · reflect · crew · run ·
+review · status**. Per-CLI details: [Claude Code](docs/guides/claude.md) · [Codex](docs/guides/codex.md) ·
 [Pi](docs/guides/pi.md) · [OpenCode](docs/guides/opencode.md) ·
 [Antigravity](docs/guides/antigravity.md).
 
@@ -85,6 +85,30 @@ available reviewer explicitly.
 
 **Mission control.** `edu watch` in a second terminal shows every crew job live: agents,
 status, tokens and cost.
+
+## Edu as your orchestrator
+
+Give Edu a goal and it directs the team with **your** method, not a generic one.
+
+1. **Playbook.** The lead plans with `.edu/playbooks/default.md` — spec first, observable
+   requirements with deterministic checks, delegation by role, claim bands, learning at the
+   close. Edit it to encode how you work. `quick` (small chores, no approval) and `research`
+   (read-only, no builder) ship alongside; pick one with `--playbook <name>`.
+2. **Spec → approve.** Edu writes `.edu/specs/<date>-<slug>.md` with requirements (`R1`…) and
+   the checks it will run. Nothing is built until you approve it.
+3. **Verified outcome.** Builders work, Edu runs the checks itself, a reviewer from another
+   vendor looks at the result. "Done" means the checks passed — not that the model said so.
+
+```bash
+edu run "add a --json flag to the status command"   # from a terminal
+```
+
+```
+/edu:run add a --json flag to the status command      # Claude Code (Pi/OpenCode: /edu-run)
+```
+
+In Codex, ask "run this with edu" or name the `edu-run` skill. `edu watch` shows the spec
+card, every agent and each check live.
 
 ## The brain
 
@@ -118,8 +142,8 @@ edu metrics --by cli    # AVSR, human-intervention rate, verification autonomy
 
 ## Standalone
 
-Edu also runs on its own: `edu run "<goal>" [--solo|--crew]` orchestrates lead, explorer,
-builder and reviewer roles; `edu demo` shows the live view without any LLM.
+Edu also runs on its own: `edu run "<goal>" [--solo|--crew] [--playbook <name>]` orchestrates
+lead, explorer, builder and reviewer roles (see [Edu as your orchestrator](#edu-as-your-orchestrator)); `edu demo` shows the live view without any LLM.
 
 ## Uninstall
 

@@ -19,7 +19,7 @@ the `edu` server; `edu doctor` shows the integration.
 ## What you get
 
 - Commands: `/edu-brief`, `/edu-recall <topic>`, `/edu-remember <note>`, `/edu-reflect`,
-  `/edu-crew <cli>: <task>`, `/edu-review [base]`, `/edu-status`.
+  `/edu-crew <cli>: <task>`, `/edu-run <goal>`, `/edu-review [base]`, `/edu-status`.
 - Edu roles as OpenCode agents, and skills that trigger from plain English or Spanish.
 - DeepSeek and other models: configure them as OpenCode providers; Edu works the same.
 

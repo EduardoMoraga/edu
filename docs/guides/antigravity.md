@@ -24,7 +24,7 @@ shows `edu`; `edu doctor` shows the integration.
 
 - Identity from the plugin rule (`rules/edu.md`).
 - Skills that trigger from plain English or Spanish: `edu-brief`, `edu-recall`,
-  `edu-remember`, `edu-reflect`, `edu-crew`, `edu-review`, `edu-status`.
+  `edu-remember`, `edu-reflect`, `edu-crew`, `edu-run`, `edu-review`, `edu-status`.
 - Edu roles as agents and the `edu` MCP server.
 
 Example: "use edu-crew: codex, write tests for src/auth".

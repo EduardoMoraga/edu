@@ -81,8 +81,17 @@ export interface RunView {
   outcomeLabel?: OutcomeLabel;
 }
 
+/** The plan the lead wrote, from the newest `spec.ready` event. */
+export interface SpecView {
+  path: string;
+  requirements: number;
+  checks: number;
+  steps?: number;
+}
+
 export interface TuiState {
   run: RunView;
+  spec?: SpecView;
   agents: Record<string, AgentView>;
   /** Spawn order. */
   order: string[];
@@ -113,6 +122,9 @@ const TERMINAL: ReadonlySet<AgentStatus> = new Set(['done', 'failed', 'cancelled
 export function reduce(state: TuiState, event: EduEvent): TuiState {
   const at = parseAt(event.at, state.now);
   const s: TuiState = at > state.now ? { ...state, now: at } : state;
+
+  // `spec.ready` is read structurally so the reducer works before and after it joins the contract union.
+  if ((event as { type: string }).type === 'spec.ready') return reduceSpec(s, event as unknown as Record<string, unknown>);
 
   switch (event.type) {
     case 'run.start':
@@ -258,6 +270,27 @@ export function reduceAll(events: Iterable<EduEvent>, from: TuiState = initialSt
 }
 
 // ─── Internals ───────────────────────────────────────────────────────────────
+
+/** Newest spec wins; an event without a usable path is ignored. */
+function reduceSpec(s: TuiState, event: Record<string, unknown>): TuiState {
+  const path = typeof event.path === 'string' ? event.path.trim() : '';
+  if (!path) return s;
+  const steps = countOf(event.steps);
+  const spec: SpecView = {
+    path,
+    requirements: countOf(event.requirements) ?? 0,
+    checks: countOf(event.checks) ?? 0,
+    ...(steps !== undefined ? { steps } : {}),
+  };
+  return { ...s, spec };
+}
+
+/** A list counts its items; a non-negative number is taken as the count. */
+function countOf(value: unknown): number | undefined {
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.floor(value);
+  return undefined;
+}
 
 function parseAt(at: string, fallback: number): number {
   const t = Date.parse(at);

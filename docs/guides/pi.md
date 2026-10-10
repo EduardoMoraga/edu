@@ -24,7 +24,7 @@ Ask: **"what do you remember?"** Pi should call `edu_brief`. `pi list` shows the
 ## What you get
 
 - Prompts: `/edu-brief`, `/edu-recall <topic>`, `/edu-remember <note>`, `/edu-reflect`,
-  `/edu-crew <cli>: <task>`, `/edu-review [base]`, `/edu-status`.
+  `/edu-crew <cli>: <task>`, `/edu-run <goal>`, `/edu-review [base]`, `/edu-status`.
 - Skills with the same names that trigger from plain English or Spanish.
 - DeepSeek and other models: configure them as Pi providers; Edu works the same.
 

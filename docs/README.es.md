@@ -60,9 +60,9 @@ La instalación manual del plugin queda incompleta: ejecute `edu setup` después
 el cerebro global e instalar las instrucciones de identidad de Codex. Los comandos del marketplace
 no realizan estos pasos.
 
-Siete flujos, iguales en todas partes: **brief · recall · remember · reflect · crew · review ·
-status**. Las skills reconocen frases en español ("ponme al día", "recuerda esto", "pídele a
-codex que…"). Detalle por CLI: [Claude Code](guides/claude.md) · [Codex](guides/codex.md) ·
+Ocho flujos, iguales en todas partes: **brief · recall · remember · reflect · crew · run ·
+review · status**. Las skills reconocen frases en español ("ponme al día", "recuerda esto",
+"pídele a codex que…", "orquesta esto"). Detalle por CLI: [Claude Code](guides/claude.md) · [Codex](guides/codex.md) ·
 [Pi](guides/pi.md) · [OpenCode](guides/opencode.md) · [Antigravity](guides/antigravity.md).
 
 ## El equipo (crew)
@@ -87,6 +87,33 @@ que seleccione explícitamente un revisor disponible.
 
 **Centro de control.** `edu watch` en una segunda terminal muestra cada trabajo del equipo en
 vivo: agentes, estado, tokens y costo.
+
+## Edu como su orquestador
+
+Entregue un objetivo a Edu y dirigirá al equipo con **su** método, no con uno genérico.
+
+1. **Playbook.** El lead planifica con `.edu/playbooks/default.md`: especificación primero,
+   requisitos observables con verificaciones deterministas, delegación por rol, bandas de
+   certeza y aprendizaje al cierre. Edítelo para codificar su forma de trabajar. También se
+   incluyen `quick` (tareas pequeñas, sin aprobación) y `research` (solo lectura, sin
+   builder); elija uno con `--playbook <nombre>`.
+2. **Especificación → aprobación.** Edu escribe `.edu/specs/<fecha>-<slug>.md` con los
+   requisitos (`R1`…) y las verificaciones que ejecutará. Nada se construye hasta que usted la
+   aprueba.
+3. **Resultado verificado.** Los builders trabajan, Edu ejecuta las verificaciones por sí
+   mismo y un revisor de otro proveedor revisa el resultado. "Terminado" significa que las
+   verificaciones pasaron, no que el modelo lo afirmó.
+
+```bash
+edu run "add a --json flag to the status command"   # desde una terminal
+```
+
+```
+/edu:run add a --json flag to the status command      # Claude Code (Pi/OpenCode: /edu-run)
+```
+
+En Codex, pida "run this with edu" o "orquesta esto", o nombre la skill `edu-run`.
+`edu watch` muestra en vivo la tarjeta de la especificación, cada agente y cada verificación.
 
 ## El cerebro
 
@@ -120,8 +147,9 @@ edu metrics --by cli    # AVSR, tasa de intervención humana, autonomía de veri
 
 ## Uso independiente
 
-Edu también funciona por sí solo: `edu run "<objetivo>" [--solo|--crew]` orquesta los roles
-lead, explorer, builder y reviewer; `edu demo` muestra la vista en vivo sin ningún LLM.
+Edu también funciona por sí solo: `edu run "<objetivo>" [--solo|--crew] [--playbook <nombre>]`
+orquesta los roles lead, explorer, builder y reviewer (vea
+[Edu como su orquestador](#edu-como-su-orquestador)); `edu demo` muestra la vista en vivo sin ningún LLM.
 
 ## Desinstalar
 

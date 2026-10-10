@@ -35,6 +35,7 @@ Spanish, or name the skill:
 | `edu-remember` | "remember that we use pnpm" · "recuerda esto" |
 | `edu-reflect` | "reflect on this week" · "reflexiona" |
 | `edu-crew` | "ask claude to review the API docs" · "pídele a claude que…" |
+| `edu-run` | "run this with edu" · "orquesta esto" · "haz que el equipo…" |
 | `edu-review` | "get a cross-vendor review" · "revisión cruzada" |
 | `edu-status` | "what are the agents doing?" · "estado" |
 

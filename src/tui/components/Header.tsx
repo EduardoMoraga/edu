@@ -1,11 +1,13 @@
 import { Box, Text } from 'ink';
 import { displayWidth, formatCost, formatDuration, formatTokens, type Glyphs } from '../../identity/index.js';
 import type { Layout } from '../layout.js';
+import type { DisplayLine } from '../lines.js';
 import { runClis, runTotals } from '../selectors.js';
 import type { TuiState } from '../state.js';
 import type { UiStrings } from '../strings.js';
 import { wrapPlain } from '../wrap.js';
-import { Tx, useUi } from './ui.js';
+import { specLines } from './SpecCard.js';
+import { Line, Tx, useUi } from './ui.js';
 
 /** A goal never takes more than this many header lines. */
 export const GOAL_LINES = 3;
@@ -19,6 +21,8 @@ export interface HeaderModel {
   inlineGoal?: string;
   /** Otherwise the goal, wrapped below the first line. */
   goalLines: string[];
+  /** The spec card, once the lead has written a spec (empty before). */
+  specLines: DisplayLine[];
   height: number;
 }
 
@@ -56,17 +60,18 @@ export function headerModel({ state, layout, name, now, cancelling, glyphs, stri
   const rightWidth = displayWidth(right) + 3 + displayWidth(money);
   const goal = `"${state.run.goal ?? strings.header.waiting}"`;
   const room = layout.inner - displayWidth(mark) - 2 - rightWidth - 2;
+  const spec = state.spec ? specLines(state.spec, layout.inner, glyphs) : [];
   if (layout.mode !== 'narrow' && displayWidth(goal) <= room) {
-    return { mark, status, metaLine, money, inlineGoal: goal, goalLines: [], height: 1 };
+    return { mark, status, metaLine, money, inlineGoal: goal, goalLines: [], specLines: spec, height: 1 + spec.length };
   }
   const goalLines = wrapPlain(goal, layout.inner, { maxLines: GOAL_LINES, ellipsis: glyphs.ellipsis });
-  return { mark, status, metaLine, money, goalLines, height: 1 + goalLines.length };
+  return { mark, status, metaLine, money, goalLines, specLines: spec, height: 1 + goalLines.length + spec.length };
 }
 
-/** Identity, goal, mode · cli, elapsed and run totals; a long goal wraps below. */
+/** Identity, goal, mode · cli, elapsed and run totals; a long goal wraps below, then the spec card. */
 export function Header({ model, hasGoal }: { model: HeaderModel; hasGoal: boolean }) {
   const { glyphs } = useUi();
-  const { mark, status, metaLine, money, inlineGoal, goalLines } = model;
+  const { mark, status, metaLine, money, inlineGoal, goalLines, specLines: spec } = model;
   return (
     <Box flexDirection="column">
       <Box justifyContent="space-between">
@@ -92,6 +97,9 @@ export function Header({ model, hasGoal }: { model: HeaderModel; hasGoal: boolea
         <Tx key={i} dim={!hasGoal} wrap="truncate-end">
           {line}
         </Tx>
+      ))}
+      {spec.map((line, i) => (
+        <Line key={`s${i}`} line={line} />
       ))}
     </Box>
   );
