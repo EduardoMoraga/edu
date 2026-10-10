@@ -44,7 +44,7 @@ export const TOOL_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructi
 };
 
 export function createEduMcpServer(opts: EduMcpOptions): McpServer {
-  const server = new McpServer({ name: 'edu', version: '0.3.1' });
+  const server = new McpServer({ name: 'edu', version: '0.4.0' });
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');

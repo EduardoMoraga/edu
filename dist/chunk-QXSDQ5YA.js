@@ -1378,7 +1378,7 @@ async function codexNotify(ctx, cwd, payload) {
 function registerIntegrations(program, ctx) {
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-FMTVAIXC.js");
+      const { runStdioServer } = await import("./stdio-BLUKORRI.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -2076,4 +2076,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-XP52K56A.js.map
+//# sourceMappingURL=chunk-QXSDQ5YA.js.map
