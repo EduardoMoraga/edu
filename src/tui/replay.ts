@@ -27,6 +27,7 @@ const REQUIRED: Record<string, Record<string, FieldKind>> = {
   'agent.end': { agentId: 'string', ok: 'boolean', summary: 'string' },
   error: { message: 'string' },
   'task.define': { requirements: 'array' },
+  'spec.ready': { path: 'string', requirements: 'array', checks: 'array', steps: 'array' },
   'context.trace': { noteId: 'string', contribution: 'string', influenced: 'boolean' },
   'verify.result': { requirementIds: 'array', ok: 'boolean', output: 'string', kind: 'string' },
   'failure.attribution': { observed: 'string', expected: 'string', failureType: 'string', evidence: 'array', alternatives: 'array', next: 'string' },
@@ -62,6 +63,11 @@ export function eventProblem(value: unknown): string | undefined {
   const validFailures = ['context', 'tool', 'feedback', 'verify', 'recovery', 'entropy', 'model', 'unknown'];
   const validLabels = ['autonomous_verified_success', 'assisted_verified_success', 'unverified_success', 'failed', 'unsafe_invalid'];
   if (v.type === 'task.define' && !(v.requirements as unknown[]).every(item => item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string' && typeof (item as Record<string, unknown>).text === 'string')) return 'task.define: requirements must contain id and text strings';
+  if (v.type === 'spec.ready') {
+    if (!(v.requirements as unknown[]).every(item => item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string' && typeof (item as Record<string, unknown>).text === 'string')) return 'spec.ready: requirements must contain id and text strings';
+    if (!(v.checks as unknown[]).every(item => item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string' && typeof (item as Record<string, unknown>).command === 'string')) return 'spec.ready: checks must contain id and command strings';
+    if (!(v.steps as unknown[]).every(item => item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string' && typeof (item as Record<string, unknown>).role === 'string' && typeof (item as Record<string, unknown>).cli === 'string')) return 'spec.ready: steps must contain id, role, and cli strings';
+  }
   if (v.type === 'verify.result') {
     if (typeof v.checkId !== 'string' && typeof v.method !== 'string') return 'verify.result: checkId or method is required';
     if (!['reproduction', 'deterministic', 'targeted-test', 'regression', 'lint', 'review'].includes(String(v.kind))) return 'verify.result: invalid kind';

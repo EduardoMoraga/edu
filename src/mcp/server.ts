@@ -40,10 +40,11 @@ export const TOOL_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructi
   edu_remember: BRAIN_WRITE, edu_feedback: BRAIN_WRITE, edu_propose_canonical: BRAIN_WRITE,
   edu_session_open: BRAIN_WRITE, edu_session_close: BRAIN_WRITE,
   edu_crew_dispatch: STARTS_AGENTS, edu_crew_review: STARTS_AGENTS,
+  edu_orchestrate: STARTS_AGENTS, edu_crew_approve: STARTS_AGENTS,
 };
 
 export function createEduMcpServer(opts: EduMcpOptions): McpServer {
-  const server = new McpServer({ name: 'edu', version: '0.2.3' });
+  const server = new McpServer({ name: 'edu', version: '0.3.0' });
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
@@ -174,6 +175,24 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   register('edu_crew_result', 'Wait for and read a crew job result', {
     jobId: z.string().min(1), waitSeconds: z.number().nonnegative().optional(), maxTokens: tokenLimit,
   }, async ({ jobId, waitSeconds }) => JSON.stringify(await crew.result(jobId, waitSeconds ?? 0)));
+
+  register('edu_orchestrate', 'Start a detached orchestration with a visible spec and crew job', {
+    goal: z.string().min(1), playbook: z.string().optional(), mode: z.enum(['solo', 'crew']).optional(),
+    autoApprove: z.boolean().optional(), maxTokens: tokenLimit,
+  }, async ({ goal, playbook, mode, autoApprove }) => {
+    const job = await crew.orchestrate({ goal, playbook, mode, autoApprove });
+    const deadline = Date.now() + 60_000;
+    let current = job;
+    while (!current.specPath && !['done', 'failed', 'cancelled'].includes(current.status) && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      current = await crew.status(job.id) as typeof job;
+    }
+    return JSON.stringify({ jobId: job.id, status: current.status, specPath: current.specPath, outcome: current.outcome, verificationSummary: current.verificationSummary });
+  });
+
+  register('edu_crew_approve', 'Approve or reject a pending orchestration spec', {
+    jobId: z.string().min(1), approve: z.boolean(), maxTokens: tokenLimit,
+  }, async ({ jobId, approve }) => JSON.stringify(await crew.approve(jobId, approve)));
 
   register('edu_crew_review', 'Dispatch a read-only review using a different available CLI', {
     cli: cliIds.optional(), base: z.string().optional(), maxTokens: tokenLimit,

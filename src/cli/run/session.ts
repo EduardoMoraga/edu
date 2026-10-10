@@ -17,6 +17,8 @@ export interface RunSetup {
   lang: Lang;
   mode?: OrchestrationMode;
   harnessLevel?: HarnessLevel;
+  playbook?: string;
+  autoApprove?: boolean;
   cli?: CliId;
   onEvent(event: EduEvent): void | Promise<void>;
   approve(request: ApprovalRequest): Promise<boolean>;
@@ -37,7 +39,7 @@ export async function executeRun(ctx: CliContext, setup: RunSetup): Promise<RunR
     await initBrain({ location: ws.primary, templatesDir: packageTemplatesDir(), detected: available, lang: setup.lang });
   }
   const base = await effectiveConfig(ws.primary.root, available);
-  const config = { ...base, mode: setup.mode ?? base.mode, defaultCli: setup.cli ?? base.defaultCli };
+  const config = { ...base, mode: setup.mode ?? base.mode, defaultCli: setup.cli ?? base.defaultCli, approvals: setup.autoApprove ? 'auto' as const : base.approvals };
 
   const [{ orchestrate }, { buildContext }, engineModule] = await Promise.all([
     import('../../orchestrator/index.js'),
@@ -56,6 +58,8 @@ export async function executeRun(ctx: CliContext, setup: RunSetup): Promise<RunR
     approve: setup.approve,
     signal: setup.signal,
     harnessLevel: setup.harnessLevel,
+    playbookName: setup.playbook,
+    autoApprove: setup.autoApprove,
     runsDir: join(ws.primary.root, 'runs'),
   });
 }

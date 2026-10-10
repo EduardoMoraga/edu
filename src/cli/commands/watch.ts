@@ -26,8 +26,17 @@ export function registerWatch(program: Command, ctx: CliContext): void {
       action<WatchOpts>(ctx, async ({ g, opts, cmd }, jobId) => {
         const pollMs = parseIntOption(opts.poll ?? '500', '--poll');
         const ws = await openWorkspace(ctx, g.cwd);
-        const crew = createCrew({ brainRoot: ws.primary.root, locations: ws.locations });
-        const source = fsCrewSource(ws.primary.root, jobId => crew.status(jobId));
+        const crew = createCrew({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd });
+        const disk = fsCrewSource(ws.primary.root, jobId => crew.status(jobId));
+        const source = {
+          ...disk,
+          // The TUI's job metadata contract predates the persisted approval state.
+          // The worker emits agent.status=awaiting-approval in the event stream.
+          list: async () => (await crew.status() as import('../../core/contracts.js').CrewJob[]).map(job => ({
+            id: job.id, cli: job.cli, task: job.task, status: job.status === 'awaiting-approval' ? 'running' as const : job.status,
+            createdAt: job.createdAt, endedAt: job.endedAt, summary: job.summary, mode: job.mode,
+          })),
+        };
         const id = jobId?.trim() || undefined;
         const { watchInTui, watchPlain } = await import('../run/watch.js');
         if (!ctx.isTTY) return watchPlain(ctx, { source, jobId: id, lang: g.lang });

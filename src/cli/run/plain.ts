@@ -36,6 +36,8 @@ export function createPlainFormatter(glyphs: Glyphs): PlainFormatter {
         return `${who(event.agentId)}  ${event.ok ? glyphs.ok : glyphs.fail} ${oneLine(event.output, 80)}`;
       case 'approval.request':
         return `${who(event.agentId)}${glyphs.approval} approval: ${oneLine(event.title)}`;
+      case 'spec.ready':
+        return `spec ${event.path}\nRequirements:\n${event.requirements.map(item => `  ${item.id}: ${item.text}`).join('\n')}\nChecks:\n${event.checks.map(item => `  ${item.id}: ${item.command}`).join('\n')}`;
       case 'approval.resolve':
         return `${glyphs.approval} ${event.approved ? 'approved' : 'rejected'} (${event.by})`;
       case 'brain.recall':

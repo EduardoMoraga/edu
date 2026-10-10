@@ -1,10 +1,13 @@
-import { appendFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Autonomy, CliId, CrewJob, CrewJobMode, CrewJobStatus, EduEvent } from '../core/contracts.js';
 
-export interface NewCrewJob { cli: CliId; task: string; mode: CrewJobMode; cwd: string; autonomy: Autonomy }
-export type CrewJobPatch = Partial<Pick<CrewJob, 'status' | 'pid' | 'paneId' | 'agentName' | 'endedAt' | 'pendingPrompt' | 'observedWorking' | 'promptSeq' | 'promptPaneHash' | 'promptedAt' | 'summary' | 'usage' | 'note'>>;
+export interface NewCrewJob extends Pick<CrewJob, 'cli' | 'task' | 'mode' | 'cwd' | 'autonomy'> {
+  kind?: CrewJob['kind']; goal?: string; playbook?: string; orchestrationMode?: CrewJob['orchestrationMode'];
+  harnessLevel?: CrewJob['harnessLevel']; autoApprove?: boolean;
+}
+export type CrewJobPatch = Partial<Pick<CrewJob, 'status' | 'pid' | 'paneId' | 'agentName' | 'endedAt' | 'pendingPrompt' | 'observedWorking' | 'promptSeq' | 'promptPaneHash' | 'promptedAt' | 'summary' | 'usage' | 'note' | 'outcome' | 'specPath' | 'verificationSummary'>>;
 
 export interface CrewStore {
   create(input: NewCrewJob): Promise<CrewJob>;
@@ -13,9 +16,11 @@ export interface CrewStore {
   update(id: string, patch: CrewJobPatch): Promise<CrewJob>;
   appendEvent(id: string, event: EduEvent): Promise<void>;
   events(id: string): Promise<EduEvent[]>;
+  decide(id: string, approve: boolean): Promise<void>;
+  takeDecision(id: string): Promise<boolean | undefined>;
 }
 
-const statuses = new Set<CrewJobStatus>(['queued', 'running', 'done', 'failed', 'cancelled']);
+const statuses = new Set<CrewJobStatus>(['queued', 'running', 'awaiting-approval', 'done', 'failed', 'cancelled']);
 const safeId = (id: string) => {
   if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error(`Invalid crew job id: ${id}`);
   return id;
@@ -25,6 +30,7 @@ export function createCrewStore(brainRoot: string): CrewStore {
   const root = join(brainRoot, 'crew');
   const metaPath = (id: string) => join(root, `${safeId(id)}.json`);
   const eventPath = (id: string) => join(root, `${safeId(id)}.jsonl`);
+  const decisionPath = (id: string) => join(root, `${safeId(id)}.decision`);
   const ensure = () => mkdir(root, { recursive: true });
   async function atomicJson(path: string, value: unknown): Promise<void> {
     await ensure();
@@ -87,6 +93,24 @@ export function createCrewStore(brainRoot: string): CrewStore {
       if (!await this.get(id)) throw new Error(`Crew job not found: ${id}`);
       const text = await readFile(eventPath(id), 'utf8');
       return text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line) as EduEvent);
+    },
+    async decide(id, approve) {
+      const job = await this.get(id);
+      if (!job || job.kind !== 'orchestration') throw new Error(`Orchestration job not found: ${id}`);
+      if (job.status !== 'awaiting-approval') throw new Error(`Crew job is not awaiting approval: ${id}`);
+      await writeFile(decisionPath(job.id), approve ? 'approve' : 'reject', { flag: 'wx' });
+    },
+    async takeDecision(id) {
+      const path = decisionPath(id);
+      let value: string;
+      try { value = await readFile(path, 'utf8'); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+      if (value !== 'approve' && value !== 'reject') throw new Error(`Invalid approval decision for crew job: ${id}`);
+      // Close the decision window before removing the one-shot file, so a
+      // second command cannot authorize the next approval by accident.
+      await this.update(id, { status: 'running' });
+      await unlink(path);
+      return value === 'approve';
     },
   };
 }

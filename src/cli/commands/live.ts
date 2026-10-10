@@ -12,7 +12,7 @@ import { createPlainFormatter } from '../run/plain.js';
 import { identityName, lessonCount, openWorkspace } from '../workspace.js';
 import { parseCli } from './setup.js';
 
-interface RunOpts { solo?: boolean; crew?: boolean; cli?: string; yes?: boolean; harness?: string }
+interface RunOpts { solo?: boolean; crew?: boolean; cli?: string; yes?: boolean; harness?: string; playbook?: string; detach?: boolean }
 interface UiOpts { replay?: string; speed?: string }
 interface DemoOpts { speed?: string; save?: string }
 
@@ -49,8 +49,9 @@ function modeFrom(opts: RunOpts): OrchestrationMode | undefined {
   return opts.solo ? 'solo' : opts.crew ? 'crew' : undefined;
 }
 
-function harnessFrom(value: string | undefined): HarnessLevel {
-  const harness = value ?? 'H3';
+function harnessFrom(value: string | undefined): HarnessLevel | undefined {
+  if (value === undefined) return undefined;
+  const harness = value;
   if (!['H0', 'H1', 'H2', 'H3'].includes(harness)) throw new Error('--harness must be H0, H1, H2, or H3');
   return harness as HarnessLevel;
 }
@@ -63,7 +64,9 @@ export function registerLive(program: Command, ctx: CliContext): void {
     .option('--solo', 'one CLI plays every role')
     .option('--crew', 'roles mapped to different CLIs')
     .option('--cli <cli>', 'CLI to use as the default engine')
-    .option('--harness <level>', 'evidence support level: H0 | H1 | H2 | H3', 'H3')
+    .option('--harness <level>', 'evidence support level: H0 | H1 | H2 | H3')
+    .option('--playbook <name>', 'method to use for this run')
+    .option('--detach', 'run as a watchable crew job')
     .option('-y, --yes', 'approve every step automatically')
     .action(
       action<RunOpts>(ctx, async ({ g, opts }, goal) => {
@@ -72,15 +75,24 @@ export function registerLive(program: Command, ctx: CliContext): void {
         const cli = opts.cli ? parseCli(opts.cli) : undefined;
         const text = (goal ?? '').trim();
         if (!text) throw new Error('a goal is required');
+        if (opts.detach) {
+          const { createCrew } = await import('../../crew/index.js');
+          const ws = await openWorkspace(ctx, g.cwd);
+          const job = await createCrew({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
+            goal: text, cwd: g.cwd, mode, cli, harnessLevel, playbook: opts.playbook, autoApprove: Boolean(opts.yes),
+          });
+          ctx.out(JSON.stringify(job));
+          return;
+        }
         if (ctx.isTTY) {
           const ws = await openWorkspace(ctx, g.cwd);
           const { runInTui } = await import('../run/live.js');
-          const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
+          const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, playbook: opts.playbook, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
           if (result) ctx.out(t(g.lang, 'run.done', { status: t(g.lang, result.ok ? 'run.ok' : 'run.failed'), summary: result.summary }));
           if (!result?.ok) ctx.setExitCode(1);
           return;
         }
-        await runPlain(ctx, g, text, mode, cli, harnessLevel, Boolean(opts.yes));
+        await runPlain(ctx, g, text, mode, cli, harnessLevel, opts.playbook, Boolean(opts.yes));
       }),
     );
 
@@ -133,9 +145,13 @@ async function runPlain(
   goal: string,
   mode: OrchestrationMode | undefined,
   cli: ReturnType<typeof parseCli> | undefined,
-  harnessLevel: HarnessLevel,
+  harnessLevel: HarnessLevel | undefined,
+  playbook: string | undefined,
   yes: boolean,
 ): Promise<void> {
+  const available = ctx.availableClis ?? await ctx.detectClis();
+  if (!available.length) throw new Error(t(g.lang, 'run.noCli'));
+  if (!yes && !ctx.stdinIsTTY) throw new Error('Plain runs require --yes when stdin is not a TTY');
   const { executeRun } = await import('../run/session.js');
   const format = createPlainFormatter(getGlyphs(ctx.env));
   const abort = new AbortController();
@@ -152,15 +168,16 @@ async function runPlain(
       mode,
       cli,
       harnessLevel,
+      playbook,
+      autoApprove: yes,
       engines: ctx.engineFactory,
-      available: ctx.availableClis,
+      available,
       signal: abort.signal,
       onEvent: (event) => {
         const line = format(event);
         if (line) ctx.out(line);
-        if (event.type === 'approval.request' && !yes) ctx.err(t(g.lang, 'run.approvalDenied', { title: event.title }));
       },
-      approve: async () => yes,
+      approve: async request => yes || ctx.confirm(request.title),
     });
     if (!result.ok) ctx.setExitCode(1);
   } finally {

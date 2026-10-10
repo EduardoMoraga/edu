@@ -101,6 +101,10 @@ Give Edu a goal and it directs the team with **your** method, not a generic one.
 
 ```bash
 edu run "add a --json flag to the status command"   # from a terminal
+edu run "add a --json flag" --playbook default --yes  # approve the spec and steps automatically
+edu run "add a --json flag" --detach                  # continue as a watchable crew job
+edu crew approve <job-id>                             # resume a detached spec approval
+edu crew reject <job-id>                              # stop a detached run
 ```
 
 ```
@@ -108,7 +112,9 @@ edu run "add a --json flag to the status command"   # from a terminal
 ```
 
 In Codex, ask "run this with edu" or name the `edu-run` skill. `edu watch` shows the spec
-card, every agent and each check live.
+card, every agent and each check live. Non-interactive stdin requires `--yes`; otherwise
+the terminal asks you to approve the printed spec before execution. MCP clients can use
+`edu_orchestrate` and `edu_crew_approve` for the same detached workflow.
 
 ## The brain
 

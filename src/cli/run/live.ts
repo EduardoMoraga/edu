@@ -19,6 +19,7 @@ export interface LiveRunOptions {
   lang: Lang;
   mode?: OrchestrationMode;
   harnessLevel?: HarnessLevel;
+  playbook?: string;
   cli?: CliId;
   autoApprove: boolean;
   name: string;
@@ -57,6 +58,7 @@ export async function runInTui(ctx: CliContext, opts: LiveRunOptions): Promise<R
         channel.push(event);
       },
       approve: opts.autoApprove ? async () => true : bridge.approve,
+      autoApprove: opts.autoApprove,
     });
   } catch (error) {
     channel.push({ type: 'error', message: error instanceof Error ? error.message : String(error), at: new Date().toISOString() });

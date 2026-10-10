@@ -112,7 +112,7 @@ interface DeterministicCheck {
 }
 type CliId = 'claude' | 'codex' | 'pi' | 'opencode' | 'agy';
 type Autonomy = 'readonly' | 'ask' | 'auto' | 'full';
-type CrewJobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+type CrewJobStatus = 'queued' | 'running' | 'awaiting-approval' | 'done' | 'failed' | 'cancelled';
 type CrewJobMode = 'headless' | 'pane';
 /** A durable unit of work dispatched to one external coding CLI. */
 interface CrewJob {
@@ -122,6 +122,15 @@ interface CrewJob {
     mode: CrewJobMode;
     cwd: string;
     autonomy: Autonomy;
+    kind?: 'task' | 'orchestration';
+    goal?: string;
+    playbook?: string;
+    orchestrationMode?: OrchestrationMode;
+    harnessLevel?: HarnessLevel;
+    autoApprove?: boolean;
+    outcome?: OutcomeLabel;
+    specPath?: string;
+    verificationSummary?: string;
     status: CrewJobStatus;
     pid?: number;
     paneId?: string;

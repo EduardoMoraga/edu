@@ -51,6 +51,7 @@ describe('parseRunJsonl', () => {
       { type: 'agent.end', agentId: 'a', ok: true, summary: 's', at },
       { type: 'error', message: 'm', at },
       { type: 'task.define', requirements: [{ id: 'R1', text: 'working' }], successCriteria: ['done'], at },
+      { type: 'spec.ready', path: '/tmp/spec.md', requirements: [{ id: 'R1', text: 'working' }], checks: [{ id: 'C1', requirementIds: ['R1'], command: 'true', expect: { exitCode: 0 }, timeoutMs: 1000 }], steps: [], at },
       { type: 'context.trace', noteId: 'L-x', contribution: 'context', influenced: true, at },
       { type: 'verify.result', checkId: 'C1', requirementIds: ['R1'], ok: true, output: 'passed', kind: 'deterministic', at },
       { type: 'failure.attribution', observed: 'broken', expected: 'working', failureType: 'verify', evidence: ['test'], alternatives: ['input'], next: 'fix', at },

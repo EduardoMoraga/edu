@@ -7,6 +7,7 @@ import { openBrain } from '../brain/index.js';
 import { brief } from '../context/index.js';
 import { createEngine } from '../engine/index.js';
 import { createCrewStore, type CrewStore } from './store.js';
+import { runOrchestration } from './orchestration.js';
 
 export interface WorkerOptions {
   brainRoot?: string;
@@ -14,6 +15,8 @@ export interface WorkerOptions {
   store?: CrewStore;
   engineFactory?: (cli: CliId) => Engine;
   now?: () => Date;
+  detectClis?: () => Promise<CliId[]>;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 function defaultBrainRoot(): string { return resolve(process.env.EDU_HOME || join(homedir(), '.edu')); }
@@ -38,7 +41,7 @@ export async function dispatchHeadless(job: CrewJob, options: { brainRoot?: stri
     });
     child.once('error', error => { void store.update(job.id, { status: 'failed', endedAt: new Date().toISOString(), summary: error.message }); });
     child.unref();
-    return store.update(job.id, { status: 'running', pid: child.pid });
+    return store.update(job.id, { pid: child.pid });
   } finally {
     await log.close();
   }
@@ -51,6 +54,7 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
   const now = options.now ?? (() => new Date());
   const job = await store.get(jobId);
   if (!job) throw new Error(`Crew job not found: ${jobId}`);
+  if (job.kind === 'orchestration') return runOrchestration(job, { brainRoot: root, store, engineFactory: options.engineFactory, detectClis: options.detectClis, now: options.now, sleep: options.sleep });
   let summary = '';
   const usage: Usage = { inputTokens: 0, outputTokens: 0 };
   let failed = false;

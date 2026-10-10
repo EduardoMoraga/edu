@@ -1,10 +1,10 @@
 /** `edu crew` commands for dispatch, job inspection, and the detached worker. */
-import { join } from 'node:path';
 import type { Command } from 'commander';
 import type { CliId } from '../../core/contracts.js';
 import { createCrew, runWorker } from '../../crew/index.js';
 import { globalHome, type CliContext } from '../context.js';
 import { action } from '../kit.js';
+import { openWorkspace } from '../workspace.js';
 
 const CLI_IDS = ['claude', 'codex', 'pi', 'opencode', 'agy'] as const;
 function parseCli(value: string): CliId {
@@ -13,7 +13,10 @@ function parseCli(value: string): CliId {
 }
 
 export function registerCrew(program: Command, ctx: CliContext): void {
-  const crew = (cwd: string) => createCrew({ brainRoot: join(cwd, '.edu') });
+  const crew = async (cwd: string) => {
+    const ws = await openWorkspace(ctx, cwd);
+    return createCrew({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: cwd });
+  };
   const root = program.command('crew').description('dispatch and inspect crew jobs');
   root.command('dispatch <cli> <task>')
     .description('dispatch a crew job')
@@ -23,13 +26,13 @@ export function registerCrew(program: Command, ctx: CliContext): void {
       const cli = parseCli(cliArg!);
       const autonomy = opts.autonomy;
       if (!['readonly', 'ask', 'auto', 'full'].includes(autonomy ?? '')) throw new Error('Autonomy must be readonly, ask, auto, or full');
-      const job = await crew(g.cwd).dispatch({ cli, task: task!, mode: opts.pane ? 'pane' : 'headless', cwd: g.cwd, autonomy: autonomy as 'readonly' | 'ask' | 'auto' | 'full' });
+      const job = await (await crew(g.cwd)).dispatch({ cli, task: task!, mode: opts.pane ? 'pane' : 'headless', cwd: g.cwd, autonomy: autonomy as 'readonly' | 'ask' | 'auto' | 'full' });
       ctx.out(JSON.stringify(job));
     }));
   root.command('status [id]')
     .description('show crew jobs or one job')
     .action(action<Record<string, never>>(ctx, async ({ g }, id) => {
-      ctx.out(JSON.stringify(await crew(g.cwd).status(id)));
+      ctx.out(JSON.stringify(await (await crew(g.cwd)).status(id)));
     }));
   root.command('result <id>')
     .description('wait for a crew result')
@@ -37,8 +40,15 @@ export function registerCrew(program: Command, ctx: CliContext): void {
     .action(action<{ wait?: string }>(ctx, async ({ g, opts }, id) => {
       const wait = Number(opts.wait);
       if (!Number.isFinite(wait) || wait < 0) throw new Error('--wait must be a non-negative number of seconds');
-      ctx.out(JSON.stringify(await crew(g.cwd).result(id!, wait)));
+      ctx.out(JSON.stringify(await (await crew(g.cwd)).result(id!, wait)));
     }));
+  for (const [name, approved] of [['approve', true], ['reject', false]] as const) {
+    root.command(`${name} <id>`)
+      .description(`${name} the pending orchestration approval`)
+      .action(action<Record<string, never>>(ctx, async ({ g }, id) => {
+        ctx.out(JSON.stringify(await (await crew(g.cwd)).approve(id!, approved)));
+      }));
+  }
   root.command('worker <id>')
     .description('run a queued crew job (internal detached entry point)')
     .action(async (id: string) => {

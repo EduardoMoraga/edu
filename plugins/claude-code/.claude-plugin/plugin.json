@@ -1,6 +1,6 @@
 {
   "name": "edu",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Edu — an installable, LLM-agnostic agentic harness with a learning second brain and CLI-native workflows.",
   "author": {
     "name": "Eduardo Moraga"

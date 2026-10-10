@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { homedir } from 'node:os';
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { Autonomy, BrainLocation, CliId, CrewJob, CrewJobMode, Engine } from '../core/contracts.js';
+import type { Autonomy, BrainLocation, CliId, CrewJob, CrewJobMode, Engine, HarnessLevel, OrchestrationMode } from '../core/contracts.js';
 import { detectEngines, createEngine } from '../engine/index.js';
 import { truncateToTokens } from '../context/index.js';
 import { dispatchHeadless, runWorker } from './headless.js';
@@ -27,6 +27,7 @@ export interface CrewOptions {
   startHeadless?: (job: CrewJob, options: { brainRoot: string }) => Promise<CrewJob>;
 }
 export interface DispatchInput { cli: CliId; task: string; mode?: CrewJobMode; cwd?: string; autonomy?: Autonomy }
+export interface OrchestrationInput { goal: string; cwd?: string; cli?: CliId; mode?: OrchestrationMode; playbook?: string; harnessLevel?: HarnessLevel; autoApprove?: boolean }
 export interface ReviewInput { cli?: CliId; base?: string; callerCli?: CliId }
 
 export function createCrew(options: CrewOptions = {}) {
@@ -41,6 +42,27 @@ export function createCrew(options: CrewOptions = {}) {
     : options.brainRoot ? (basename(options.brainRoot) === '.edu' ? dirname(options.brainRoot) : options.brainRoot) : process.cwd());
 
   return {
+    async orchestrate(input: OrchestrationInput): Promise<CrewJob> {
+      if (!input.goal.trim()) throw new Error('Orchestration goal must not be empty');
+      const boundary = await realpath(workspaceRoot);
+      const cwd = await realpath(resolve(input.cwd ?? workspaceRoot));
+      const fromBoundary = relative(boundary, cwd);
+      if (fromBoundary === '..' || fromBoundary.startsWith(`..${sep}`) || isAbsolute(fromBoundary)) throw new Error(`Crew orchestration cwd is outside the workspace: ${cwd}`);
+      const available = await detect();
+      const cli = input.cli ?? available[0];
+      if (!cli || !available.includes(cli)) throw new Error('No available CLI for orchestration');
+      const job = await store.create({ cli, task: input.goal.trim(), goal: input.goal.trim(), kind: 'orchestration', mode: 'headless', cwd, autonomy: 'auto', orchestrationMode: input.mode, playbook: input.playbook, harnessLevel: input.harnessLevel, autoApprove: input.autoApprove });
+      await store.update(job.id, { status: 'running' });
+      try { return await (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root }); }
+      catch (error) {
+        await store.update(job.id, { status: 'failed', endedAt: new Date().toISOString(), summary: error instanceof Error ? error.message : String(error) });
+        throw error;
+      }
+    },
+    async approve(jobId: string, approved: boolean): Promise<CrewJob> {
+      await store.decide(jobId, approved);
+      return (await store.get(jobId))!;
+    },
     async dispatch(input: DispatchInput): Promise<CrewJob> {
       if (!input.task.trim()) throw new Error('Crew task must not be empty');
       const boundary = await realpath(workspaceRoot);
@@ -94,7 +116,7 @@ export function createCrew(options: CrewOptions = {}) {
       }
       return { cli: reviewer, summary: summary.trim() || 'Reviewer returned no findings.' };
     },
-    runWorker: (jobId: string) => runWorker(jobId, { brainRoot: root, locations: options.locations, store, engineFactory }),
+    runWorker: (jobId: string) => runWorker(jobId, { brainRoot: root, locations: options.locations, store, engineFactory, detectClis: detect, sleep }),
     store,
   };
 }
