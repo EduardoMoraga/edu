@@ -58,15 +58,27 @@ describe('crew jobs', () => {
     expect(result.endedAt).toBeTruthy();
   });
 
-  it('falls back to headless with an explicit note when Herdr is unavailable', async () => {
+  it('falls back to headless with an explicit note when no herdr server is reachable', async () => {
     const f = await fixture();
+    const noServer: HerdrRunner = async () => { throw new Error('connect ENOENT herdr.sock'); };
     const crew = createCrew({
-      brainRoot: f.root, store: f.store, herdr: { env: {}, hasBinary: async () => true },
+      brainRoot: f.root, store: f.store, herdr: { env: {}, hasBinary: async () => true, runner: noServer },
       startHeadless: async job => f.store.update(job.id, { status: 'running' }),
     });
     const job = await crew.dispatch({ cli: 'pi', task: 'Investigate', mode: 'pane', cwd: f.root });
     expect(job.mode).toBe('headless');
-    expect(job.note).toContain('Herdr unavailable');
+    expect(job.note).toContain('Herdr unavailable (no herdr server is reachable from here)');
+  });
+
+  it('falls back to headless when herdr is not installed', async () => {
+    const f = await fixture();
+    const crew = createCrew({
+      brainRoot: f.root, store: f.store, herdr: { env: { HERDR_ENV: '1' }, hasBinary: async () => false, runner: async () => { throw new Error('must not run'); } },
+      startHeadless: async job => f.store.update(job.id, { status: 'running' }),
+    });
+    const job = await crew.dispatch({ cli: 'pi', task: 'Investigate', mode: 'pane', cwd: f.root });
+    expect(job.mode).toBe('headless');
+    expect(job.note).toContain('herdr is not on PATH');
   });
 
   it('rejects dispatch directories outside the workspace, including symlink escapes', async () => {
@@ -302,5 +314,62 @@ describe('crew jobs', () => {
     await execFile('git', ['init', '-q', gitRoot]);
     const inRepo = createCrew({ brainRoot: f.root, workspaceRoot: gitRoot, detectClis: async () => ['codex'] });
     await expect(inRepo.review({ cli: 'codex', base: 'ref-that-does-not-exist-0029' })).rejects.toThrow('Unknown git base ref');
+  });
+});
+
+describe('herdr target from inside and outside herdr', () => {
+  const list = (workspaces: Array<Record<string, unknown>>) => JSON.stringify({ result: { type: 'workspace_list', workspaces } });
+
+  it('decides inside, outside (with or without an Edu workspace) or none', async () => {
+    const { herdrTarget } = await import('./herdr.js');
+    const fail: HerdrRunner = async () => { throw new Error('no server'); };
+    const calls: string[][] = [];
+    const insideRunner: HerdrRunner = async args => { calls.push(args); return { stdout: '{}', stderr: '' }; };
+    expect(await herdrTarget({ env: { HERDR_ENV: '1' }, hasBinary: async () => true, runner: insideRunner })).toEqual({ kind: 'inside' });
+    expect(calls).toEqual([]); // inside herdr nothing is probed: behavior unchanged
+    expect(await herdrTarget({ env: {}, hasBinary: async () => false, runner: fail })).toEqual({ kind: 'none', reason: 'herdr is not on PATH' });
+    expect(await herdrTarget({ env: {}, hasBinary: async () => true, runner: fail })).toEqual({ kind: 'none', reason: 'no herdr server is reachable from here' });
+    expect(await herdrTarget({ env: {}, hasBinary: async () => true, runner: async () => ({ stdout: 'not json', stderr: '' }) })).toMatchObject({ kind: 'none' });
+    const withEdu: HerdrRunner = async () => ({ stdout: list([{ workspace_id: 'wC', label: 'HRO2' }, { workspace_id: 'wR', label: 'Edu' }]), stderr: '' });
+    expect(await herdrTarget({ env: {}, hasBinary: async () => true, runner: withEdu })).toEqual({ kind: 'outside', workspaceId: 'wR' });
+    const withoutEdu: HerdrRunner = async () => ({ stdout: list([{ workspace_id: 'wC', label: 'HRO2' }]), stderr: '' });
+    expect(await herdrTarget({ env: {}, hasBinary: async () => true, runner: withoutEdu })).toEqual({ kind: 'outside', workspaceId: undefined });
+  });
+
+  it('opens a tab in the Edu workspace from outside herdr and starts the agent there', async () => {
+    const f = await fixture();
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      if (args[0] === 'workspace' && args[1] === 'list') return { stdout: list([{ workspace_id: 'wR', label: 'Edu' }]), stderr: '' };
+      if (args[0] === 'tab' && args[1] === 'create') return { stdout: JSON.stringify({ result: { tab: { tab_id: 'wR:t9' }, root_pane: { pane_id: 'wR:p40' } } }), stderr: '' };
+      if (args[0] === 'agent' && args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { agent_status: 'idle', state_change_seq: 1 } } }), stderr: '' };
+      return { stdout: '{}', stderr: '' };
+    };
+    const crew = createCrew({ brainRoot: f.root, store: f.store, herdr: { env: {}, hasBinary: async () => true, runner } });
+    const job = await crew.dispatch({ cli: 'claude', task: 'Summarize the week', mode: 'pane', cwd: f.root });
+    expect(job).toMatchObject({ mode: 'pane', status: 'running', paneId: 'wR:p40' });
+    expect(job.note).toContain('herdr workspace "Edu"');
+    const agentName = `edu-${job.id.slice(0, 8)}`;
+    expect(calls).toContainEqual(['tab', 'create', '--workspace', 'wR', '--cwd', job.cwd, '--label', agentName, '--no-focus']);
+    expect(calls).toContainEqual(['agent', 'start', agentName, '--kind', 'claude', '--pane', 'wR:p40']);
+    expect(calls.some(args => args[0] === 'pane' && args[1] === 'split')).toBe(false);
+  });
+
+  it('creates the Edu workspace when it does not exist yet, and closes the pane if the agent cannot start', async () => {
+    const f = await fixture();
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      if (args[0] === 'workspace' && args[1] === 'list') return { stdout: list([]), stderr: '' };
+      if (args[0] === 'workspace' && args[1] === 'create') return { stdout: JSON.stringify({ result: { workspace: { workspace_id: 'w9' }, root_pane: { pane_id: 'w9:p1' } } }), stderr: '' };
+      if (args[0] === 'agent' && args[1] === 'start') throw new Error('unknown agent kind');
+      return { stdout: '{}', stderr: '' };
+    };
+    const crew = createCrew({ brainRoot: f.root, store: f.store, herdr: { env: {}, hasBinary: async () => true, runner } });
+    const job = await crew.dispatch({ cli: 'pi', task: 'Run', mode: 'pane', cwd: f.root });
+    expect(calls).toContainEqual(['workspace', 'create', '--cwd', job.cwd, '--label', 'Edu', '--no-focus']);
+    expect(calls).toContainEqual(['pane', 'close', 'w9:p1']);
+    expect(job.status).toBe('failed');
   });
 });

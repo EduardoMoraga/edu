@@ -7,7 +7,7 @@ import type { Autonomy, BrainLocation, CliId, CrewJob, CrewJobMode, Engine, Harn
 import { detectEngines, createEngine } from '../engine/index.js';
 import { truncateToTokens } from '../context/index.js';
 import { dispatchHeadless, runWorker } from './headless.js';
-import { dispatchPane, herdrAvailable, refreshPane, type HerdrOptions } from './herdr.js';
+import { dispatchPane, herdrTarget, refreshPane, type HerdrOptions } from './herdr.js';
 import { createCrewStore, type CrewStore } from './store.js';
 
 const execFile = promisify(execFileCallback);
@@ -72,10 +72,13 @@ export function createCrew(options: CrewOptions = {}) {
         throw new Error(`Crew dispatch cwd is outside the workspace: ${input.cwd ?? cwd}`);
       }
       const requestedMode = input.mode ?? 'headless';
-      const availablePane = requestedMode === 'pane' && await herdrAvailable(options.herdr);
-      const job = await store.create({ cli: input.cli, task: input.task.trim(), mode: availablePane ? 'pane' : 'headless', cwd, autonomy: input.autonomy ?? 'ask' });
-      if (requestedMode === 'pane' && !availablePane) await store.update(job.id, { note: 'Herdr unavailable; dispatched as headless.' });
-      if (availablePane) return dispatchPane(job, { ...options.herdr, store, brainRoot: root });
+      // Inside herdr: a pane beside the caller. Outside (Hermes, launchd) with a reachable server: a tab
+      // in the "Edu" herdr workspace. Otherwise headless, and the job says why.
+      const target = requestedMode === 'pane' ? await herdrTarget(options.herdr) : undefined;
+      const pane = target !== undefined && target.kind !== 'none';
+      const job = await store.create({ cli: input.cli, task: input.task.trim(), mode: pane ? 'pane' : 'headless', cwd, autonomy: input.autonomy ?? 'ask' });
+      if (target?.kind === 'none') await store.update(job.id, { note: `Herdr unavailable (${target.reason}); dispatched as headless.` });
+      if (pane) return dispatchPane(job, { ...options.herdr, store, brainRoot: root, target });
       return (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root });
     },
     async status(jobId?: string): Promise<CrewJob | CrewJob[]> {

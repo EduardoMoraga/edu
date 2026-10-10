@@ -35,20 +35,57 @@ export async function herdrAvailable(options: HerdrOptions = {}): Promise<boolea
   return (options.env ?? process.env).HERDR_ENV === '1' && await (options.hasBinary ?? (() => binaryOnPath('herdr')))();
 }
 
-export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brainRoot?: string } = {}): Promise<CrewJob> {
+/** The herdr workspace that receives crew panes dispatched from outside herdr (e.g. Hermes on Telegram). */
+export const EDU_WORKSPACE_LABEL = 'Edu';
+
+/**
+ * Where a pane job can go. `inside`: the caller runs in a herdr pane (HERDR_ENV=1), so split next to
+ * it. `outside`: the caller is not in herdr but the herdr CLI reaches a running server over its
+ * socket (default ~/.config/herdr/herdr.sock, or HERDR_SOCKET_PATH); the job gets a new tab in the
+ * "Edu" workspace, or a new "Edu" workspace. `none`: fall back to headless.
+ */
+export type HerdrTarget = { kind: 'inside' } | { kind: 'outside'; workspaceId?: string } | { kind: 'none'; reason: string };
+
+export async function herdrTarget(options: HerdrOptions = {}): Promise<HerdrTarget> {
+  const env = options.env ?? process.env;
+  if (!await (options.hasBinary ?? (() => binaryOnPath('herdr')))()) return { kind: 'none', reason: 'herdr is not on PATH' };
+  if (env.HERDR_ENV === '1') return { kind: 'inside' };
+  let list: Record<string, unknown>;
+  try { list = parse((await (options.runner ?? defaultRunner)(['workspace', 'list'])).stdout); }
+  catch { return { kind: 'none', reason: 'no herdr server is reachable from here' }; }
+  const workspaces = ((list.result as Record<string, unknown> | undefined)?.workspaces ?? []) as Array<Record<string, unknown>>;
+  const edu = Array.isArray(workspaces) ? workspaces.find(w => typeof w.label === 'string' && w.label.trim().toLowerCase() === EDU_WORKSPACE_LABEL.toLowerCase()) : undefined;
+  return { kind: 'outside', workspaceId: typeof edu?.workspace_id === 'string' ? edu.workspace_id : undefined };
+}
+
+/** Opens the pane for a job and returns its id: a split beside the caller, or a tab in the Edu workspace. */
+async function openPane(job: CrewJob, target: Exclude<HerdrTarget, { kind: 'none' }>, runner: HerdrRunner, agentName: string): Promise<string | undefined> {
+  if (target.kind === 'inside') {
+    const split = parse((await runner(['pane', 'split', '--current', '--direction', 'right', '--cwd', job.cwd, '--no-focus'])).stdout);
+    const pane = (split.result as Record<string, unknown> | undefined)?.pane as Record<string, unknown> | undefined;
+    return typeof pane?.pane_id === 'string' ? pane.pane_id : undefined;
+  }
+  const args = target.workspaceId
+    ? ['tab', 'create', '--workspace', target.workspaceId, '--cwd', job.cwd, '--label', agentName, '--no-focus']
+    : ['workspace', 'create', '--cwd', job.cwd, '--label', EDU_WORKSPACE_LABEL, '--no-focus'];
+  const created = parse((await runner(args)).stdout).result as Record<string, unknown> | undefined;
+  const pane = (created?.root_pane ?? created?.pane) as Record<string, unknown> | undefined;
+  return typeof pane?.pane_id === 'string' ? pane.pane_id : undefined;
+}
+
+export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brainRoot?: string; target?: HerdrTarget } = {}): Promise<CrewJob> {
   const store = options.store ?? createCrewStore(options.brainRoot ?? process.env.EDU_HOME ?? `${process.env.HOME ?? ''}/.edu`);
   const runner = options.runner ?? defaultRunner;
   const now = options.now ?? (() => new Date());
   let paneId: string | undefined;
   let agentStarted = false;
   try {
-    if (!await herdrAvailable(options)) throw new Error('Herdr pane mode requires HERDR_ENV=1 and herdr on PATH');
-    const split = parse((await runner(['pane', 'split', '--current', '--direction', 'right', '--cwd', job.cwd, '--no-focus'])).stdout);
-    const result = split.result as Record<string, unknown> | undefined;
-    const pane = result?.pane as Record<string, unknown> | undefined;
-    paneId = typeof pane?.pane_id === 'string' ? pane.pane_id : undefined;
-    if (typeof paneId !== 'string' || !paneId) throw new Error('Herdr pane split did not return result.pane.pane_id');
+    const target = options.target ?? await herdrTarget(options);
+    if (target.kind === 'none') throw new Error(`Herdr pane mode unavailable: ${target.reason}`);
     const agentName = `edu-${job.id.slice(0, 8)}`;
+    paneId = await openPane(job, target, runner, agentName);
+    if (typeof paneId !== 'string' || !paneId) throw new Error(target.kind === 'inside' ? 'Herdr pane split did not return result.pane.pane_id' : 'Herdr did not return result.root_pane.pane_id');
+    const where = target.kind === 'outside' ? `Visible in herdr workspace "${EDU_WORKSPACE_LABEL}", pane ${paneId}.` : undefined;
     const autonomyPrompt = job.autonomy === 'readonly'
       ? 'Autonomy policy: readonly. Do not modify files or take other write actions.'
       : `Autonomy policy: ${job.autonomy}. Follow this level for all requested actions.`;
@@ -70,7 +107,7 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
       });
     }
     await runner(['agent', 'prompt', agentName, prompt]);
-    return store.update(job.id, { status: 'running', paneId, agentName, note: undefined, ...await promptBaseline(agentName, paneId, options, now) });
+    return store.update(job.id, { status: 'running', paneId, agentName, note: where, ...await promptBaseline(agentName, paneId, options, now) });
   } catch (error) {
     let summary = errorMessage(error);
     if (paneId && !agentStarted) {
