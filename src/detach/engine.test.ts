@@ -87,4 +87,22 @@ describe('detach transaction', () => {
     expect(await readFile(join(dir, 'tui.json'), 'utf8')).toBe(json);
     expect(await readFile(join(dir, 'tui.jsonc'), 'utf8')).toBe(jsonc);
   });
+
+  it('removes gentle-ai TUI plugin entries from OpenCode 2 cli.json plugins, keeping comments, and undoes byte for byte', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'edu-detach-cli-')); homes.push(home);
+    const dir = join(home, '.config/opencode');
+    await mkdir(dir, { recursive: true });
+    const logo = join(dir, 'tui-plugins/gentle-logo.tsx');
+    const cli = `{\n  // OpenCode 2\n  "$schema": "https://opencode.ai/v2/cli.json",\n  "plugins": [\n    "opencode-subagent-statusline", // keep\n    "${logo}"\n  ]\n}\n`;
+    await writeFile(join(dir, 'cli.json'), cli);
+    const plan = await createDetachPlan({ home, env: {}, hosts: ['opencode'], tools: ['gentle-ai'] });
+    expect(plan.files.map(file => file.path)).toEqual([join(dir, 'cli.json')]);
+    const { id } = await applyDetach(plan);
+    const edited = await readFile(join(dir, 'cli.json'), 'utf8');
+    expect(edited).toContain('// OpenCode 2');
+    expect(edited).toContain('"opencode-subagent-statusline", // keep');
+    expect(edited).not.toContain('gentle-logo');
+    await undoDetach({ home, id });
+    expect(await readFile(join(dir, 'cli.json'), 'utf8')).toBe(cli);
+  });
 });

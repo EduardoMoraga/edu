@@ -13,3 +13,10 @@ it('includes the OpenCode TUI config files that hold TUI plugins', () => {
     ['.config/opencode/tui.json', 'json'], ['.config/opencode/tui.jsonc', 'jsonc'],
   ]);
 });
+
+it('includes OpenCode 2 cli.json, where TUI plugins are listed under `plugins`, parsed as JSONC', () => {
+  const files = hostFiles('/home/me', {}, ['opencode']);
+  expect(files.find((file) => file.relative === '.config/opencode/cli.json')).toEqual({
+    host: 'opencode', path: '/home/me/.config/opencode/cli.json', relative: '.config/opencode/cli.json', kind: 'jsonc',
+  });
+});

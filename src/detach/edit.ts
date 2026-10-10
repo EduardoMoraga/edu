@@ -83,7 +83,8 @@ function editObject(input: Record<string, unknown>, host: HostId, tools: readonl
     if (!servers || typeof servers !== 'object' || Array.isArray(servers)) continue;
     for (const id of Object.keys(servers)) if (selected(id, 'mcp', tools)) { delete (servers as Record<string, unknown>)[id]; changes.push(`MCP: ${id}`); }
   }
-  // `plugin` is OpenCode's list (opencode.json and tui.json), e.g. a TUI logo plugin's absolute path.
+  // `plugin` is OpenCode's list (opencode.json and OpenCode 1 tui.json) and `plugins` OpenCode 2's (cli.json),
+  // e.g. a TUI logo plugin's absolute path.
   for (const key of ['enabledPlugins', 'plugins', 'plugin']) {
     const plugins = result[key];
     if (plugins && typeof plugins === 'object' && !Array.isArray(plugins)) {
