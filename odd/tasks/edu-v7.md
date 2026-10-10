@@ -14,7 +14,7 @@
 ## Tasks
 - [x] T1 auto-maintain core + hooks + throttle — route: delegated writer (ca3c9a1)
 - [x] T2 deck fields + renderers — route: same writer (789cbc0)
-- [ ] T3 release v0.7.0 — route: lead
+- [x] T3 release v0.7.0 — route: lead
 
 ## Progress
 
@@ -36,3 +36,4 @@
 - Renderers (not typechecked by tsc) rendered through stub harnesses: Pi header at 60/140 cols and overlay at 30/84 cols never exceed width and show nothing extra at 0; OpenCode dialog shows `Upkeep  maintained 5m ago · 1 promoted · 2 to approve · 3 overdue` and omits it at 0; Claude refresh produces `toApprove: 1`, `maintenance.overdue: 1` matching `edu deck`.
 - Smoke on a copy of `~/Edu/marca-personal/.edu` (tmp dir, after `npm run build`): no `state/` before; `edu hook session-end` exit 0 → `state/maintain.json` written and `0-index/INDEX.md` regenerated (new `Generated:` stamp, new session listed); `edu deck --json` → `brain.toApprove: 1`, `maintenance.lastRun` set; `edu hook codex-notify` within 10 min left `lastRun` unchanged (throttled); `edu brain maintain` (0.1 s) advanced `lastRun`. `~/Edu` untouched (no `state/`, original `Generated:` line unchanged).
 - Not verified live: Pi/OpenCode/Claude inside their real TUIs; MCP close and orchestrated run on the real copy (covered by unit tests only).
+- T3 released v0.7.0 (CI green 3 OS, tag v0.7.0); installed globally; setup re-run; forced maintain on marca-personal, edu, price-traking; deck shows "1 to approve" in marca-personal.
