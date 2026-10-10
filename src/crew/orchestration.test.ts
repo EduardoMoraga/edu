@@ -54,7 +54,7 @@ describe('detached orchestration', () => {
     const job = await crew.orchestrate({ goal: 'Check the command', cwd });
     const worker = crew.runWorker(job.id);
     const paused = await awaiting(crew, job.id);
-    expect(paused.specPath).toContain('/specs/');
+    expect(paused.specPath.replace(/\\/g, '/')).toContain('/specs/');
     await crew.approve(job.id, true);
     const result = await worker;
     expect(result.status).toBe('done');

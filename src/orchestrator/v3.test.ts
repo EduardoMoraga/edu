@@ -82,7 +82,7 @@ describe('v3 orchestration', () => {
       expect(requests[1]?.systemPrompt).toContain('Use this custom sequence.');
       expect(events).toContainEqual(expect.objectContaining({ type: 'outcome', label: 'autonomous_verified_success' }));
       const spec = events.find((event): event is Extract<EduEvent, { type: 'spec.ready' }> => event.type === 'spec.ready');
-      expect(spec?.path).toContain('/specs/');
+      expect(spec?.path.replace(/\\/g, '/')).toContain('/specs/');
       expect(await readFile(spec!.path, 'utf8')).toContain('R-1');
     } finally { await rm(dir, { recursive: true, force: true }); }
   });

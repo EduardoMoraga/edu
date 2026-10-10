@@ -44,7 +44,7 @@ describe('orchestration MCP tools', () => {
       expect(TOOL_ANNOTATIONS.edu_orchestrate).toMatchObject({ destructiveHint: true, openWorldHint: true });
       expect(TOOL_ANNOTATIONS.edu_crew_approve).toMatchObject({ destructiveHint: true, openWorldHint: true });
       const started = await call('edu_orchestrate', { goal: 'Check work' });
-      expect(started.specPath).toContain('/specs/');
+      expect(started.specPath.replace(/\\/g, '/')).toContain('/specs/');
       expect(started.status).toBe('awaiting-approval');
       await call('edu_crew_approve', { jobId: started.jobId, approve: true });
       const result = await call('edu_crew_result', { jobId: started.jobId, waitSeconds: 10 });
