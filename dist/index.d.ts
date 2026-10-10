@@ -271,6 +271,18 @@ type EduEvent = {
     successCriteria?: string[];
     at: string;
 } | {
+    type: 'spec.ready';
+    path: string;
+    requirements: Requirement[];
+    checks: DeterministicCheck[];
+    steps: Array<{
+        id: string;
+        role: string;
+        cli: CliId;
+        task: string;
+    }>;
+    at: string;
+} | {
     type: 'context.trace';
     noteId: string;
     contribution: string;
@@ -349,6 +361,7 @@ interface EduConfig {
     version: 1;
     mode: OrchestrationMode;
     defaultCli: CliId;
+    playbook?: string;
     roles: RoleSpec[];
     approvals: ApprovalPolicy;
     context: {
