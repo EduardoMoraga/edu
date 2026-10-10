@@ -4,6 +4,11 @@ $ErrorActionPreference = 'Stop'
 $Asset = if ($env:EDU_ASSET) { $env:EDU_ASSET } else { 'https://github.com/EduardoMoraga/edu/releases/latest/download/edu-agent.tgz' }
 
 function Say($text) { Write-Host "  $text" }
+# Spanish or English: EDU_LANG, else the Windows UI culture. Kept ASCII-only: PowerShell 5.1
+# reads a BOM-less script as ANSI, which would garble accents.
+$Lang = if ($env:EDU_LANG) { $env:EDU_LANG } else { (Get-UICulture).TwoLetterISOLanguageName }
+$UseSpanish = $Lang -like 'es*'
+function Msg($english, $spanish) { if ($UseSpanish) { Say $spanish } else { Say $english } }
 Write-Host ''
 Write-Host '  EDU - a second brain that learns, a crew you can see' -ForegroundColor Cyan
 Write-Host ''
@@ -13,13 +18,21 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 $major = 0
 if ($node) { $major = [int]((& node --version).TrimStart('v').Split('.')[0]) }
 if ($major -lt 22) {
-  Say 'Node.js 22 or newer is required.'
+  Msg 'Node.js 22 or newer is required.' 'Se necesita Node.js 22 o superior.'
   if (Get-Command winget -ErrorAction SilentlyContinue) {
-    Say 'Installing Node.js LTS with winget...'
+    Msg 'Installing Node.js LTS with winget (winget install OpenJS.NodeJS.LTS)...' 'Instalando Node.js LTS con winget (winget install OpenJS.NodeJS.LTS)...'
     winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements | Out-Null
     $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+    $major = 0
+    if (Get-Command node -ErrorAction SilentlyContinue) { $major = [int]((& node --version).TrimStart('v').Split('.')[0]) }
+    if ($major -lt 22) {
+      Msg 'Node.js was installed but is not on PATH yet. Open a new terminal and run this installer again.' 'Node.js quedo instalado pero aun no esta en el PATH. Abre una terminal nueva y vuelve a ejecutar este instalador.'
+      exit 1
+    }
   } else {
-    Say 'Install it from https://nodejs.org and run this installer again.'
+    Msg 'Install it one of these ways, then run this installer again:' 'Instalalo de una de estas formas y vuelve a ejecutar este instalador:'
+    Say '  - https://nodejs.org/en/download   (official installer / instalador oficial)'
+    Say '  - fnm: https://github.com/Schniz/fnm#installation  ->  fnm install 22'
     exit 1
   }
 }
@@ -28,12 +41,12 @@ if ($major -lt 22) {
 $prefix = (& npm prefix -g).Trim()
 $stale = Join-Path $prefix 'node_modules\edu-agent'
 if ((Test-Path $stale) -and -not (Test-Path (Join-Path $stale 'dist\cli.js'))) {
-  Say 'Removing an incomplete previous install...'
+  Msg 'Removing an incomplete previous install...' 'Quitando una instalacion previa incompleta...'
   Remove-Item -Recurse -Force $stale -ErrorAction SilentlyContinue
 }
 
 # 3. Install the prebuilt package (no build tools needed)
-Say 'Installing Edu...'
+Msg 'Installing Edu...' 'Instalando Edu...'
 & npm install -g $Asset --no-fund --no-audit
 if ($LASTEXITCODE -ne 0) { Say 'npm could not install Edu. See the error above.'; exit 1 }
 
@@ -44,10 +57,25 @@ if (-not $edu) {
 }
 if (-not $edu) { Say "Installed, but 'edu' is not on PATH. Add $prefix to PATH and open a new terminal."; exit 1 }
 
-Say ("Edu " + (& edu --version) + ' installed.')
+Msg ("Edu " + (& edu --version) + ' installed.') ("Edu " + (& edu --version) + ' instalado.')
 Write-Host ''
 
 # 4. Connect Edu to every coding CLI found on this machine
 & edu setup --yes
+if ($LASTEXITCODE -ne 0) { Msg 'Setup did not finish; run: edu setup --yes' 'El setup no termino; ejecuta: edu setup --yes' }
 Write-Host ''
-Say 'Done. Open your favorite CLI (claude, codex, pi, opencode, agy) and ask: "what do you remember?"'
+if ($UseSpanish) {
+  Say 'Listo. Siguientes pasos:'
+  Say '  1. Crea tu primer espacio desde un documento:'
+  Say '       edu create <documento> --name <NombreDelAgente>'
+  Say '  2. Abrelo en Obsidian: Open folder as vault -> la carpeta creada'
+  Say '  3. Entra con tu CLI (claude, codex, pi, opencode) y pregunta: "quien eres?"'
+  Say '  4. Mantente al dia: edu update'
+} else {
+  Say 'Done. Next steps:'
+  Say '  1. Create your first workspace from a document:'
+  Say '       edu create <document> --name <AgentName>'
+  Say '  2. Open it in Obsidian: Open folder as vault -> the new folder'
+  Say '  3. Open it with your CLI (claude, codex, pi, opencode) and ask: "who are you?"'
+  Say '  4. Stay current: edu update'
+}

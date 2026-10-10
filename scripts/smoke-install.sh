@@ -57,4 +57,20 @@ fi
 
 "$EDU" --help >/dev/null
 
+# The one-line installer, in dry-run mode against fake Node binaries (no network, no sudo, no tty).
+mkdir -p "$TMP/node20" "$TMP/node22"
+printf '#!/bin/sh\necho 20\n' >"$TMP/node20/node"
+printf '#!/bin/sh\necho 22\n' >"$TMP/node22/node"
+chmod +x "$TMP/node20/node" "$TMP/node22/node"
+if [[ "$WINDOWS" == 0 ]]; then
+  if PATH="$TMP/node20:/usr/bin:/bin" EDU_DRY_RUN=1 EDU_LANG=en sh "$ROOT/scripts/install.sh" </dev/null >"$TMP/old-node.log" 2>&1; then
+    echo "Expected install.sh to stop when Node is older than 22" >&2
+    exit 1
+  fi
+  grep -q 'nodejs.org' "$TMP/old-node.log" || { echo "install.sh did not explain how to install Node" >&2; exit 1; }
+  PATH="$TMP/node22:/usr/bin:/bin" EDU_DRY_RUN=1 EDU_LANG=es sh "$ROOT/scripts/install.sh" >"$TMP/dry.log"
+  grep -q '\[dry-run\] npm install -g' "$TMP/dry.log" || { echo "install.sh did not plan the npm install" >&2; exit 1; }
+  grep -q 'edu create <documento> --name <NombreDelAgente>' "$TMP/dry.log" || { echo "install.sh did not print the Spanish next steps" >&2; exit 1; }
+fi
+
 echo "Smoke install passed for edu-agent@$VERSION"
