@@ -2,6 +2,7 @@ import { appendFile, mkdir, open, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicWrite } from '../brain/store.js';
+import { autoMaintain } from '../brain/auto-maintain.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
@@ -352,6 +353,8 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     const end: EduEvent = { type: 'run.end', runId, ok: success, summary, at: at() };
     await emit(end);
     const episodeDir = await buildEpisodePackage(dirname(deps.runsDir), runId, allEvents, { limitations: [...limitations, ...(success ? [] : [summary])] });
+    // Best-effort, throttled brain upkeep after the episode is learned; never affects the run outcome.
+    await autoMaintain(deps.brain, dirname(deps.runsDir), { now: deps.now?.() ?? new Date() });
     return { runId, ok: success, summary, events, steps, episodeDir };
   }
 

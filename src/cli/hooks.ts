@@ -6,6 +6,7 @@
  * Hooks never fail the host: every error becomes a stderr note and exit 0.
  */
 import { join } from 'node:path';
+import { autoMaintain } from '../brain/auto-maintain.js';
 import type { CliContext } from './context.js';
 import { parseJsonObject } from './statusline.js';
 import { exists, openWorkspace } from './workspace.js';
@@ -53,6 +54,7 @@ export async function sessionEnd(ctx: CliContext, cwd: string): Promise<void> {
   ].join('\n');
   const note = await ws.brain.openSession(`Claude Code session ${short(sessionId)}`, 'claude');
   await ws.brain.closeSession(note.meta.id, summary);
+  await autoMaintain(ws.brain, ws.primary.root);
 }
 
 export async function codexNotify(ctx: CliContext, cwd: string, payload: string | undefined): Promise<void> {
@@ -73,4 +75,5 @@ export async function codexNotify(ctx: CliContext, cwd: string, payload: string 
     .join('\n');
   const note = await ws.brain.openSession(`Codex turn ${short(thread)}`, 'codex');
   await ws.brain.closeSession(note.meta.id, summary);
+  await autoMaintain(ws.brain, ws.primary.root);
 }

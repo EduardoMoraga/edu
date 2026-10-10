@@ -1,6 +1,7 @@
 /** `edu brain status|recall|remember|maintain|import|link`. */
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
+import { autoMaintain } from '../../brain/auto-maintain.js';
 import type { ClaimBand, TransitiveKind } from '../../core/contracts.js';
 import type { CliContext } from '../context.js';
 import { t, type Lang } from '../i18n.js';
@@ -106,7 +107,9 @@ export function registerBrain(program: Command, ctx: CliContext): void {
     .action(
       action<{ json?: boolean }>(ctx, async ({ g, opts }) => {
         const ws = await writableWorkspace(ctx, g.cwd, g.lang);
-        const report = await ws.brain.maintain();
+        const result = await autoMaintain(ws.brain, ws.primary.root, { force: true });
+        if (!result.ran) throw new Error(result.reason);
+        const { report } = result;
         if (g.json || opts.json) return printJson(ctx, report);
         ctx.out(t(g.lang, 'brain.maintained', { changed: report.changed.length, promoted: report.promoted.length, retired: report.retired.length, overdue: report.overdue.length }));
       }),

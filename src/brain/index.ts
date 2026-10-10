@@ -5,6 +5,8 @@ export type { MarkdownDocument } from './frontmatter.js';
 export { allowedStatuses, validateStatus, validateTransition } from './lifecycle.js';
 export { learnedWeight, lessonStatus, overdueStatus, feedbackUsage, recordUsage } from './learning.js';
 export { rankNotes, tokenize } from './search.js';
+export { AUTO_MAINTAIN_INTERVAL_MS, autoMaintain, maintainStatePath, readMaintainState } from './auto-maintain.js';
+export type { AutoMaintainResult, MaintainState } from './auto-maintain.js';
 export { atomicWrite, createId, notePath, slugify } from './store.js';
 export { importAlbert } from './import/albert.js';
 export { importMoragent } from './import/moragent.js';

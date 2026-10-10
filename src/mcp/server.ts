@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { openBrain } from '../brain/index.js';
+import { autoMaintain, openBrain } from '../brain/index.js';
 import { brief, truncateToTokens } from '../context/index.js';
 import type { BrainLocation, ClaimBand, Note, Tier } from '../core/contracts.js';
 import { createCrew, type CrewOptions } from '../crew/index.js';
@@ -48,6 +48,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
+  let brainRoot = opts.locations[0]!.root;
   let bound: Promise<void> | undefined;
   const bind = () => (bound ??= (async () => {
     let locations: BrainLocation[] | undefined;
@@ -61,6 +62,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     brain = openBrain(locations);
     crew = createCrew({ ...opts.crewOptions, locations });
     eduMdPath = join(locations[0]!.root, 'EDU.md');
+    brainRoot = locations[0]!.root;
   })());
   const respond = async (maxTokens: number | undefined, operation: () => Promise<string>) => {
     const limit = maxTokens ?? 800;
@@ -156,6 +158,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     const current = await brain.read(id);
     if (current && current.meta.kind === 'session') {
       const note = await brain.closeSession(id, summary);
+      await autoMaintain(brain, brainRoot);
       return `Closed ${line(note)}`;
     }
     const open = await brain.list({ kind: 'session', status: 'open-session' });
@@ -165,6 +168,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
         : undefined;
     if (!fallback) throw new Error(`Session not found: ${id}. Open session ids: ${open.map(note => note.meta.id).join(', ') || 'none'}`);
     const note = await brain.closeSession(fallback.meta.id, summary);
+    await autoMaintain(brain, brainRoot);
     return `Closed ${line(note)} instead of ${id} (unknown id; selected ${source ? `the only open session from ${source}` : 'the most recent open session'}).`;
   });
 

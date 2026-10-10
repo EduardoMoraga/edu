@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -190,6 +190,33 @@ describe('session id recovery', () => {
       const empty = await client.callTool({ name: 'edu_session_close', arguments: { id: 'missing', summary: 'Again.' } });
       expect(empty.isError).toBe(true);
       expect(empty.content.find(item => item.type === 'text')?.text).toContain('Open session ids: none');
+    } finally { await client.close(); await server.close(); }
+  });
+
+  it('auto-maintains the brain after edu_session_close (both close paths), throttled', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'edu-session-maintain-'));
+    roots.push(root);
+    const location = { scope: 'project' as const, root };
+    const brain = openBrain([location]);
+    await brain.init(location);
+    await brain.write({ title: 'Late promise', body: '', tier: 'transitive', kind: 'commitment', due: '2020-01-01' });
+    const server = createEduMcpServer({ locations: [location] });
+    const client = new Client({ name: 'edu-test', version: '1.0.0' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(b);
+    await client.connect(a);
+    try {
+      await client.callTool({ name: 'edu_session_open', arguments: { title: 'Work', source: 'codex' } });
+      const closed = await client.callTool({ name: 'edu_session_close', arguments: { id: 'wrong', summary: 'Finished.' } });
+      expect(closed.isError).not.toBe(true);
+      const state = JSON.parse(await readFile(join(root, 'state', 'maintain.json'), 'utf8'));
+      expect(state).toMatchObject({ overdue: 1, changed: 1, promoted: 0, retired: 0 });
+      expect(await readFile(join(root, 'brain', '0-index', 'INDEX.md'), 'utf8')).toContain('Late promise');
+      expect((await brain.list({ kind: 'commitment' }))[0]?.meta.status).toBe('overdue');
+      await client.callTool({ name: 'edu_session_open', arguments: { title: 'Again', source: 'codex' } });
+      const id = (await brain.list({ kind: 'session', status: 'open-session' }))[0]!.meta.id;
+      expect((await client.callTool({ name: 'edu_session_close', arguments: { id, summary: 'Done.' } })).isError).not.toBe(true);
+      expect(JSON.parse(await readFile(join(root, 'state', 'maintain.json'), 'utf8')).lastRun).toBe(state.lastRun);
     } finally { await client.close(); await server.close(); }
   });
 

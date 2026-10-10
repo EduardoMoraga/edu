@@ -3,6 +3,7 @@ import { openBrain } from '../brain/index.js';
 import { ctxPercentFromClaude, parseJsonObject } from './statusline.js';
 import { captureContext, err, out, runCli, type Captured } from './testkit.js';
 import { join } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
 
 async function initialized(stdin?: string): Promise<Captured> {
   const c = await captureContext({ stdin, detected: ['claude'] });
@@ -80,6 +81,36 @@ describe('hooks', () => {
     expect(episode?.meta.status).toBe('closed');
     expect(episode?.meta.title).toBe('Claude Code session 12345678');
     expect(episode?.body).toContain('/tmp/t.jsonl');
+  });
+
+  it('session-end and codex-notify auto-maintain the brain (stamp + index), throttled', async () => {
+    const input = { session_id: 'abcdef1234567890', hook_event_name: 'SessionEnd' };
+    const c = await initialized(JSON.stringify(input));
+    const edu = join(c.dirs.cwd, '.edu');
+    await runCli(c, ['hook', 'session-end']);
+    expect(c.exitCode ?? 0).toBe(0);
+    const first = JSON.parse(await readFile(join(edu, 'state', 'maintain.json'), 'utf8'));
+    expect(first).toMatchObject({ promoted: 0, retired: 0, overdue: 0 });
+    expect(typeof first.lastRun).toBe('number');
+    expect(await readFile(join(edu, 'brain', '0-index', 'INDEX.md'), 'utf8')).toContain('Claude Code session abcdef12');
+    await runCli(c, ['hook', 'codex-notify', JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 'th-1' })]);
+    expect(JSON.parse(await readFile(join(edu, 'state', 'maintain.json'), 'utf8')).lastRun).toBe(first.lastRun);
+  });
+
+  it('codex-notify auto-maintains on a fresh brain', async () => {
+    const c = await initialized();
+    await runCli(c, ['hook', 'codex-notify', JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 'th-2' })]);
+    await expect(stat(join(c.dirs.cwd, '.edu', 'state', 'maintain.json'))).resolves.toBeTruthy();
+  });
+
+  it('edu brain maintain forces maintenance and writes the stamp', async () => {
+    const c = await initialized();
+    await runCli(c, ['hook', 'codex-notify', JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 'th-3' })]);
+    const path = join(c.dirs.cwd, '.edu', 'state', 'maintain.json');
+    const before = JSON.parse(await readFile(path, 'utf8')).lastRun as number;
+    await new Promise(resolve => setTimeout(resolve, 5));
+    await runCli(c, ['brain', 'maintain', '--json']);
+    expect(JSON.parse(await readFile(path, 'utf8')).lastRun).toBeGreaterThan(before);
   });
 
   it('codex-notify records a completed turn and tolerates garbage', async () => {

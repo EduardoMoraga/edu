@@ -50,6 +50,29 @@ describe('orchestrator contracts', () => {
     expect(assignCli('reviewer', crew, ['codex', 'pi'])).toBe('pi');
   });
 
+  it('auto-maintains the brain at the end of every run, after the episode is learned', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu-run-maintain-'));
+    const order: string[] = [];
+    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+      yield { type: 'agent.text', agentId, text: request.prompt.includes('Create a safe') ? '{"steps":[]}' : '{"verdict":"pass","issues":[]}', at };
+      yield { type: 'agent.end', agentId, ok: true, summary: 'done', at };
+    } };
+    const brain = {
+      openSession: async () => ({ meta: { id: 'session' } }),
+      closeSession: async () => { order.push('close'); },
+      maintain: async () => { order.push('maintain'); return { changed: ['x'], promoted: [], retired: [], overdue: [], indexRebuilt: true }; },
+    } as never;
+    try {
+      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true, now: () => new Date(at) });
+      expect(result.ok).toBe(true);
+      expect(order).toEqual(['close', 'maintain']);
+      expect(JSON.parse(await readFile(join(dir, 'state', 'maintain.json'), 'utf8'))).toEqual({ lastRun: Date.parse(at), promoted: 0, retired: 0, overdue: 0, changed: 1 });
+      const failing = { ...(brain as object), maintain: async () => { throw new Error('boom'); } } as never;
+      await rm(join(dir, 'state'), { recursive: true, force: true });
+      expect((await orchestrate('goal', { config: defaultConfig('claude'), brain: failing, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true })).ok).toBe(true);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
   it('passes configured role models through to engine requests', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-role-model-'));
     const config = { ...defaultConfig('claude'), roles: defaultConfig('claude').roles.map(role => role.id === 'lead' ? { ...role, model: 'lead-model' } : role) };
