@@ -18,8 +18,10 @@ import {
 } from "./chunk-DX6BBMOC.js";
 import {
   truncateToTokens
-} from "./chunk-ALETVR3V.js";
-import "./chunk-G74JOKZO.js";
+} from "./chunk-2U2XMYQH.js";
+import {
+  autoMaintain
+} from "./chunk-PME7VQAI.js";
 import {
   atomicWrite,
   slugify
@@ -829,6 +831,7 @@ ${dependencyContext}`;
     const end = { type: "run.end", runId, ok: success, summary, at: at() };
     await emit(end);
     const episodeDir = await buildEpisodePackage(dirname(deps.runsDir), runId, allEvents, { limitations: [...limitations, ...success ? [] : [summary]] });
+    await autoMaintain(deps.brain, dirname(deps.runsDir), { now: deps.now?.() ?? /* @__PURE__ */ new Date() });
     return { runId, ok: success, summary, events, steps, episodeDir };
   }
   async function recordApprovalIntervention(approved, detail) {
@@ -972,4 +975,4 @@ export {
   saveConfig,
   workerMethod
 };
-//# sourceMappingURL=orchestrator-3VWEEZKA.js.map
+//# sourceMappingURL=orchestrator-XGXF273F.js.map

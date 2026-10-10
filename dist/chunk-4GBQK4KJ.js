@@ -1,9 +1,9 @@
 import {
   exists
-} from "./chunk-LZAMKNNP.js";
+} from "./chunk-EYREGPRL.js";
 import {
   openBrain
-} from "./chunk-G74JOKZO.js";
+} from "./chunk-PME7VQAI.js";
 
 // src/cli/setup.ts
 import { cp, mkdir, readdir } from "fs/promises";
@@ -46,4 +46,4 @@ async function copyMissing(from, to) {
 export {
   initBrain
 };
-//# sourceMappingURL=chunk-PYSJJP4V.js.map
+//# sourceMappingURL=chunk-4GBQK4KJ.js.map

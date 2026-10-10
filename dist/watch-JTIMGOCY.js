@@ -1,6 +1,6 @@
 import {
   createCommandHandler
-} from "./chunk-3ODOT2QG.js";
+} from "./chunk-4NGZ3RO3.js";
 import {
   createPlainFormatter
 } from "./chunk-ECRVBJKY.js";
@@ -11,8 +11,8 @@ import {
   t
 } from "./chunk-NTU4RUMO.js";
 import "./chunk-QNEUTXM7.js";
-import "./chunk-LZAMKNNP.js";
-import "./chunk-G74JOKZO.js";
+import "./chunk-EYREGPRL.js";
+import "./chunk-PME7VQAI.js";
 import "./chunk-PILVA3OM.js";
 
 // src/cli/run/watch.ts
@@ -57,4 +57,4 @@ export {
   watchInTui,
   watchPlain
 };
-//# sourceMappingURL=watch-WJFF4RKH.js.map
+//# sourceMappingURL=watch-JTIMGOCY.js.map

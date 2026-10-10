@@ -4,7 +4,7 @@ import {
 import {
   createCrew,
   runWorker
-} from "./chunk-DYC4DXNX.js";
+} from "./chunk-6THUD2EG.js";
 import {
   action,
   look,
@@ -13,7 +13,7 @@ import {
   printJson,
   registerPluginSetup,
   statusLine
-} from "./chunk-AJAVXPS7.js";
+} from "./chunk-I6F6MCT3.js";
 import {
   detectTheme,
   formatTokens,
@@ -37,10 +37,10 @@ import {
   editContent,
   editInstructions,
   ownerOf
-} from "./chunk-SPL7O2VD.js";
+} from "./chunk-7I7XRYGQ.js";
 import {
   initBrain
-} from "./chunk-PYSJJP4V.js";
+} from "./chunk-4GBQK4KJ.js";
 import {
   fsCrewSource
 } from "./chunk-CVB7YSGO.js";
@@ -54,15 +54,17 @@ import {
   identityName,
   lessonCount,
   openWorkspace
-} from "./chunk-LZAMKNNP.js";
+} from "./chunk-EYREGPRL.js";
 import {
   loadChecks,
   runCheck,
   saveChecks
 } from "./chunk-KNYRQ5SA.js";
 import {
-  openBrain
-} from "./chunk-G74JOKZO.js";
+  autoMaintain,
+  openBrain,
+  readMaintainState
+} from "./chunk-PME7VQAI.js";
 import {
   TIER_DIRS,
   atomicWrite,
@@ -180,7 +182,9 @@ function registerBrain(program, ctx) {
   brain.command("maintain").description("decay, promote/retire lessons, flag overdue commitments, rebuild the index").option("--json", "machine-readable output").action(
     action(ctx, async ({ g, opts }) => {
       const ws = await writableWorkspace(ctx, g.cwd, g.lang);
-      const report = await ws.brain.maintain();
+      const result = await autoMaintain(ws.brain, ws.primary.root, { force: true });
+      if (!result.ran) throw new Error(result.reason);
+      const { report } = result;
       if (g.json || opts.json) return printJson(ctx, report);
       ctx.out(t(g.lang, "brain.maintained", { changed: report.changed.length, promoted: report.promoted.length, retired: report.retired.length, overdue: report.overdue.length }));
     })
@@ -189,7 +193,7 @@ function registerBrain(program, ctx) {
     action(ctx, async ({ g, opts }, source, path) => {
       const kind = oneOf(source ?? "", ["albert", "moragent"], "source");
       const ws = await writableWorkspace(ctx, g.cwd, g.lang);
-      const { importAlbert, importMoragent } = await import("./brain-BECOVE5I.js");
+      const { importAlbert, importMoragent } = await import("./brain-TXTEZRKT.js");
       const report = await (kind === "albert" ? importAlbert : importMoragent)(path ?? "", ws.brain);
       if (g.json || opts.json) return printJson(ctx, { imported: report.imported.map((n) => n.meta.id), skipped: report.skipped, errors: report.errors });
       ctx.out(t(g.lang, "brain.imported", { imported: report.imported.length, skipped: report.skipped.length, errors: report.errors.length }));
@@ -359,7 +363,8 @@ async function deckSnapshot(root) {
     version: 1,
     project: { name: basename2(projectRoot), root: projectRoot },
     identity: "Edu",
-    brain: { present: false, canonical: 0, proposed: 0, episodic: 0, transitive: 0, lessons: 0 },
+    brain: { present: false, canonical: 0, proposed: 0, toApprove: 0, episodic: 0, transitive: 0, lessons: 0 },
+    maintenance: { lastRun: null, promoted: 0, retired: 0, overdue: 0 },
     spec: null,
     jobs: [],
     approvals: 0,
@@ -389,12 +394,15 @@ async function deckSnapshot(root) {
       else {
         empty.brain.transitive++;
         if (note.kind === "lesson" || note.name.startsWith("L-")) byStatus[note.status] = (byStatus[note.status] ?? 0) + 1;
+        if ((note.kind === "commitment" || note.name.startsWith("C-")) && note.status === "overdue") empty.maintenance.overdue++;
       }
     }
+    empty.brain.toApprove = empty.brain.proposed;
     empty.brain.present = true;
     empty.brain.lessons = lessonCount(byStatus);
     empty.recent = notes.filter((note) => note.title).sort((a, b) => b.at - a.at).slice(0, 5).map((note) => ({ title: note.title, tier: note.tier, at: note.at }));
-    const [identity, spec, jobs] = await Promise.all([identityName(eduRoot), latestSpec(eduRoot), crewJobs(eduRoot)]);
+    const [identity, spec, jobs, stamp] = await Promise.all([identityName(eduRoot), latestSpec(eduRoot), crewJobs(eduRoot), readMaintainState(eduRoot)]);
+    if (stamp) Object.assign(empty.maintenance, { lastRun: stamp.lastRun, promoted: stamp.promoted, retired: stamp.retired });
     empty.identity = identity;
     empty.spec = spec;
     empty.jobs = jobs;
@@ -414,7 +422,8 @@ function registerDeck(program, ctx) {
     const glyphs = getGlyphs(ctx.env);
     ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}`);
     const brain = deck.brain;
-    ctx.out(`Brain  ${brain.present ? `${brain.canonical} canonical \xB7 ${brain.proposed} proposed \xB7 ${brain.episodic} episodic \xB7 ${brain.transitive} transitive \xB7 ${brain.lessons} lessons` : "not found"}`);
+    const attention = [brain.toApprove ? `${brain.toApprove} to approve` : "", deck.maintenance.overdue ? `${deck.maintenance.overdue} overdue` : ""].filter(Boolean).join(" \xB7 ");
+    ctx.out(`Brain  ${brain.present ? `${brain.canonical} canonical \xB7 ${brain.proposed} proposed \xB7 ${brain.episodic} episodic \xB7 ${brain.transitive} transitive \xB7 ${brain.lessons} lessons${attention ? ` \xB7 ${attention}` : ""}` : "not found"}`);
     ctx.out(`Spec   ${deck.spec ? `${deck.spec.name} \xB7 ${deck.spec.requirements} requirements \xB7 ${deck.spec.checks} ${deck.spec.checks === 1 ? "check" : "checks"}` : "none"}`);
     ctx.out(`Crew   ${deck.jobs.length} ${deck.jobs.length === 1 ? "job" : "jobs"} \xB7 ${deck.approvals} ${deck.approvals === 1 ? "approval" : "approvals"}`);
     for (const job of deck.jobs) ctx.out(`  ${job.status} ${job.cli} ${job.id} ${glyphs.sep} ${job.task}`);
@@ -1265,7 +1274,7 @@ async function sessionStart(ctx, cwd) {
   const input = parseJsonObject(await ctx.readStdin(500));
   const ws = await initializedWorkspace(ctx, str(input?.cwd) ?? cwd);
   if (!ws) return;
-  const { brief } = await import("./context-MR5QAK4B.js");
+  const { brief } = await import("./context-6ER2EIRU.js");
   const text = await brief(ws.brain, 1500, { eduMdPath: join10(ws.primary.root, "EDU.md") });
   if (text.trim()) ctx.out(text);
 }
@@ -1283,6 +1292,7 @@ async function sessionEnd(ctx, cwd) {
   ].join("\n");
   const note = await ws.brain.openSession(`Claude Code session ${short(sessionId)}`, "claude");
   await ws.brain.closeSession(note.meta.id, summary);
+  await autoMaintain(ws.brain, ws.primary.root);
 }
 async function codexNotify(ctx, cwd, payload) {
   const input = parseJsonObject(payload ?? "");
@@ -1300,13 +1310,14 @@ async function codexNotify(ctx, cwd, payload) {
   ].filter(Boolean).join("\n");
   const note = await ws.brain.openSession(`Codex turn ${short(thread)}`, "codex");
   await ws.brain.closeSession(note.meta.id, summary);
+  await autoMaintain(ws.brain, ws.primary.root);
 }
 
 // src/cli/commands/integrations.ts
 function registerIntegrations(program, ctx) {
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-XIYUGTZ6.js");
+      const { runStdioServer } = await import("./stdio-SZ6U4HUE.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -1353,7 +1364,7 @@ function registerLearn(program, ctx) {
       const ws = await openWorkspace(ctx, g.cwd);
       const config = await effectiveConfig(ws.primary.root, []);
       const budgetTokens = opts.budget ? parseIntOption(opts.budget, "--budget") : config.context.budgetTokens;
-      const { buildContext } = await import("./context-MR5QAK4B.js");
+      const { buildContext } = await import("./context-6ER2EIRU.js");
       const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join11(ws.primary.root, "EDU.md"), trackUsage: false });
       if (g.json || opts.json) return printJson(ctx, pack);
       const { glyphs } = look(ctx);
@@ -1444,9 +1455,9 @@ function registerWatch(program, ctx) {
         }))
       };
       const id = jobId?.trim() || void 0;
-      const { watchInTui, watchPlain } = await import("./watch-WJFF4RKH.js");
+      const { watchInTui, watchPlain } = await import("./watch-JTIMGOCY.js");
       if (!ctx.isTTY) return watchPlain(ctx, { source, jobId: id, lang: g.lang });
-      const { cliDispatch, selfRunner } = await import("./commands-JK6IPE3N.js");
+      const { cliDispatch, selfRunner } = await import("./commands-43HUFNX4.js");
       const explicitLang = cmd.optsWithGlobals().lang !== void 0;
       await watchInTui({
         source,
@@ -1552,7 +1563,7 @@ function registerSetup(program, ctx) {
       const scope = parseScope(opts.scope);
       const { uninstall, getManifestPath } = await import("./adapters-NXBNH2DE.js");
       if (scope === "global") {
-        const { setupManifestPath, uninstallSetup } = await import("./setup-LGBBHLVZ.js");
+        const { setupManifestPath, uninstallSetup } = await import("./setup-ZZHETBQJ.js");
         if (await exists(await setupManifestPath(ctx.home))) {
           await uninstallSetup({ home: ctx.home, force: Boolean(opts.force) });
           ctx.out(t(g.lang, "uninstall.done", { scope }));
@@ -1574,7 +1585,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-Q5HFCYEZ.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-ZNUPYIFY.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -1587,7 +1598,7 @@ async function openHome(ctx, g) {
   ctx.out(t(g.lang, "home.brain", { total: stats.total, lessons: lessonCount(stats.byStatus) }));
   ctx.out(clis.length ? t(g.lang, "home.clis", { clis: clis.join(", ") }) : t(g.lang, "home.noClis"));
   ctx.out(t(g.lang, "home.hint"));
-  const { runHome } = await import("./live-TY2JNK47.js");
+  const { runHome } = await import("./live-FAAZG6ZK.js");
   await runHome(ctx, { cwd: g.cwd, lang: g.lang, name });
 }
 function modeFrom(opts) {
@@ -1609,7 +1620,7 @@ function registerLive(program, ctx) {
       const text = (goal ?? "").trim();
       if (!text) throw new Error("a goal is required");
       if (opts.detach) {
-        const { createCrew: createCrew2 } = await import("./crew-J2AXH2ON.js");
+        const { createCrew: createCrew2 } = await import("./crew-KB5KIOZZ.js");
         const ws = await openWorkspace(ctx, g.cwd);
         const job = await createCrew2({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
           goal: text,
@@ -1625,7 +1636,7 @@ function registerLive(program, ctx) {
       }
       if (ctx.isTTY) {
         const ws = await openWorkspace(ctx, g.cwd);
-        const { runInTui } = await import("./live-TY2JNK47.js");
+        const { runInTui } = await import("./live-FAAZG6ZK.js");
         const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, playbook: opts.playbook, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
         if (result) ctx.out(t(g.lang, "run.done", { status: t(g.lang, result.ok ? "run.ok" : "run.failed"), summary: result.summary }));
         if (!result?.ok) ctx.setExitCode(1);
@@ -1646,7 +1657,7 @@ function registerLive(program, ctx) {
       const run = await loadRun(opts.replay);
       for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
       if (!ctx.isTTY) return printPlain(ctx, run.events);
-      const { playInTui } = await import("./live-TY2JNK47.js");
+      const { playInTui } = await import("./live-FAAZG6ZK.js");
       await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2e3 }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -1661,7 +1672,7 @@ function registerLive(program, ctx) {
         ctx.out(t(g.lang, "demo.plain"));
         return printPlain(ctx, events);
       }
-      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-MTGKHMKG.js"), import("./live-TY2JNK47.js")]);
+      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-MTGKHMKG.js"), import("./live-FAAZG6ZK.js")]);
       await playInTui(timedEvents(events, { speed }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -1670,7 +1681,7 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes) {
   const available = ctx.availableClis ?? await ctx.detectClis();
   if (!available.length) throw new Error(t(g.lang, "run.noCli"));
   if (!yes && !ctx.stdinIsTTY) throw new Error("Plain runs require --yes when stdin is not a TTY");
-  const { executeRun } = await import("./session-KSGNSRZM.js");
+  const { executeRun } = await import("./session-BODOP4FY.js");
   const format = createPlainFormatter(getGlyphs(ctx.env));
   const abort = new AbortController();
   const onSigint = () => {
@@ -2005,4 +2016,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-ZVQ7BLNJ.js.map
+//# sourceMappingURL=chunk-6QB7T6PT.js.map

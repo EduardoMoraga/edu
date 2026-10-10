@@ -1,6 +1,6 @@
 import {
   initBrain
-} from "./chunk-PYSJJP4V.js";
+} from "./chunk-4GBQK4KJ.js";
 import {
   UNION,
   applyInstall,
@@ -652,4 +652,4 @@ export {
   uninstallSetup,
   needsFirstRunSetup
 };
-//# sourceMappingURL=chunk-SPL7O2VD.js.map
+//# sourceMappingURL=chunk-7I7XRYGQ.js.map

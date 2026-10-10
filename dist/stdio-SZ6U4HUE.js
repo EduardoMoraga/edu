@@ -1,25 +1,26 @@
 import {
   createCrew
-} from "./chunk-DYC4DXNX.js";
-import "./chunk-ZGSAFC3Y.js";
+} from "./chunk-6THUD2EG.js";
+import "./chunk-NZFSJDV4.js";
 import "./chunk-23I7IHDX.js";
 import "./chunk-BXZ573JQ.js";
-import "./chunk-PYSJJP4V.js";
+import "./chunk-4GBQK4KJ.js";
 import "./chunk-NTU4RUMO.js";
 import "./chunk-QNEUTXM7.js";
 import {
   resolveBrainLocations
-} from "./chunk-LZAMKNNP.js";
+} from "./chunk-EYREGPRL.js";
 import "./chunk-QMELCHFL.js";
 import "./chunk-ROTDA577.js";
 import "./chunk-B5FNIIOI.js";
 import {
   brief,
   truncateToTokens
-} from "./chunk-ALETVR3V.js";
+} from "./chunk-2U2XMYQH.js";
 import {
+  autoMaintain,
   openBrain
-} from "./chunk-G74JOKZO.js";
+} from "./chunk-PME7VQAI.js";
 import "./chunk-PILVA3OM.js";
 
 // src/mcp/stdio.ts
@@ -61,10 +62,11 @@ var TOOL_ANNOTATIONS = {
   edu_crew_approve: STARTS_AGENTS
 };
 function createEduMcpServer(opts) {
-  const server = new McpServer({ name: "edu", version: "0.6.0" });
+  const server = new McpServer({ name: "edu", version: "0.7.0" });
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0].root, "EDU.md");
+  let brainRoot = opts.locations[0].root;
   let bound;
   const bind = () => bound ??= (async () => {
     let locations;
@@ -78,6 +80,7 @@ function createEduMcpServer(opts) {
     brain = openBrain(locations);
     crew = createCrew({ ...opts.crewOptions, locations });
     eduMdPath = join(locations[0].root, "EDU.md");
+    brainRoot = locations[0].root;
   })();
   const respond = async (maxTokens, operation) => {
     const limit = maxTokens ?? 800;
@@ -190,6 +193,7 @@ Opened ${line(note)}`;
     const current = await brain.read(id);
     if (current && current.meta.kind === "session") {
       const note2 = await brain.closeSession(id, summary);
+      await autoMaintain(brain, brainRoot);
       return `Closed ${line(note2)}`;
     }
     const open = await brain.list({ kind: "session", status: "open-session" });
@@ -197,6 +201,7 @@ Opened ${line(note)}`;
     const fallback = source && matching.length === 1 ? matching[0] : !source && matching.length ? [...matching].sort((a, b) => b.meta.created.localeCompare(a.meta.created))[0] : void 0;
     if (!fallback) throw new Error(`Session not found: ${id}. Open session ids: ${open.map((note2) => note2.meta.id).join(", ") || "none"}`);
     const note = await brain.closeSession(fallback.meta.id, summary);
+    await autoMaintain(brain, brainRoot);
     return `Closed ${line(note)} instead of ${id} (unknown id; selected ${source ? `the only open session from ${source}` : "the most recent open session"}).`;
   });
   const cliIds = z.enum(["claude", "codex", "pi", "opencode", "agy"]);
@@ -309,4 +314,4 @@ export {
   resolveReboundLocations,
   runStdioServer
 };
-//# sourceMappingURL=stdio-XIYUGTZ6.js.map
+//# sourceMappingURL=stdio-SZ6U4HUE.js.map

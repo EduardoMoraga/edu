@@ -6,13 +6,13 @@ import {
   planSetup,
   setupManifestPath,
   uninstallSetup
-} from "./chunk-SPL7O2VD.js";
-import "./chunk-PYSJJP4V.js";
-import "./chunk-LZAMKNNP.js";
+} from "./chunk-7I7XRYGQ.js";
+import "./chunk-4GBQK4KJ.js";
+import "./chunk-EYREGPRL.js";
 import "./chunk-NO3RXWHL.js";
 import "./chunk-ROTDA577.js";
 import "./chunk-B5FNIIOI.js";
-import "./chunk-G74JOKZO.js";
+import "./chunk-PME7VQAI.js";
 import "./chunk-PILVA3OM.js";
 export {
   OPENCODE_TUI_PLUGIN,
@@ -23,4 +23,4 @@ export {
   setupManifestPath,
   uninstallSetup
 };
-//# sourceMappingURL=setup-LGBBHLVZ.js.map
+//# sourceMappingURL=setup-ZZHETBQJ.js.map

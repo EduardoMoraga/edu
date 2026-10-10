@@ -334,12 +334,46 @@ function openBrain(locations) {
   };
 }
 
+// src/brain/auto-maintain.ts
+import { readFile as readFile2 } from "fs/promises";
+import { join as join2 } from "path";
+var AUTO_MAINTAIN_INTERVAL_MS = 10 * 60 * 1e3;
+var maintainStatePath = (root) => join2(root, "state", "maintain.json");
+var count = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+async function readMaintainState(root) {
+  try {
+    const raw = JSON.parse(await readFile2(maintainStatePath(root), "utf8"));
+    if (typeof raw !== "object" || raw === null) return null;
+    const value = raw;
+    if (typeof value.lastRun !== "number" || !Number.isFinite(value.lastRun)) return null;
+    return { lastRun: value.lastRun, promoted: count(value.promoted), retired: count(value.retired), overdue: count(value.overdue), changed: count(value.changed) };
+  } catch {
+    return null;
+  }
+}
+async function autoMaintain(brain, root, opts = {}) {
+  try {
+    const now = opts.now ?? /* @__PURE__ */ new Date();
+    if (!opts.force) {
+      const previous = await readMaintainState(root);
+      if (previous && now.getTime() - previous.lastRun < AUTO_MAINTAIN_INTERVAL_MS && now.getTime() >= previous.lastRun) return { ran: false, reason: "throttled" };
+    }
+    const report = await brain.maintain(now);
+    const state = { lastRun: now.getTime(), promoted: report.promoted.length, retired: report.retired.length, overdue: report.overdue.length, changed: report.changed.length };
+    await atomicWrite(maintainStatePath(root), `${JSON.stringify(state, null, 2)}
+`);
+    return { ran: true, report, state };
+  } catch (error) {
+    return { ran: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 // src/brain/import/albert.ts
-import { basename as basename3, join as join3, relative as nodeRelative } from "path";
+import { basename as basename3, join as join4, relative as nodeRelative } from "path";
 
 // src/brain/import/shared.ts
-import { readdir as readdir2, readFile as readFile2 } from "fs/promises";
-import { basename as basename2, join as join2 } from "path";
+import { readdir as readdir2, readFile as readFile3 } from "fs/promises";
+import { basename as basename2, join as join3 } from "path";
 async function markdownFiles(path) {
   let entries;
   try {
@@ -349,7 +383,7 @@ async function markdownFiles(path) {
   }
   const files = [];
   for (const entry of entries) {
-    const target = join2(path, entry.name);
+    const target = join3(path, entry.name);
     if (entry.isDirectory()) files.push(...await markdownFiles(target));
     else if (entry.isFile() && entry.name.endsWith(".md")) files.push(target);
   }
@@ -363,7 +397,7 @@ async function importFiles(files, brain, source, classify, normalize) {
   const report = { source, imported: [], skipped: [], errors: [] };
   for (const path of files) {
     try {
-      const raw = await readFile2(path, "utf8");
+      const raw = await readFile3(path, "utf8");
       const parsed = parseMarkdownLenient(raw);
       const mapping = classify(path);
       const extra = normalize?.(parsed.meta, parsed.body, path) ?? {};
@@ -394,11 +428,11 @@ function albertPathSegments(root, file, relativePath = nodeRelative) {
   return relativePath(root, file).split(/[\\/]/).filter(Boolean);
 }
 async function importAlbert(sourceRoot, brain) {
-  const root = join3(sourceRoot, "_ALBERT");
+  const root = join4(sourceRoot, "_ALBERT");
   const files = [
-    ...await markdownFiles(join3(root, "1-CANONICO")),
-    ...await markdownFiles(join3(root, "2-EPISODICO")),
-    ...await markdownFiles(join3(root, "3-TRANSITIVO"))
+    ...await markdownFiles(join4(root, "1-CANONICO")),
+    ...await markdownFiles(join4(root, "2-EPISODICO")),
+    ...await markdownFiles(join4(root, "3-TRANSITIVO"))
   ];
   return importFiles(files, brain, "import:albert", (path) => {
     const relative = albertPathSegments(root, path);
@@ -439,10 +473,10 @@ ${body}` : void 0;
 }
 
 // src/brain/import/moragent.ts
-import { join as join4 } from "path";
+import { join as join5 } from "path";
 async function importMoragent(sourceRoot, brain) {
-  const root = join4(sourceRoot, ".moragent", "memory");
-  const files = [...await markdownFiles(join4(root, "canonical")), ...await markdownFiles(join4(root, "episodic")), ...await markdownFiles(join4(root, "transient"))];
+  const root = join5(sourceRoot, ".moragent", "memory");
+  const files = [...await markdownFiles(join5(root, "canonical")), ...await markdownFiles(join5(root, "episodic")), ...await markdownFiles(join5(root, "transient"))];
   return importFiles(files, brain, "import:moragent", (path) => {
     const relative = path.slice(root.length + 1).split(/[\\/]/);
     if (relative[0] === "canonical") return { tier: "canonical", kind: canonicalKind(relative[1]), status: "proposed" };
@@ -452,6 +486,10 @@ async function importMoragent(sourceRoot, brain) {
 }
 
 export {
+  AUTO_MAINTAIN_INTERVAL_MS,
+  maintainStatePath,
+  readMaintainState,
+  autoMaintain,
   allowedStatuses,
   validateStatus,
   validateTransition,
@@ -466,4 +504,4 @@ export {
   importAlbert,
   importMoragent
 };
-//# sourceMappingURL=chunk-G74JOKZO.js.map
+//# sourceMappingURL=chunk-PME7VQAI.js.map

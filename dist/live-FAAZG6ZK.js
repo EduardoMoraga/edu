@@ -1,15 +1,15 @@
 import {
   createCommandHandler
-} from "./chunk-3ODOT2QG.js";
+} from "./chunk-4NGZ3RO3.js";
 import {
   executeRun
-} from "./chunk-ZGSAFC3Y.js";
+} from "./chunk-NZFSJDV4.js";
 import {
   packageTemplatesDir
 } from "./chunk-BXZ573JQ.js";
 import {
   initBrain
-} from "./chunk-PYSJJP4V.js";
+} from "./chunk-4GBQK4KJ.js";
 import {
   t,
   uiLang
@@ -19,8 +19,8 @@ import {
   effectiveConfig,
   exists,
   openWorkspace
-} from "./chunk-LZAMKNNP.js";
-import "./chunk-G74JOKZO.js";
+} from "./chunk-EYREGPRL.js";
+import "./chunk-PME7VQAI.js";
 import "./chunk-PILVA3OM.js";
 
 // src/cli/run/live.ts
@@ -174,7 +174,7 @@ async function runInTui(ctx, opts) {
 }
 async function runHome(ctx, opts) {
   const { renderTui } = await import("./tui-RW3FNAAX.js");
-  const { respond } = await import("./respond-QBKFUBQN.js");
+  const { respond } = await import("./respond-MSCZEMPK.js");
   const { createEngine } = await import("./engine-TYTKXRE6.js");
   const channel = createChannel();
   const bridge = new ApprovalBridge();
@@ -264,4 +264,4 @@ export {
   runHome,
   runInTui
 };
-//# sourceMappingURL=live-TY2JNK47.js.map
+//# sourceMappingURL=live-FAAZG6ZK.js.map
