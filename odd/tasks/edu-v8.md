@@ -22,10 +22,10 @@
 ## Tasks
 - [x] P1a brain dir configurable + workspace layout + `edu create --no-llm` + registry + Obsidian config — route: delegated writer
 - [x] P1b LLM extraction (headless CLI) + docx/pdf readers — route: same writer
-- [ ] P1c migrate this Mac: ~/Edu/marca-personal to the new layout, retire ~/EduVault (backup) — route: lead, live
+- [x] P1c migrate this Mac: ~/Edu/marca-personal to the new layout, retire ~/EduVault (backup) — route: lead, live
 - [x] P2 `edu update` + installer one-liner refresh + `edu brain approve` — route: delegated writer
 - [x] P3 `edu connect hermes`, `edu mcp --project`, project tools, remove dead engram MCP from Hermes (`--remove-dead`; applying it to the real ~/.hermes is P4/lead) — route: delegated writer
-- [ ] P4 release v0.8.0, install, live check: create a workspace from a real doc, open Obsidian, Claude answers as the agent, Telegram → Hermes → Edu recall + crew dispatch — route: lead
+- [x] P4 release v0.8.0, install, live check: create a workspace from a real doc, open Obsidian, Claude answers as the agent, Telegram → Hermes → Edu recall + crew dispatch — route: lead
 
 ## Progress
 
@@ -73,3 +73,8 @@ Verification:
 - Stdio: an SDK client spawned `node dist/cli.js mcp --project marca-personal` with PATH=/usr/bin:/bin. `tools/list` returned 17 tools with the expected annotations, and `edu_projects` listed `* marca-personal`, `edu` and `price-traking`, all with agent Edu.
 - Not verified: the live gateway reload, Telegram messages, a real pane dispatch into herdr from Hermes (only decision logic with fakes and a read-only probe), and Windows.
 - Gotcha: P2's commit `3fc273e` picked up P3's in-progress `program.ts` lines (imports of connect.js/mcp.js) before those files were committed, so `3fc273e`..`9055575` don't build on their own. `eeb2b85` is consistent.
+- P4 released v0.8.0 (tag v0.8.0; CI green 3 OS after 6df3071). Installed via the real one-line installer from GitHub (0.7.0 → 0.8.0); `edu update --check` reports up to date.
+- P1c live: ~/Edu/marca-personal migrated (brain → 01-CONOCIMIENTO, brainDir set, content → 02/04, 00-INICIO README, .obsidian); backup ~/Backups/pre-edu-2026-10-10/marca-personal-pre-v08. Obsidian re-pointed to the workspace; ~/EduVault moved to backup. Deck + session-start hook verified.
+- P3 live: `edu connect hermes --project marca-personal --remove-dead --restart` (engram dead entry removed, `hermes mcp test edu` 17 tools, gateway restarted, Telegram reconnected). Added mcp-edu to Hermes cli toolsets (backup kept). Interactive `hermes chat`: edu_projects + edu_brief answered; edu_crew_dispatch → Codex in herdr Edu tab wR:t9, job 47c206fd done with correct answer.
+- Not verified: an actual Telegram message round trip (needs the user's phone); `hermes -z` one-shot mode loads no MCP servers at all (Hermes limitation).
+- Follow-ups: README template wording when the agent is named "Edu"; Windows flake in src/mcp/orchestration.test.ts; `edu vault` is now legacy for created workspaces.
