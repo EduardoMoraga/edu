@@ -194,6 +194,16 @@ carpeta de memoria. No use su carpeta personal como bóveda: Obsidian recorre to
 árbol, puede ralentizarse y fallar al encontrar archivos protegidos. Use una carpeta
 dedicada como `~/EduVault`.
 
+**Vistas.** Cada mantenimiento escribe Bases de Obsidian en `0-index/` del cerebro, con
+nombres en el idioma del espacio (`lang` en `.edu/config.json`): Conocimiento (Todo / Por
+aprobar), Decisiones, Lecciones, Hipótesis, Compromisos (Pendientes / Atrasados / Todos)
+y Sesiones. Un cerebro ubicado directamente bajo la raíz de la bóveda (por ejemplo
+`~/Edu/01-CONOCIMIENTO`) es el orquestador: sus Bases abarcan todos los espacios de la
+bóveda y agregan una columna Proyecto. Además recibe `00-INICIO/Panel.md` (en inglés,
+`00-START/Dashboard.md`), que incrusta esas vistas y enlaza cada espacio registrado. Edu
+solo reescribe esa nota mientras su encabezado diga `generated_by: edu`; borre esa línea
+para hacerla suya.
+
 ## Evidencia y métricas
 
 Un cambio cuenta cuando está verificado, no cuando parece correcto. Edu registra trazas de

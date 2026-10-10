@@ -31,7 +31,7 @@
 ├── EDU.md                    the contract: identity, memory rules, protocol (engine-independent)
 ├── config.json               EduConfig (src/core/contracts.ts)
 ├── brain/
-│   ├── 0-index/              generated: INDEX.md, *.base Obsidian dashboards
+│   ├── 0-index/              generated: INDEX.md + localized Obsidian Bases (src/brain/bases.ts)
 │   ├── 1-canonical/<kind>/   stable truth; status proposed → accepted (human-confirmed)
 │   ├── 2-episodic/           one note per session: YYYY-MM-DD_HHMM_<slug>.md, immutable once closed
 │   └── 3-transitive/         D-/H-/C-/L- items with lifecycles (see contracts.ts)
@@ -83,7 +83,7 @@ interface Brain {
   proposeCanonical(input: NewNote): Promise<Note>             // status proposed
   acceptCanonical(id: string): Promise<Note>                  // human-confirmed only
   maintain(now?: Date): Promise<MaintenanceReport>            // decay, overdue commitments, retire stale lessons, rebuild index
-  rebuildIndex(): Promise<void>                               // 0-index/INDEX.md + Obsidian .base files
+  rebuildIndex(): Promise<void>                               // 0-index/INDEX.md + Bases; orchestrator brain also writes the vault dashboard
   stats(): Promise<BrainStats>
 }
 ```

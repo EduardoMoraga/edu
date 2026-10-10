@@ -197,6 +197,16 @@ brain notes or let another tool generate a second memory folder in the vault. Ne
 your home folder as the vault: Obsidian scans the whole tree, which can be very slow or
 fail on protected files. Use a dedicated folder such as `~/EduVault` instead.
 
+**Views.** Every maintenance run writes Obsidian Bases into the brain's `0-index/`, named in
+the workspace language (`lang` in `.edu/config.json`): Knowledge (All / To approve),
+Decisions, Lessons, Hypotheses, Commitments (Pending / Overdue / All) and Sessions; in
+Spanish, Conocimiento, Decisiones, Lecciones, Hipótesis, Compromisos and Sesiones. A
+brain sitting directly under the vault root (e.g. `~/Edu/01-CONOCIMIENTO`) is the
+orchestrator: its Bases span every workspace in the vault and add a Project column. It
+also gets `00-START/Dashboard.md` (es: `00-INICIO/Panel.md`), which embeds those views
+and links each registered workspace. Edu rewrites that note only while its frontmatter
+says `generated_by: edu`; delete that line to make it yours.
+
 ## Evidence and metrics
 
 A change counts when it is verified, not when it looks right. Edu records context, tool,
