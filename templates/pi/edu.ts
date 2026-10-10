@@ -6,6 +6,14 @@ import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-c
 import { Key, matchesKey, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
 // On Windows, npm installs edu as a .cmd shim: start it through cmd (fixed arguments only).
+
+/** Edu's tagline, Spanish when EDU_LANG or the POSIX locale says so (same rule as the CLI). */
+const TAGLINE = (() => {
+  const env = process.env;
+  const lang = (env.EDU_LANG || env.LC_ALL || env.LC_MESSAGES || env.LANG || '').toLowerCase();
+  return lang.startsWith('es') ? 'tu agente orquestador, con memoria propia' : 'your orchestrator agent, with a memory of its own';
+})();
+
 const windows = process.platform === 'win32';
 const EDU = process.env.EDU_BIN || 'edu';
 const REFRESH_MS = 3000;
@@ -188,7 +196,7 @@ export default function (pi: ExtensionAPI): void {
         const project = deck ? deck.project.name : basename(cwd);
         if (width < 44) return ['', fit(`${t.fg('accent', '◆')} ${name}${t.fg('dim', ' · ')}${t.fg('text', project)}`, width), ''];
         const hint = t.fg('dim', '/edu-deck');
-        const first = `${t.fg('accent', WORDMARK[0]!)}  ${name}${t.fg('dim', ' — your agent, with a memory')}`;
+        const first = `${t.fg('accent', WORDMARK[0]!)}  ${name}${t.fg('dim', ` — ${TAGLINE}`)}`;
         const second = `${t.fg('accent', WORDMARK[1]!)}  ${statsLine(deck, cwd, t)}`;
         return ['', spread(` ${first}`, hint, width), fit(` ${second}`, width), ''];
       },
