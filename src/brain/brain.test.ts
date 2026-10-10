@@ -56,9 +56,9 @@ describe('brain API', () => {
     expect(await readFile(join(root, 'brain/0-index/INDEX.md'), 'utf8')).toContain(`[[${sessionFile}|Pairing]]`);
     const base = await readFile(join(root, 'brain/0-index/Sessions.base'), 'utf8');
     expect(base).toContain('file.inFolder("brain/2-episodic")');
-    expect(base).toContain('file.hasTag("session")');
+    expect(base).toContain('kind == "session"');
     expect(base).toContain('note.title');
-    expect(parse(base).filters.and).toEqual(['file.inFolder("brain/2-episodic")', 'file.hasTag("session")']);
+    expect(parse(base).filters.and).toEqual(['file.inFolder("brain/2-episodic")', 'kind == "session"']);
   });
   it('requires canonical proposals to be explicitly accepted and preserves the prior accepted note', async () => {
     const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);

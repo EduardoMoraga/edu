@@ -231,7 +231,7 @@ export function openBrain(locations: BrainLocation[]): Brain {
         ['session', 'Sessions.base', ['title', 'status', 'created', 'source']],
       ] as const) {
         const folder = kind === 'session' ? '2-episodic' : kind === 'lesson' || kind === 'commitment' || kind === 'hypothesis' ? '3-transitive' : '';
-        const content = stringify({ filters: { and: [`file.inFolder("${vaultFolder(primary, folder)}")`, `file.hasTag("${kind}")`] }, views: [{ type: 'table', name: kind[0]!.toUpperCase() + kind.slice(1), order: props.map(prop => prop.startsWith('usage.') ? `note.${prop}` : `note.${prop}`) }] });
+        const content = stringify({ filters: { and: [`file.inFolder("${vaultFolder(primary, folder)}")`, `kind == "${kind}"`] }, views: [{ type: 'table', name: kind[0]!.toUpperCase() + kind.slice(1), order: props.map(prop => prop.startsWith('usage.') ? `note.${prop}` : `note.${prop}`) }] });
         await atomicWrite(join(brainPath(primary), INDEX_DIR, file), content);
       }
     },

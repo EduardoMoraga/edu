@@ -7,6 +7,7 @@
  * `.edu/`), e.g. `01-CONOCIMIENTO` so the brain is visible in Obsidian. Everything that reads or writes
  * notes goes through `brainPath()`.
  */
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { BrainLocation, WorkspaceIdentity } from '../core/contracts.js';
@@ -65,7 +66,18 @@ export async function withBrainDir(location: BrainLocation): Promise<BrainLocati
 }
 
 /** The brain-relative prefix Obsidian sees for a tier folder (vault = workspace root when brainDir is set). */
+/**
+ * A brain folder's path as Obsidian sees it: relative to the nearest enclosing vault (a folder with
+ * `.obsidian/`), following symlinks so a global brain linked into a vault still matches. Without an
+ * enclosing vault it falls back to the path below the workspace root.
+ */
 export function vaultFolder(location: BrainLocation, folder: string): string {
+  const brain = brainPath(location);
+  let real = brain;
+  try { real = realpathSync(brain); } catch { /* not created yet */ }
+  for (let dir = dirname(real); dir !== dirname(dir); dir = dirname(dir)) {
+    if (existsSync(join(dir, '.obsidian'))) return `${relative(dir, real).split(sep).join('/')}/${folder}`;
+  }
   if (!location.brainDir) return `brain/${folder}`;
   const rel = relative(dirname(resolve(location.root)), location.brainDir).split(sep).join('/');
   return `${rel}/${folder}`;
