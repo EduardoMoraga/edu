@@ -17,7 +17,10 @@ Edu targets OpenCode 2. OpenCode 2 discovers TUI plugins as folders under
 `~/.config/opencode/plugins/` that contain a `tui` entrypoint, so the Deck needs no config edit.
 It reads the TUI `plugins` list only from `~/.config/opencode/cli.json`, never from `tui.json`
 or `tui.jsonc` (OpenCode 2 copies `tui.json` into `cli.json` once, on its first run). Edu
-leaves all three files alone. The server plugin (`plugins/edu.ts`) also loads in OpenCode 1,
+does not add anything to these files. Earlier Edu 0.6 builds installed the Deck as
+`~/.config/opencode/tui-plugins/edu.tsx` and listed it in `tui.json`; rerunning `edu setup`
+removes that file and that one entry from `tui.json`/`tui.jsonc` and `cli.json`, keeping your
+other entries and comments. The server plugin (`plugins/edu.ts`) also loads in OpenCode 1,
 but the Deck needs OpenCode 2.
 
 ## Verify
