@@ -109,6 +109,24 @@ describe('brain API', () => {
     await brain.acceptCanonical(proposals[0]!.meta.id);
     expect((await brain.read(previous.meta.id))?.meta.status).toBe('superseded');
   });
+  it('rejects a proposed canonical note by deleting it, keeps a record and never re-proposes the lesson', async () => {
+    const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
+    const lesson = await brain.write({ title: 'Ship on Fridays', body: 'Worked twice.', tier: 'transitive', kind: 'lesson' });
+    await brain.update(lesson.meta.id, { usage: { uses: 3, wins: 3, losses: 0, lastUsed: new Date().toISOString() } });
+    await brain.maintain();
+    const proposal = (await brain.list({ tier: 'canonical', status: 'proposed' }))[0]!;
+    const rejected = await brain.rejectCanonical(proposal.meta.id, 'too risky');
+    await expect(readFile(rejected.path, 'utf8')).rejects.toThrow();
+    const record = (await brain.list({ tier: 'episodic' })).find(note => note.meta.source === 'edu:reject');
+    expect(record?.meta.links).toEqual([proposal.meta.id, lesson.meta.id]);
+    expect(record?.body).toContain('Reason: too risky');
+    await brain.maintain();
+    expect(await brain.list({ tier: 'canonical' })).toHaveLength(0);
+    const accepted = await brain.proposeCanonical({ title: 'Kept', body: 'x', tier: 'canonical', kind: 'standard' });
+    await brain.acceptCanonical(accepted.meta.id);
+    await expect(brain.rejectCanonical(accepted.meta.id)).rejects.toThrow('Only proposed canonical notes can be rejected');
+    await expect(brain.rejectCanonical(lesson.meta.id)).rejects.toThrow('Canonical note not found');
+  });
   it('assigns distinct IDs and timestamp filenames to same-title sessions', async () => {
     const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
     const a = await brain.openSession('Daily sync', 'test');

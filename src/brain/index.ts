@@ -1,5 +1,7 @@
 export { openBrain } from './brain.js';
 export type { Brain, BrainStats, MaintenanceReport, NewNote } from './brain.js';
+export { listCanonicalProposals, proposalWhy, reviewCanonicalProposals } from './proposals.js';
+export type { CanonicalProposal, ReviewResult } from './proposals.js';
 export { parseMarkdown, serializeMarkdown } from './frontmatter.js';
 export type { MarkdownDocument } from './frontmatter.js';
 export { allowedStatuses, validateStatus, validateTransition } from './lifecycle.js';

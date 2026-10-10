@@ -94,6 +94,7 @@ function summary(deck, cwd) {
       overdue(deck) ? `${overdue(deck)} overdue` : '',
     ].filter(Boolean)
     if (upkeep.length) lines.push(`Upkeep  ${upkeep.join(' · ')}`)
+    if (toApprove(deck)) lines.push('        review: edu brain proposals · approve: edu brain approve <id> or --all')
   }
   if (deck.spec) lines.push(`Spec    ${deck.spec.name} · ${plural(deck.spec.requirements, 'requirement')} · ${plural(deck.spec.checks, 'check')}`)
   const active = deck.jobs.filter((job) => ACTIVE.has(job.status)).length

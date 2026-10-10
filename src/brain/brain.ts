@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, readdir } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { stringify } from 'yaml';
 import type { BrainLocation, CanonicalKind, ClaimBand, Note, NoteMeta, RecallHit, Tier } from '../core/contracts.js';
@@ -41,6 +41,12 @@ export interface Brain {
   closeSession(id: string, summary: string): Promise<Note>;
   proposeCanonical(input: NewNote): Promise<Note>;
   acceptCanonical(id: string): Promise<Note>;
+  /**
+   * Rejects a proposed canonical note. The canonical lifecycle has no rejected state and accepted notes are
+   * immutable, so the proposal file is deleted and a closed episodic note (source `edu:reject`, linking the
+   * proposal id and its links) keeps the record; maintenance will not re-propose a lesson linked there.
+   */
+  rejectCanonical(id: string, reason?: string): Promise<Note>;
   maintain(now?: Date): Promise<MaintenanceReport>;
   rebuildIndex(): Promise<void>;
   stats(): Promise<BrainStats>;
@@ -49,6 +55,8 @@ export interface Brain {
 const fallbackEdu = `# EDU\n\nEdu is the durable, engine-independent memory contract.\n\n- Keep canonical notes human-confirmed.\n- Never edit closed session notes.\n- Record decisions as new notes when they change.\n`;
 const iso = (d = new Date()) => d.toISOString();
 const defaultStatus = (tier: Tier, kind: NoteMeta['kind']): NoteMeta['status'] => tier === 'canonical' ? 'proposed' : ({ decision: 'active', hypothesis: 'open', commitment: 'pending', lesson: 'candidate', session: 'open-session' } as const)[kind as 'decision' | 'hypothesis' | 'commitment' | 'lesson' | 'session'];
+/** Source of the episodic record a rejected canonical proposal leaves behind. */
+export const REJECT_SOURCE = 'edu:reject';
 const immutableCanonical = (meta: NoteMeta) => meta.tier === 'canonical' && (meta.status === 'accepted' || meta.status === 'superseded');
 
 export function openBrain(locations: BrainLocation[]): Brain {
@@ -173,6 +181,18 @@ export function openBrain(locations: BrainLocation[]): Brain {
       }
       return accepted;
     },
+    async rejectCanonical(id, reason) {
+      const note = await find(id); if (!note || note.meta.tier !== 'canonical') throw new Error(`Canonical note not found: ${id}`);
+      if (note.meta.status !== 'proposed') throw new Error('Only proposed canonical notes can be rejected');
+      await rm(note.path, { force: true });
+      const record = await this.write({
+        tier: 'episodic', kind: 'session', status: 'open-session', source: REJECT_SOURCE, links: [id, ...note.meta.links],
+        title: `Rejected canonical proposal: ${note.meta.title}`, body: '',
+      });
+      const quoted = note.body.trim().split('\n').slice(0, 12).map(line => `> ${line}`);
+      await this.closeSession(record.meta.id, [`Rejected ${id} (${note.meta.band ?? 'inferred'}, source ${note.meta.source ?? 'unknown'}).`, ...(reason ? [`Reason: ${reason}`] : []), '', ...quoted].join('\n'));
+      return note;
+    },
     async maintain(now = new Date()) {
       const report: MaintenanceReport = { changed: [], promoted: [], retired: [], overdue: [], indexRebuilt: false };
       for (const note of await all()) {
@@ -184,7 +204,7 @@ export function openBrain(locations: BrainLocation[]): Brain {
           if (next.meta.status === 'overdue') report.overdue.push(note.meta.id);
         }
         if (next.meta.kind === 'lesson' && next.meta.status === 'proven') {
-          const proposalExists = (await all()).some(candidate => candidate.meta.tier === 'canonical' && candidate.meta.source === 'edu:maintain' && candidate.meta.links.includes(next.meta.id));
+          const proposalExists = (await all()).some(candidate => ((candidate.meta.tier === 'canonical' && candidate.meta.source === 'edu:maintain') || candidate.meta.source === REJECT_SOURCE) && candidate.meta.links.includes(next.meta.id));
           if (!proposalExists) {
             const prior = (await all()).find(candidate => candidate.meta.tier === 'canonical' && candidate.meta.kind === 'standard' && candidate.meta.title === next.meta.title && candidate.meta.status === 'accepted');
             await this.proposeCanonical({ tier: 'canonical', kind: 'standard', title: prior ? `${next.meta.title} (revision)` : next.meta.title, body: next.body, tags: next.meta.tags, links: [next.meta.id], source: 'edu:maintain', band: next.meta.band ?? 'inferred', ...(prior ? { supersedes: prior.meta.id } : {}) });

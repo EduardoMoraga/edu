@@ -1,7 +1,8 @@
-/** `edu brain status|recall|remember|maintain|import|link`. */
+/** `edu brain status|recall|remember|maintain|import|link|proposals|approve`. */
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { autoMaintain } from '../../brain/auto-maintain.js';
+import { listCanonicalProposals, reviewCanonicalProposals } from '../../brain/proposals.js';
 import type { ClaimBand, TransitiveKind } from '../../core/contracts.js';
 import type { CliContext } from '../context.js';
 import { t, type Lang } from '../i18n.js';
@@ -25,6 +26,33 @@ async function writableWorkspace(ctx: CliContext, cwd: string, lang: Lang): Prom
   }
   return ws;
 }
+
+const REVIEW = {
+  en: {
+    none: 'Nothing to approve: no proposed canonical notes.',
+    header: '{count} proposed canonical note(s) waiting for you:',
+    hint: 'Approve: edu brain approve <id> | --all   ·   Reject: edu brain approve --reject <id>',
+    accepted: 'Accepted {id}',
+    rejected: 'Rejected {id} (deleted; recorded in episodic)',
+    failed: 'Could not review {id}: {error}',
+    nothing: 'Say what to review: edu brain approve <id...> | --all | --reject <id>',
+    summary: '{accepted} accepted · {rejected} rejected · {errors} error(s)',
+  },
+  es: {
+    none: 'Nada que aprobar: no hay notas canónicas propuestas.',
+    header: '{count} nota(s) canónica(s) propuesta(s) esperan tu aprobación:',
+    hint: 'Aprobar: edu brain approve <id> | --all   ·   Rechazar: edu brain approve --reject <id>',
+    accepted: 'Aceptada {id}',
+    rejected: 'Rechazada {id} (borrada; queda registro en episodic)',
+    failed: 'No se pudo revisar {id}: {error}',
+    nothing: 'Indica qué revisar: edu brain approve <id...> | --all | --reject <id>',
+    summary: '{accepted} aceptadas · {rejected} rechazadas · {errors} error(es)',
+  },
+} as const;
+const fill = (text: string, vars: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (_, key: string) => String(vars[key] ?? `{${key}}`));
+const collect = (value: string, previous: string[]) => [...previous, value];
+
+interface ApproveOpts { all?: boolean; reject?: string[]; reason?: string; json?: boolean }
 
 interface RecallOpts { limit?: string; json?: boolean }
 interface RememberOpts { kind?: string; body?: string; band?: string; due?: string; json?: boolean }
@@ -157,6 +185,55 @@ export function registerBrain(program: Command, ctx: CliContext): void {
           await saveConfig(configPath, { ...config, brain: { ...config.brain, obsidianVault: vaultPath } });
         }
         ctx.out(t(g.lang, outcome === 'created' ? 'brain.linked' : 'brain.linkExists', { link, target }));
+      }),
+    );
+
+  brain
+    .command('proposals')
+    .description('canonical notes proposed for your approval (title, source, band, why)')
+    .option('--json', 'machine-readable output')
+    .action(
+      action<{ json?: boolean }>(ctx, async ({ g, opts }) => {
+        const ws = await openWorkspace(ctx, g.cwd);
+        const items = await listCanonicalProposals(ws.brain);
+        if (g.json || opts.json) return printJson(ctx, items);
+        const m = REVIEW[g.lang];
+        if (!items.length) return ctx.out(m.none);
+        const { glyphs } = look(ctx);
+        ctx.out(fill(m.header, { count: items.length }));
+        for (const p of items) {
+          ctx.out(`  ${p.id}  ${p.title}`);
+          ctx.out(`      ${p.band} ${glyphs.sep} ${p.source} ${glyphs.sep} ${p.why}`);
+        }
+        ctx.out('');
+        ctx.out(m.hint);
+      }),
+    );
+
+  brain
+    .command('approve')
+    .description('accept proposed canonical notes (ids or --all) or reject them (--reject <id>, repeatable)')
+    .argument('[ids...]', 'proposal ids to accept (see: edu brain proposals)')
+    .option('--all', 'accept every pending proposal (except those passed to --reject)')
+    .option('--reject <id>', 'reject a proposal: deleted, with a record in episodic memory (repeatable)', collect, [])
+    .option('--reason <text>', 'why the rejected proposals were wrong (kept in the record)')
+    .option('--json', 'machine-readable output')
+    .action(
+      action<ApproveOpts>(ctx, async ({ g, opts, cmd }) => {
+        const ids = (cmd.args as string[]).filter(Boolean);
+        const reject = opts.reject ?? [];
+        const m = REVIEW[g.lang];
+        if (!ids.length && !opts.all && !reject.length) throw new Error(m.nothing);
+        const ws = await openWorkspace(ctx, g.cwd);
+        const result = await reviewCanonicalProposals(ws.brain, { approve: ids, all: Boolean(opts.all), reject, reason: opts.reason });
+        if (result.accepted.length || result.rejected.length) await ws.brain.rebuildIndex();
+        if (result.errors.length) ctx.setExitCode(1);
+        if (g.json || opts.json) return printJson(ctx, result);
+        if (!result.accepted.length && !result.rejected.length && !result.errors.length) return ctx.out(m.none);
+        for (const id of result.accepted) ctx.out(fill(m.accepted, { id }));
+        for (const id of result.rejected) ctx.out(fill(m.rejected, { id }));
+        for (const e of result.errors) ctx.err(fill(m.failed, e));
+        ctx.out(fill(m.summary, { accepted: result.accepted.length, rejected: result.rejected.length, errors: result.errors.length }));
       }),
     );
 }

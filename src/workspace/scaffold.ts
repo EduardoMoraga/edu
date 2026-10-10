@@ -100,7 +100,12 @@ edu create --add otro-documento.docx notas.md
 \`\`\`
 
 Acepta .md, .txt, .docx y .pdf. Los originales nunca se modifican; se copia una versión en \`${k}/${layout.sources}/\`.
-Lo que el documento dice explícitamente queda **aceptado**; lo interpretado queda **propuesto** hasta que lo apruebes (en la nota, cambia \`status: proposed\` por \`status: accepted\`).
+Lo que el documento dice explícitamente queda **aceptado**; lo interpretado queda **propuesto** hasta que lo apruebes:
+
+\`\`\`sh
+edu brain proposals                # qué espera tu aprobación, de dónde viene y por qué
+edu brain approve <id>             # o: --all · rechazar: --reject <id>
+\`\`\`
 ${input.sources.length ? `\nFuentes iniciales: ${input.sources.map(s => `\`${s}\``).join(', ')}.\n` : ''}`;
   }
   return `# ${name}
@@ -146,7 +151,12 @@ edu create --add another-document.docx notes.md
 \`\`\`
 
 Accepts .md, .txt, .docx and .pdf. Originals are never modified; a copy goes to \`${k}/${layout.sources}/\`.
-What a document states explicitly is **accepted**; interpretations stay **proposed** until you approve them (in the note, change \`status: proposed\` to \`status: accepted\`).
+What a document states explicitly is **accepted**; interpretations stay **proposed** until you approve them:
+
+\`\`\`sh
+edu brain proposals                # what waits for your approval, where it came from and why
+edu brain approve <id>             # or: --all · reject: --reject <id>
+\`\`\`
 ${input.sources.length ? `\nInitial sources: ${input.sources.map(s => `\`${s}\``).join(', ')}.\n` : ''}`;
 }
 

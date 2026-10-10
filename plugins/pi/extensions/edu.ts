@@ -316,6 +316,7 @@ export default function (pi: ExtensionAPI): void {
               ...(m?.lastRun && m.retired ? [t.fg('muted', `${m.retired} retired`)] : []),
             ];
             if (upkeep.length) lines.push(row(upkeep.join(t.fg('dim', ' · '))));
+            if ((b.toApprove ?? 0) > 0) lines.push(row(t.fg('dim', 'review: `edu brain proposals` · approve: `edu brain approve <id>` or `--all`')));
           }
           if (deck.spec) {
             lines.push(row());

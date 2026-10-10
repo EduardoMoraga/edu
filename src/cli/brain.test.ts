@@ -1,6 +1,7 @@
 import { lstat, mkdir, readFile, readlink, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { openBrain } from '../brain/index.js';
 import { captureContext, out, runCli, type Captured } from './testkit.js';
 
 async function initialized(): Promise<Captured> {
@@ -103,5 +104,53 @@ describe('edu context / proposals / doctor', () => {
     await runCli(c, ['doctor']);
     expect(out(c)).toMatch(/✓ Node v\d+/);
     expect(out(c)).toContain('Obsidian: no project vault link found');
+  });
+
+  it('lists canonical proposals and approves, rejects or approves all', async () => {
+    const c = await initialized();
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    await brain.proposeCanonical({ tier: 'canonical', kind: 'domain', title: 'Retail margin', body: 'Margin is 30%.', band: 'inferred', source: 'manual.md' });
+    await brain.proposeCanonical({ tier: 'canonical', kind: 'standard', title: 'Weekly cadence', body: 'Report on Mondays.', band: 'hypothesis', source: 'notes.md' });
+    await brain.proposeCanonical({ tier: 'canonical', kind: 'standard', title: 'Wrong guess', body: 'Not true.', band: 'inferred', source: 'edu:reflect' });
+
+    await runCli(c, ['brain', 'proposals']);
+    expect(out(c)).toContain('3 proposed canonical note(s)');
+    expect(out(c)).toMatch(/K-retail-margin {2}Retail margin\n\s+inferred · manual\.md · interpretation/);
+    expect(out(c)).toContain('edu brain approve');
+    c.stdout.length = 0;
+
+    await runCli(c, ['brain', 'proposals', '--json']);
+    expect(JSON.parse(out(c)).map((p: { id: string }) => p.id)).toEqual(['K-retail-margin', 'K-weekly-cadence', 'K-wrong-guess']);
+    c.stdout.length = 0;
+
+    await runCli(c, ['brain', 'approve', 'K-retail-margin', '--reject', 'K-wrong-guess', '--reason', 'made up']);
+    expect(c.exitCode).toBeUndefined();
+    expect(out(c)).toContain('Accepted K-retail-margin');
+    expect(out(c)).toContain('Rejected K-wrong-guess');
+    expect((await brain.read('K-retail-margin'))?.meta.status).toBe('accepted');
+    expect(await brain.read('K-wrong-guess')).toBeUndefined();
+    const record = (await brain.list({ tier: 'episodic' })).find(n => n.meta.source === 'edu:reject');
+    expect(record?.meta).toMatchObject({ status: 'closed', links: ['K-wrong-guess'] });
+    expect(record?.body).toContain('Reason: made up');
+    c.stdout.length = 0;
+
+    await runCli(c, ['brain', 'approve', '--all', '--json']);
+    expect(JSON.parse(out(c))).toEqual({ accepted: ['K-weekly-cadence'], rejected: [], errors: [] });
+    c.stdout.length = 0;
+
+    await runCli(c, ['brain', 'proposals']);
+    expect(out(c)).toContain('Nothing to approve');
+  });
+
+  it('reports unknown ids and refuses an empty approve', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'approve']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('edu brain approve <id...>');
+
+    const d = await initialized();
+    await runCli(d, ['brain', 'approve', 'K-missing']);
+    expect(d.exitCode).toBe(1);
+    expect(d.stderr.join('\n')).toContain('Canonical note not found: K-missing');
   });
 });
