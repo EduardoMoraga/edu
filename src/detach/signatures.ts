@@ -20,7 +20,7 @@ export interface Signature {
 }
 
 export const SIGNATURES: Record<ToolId, Signature> = {
-  'gentle-ai': { marker: 'gentle-ai', commands: ['gentle-ai', 'gentle-shell'], mcp: [], plugins: ['gentle-ai'], packages: ['gentle-pi'], extras: { claudeOutputStyle: 'Gentleman', opencodeDefaultAgent: 'gentle-orchestrator' }, memoryWriter: false, orchestrator: true, keepSections: { persona: ['Rules', 'Expertise'] } },
+  'gentle-ai': { marker: 'gentle-ai', commands: ['gentle-ai', 'gentle-shell'], mcp: [], plugins: ['gentle-ai', 'gentle-logo'], packages: ['gentle-pi'], extras: { claudeOutputStyle: 'Gentleman', opencodeDefaultAgent: 'gentle-orchestrator' }, memoryWriter: false, orchestrator: true, keepSections: { persona: ['Rules', 'Expertise'] } },
   engram: { marker: 'engram', commands: ['engram'], mcp: ['engram'], plugins: ['engram'], packages: ['gentle-engram'], extras: { codexInstructionKeys: ['model_instructions_file', 'experimental_compact_prompt_file'] }, memoryWriter: true, orchestrator: false },
   moragent: { marker: 'moragent', commands: ['mora ', 'moragent'], mcp: ['moragent'], plugins: ['moragent'], packages: ['moragent'], memoryWriter: true, orchestrator: true },
   orca: { marker: 'orca', commands: ['orca'], mcp: ['orca'], plugins: ['orca'], packages: ['orca'], memoryWriter: false, orchestrator: false },

@@ -184,6 +184,8 @@ edu detach --undo                     # restore the latest backup byte-for-byte
 `edu detach` never removes Edu or uninstalls binaries. Backups live under
 `~/.edu/backups/detach-*/`; undo refuses changed files unless `--force` is explicit.
 Use `--host claude,codex,pi,opencode,gemini` to limit the hosts.
+OpenCode TUI plugins count too: `edu detach gentle-ai` removes its logo plugin from the
+`plugin` list in `tui.json`/`tui.jsonc` and keeps your comments and other entries.
 
 ## Remove Edu
 

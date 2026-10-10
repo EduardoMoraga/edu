@@ -9,7 +9,9 @@ const FILES: Record<HostId, readonly [string, FileKind][]> = {
   claude: [['.claude/CLAUDE.md', 'instructions'], ['.claude/settings.json', 'json'], ['.claude.json', 'json']],
   codex: [['.codex/AGENTS.md', 'instructions'], ['.codex/config.toml', 'toml'], ['.codex/hooks.json', 'hooks']],
   pi: [['.pi/agent/AGENTS.md', 'instructions'], ['.pi/agent/settings.json', 'json'], ['.pi/agent/mcp.json', 'json']],
-  opencode: [['.config/opencode/AGENTS.md', 'instructions'], ['.config/opencode/opencode.json', 'json'], ['.config/opencode/opencode.jsonc', 'jsonc']],
+  opencode: [['.config/opencode/AGENTS.md', 'instructions'], ['.config/opencode/opencode.json', 'json'], ['.config/opencode/opencode.jsonc', 'jsonc'],
+    // TUI plugins (logos, sidebars) are listed under `plugin` in tui.json / tui.jsonc.
+    ['.config/opencode/tui.json', 'json'], ['.config/opencode/tui.jsonc', 'jsonc']],
   gemini: [['.gemini/GEMINI.md', 'instructions'], ['.gemini/settings.json', 'json']],
 };
 

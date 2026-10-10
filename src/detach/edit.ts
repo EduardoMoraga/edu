@@ -1,4 +1,4 @@
-import { applyEdits, modify, parse, type ParseError } from 'jsonc-parser';
+import { applyEdits, findNodeAtLocation, modify, parse, parseTree, type ParseError } from 'jsonc-parser';
 import type { FileKind, HostId } from '../doctor/hosts.js';
 import { ownerOf, SIGNATURES, type ToolId } from './signatures.js';
 
@@ -7,6 +7,8 @@ const selected = (value: string, field: 'commands' | 'mcp' | 'plugins' | 'packag
   const owner = ownerOf(value, field);
   return owner !== undefined && tools.includes(owner);
 };
+/** Plugin entries that are file paths are owned by their file name, never by the folders above it. */
+const pluginName = (value: string) => /[\\/]/.test(value) ? value.split(/[\\/]/).filter(Boolean).at(-1) ?? value : value;
 
 export function editInstructions(input: string, tools: readonly ToolId[]): EditResult {
   const marker = /<!--\s*(\/)?([\w-]+):([\w-]+)\s*-->/g;
@@ -81,14 +83,15 @@ function editObject(input: Record<string, unknown>, host: HostId, tools: readonl
     if (!servers || typeof servers !== 'object' || Array.isArray(servers)) continue;
     for (const id of Object.keys(servers)) if (selected(id, 'mcp', tools)) { delete (servers as Record<string, unknown>)[id]; changes.push(`MCP: ${id}`); }
   }
-  for (const key of ['enabledPlugins', 'plugins']) {
+  // `plugin` is OpenCode's list (opencode.json and tui.json), e.g. a TUI logo plugin's absolute path.
+  for (const key of ['enabledPlugins', 'plugins', 'plugin']) {
     const plugins = result[key];
     if (plugins && typeof plugins === 'object' && !Array.isArray(plugins)) {
       for (const id of Object.keys(plugins)) if (selected(id, 'plugins', tools)) { delete (plugins as Record<string, unknown>)[id]; changes.push(`plugin: ${id}`); }
     } else if (Array.isArray(plugins)) {
       result[key] = plugins.filter((item) => {
-        const remove = typeof item === 'string' && selected(item, 'plugins', tools);
-        if (remove) changes.push(`plugin: ${item}`);
+        const remove = typeof item === 'string' && selected(pluginName(item), 'plugins', tools);
+        if (remove) changes.push(`plugin: ${pluginName(item)}`);
         return !remove;
       });
     }
@@ -130,6 +133,14 @@ function jsonEdit(input: string, host: HostId, tools: readonly ToolId[], jsonc: 
     const oldValue = before[key];
     const newValue = result[key];
     if (JSON.stringify(oldValue) === JSON.stringify(newValue)) continue;
+    if (Array.isArray(oldValue) && Array.isArray(newValue)) {
+      // Drop removed items one by one so comments on the entries that stay are kept.
+      const removed = removedIndexes(oldValue, newValue);
+      if (removed) {
+        for (const index of removed.reverse()) text = removeArrayItem(text, [key, index]);
+        continue;
+      }
+    }
     if (oldValue && newValue && typeof oldValue === 'object' && typeof newValue === 'object' && !Array.isArray(oldValue) && !Array.isArray(newValue)) {
       const oldMap = oldValue as Record<string, unknown>;
       const newMap = newValue as Record<string, unknown>;
@@ -142,6 +153,40 @@ function jsonEdit(input: string, host: HostId, tools: readonly ToolId[], jsonc: 
     }
   }
   return { text, changes };
+}
+
+/**
+ * Cuts one array element out of JSONC text: the value and its own comma only, so comments that
+ * belong to neighbouring entries stay (jsonc-parser's modify would take the previous comment too).
+ */
+function removeArrayItem(text: string, path: [string, number]): string {
+  const root = parseTree(text, [], { allowTrailingComma: true });
+  const node = root && findNodeAtLocation(root, path);
+  if (!node) return text;
+  let start = node.offset;
+  let end = node.offset + node.length;
+  const comma = /^[ \t]*,/.exec(text.slice(end));
+  if (comma) end += comma[0].length;
+  else {
+    const previous = /,\s*$/.exec(text.slice(0, start));
+    if (previous) start = previous.index;
+  }
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  const newline = text.indexOf('\n', end);
+  const lineEnd = newline < 0 ? text.length : newline;
+  if (!text.slice(lineStart, start).trim() && !text.slice(end, lineEnd).trim()) { start = lineStart; end = newline < 0 ? text.length : newline + 1; }
+  return text.slice(0, start) + text.slice(end);
+}
+
+/** Indexes of `before` missing from `after` when `after` is `before` minus some items, in order. */
+function removedIndexes(before: unknown[], after: unknown[]): number[] | undefined {
+  const removed: number[] = [];
+  let next = 0;
+  before.forEach((item, index) => {
+    if (next < after.length && JSON.stringify(after[next]) === JSON.stringify(item)) next++;
+    else removed.push(index);
+  });
+  return next === after.length ? removed : undefined;
 }
 
 function bracketDepth(text: string): number {

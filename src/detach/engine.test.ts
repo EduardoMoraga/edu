@@ -65,4 +65,26 @@ describe('detach transaction', () => {
     await undoDetach({ home, id });
     for (const [relative, content] of Object.entries(fixtures)) expect(await readFile(join(home, relative), 'utf8')).toBe(content);
   });
+
+  it('removes gentle-ai OpenCode TUI plugin entries from tui.json and tui.jsonc and undoes byte for byte', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'edu-detach-tui-')); homes.push(home);
+    const dir = join(home, '.config/opencode');
+    await mkdir(dir, { recursive: true });
+    const logo = join(dir, 'tui-plugins/gentle-logo.tsx');
+    const json = `${JSON.stringify({ $schema: 'https://opencode.ai/tui.json', plugin: ['opencode-subagent-statusline', logo] }, null, 2)}\n`;
+    const jsonc = `{\n  // mine\n  "plugin": [\n    "./herdr-tui-session.js", // keep\n    "${logo}",\n  ],\n}\n`;
+    await writeFile(join(dir, 'tui.json'), json);
+    await writeFile(join(dir, 'tui.jsonc'), jsonc);
+    const plan = await createDetachPlan({ home, env: {}, hosts: ['opencode'], tools: ['gentle-ai'] });
+    expect(plan.files.map(file => file.path).sort()).toEqual([join(dir, 'tui.json'), join(dir, 'tui.jsonc')]);
+    const { id } = await applyDetach(plan);
+    expect(JSON.parse(await readFile(join(dir, 'tui.json'), 'utf8')).plugin).toEqual(['opencode-subagent-statusline']);
+    const edited = await readFile(join(dir, 'tui.jsonc'), 'utf8');
+    expect(edited).toContain('// mine');
+    expect(edited).toContain('"./herdr-tui-session.js", // keep');
+    expect(edited).not.toContain('gentle-logo');
+    await undoDetach({ home, id });
+    expect(await readFile(join(dir, 'tui.json'), 'utf8')).toBe(json);
+    expect(await readFile(join(dir, 'tui.jsonc'), 'utf8')).toBe(jsonc);
+  });
 });
