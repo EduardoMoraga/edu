@@ -1,6 +1,6 @@
 import {
   spawnCli
-} from "./chunk-FEHCOPF2.js";
+} from "./chunk-B5FNIIOI.js";
 
 // src/engine/process.ts
 import { access } from "fs/promises";
@@ -42,7 +42,11 @@ function errorEvent(agentId, message) {
 async function* runJsonlProcess(spec, cwd, agentId, parser, signal, finalize) {
   let child;
   try {
-    child = spawnCli(spec.command, spec.args, { cwd, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    child = spawnCli(spec.command, spec.args, { cwd, detached: process.platform !== "win32", stdio: [spec.stdin === void 0 ? "ignore" : "pipe", "pipe", "pipe"] });
+    if (spec.stdin !== void 0) {
+      child.stdin?.on("error", () => void 0);
+      child.stdin?.end(spec.stdin);
+    }
   } catch (error) {
     yield errorEvent(agentId, `Unable to start ${spec.command}: ${String(error)}`);
     return;
@@ -249,8 +253,7 @@ function buildCodexArgv(req) {
   const args = ["exec", "--json", ...autonomyFlags("codex", req.autonomy), "--skip-git-repo-check"];
   if (req.model) args.push("--model", req.model);
   if (req.resumeSessionId) args.push("resume", req.resumeSessionId);
-  args.push(prompt);
-  return { command: "codex", args };
+  return { command: "codex", args, stdin: prompt };
 }
 function parseLine(line, ctx) {
   const data = parseJson(line);
@@ -331,11 +334,11 @@ var agyEngine = makeEngine("agy", "agy", buildAgyArgv, parseLine2);
 
 // src/engine/claude.ts
 function buildClaudeArgv(req) {
-  const args = ["-p", req.prompt, "--output-format", "stream-json", "--verbose", ...autonomyFlags("claude", req.autonomy)];
+  const args = ["-p", "--output-format", "stream-json", "--verbose", ...autonomyFlags("claude", req.autonomy)];
   if (req.systemPrompt) args.push("--append-system-prompt", req.systemPrompt);
   if (req.model) args.push("--model", req.model);
   if (req.resumeSessionId) args.push("--resume", req.resumeSessionId);
-  return { command: "claude", args };
+  return { command: "claude", args, stdin: req.prompt };
 }
 function parseLine3(line, ctx) {
   const data = parseJson(line);
@@ -538,4 +541,4 @@ export {
   createEngine,
   detectEngines
 };
-//# sourceMappingURL=chunk-YNDFGHRJ.js.map
+//# sourceMappingURL=chunk-Q7UWRSBU.js.map

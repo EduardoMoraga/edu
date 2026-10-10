@@ -1,6 +1,6 @@
 {
   "name": "edu-agent",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Edu — an installable, LLM-agnostic agentic harness: a self-improving second brain, an orchestrator with identity, and a live terminal view of your agents.",
   "type": "module",
   "bin": {

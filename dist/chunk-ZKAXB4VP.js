@@ -167,7 +167,7 @@ function openBrain(locations) {
       } catch {
         let contract = fallbackEdu;
         try {
-          const { resolveTemplatesDir } = await import("./adapters-2EITMVPW.js");
+          const { resolveTemplatesDir } = await import("./adapters-EXN32OR6.js");
           contract = await readFile(join(resolveTemplatesDir(), "EDU.md"), "utf8");
         } catch {
         }
@@ -451,4 +451,4 @@ export {
   importAlbert,
   importMoragent
 };
-//# sourceMappingURL=chunk-UJTVJ7X2.js.map
+//# sourceMappingURL=chunk-ZKAXB4VP.js.map

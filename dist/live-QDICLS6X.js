@@ -1,20 +1,20 @@
 import {
   executeRun
-} from "./chunk-IYIKB66S.js";
+} from "./chunk-GCXEUMI3.js";
 import {
   createCommandHandler
-} from "./chunk-RZVDOGBU.js";
+} from "./chunk-M723QWTY.js";
 import "./chunk-BXZ573JQ.js";
-import "./chunk-IFIRJDFB.js";
+import "./chunk-MJWWG6V6.js";
 import {
   uiLang
 } from "./chunk-NQTHVZEM.js";
 import {
   openWorkspace
-} from "./chunk-IX5FXKNL.js";
+} from "./chunk-2V65STGZ.js";
 import "./chunk-PZTNRBLR.js";
 import "./chunk-WRB5MXFD.js";
-import "./chunk-UJTVJ7X2.js";
+import "./chunk-ZKAXB4VP.js";
 import "./chunk-IULFTIQE.js";
 
 // src/cli/run/bridge.ts
@@ -175,4 +175,4 @@ export {
   runHome,
   runInTui
 };
-//# sourceMappingURL=live-COZ3PWAM.js.map
+//# sourceMappingURL=live-QDICLS6X.js.map

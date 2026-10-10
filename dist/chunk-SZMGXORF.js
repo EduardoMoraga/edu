@@ -1,17 +1,17 @@
 import {
   createEngine,
   detectEngines
-} from "./chunk-YNDFGHRJ.js";
+} from "./chunk-Q7UWRSBU.js";
 import {
   binaryOnPath
 } from "./chunk-ROTDA577.js";
 import {
   brief,
   truncateToTokens
-} from "./chunk-YOM6II2D.js";
+} from "./chunk-SD2BBY42.js";
 import {
   openBrain
-} from "./chunk-UJTVJ7X2.js";
+} from "./chunk-ZKAXB4VP.js";
 
 // src/crew/index.ts
 import { execFile as execFileCallback2 } from "child_process";
@@ -434,4 +434,4 @@ export {
   runWorker,
   createCrew
 };
-//# sourceMappingURL=chunk-XCQF7OLL.js.map
+//# sourceMappingURL=chunk-SZMGXORF.js.map

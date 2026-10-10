@@ -1,19 +1,19 @@
 import {
   initBrain
-} from "./chunk-IFIRJDFB.js";
+} from "./chunk-MJWWG6V6.js";
 import {
   applyInstall,
   getManifestPath,
   planInstall,
   uninstall
-} from "./chunk-33ZZBVGB.js";
+} from "./chunk-66HGH7YW.js";
 import {
   instructionActions
 } from "./chunk-ROTDA577.js";
 import {
   eduMcpLaunch,
   spawnCli
-} from "./chunk-FEHCOPF2.js";
+} from "./chunk-B5FNIIOI.js";
 
 // src/setup/index.ts
 import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from "fs/promises";
@@ -302,4 +302,4 @@ export {
   uninstallSetup,
   needsFirstRunSetup
 };
-//# sourceMappingURL=chunk-FBHKOBDF.js.map
+//# sourceMappingURL=chunk-UOFOJCQU.js.map

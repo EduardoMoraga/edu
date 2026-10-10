@@ -20,12 +20,12 @@ import {
   unmergeJson,
   unmergeToml,
   upsertManagedBlock
-} from "./chunk-33ZZBVGB.js";
+} from "./chunk-66HGH7YW.js";
 import {
   binaryOnPath,
   pathsFor
 } from "./chunk-ROTDA577.js";
-import "./chunk-FEHCOPF2.js";
+import "./chunk-B5FNIIOI.js";
 
 // src/adapters/doctor.ts
 import { readFile } from "fs/promises";
@@ -90,4 +90,4 @@ export {
   unmergeToml,
   upsertManagedBlock
 };
-//# sourceMappingURL=adapters-2EITMVPW.js.map
+//# sourceMappingURL=adapters-EXN32OR6.js.map

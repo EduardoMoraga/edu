@@ -3,7 +3,7 @@ import {
 } from "./chunk-BXZ573JQ.js";
 import {
   initBrain
-} from "./chunk-IFIRJDFB.js";
+} from "./chunk-MJWWG6V6.js";
 import {
   t
 } from "./chunk-NQTHVZEM.js";
@@ -11,7 +11,7 @@ import {
   effectiveConfig,
   exists,
   openWorkspace
-} from "./chunk-IX5FXKNL.js";
+} from "./chunk-2V65STGZ.js";
 
 // src/cli/run/session.ts
 import { join } from "path";
@@ -27,8 +27,8 @@ async function executeRun(ctx, setup) {
   const config = { ...base, mode: setup.mode ?? base.mode, defaultCli: setup.cli ?? base.defaultCli };
   const [{ orchestrate }, { buildContext }, engineModule] = await Promise.all([
     import("./orchestrator-4SDO5OAG.js"),
-    import("./context-FC67YCRS.js"),
-    import("./engine-PBXT4ONA.js")
+    import("./context-XPSRY245.js"),
+    import("./engine-EA7LU35N.js")
   ]);
   const eduMdPath = join(ws.primary.root, "EDU.md");
   return orchestrate(setup.goal, {
@@ -49,4 +49,4 @@ async function executeRun(ctx, setup) {
 export {
   executeRun
 };
-//# sourceMappingURL=chunk-IYIKB66S.js.map
+//# sourceMappingURL=chunk-GCXEUMI3.js.map

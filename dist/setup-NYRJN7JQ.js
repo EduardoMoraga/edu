@@ -5,14 +5,14 @@ import {
   planSetup,
   setupManifestPath,
   uninstallSetup
-} from "./chunk-FBHKOBDF.js";
-import "./chunk-IFIRJDFB.js";
-import "./chunk-IX5FXKNL.js";
+} from "./chunk-UOFOJCQU.js";
+import "./chunk-MJWWG6V6.js";
+import "./chunk-2V65STGZ.js";
 import "./chunk-PZTNRBLR.js";
-import "./chunk-33ZZBVGB.js";
+import "./chunk-66HGH7YW.js";
 import "./chunk-ROTDA577.js";
-import "./chunk-FEHCOPF2.js";
-import "./chunk-UJTVJ7X2.js";
+import "./chunk-B5FNIIOI.js";
+import "./chunk-ZKAXB4VP.js";
 import "./chunk-IULFTIQE.js";
 export {
   applySetup,
@@ -22,4 +22,4 @@ export {
   setupManifestPath,
   uninstallSetup
 };
-//# sourceMappingURL=setup-GBHKT2WZ.js.map
+//# sourceMappingURL=setup-NYRJN7JQ.js.map

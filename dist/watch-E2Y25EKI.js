@@ -1,19 +1,19 @@
 import {
   createCommandHandler
-} from "./chunk-RZVDOGBU.js";
+} from "./chunk-M723QWTY.js";
 import {
   createPlainFormatter
 } from "./chunk-QOO7FIV3.js";
 import {
   t
 } from "./chunk-NQTHVZEM.js";
-import "./chunk-IX5FXKNL.js";
+import "./chunk-2V65STGZ.js";
 import "./chunk-PZTNRBLR.js";
 import {
   getGlyphs
 } from "./chunk-KP6K4SHS.js";
 import "./chunk-WRB5MXFD.js";
-import "./chunk-UJTVJ7X2.js";
+import "./chunk-ZKAXB4VP.js";
 import "./chunk-IULFTIQE.js";
 
 // src/cli/run/watch.ts
@@ -58,4 +58,4 @@ export {
   watchInTui,
   watchPlain
 };
-//# sourceMappingURL=watch-CUQZHZKV.js.map
+//# sourceMappingURL=watch-E2Y25EKI.js.map

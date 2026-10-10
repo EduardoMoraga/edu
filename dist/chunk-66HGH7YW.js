@@ -7,7 +7,7 @@ import {
 } from "./chunk-ROTDA577.js";
 import {
   eduMcpLaunch
-} from "./chunk-FEHCOPF2.js";
+} from "./chunk-B5FNIIOI.js";
 
 // src/adapters/blocks.ts
 var BLOCK_START = "<!-- edu:core:start -->";
@@ -388,6 +388,27 @@ var CLI_IDS = ["claude", "codex", "pi", "opencode", "agy"];
 function sharedRegistryPath(home) {
   return join3(home, ".edu/shared-targets.json");
 }
+function isIntact(action, current) {
+  if (!current) return false;
+  if (action.kind === "json-merge" && action.jsonPatch) {
+    try {
+      return containsPatch(JSON.parse(current.toString("utf8")), action.jsonPatch);
+    } catch {
+      return false;
+    }
+  }
+  return Boolean(action.sha256) && sha256(current) === action.sha256;
+}
+function containsPatch(target, patch) {
+  if (Array.isArray(patch)) {
+    return Array.isArray(target) && patch.every((item) => target.some((candidate) => JSON.stringify(candidate) === JSON.stringify(item)));
+  }
+  if (patch && typeof patch === "object") {
+    if (!target || typeof target !== "object") return false;
+    return Object.entries(patch).every(([key, value]) => containsPatch(target[key], value));
+  }
+  return JSON.stringify(target) === JSON.stringify(patch);
+}
 function isSharedTarget(path, home) {
   return path === join3(home, ".codex/config.toml") || path === join3(home, ".pi/agent/mcp.json");
 }
@@ -503,7 +524,7 @@ async function applyInstall(plan6) {
   const existing = new Map((previous?.actions ?? []).map((action) => [`${action.kind}:${action.path}`, action]));
   for (const action of previous?.actions ?? []) {
     const current = await readTarget(action.path);
-    if (!current || !action.sha256 || sha256(current) !== action.sha256) throw new Error(`Edu installation drift: ${action.path}`);
+    if (!isIntact(action, current)) throw new Error(`Edu installation drift: ${action.path}`);
     if (action.shared && !shared.targets[action.path]?.owners.includes(manifestPath)) throw new Error(`Missing shared ownership: ${action.path}`);
   }
   const paths = /* @__PURE__ */ new Set();
@@ -623,7 +644,7 @@ async function uninstall(options) {
   if (!options.force) {
     for (const action of manifest.actions) {
       const current = await readTarget(action.path);
-      if (!current || !action.sha256 || sha256(current) !== action.sha256) throw new Error(`Edu installation drift: ${action.path}`);
+      if (!isIntact(action, current)) throw new Error(`Edu installation drift: ${action.path}`);
     }
   }
   const sharedBackups = [];
@@ -755,4 +776,4 @@ export {
   applyInstall,
   uninstall
 };
-//# sourceMappingURL=chunk-33ZZBVGB.js.map
+//# sourceMappingURL=chunk-66HGH7YW.js.map
