@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { openBrain } from './brain.js';
@@ -16,7 +16,7 @@ async function orchestratorVault(lang?: 'en' | 'es') {
   const vault = await mkdtemp(join(tmpdir(), 'edu-views-'));
   await mkdir(join(vault, '.obsidian'), { recursive: true });
   await mkdir(join(vault, '01-CONOCIMIENTO'), { recursive: true });
-  const eduHome = join(vault, '..', `${vault.split('/').pop()}-home`, '.edu');
+  const eduHome = join(vault, '..', `${basename(vault)}-home`, '.edu');
   await mkdir(eduHome, { recursive: true });
   const { symlink } = await import('node:fs/promises');
   await symlink(join(vault, '01-CONOCIMIENTO'), join(eduHome, 'brain'), process.platform === 'win32' ? 'junction' : 'dir');
