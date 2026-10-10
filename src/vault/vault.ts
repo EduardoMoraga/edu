@@ -27,11 +27,28 @@ export function unsafeVaultPathReason(path: string, home: string, platform: Plat
   if (relative === '' || (relative !== '..' && !relative.startsWith(`..${api.sep}`) && !api.isAbsolute(relative))) {
     return 'the home folder or one of its ancestors';
   }
-  const segments = pathParts(vault, platform);
-  const denied = new Set(['appdata', 'library', '.config', 'program files', 'program files (x86)', 'programdata',
-    'windows', 'system32', 'syswow64', 'system', 'etc', 'usr', 'bin', 'sbin', '.edu']);
-  if (segments.some(part => denied.has(part.toLowerCase()))) return 'an application, system, or project-brain folder';
+  const segments = pathParts(vault, platform).map(part => part.toLowerCase());
+  if (segments.includes('.edu')) return 'an application, system, or project-brain folder';
+  // Application data inside the user's home (AppData, Library, .config…).
+  const insideHome = relative === '..' || relative.split(api.sep).every(part => part === '..');
+  if (insideHome) {
+    const fromHome = api.relative(userHome, vault).split(/[\\/]+/).filter(Boolean).map(part => part.toLowerCase());
+    if (fromHome[0] && new Set(['appdata', 'library', '.config', '.local', '.cache']).has(fromHome[0])) {
+      return 'an application, system, or project-brain folder';
+    }
+  }
+  // System folders at the top of a drive or filesystem.
+  const top = platform === 'win32' && segments[0]?.endsWith(':') ? segments[1] : segments[0];
+  const system = platform === 'win32'
+    ? new Set(['windows', 'program files', 'program files (x86)', 'programdata'])
+    : new Set(['etc', 'usr', 'bin', 'sbin', 'system', 'library', 'opt', 'private', 'var']);
+  if (top && system.has(top) && !(platform !== 'win32' && isTempPath(vault))) return 'an application, system, or project-brain folder';
   return undefined;
+}
+
+function isTempPath(path: string): boolean {
+  // macOS/Linux temp dirs live under /var/folders or /tmp (symlinked to /private/…): fine for vaults in tests and scratch use.
+  return /^\/(private\/)?(var\/folders|tmp)\//.test(path);
 }
 
 export function isUnsafeVaultPath(path: string, home: string, platform: Platform): boolean {
@@ -102,7 +119,9 @@ async function validatePath(path: string, home: string, platform: Platform): Pro
   const reason = unsafeVaultPathReason(path, home, platform);
   if (reason) throw new Error(`Unsafe vault path (${reason}): Obsidian walks the whole tree and can hit EPERM or become very slow`);
   const physical = await physicalCandidate(path);
-  const physicalReason = unsafeVaultPathReason(physical, home, platform);
+  // Compare real paths on both sides (e.g. macOS /var → /private/var).
+  const physicalHome = await physicalCandidate(home).catch(() => home);
+  const physicalReason = unsafeVaultPathReason(physical, physicalHome, platform);
   if (physicalReason) throw new Error(`Unsafe vault path (${physicalReason}): ${physical}`);
   if (await exists(path)) {
     if (await exists(join(path, '.edu'))) throw new Error('Unsafe vault path: this folder contains a project brain (.edu/)');
@@ -203,7 +222,7 @@ export async function checkVault(options: Pick<VaultOptions, 'path' | 'home' | '
   const platform = options.platform ?? process.platform;
   const physical = await physicalCandidate(path).catch(() => path);
   const unsafe = unsafeVaultPathReason(path, options.home, platform)
-    ?? unsafeVaultPathReason(physical, options.home, platform)
+    ?? unsafeVaultPathReason(physical, await physicalCandidate(options.home).catch(() => options.home), platform)
     ?? (await exists(join(path, '.edu')) ? 'contains a project brain' : undefined);
   const projects = (await readProjects(options.eduHome)).projects;
   const entries = [...projects.map(project => ({ name: segment(project.name), target: project.brain, project: true })),
