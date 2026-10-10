@@ -1,19 +1,20 @@
 import {
   createCrew
-} from "./chunk-XDG54B5T.js";
+} from "./chunk-XCQF7OLL.js";
 import {
   resolveBrainLocations
 } from "./chunk-PZTNRBLR.js";
-import "./chunk-X3WHFEFD.js";
+import "./chunk-YNDFGHRJ.js";
 import "./chunk-Z4K2UNKS.js";
 import "./chunk-ROTDA577.js";
+import "./chunk-FEHCOPF2.js";
 import {
   brief,
   truncateToTokens
-} from "./chunk-6ISBTR3J.js";
+} from "./chunk-YOM6II2D.js";
 import {
   openBrain
-} from "./chunk-VZNTNIW2.js";
+} from "./chunk-UJTVJ7X2.js";
 import "./chunk-IULFTIQE.js";
 
 // src/mcp/stdio.ts
@@ -53,7 +54,7 @@ var TOOL_ANNOTATIONS = {
   edu_crew_review: STARTS_AGENTS
 };
 function createEduMcpServer(opts) {
-  const server = new McpServer({ name: "edu", version: "0.2.1" });
+  const server = new McpServer({ name: "edu", version: "0.2.2" });
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0].root, "EDU.md");
@@ -271,4 +272,4 @@ export {
   resolveReboundLocations,
   runStdioServer
 };
-//# sourceMappingURL=stdio-MVAI5FDA.js.map
+//# sourceMappingURL=stdio-IRMT3RWF.js.map

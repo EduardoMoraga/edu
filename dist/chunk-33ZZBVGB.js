@@ -5,6 +5,9 @@ import {
   pathsFor,
   skillActions
 } from "./chunk-ROTDA577.js";
+import {
+  eduMcpLaunch
+} from "./chunk-FEHCOPF2.js";
 
 // src/adapters/blocks.ts
 var BLOCK_START = "<!-- edu:core:start -->";
@@ -294,7 +297,7 @@ tools: ${agent.tools}
 ${agent.prompt}
 ` });
   }
-  actions.push({ cli: "claude", kind: "json-merge", path: paths.mcp, description: "Register Edu MCP server", jsonPatch: { mcpServers: { edu: { command: "edu", args: ["mcp"] } } } });
+  actions.push({ cli: "claude", kind: "json-merge", path: paths.mcp, description: "Register Edu MCP server", jsonPatch: { mcpServers: { edu: { ...eduMcpLaunch() } } } });
   const identityPath = join2(scope === "project" ? root : options.home, ".edu/EDU.md");
   const identity = await readFile2(identityPath, "utf8").catch(() => readFile2(join2(options.templatesDir, "EDU.md"), "utf8"));
   const voice = identity.match(/\*\*Voice\.\*\*[\s\S]*?(?=\n\n|$)/)?.[0] ?? "Direct, warm, evidence-first.";
@@ -321,7 +324,11 @@ async function plan2(scope, root, options) {
   return [
     ...instructionActions("codex", scope, root, options),
     ...await skillActions("codex", scope, root, options),
-    { cli: "codex", kind: "toml-merge", path: paths.mcp, description: "Register Edu MCP server and Codex notify hook", tomlBody: 'notify = ["edu", "hook", "codex-notify"]\n\n[mcp_servers.edu]\ncommand = "edu"\nargs = ["mcp"]' }
+    { cli: "codex", kind: "toml-merge", path: paths.mcp, description: "Register Edu MCP server and Codex notify hook", tomlBody: `notify = ["edu", "hook", "codex-notify"]
+
+[mcp_servers.edu]
+command = ${JSON.stringify(eduMcpLaunch().command)}
+args = ${JSON.stringify(eduMcpLaunch().args)}` }
   ];
 }
 function createCodexIntegration(options) {
@@ -334,7 +341,7 @@ async function plan3(scope, root, options) {
   return [
     ...instructionActions("pi", scope, root, options),
     ...await skillActions("pi", scope, root, options),
-    { cli: "pi", kind: "json-merge", path: paths.mcp, description: "Register Edu MCP server", jsonPatch: { mcpServers: { edu: { command: "edu", args: ["mcp"] } } } }
+    { cli: "pi", kind: "json-merge", path: paths.mcp, description: "Register Edu MCP server", jsonPatch: { mcpServers: { edu: { ...eduMcpLaunch() } } } }
   ];
 }
 function createPiIntegration(options) {
@@ -351,7 +358,7 @@ async function plan4(scope, root, options) {
   return [
     ...instructionActions("opencode", scope, root, options),
     ...await skillActions("opencode", scope, root, options),
-    { cli: "opencode", kind: "json-merge", path: paths.mcp, description: "Register Edu MCP server and agents", jsonPatch: { mcp: { edu: { type: "local", command: ["edu", "mcp"], enabled: true } }, agent: agents } }
+    { cli: "opencode", kind: "json-merge", path: paths.mcp, description: "Register Edu MCP server and agents", jsonPatch: { mcp: { edu: { type: "local", command: [eduMcpLaunch().command, ...eduMcpLaunch().args], enabled: true } }, agent: agents } }
   ];
 }
 function createOpenCodeIntegration(options) {
@@ -748,4 +755,4 @@ export {
   applyInstall,
   uninstall
 };
-//# sourceMappingURL=chunk-ZV65G7PD.js.map
+//# sourceMappingURL=chunk-33ZZBVGB.js.map

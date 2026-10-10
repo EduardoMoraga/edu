@@ -1,22 +1,25 @@
 import {
   applySetup,
+  localizePluginsForPlatform,
   needsFirstRunSetup,
   planSetup,
   setupManifestPath,
   uninstallSetup
-} from "./chunk-KSXISGXM.js";
-import "./chunk-XI7L3C5X.js";
-import "./chunk-7USMROSH.js";
+} from "./chunk-PFWGYRAM.js";
+import "./chunk-IFIRJDFB.js";
+import "./chunk-IX5FXKNL.js";
 import "./chunk-PZTNRBLR.js";
-import "./chunk-ZV65G7PD.js";
+import "./chunk-33ZZBVGB.js";
 import "./chunk-ROTDA577.js";
-import "./chunk-VZNTNIW2.js";
+import "./chunk-FEHCOPF2.js";
+import "./chunk-UJTVJ7X2.js";
 import "./chunk-IULFTIQE.js";
 export {
   applySetup,
+  localizePluginsForPlatform,
   needsFirstRunSetup,
   planSetup,
   setupManifestPath,
   uninstallSetup
 };
-//# sourceMappingURL=setup-XYVQO6UW.js.map
+//# sourceMappingURL=setup-HEKHLK6L.js.map

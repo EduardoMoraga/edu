@@ -3,7 +3,7 @@ import {
 } from "./chunk-PZTNRBLR.js";
 import {
   openBrain
-} from "./chunk-VZNTNIW2.js";
+} from "./chunk-UJTVJ7X2.js";
 
 // src/cli/workspace.ts
 import { access, readFile } from "fs/promises";
@@ -47,4 +47,4 @@ export {
   identityName,
   lessonCount
 };
-//# sourceMappingURL=chunk-7USMROSH.js.map
+//# sourceMappingURL=chunk-IX5FXKNL.js.map

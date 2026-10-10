@@ -8,7 +8,7 @@
     {
       "name": "edu",
       "source": "./plugins/claude-code",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "Edu — an installable, LLM-agnostic agentic harness with a learning second brain and CLI-native workflows.",
       "author": {
         "name": "Eduardo Moraga"

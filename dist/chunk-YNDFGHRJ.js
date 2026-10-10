@@ -1,5 +1,8 @@
+import {
+  spawnCli
+} from "./chunk-FEHCOPF2.js";
+
 // src/engine/process.ts
-import { spawn } from "child_process";
 import { access } from "fs/promises";
 import { constants } from "fs";
 import { delimiter, join } from "path";
@@ -39,7 +42,7 @@ function errorEvent(agentId, message) {
 async function* runJsonlProcess(spec, cwd, agentId, parser, signal, finalize) {
   let child;
   try {
-    child = spawn(spec.command, spec.args, { cwd, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    child = spawnCli(spec.command, spec.args, { cwd, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
   } catch (error) {
     yield errorEvent(agentId, `Unable to start ${spec.command}: ${String(error)}`);
     return;
@@ -535,4 +538,4 @@ export {
   createEngine,
   detectEngines
 };
-//# sourceMappingURL=chunk-X3WHFEFD.js.map
+//# sourceMappingURL=chunk-YNDFGHRJ.js.map

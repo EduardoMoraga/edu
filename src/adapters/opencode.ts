@@ -1,3 +1,4 @@
+import { eduMcpLaunch } from '../platform/index.js';
 import type { InstallScope } from '../core/contracts.js';
 import type { IntegrationOptions, PlannedAction } from './types.js';
 import { agentTemplates, instructionActions, skillActions } from './common.js';
@@ -13,7 +14,7 @@ async function plan(scope: InstallScope, root: string, options: IntegrationOptio
   return [
     ...instructionActions('opencode', scope, root, options),
     ...await skillActions('opencode', scope, root, options),
-    { cli: 'opencode', kind: 'json-merge', path: paths.mcp!, description: 'Register Edu MCP server and agents', jsonPatch: { mcp: { edu: { type: 'local', command: ['edu', 'mcp'], enabled: true } }, agent: agents } },
+    { cli: 'opencode', kind: 'json-merge', path: paths.mcp!, description: 'Register Edu MCP server and agents', jsonPatch: { mcp: { edu: { type: 'local', command: [eduMcpLaunch().command, ...eduMcpLaunch().args], enabled: true } }, agent: agents } },
   ];
 }
 

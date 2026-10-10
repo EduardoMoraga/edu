@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { spawnCli } from '../platform/index.js';
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
@@ -54,7 +55,7 @@ export async function* runJsonlProcess(
 ): AsyncIterable<EduEvent> {
   let child: ChildProcess;
   try {
-    child = spawn(spec.command, spec.args, { cwd, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawnCli(spec.command, spec.args, { cwd, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (error) {
     yield errorEvent(agentId, `Unable to start ${spec.command}: ${String(error)}`);
     return;

@@ -9,7 +9,7 @@ import {
 import {
   createCrew,
   runWorker
-} from "./chunk-XDG54B5T.js";
+} from "./chunk-XCQF7OLL.js";
 import {
   action,
   globalHome,
@@ -21,14 +21,14 @@ import {
   registerPluginSetup,
   resolveGlobals,
   statusLine
-} from "./chunk-FZDCGUPB.js";
+} from "./chunk-EWNX4I6L.js";
 import {
   packageTemplatesDir,
   packageVersion
 } from "./chunk-BXZ573JQ.js";
 import {
   initBrain
-} from "./chunk-XI7L3C5X.js";
+} from "./chunk-IFIRJDFB.js";
 import {
   t,
   uiLang
@@ -39,7 +39,7 @@ import {
   identityName,
   lessonCount,
   openWorkspace
-} from "./chunk-7USMROSH.js";
+} from "./chunk-IX5FXKNL.js";
 import {
   detectTheme,
   formatTokens,
@@ -52,7 +52,7 @@ import {
 } from "./chunk-CVB7YSGO.js";
 import {
   openBrain
-} from "./chunk-VZNTNIW2.js";
+} from "./chunk-UJTVJ7X2.js";
 import {
   atomicWrite
 } from "./chunk-IULFTIQE.js";
@@ -177,7 +177,7 @@ function registerBrain(program, ctx) {
     action(ctx, async ({ g, opts }, source, path) => {
       const kind = oneOf(source ?? "", ["albert", "moragent"], "source");
       const ws = await writableWorkspace(ctx, g.cwd, g.lang);
-      const { importAlbert, importMoragent } = await import("./brain-6FXHXLKF.js");
+      const { importAlbert, importMoragent } = await import("./brain-BNPCRSTU.js");
       const report = await (kind === "albert" ? importAlbert : importMoragent)(path ?? "", ws.brain);
       if (g.json || opts.json) return printJson(ctx, { imported: report.imported.map((n) => n.meta.id), skipped: report.skipped, errors: report.errors });
       ctx.out(t(g.lang, "brain.imported", { imported: report.imported.length, skipped: report.skipped.length, errors: report.errors.length }));
@@ -261,7 +261,7 @@ function registerDoctor(program, ctx) {
     action(ctx, async ({ g, opts }) => {
       const lang = g.lang;
       const lines = [nodeLine(process.version, lang)];
-      const { diagnose } = await import("./adapters-OJMFARAO.js");
+      const { diagnose } = await import("./adapters-2EITMVPW.js");
       const clis = await diagnose({ root: g.cwd, home: ctx.home });
       for (const d of clis) {
         if (!d.installed) lines.push({ level: "warn", text: t(lang, "doctor.cliMissing", { cli: d.cli }) });
@@ -588,7 +588,7 @@ async function sessionStart(ctx, cwd) {
   const input = parseJsonObject(await ctx.readStdin(500));
   const ws = await initializedWorkspace(ctx, str(input?.cwd) ?? cwd);
   if (!ws) return;
-  const { brief } = await import("./context-XRHX3T35.js");
+  const { brief } = await import("./context-FC67YCRS.js");
   const text = await brief(ws.brain, 1500, { eduMdPath: join6(ws.primary.root, "EDU.md") });
   if (text.trim()) ctx.out(text);
 }
@@ -629,7 +629,7 @@ async function codexNotify(ctx, cwd, payload) {
 function registerIntegrations(program, ctx) {
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-MVAI5FDA.js");
+      const { runStdioServer } = await import("./stdio-IRMT3RWF.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -676,7 +676,7 @@ function registerLearn(program, ctx) {
       const ws = await openWorkspace(ctx, g.cwd);
       const config = await effectiveConfig(ws.primary.root, []);
       const budgetTokens = opts.budget ? parseIntOption(opts.budget, "--budget") : config.context.budgetTokens;
-      const { buildContext } = await import("./context-XRHX3T35.js");
+      const { buildContext } = await import("./context-FC67YCRS.js");
       const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join7(ws.primary.root, "EDU.md"), trackUsage: false });
       if (g.json || opts.json) return printJson(ctx, pack);
       const { glyphs } = look(ctx);
@@ -700,7 +700,7 @@ function registerLearn(program, ctx) {
       if (!available.length) throw new Error(t(g.lang, "reflect.noCli"));
       const config = await effectiveConfig(ws.primary.root, available);
       const cli = available.includes(config.defaultCli) ? config.defaultCli : available[0];
-      const [{ reflect }, { createEngine }] = await Promise.all([import("./reflect-AIQCSUYV.js"), import("./engine-FVW4U5F6.js")]);
+      const [{ reflect }, { createEngine }] = await Promise.all([import("./reflect-AIQCSUYV.js"), import("./engine-PBXT4ONA.js")]);
       const report = await reflect({ brain: ws.brain, engine: createEngine(cli), since: opts.since ?? "7d", brainRoot: ws.primary.root });
       if (g.json || opts.json) return printJson(ctx, report);
       if (report.message) return ctx.out(report.message);
@@ -752,9 +752,9 @@ function registerWatch(program, ctx) {
       const crew = createCrew({ brainRoot: ws.primary.root, locations: ws.locations });
       const source = fsCrewSource(ws.primary.root, (jobId2) => crew.status(jobId2));
       const id = jobId?.trim() || void 0;
-      const { watchInTui, watchPlain } = await import("./watch-4JNOQYXQ.js");
+      const { watchInTui, watchPlain } = await import("./watch-CUQZHZKV.js");
       if (!ctx.isTTY) return watchPlain(ctx, { source, jobId: id, lang: g.lang });
-      const { cliDispatch, selfRunner } = await import("./commands-RRQZJL4J.js");
+      const { cliDispatch, selfRunner } = await import("./commands-SN4LJUQV.js");
       const explicitLang = cmd.optsWithGlobals().lang !== void 0;
       await watchInTui({
         source,
@@ -824,7 +824,7 @@ function registerSetup(program, ctx) {
         clis = await ctx.detectClis();
         if (!clis.length) throw new Error(t(g.lang, "install.noCli"));
       }
-      const { planInstall, describePlan, applyInstall, getManifestPath } = await import("./adapters-OJMFARAO.js");
+      const { planInstall, describePlan, applyInstall, getManifestPath } = await import("./adapters-2EITMVPW.js");
       const plan = await planInstall({ clis, scope, root: g.cwd, home: ctx.home, templatesDir: packageTemplatesDir() });
       const json2 = g.json || opts.json;
       if (json2 && opts.dryRun) {
@@ -857,9 +857,9 @@ function registerSetup(program, ctx) {
   program.command("uninstall").description("reverse an Edu installation from its manifest").option("--scope <scope>", "project or global", "project").option("--force", "restore even if Edu-managed files were edited since install").action(
     action(ctx, async ({ g, opts }) => {
       const scope = parseScope(opts.scope);
-      const { uninstall, getManifestPath } = await import("./adapters-OJMFARAO.js");
+      const { uninstall, getManifestPath } = await import("./adapters-2EITMVPW.js");
       if (scope === "global") {
-        const { setupManifestPath, uninstallSetup } = await import("./setup-XYVQO6UW.js");
+        const { setupManifestPath, uninstallSetup } = await import("./setup-HEKHLK6L.js");
         if (await exists(await setupManifestPath(ctx.home))) {
           await uninstallSetup({ home: ctx.home, force: Boolean(opts.force) });
           ctx.out(t(g.lang, "uninstall.done", { scope }));
@@ -881,7 +881,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-X34HV4NX.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-2E6GMMJD.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -894,7 +894,7 @@ async function openHome(ctx, g) {
   ctx.out(t(g.lang, "home.brain", { total: stats.total, lessons: lessonCount(stats.byStatus) }));
   ctx.out(clis.length ? t(g.lang, "home.clis", { clis: clis.join(", ") }) : t(g.lang, "home.noClis"));
   ctx.out(t(g.lang, "home.hint"));
-  const { runHome } = await import("./live-VIHHMSD7.js");
+  const { runHome } = await import("./live-COZ3PWAM.js");
   await runHome(ctx, { cwd: g.cwd, lang: g.lang, name });
 }
 function modeFrom(opts) {
@@ -916,7 +916,7 @@ function registerLive(program, ctx) {
       if (!text) throw new Error("a goal is required");
       if (ctx.isTTY) {
         const ws = await openWorkspace(ctx, g.cwd);
-        const { runInTui } = await import("./live-VIHHMSD7.js");
+        const { runInTui } = await import("./live-COZ3PWAM.js");
         const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
         if (result) ctx.out(t(g.lang, "run.done", { status: t(g.lang, result.ok ? "run.ok" : "run.failed"), summary: result.summary }));
         if (!result?.ok) ctx.setExitCode(1);
@@ -937,7 +937,7 @@ function registerLive(program, ctx) {
       const run = await loadRun(opts.replay);
       for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
       if (!ctx.isTTY) return printPlain(ctx, run.events);
-      const { playInTui } = await import("./live-VIHHMSD7.js");
+      const { playInTui } = await import("./live-COZ3PWAM.js");
       await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2e3 }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -952,13 +952,13 @@ function registerLive(program, ctx) {
         ctx.out(t(g.lang, "demo.plain"));
         return printPlain(ctx, events);
       }
-      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-3C237ANV.js"), import("./live-VIHHMSD7.js")]);
+      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-3C237ANV.js"), import("./live-COZ3PWAM.js")]);
       await playInTui(timedEvents(events, { speed }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
 }
 async function runPlain(ctx, g, goal, mode, cli, harnessLevel, yes) {
-  const { executeRun } = await import("./session-D7EEAKCB.js");
+  const { executeRun } = await import("./session-W7PMJI4V.js");
   const format = createPlainFormatter(getGlyphs(ctx.env));
   const abort = new AbortController();
   const onSigint = () => {
@@ -1043,4 +1043,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-PYUOSOD2.js.map
+//# sourceMappingURL=chunk-URNH7WY6.js.map

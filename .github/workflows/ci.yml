@@ -67,6 +67,7 @@ jobs:
           $env:EDU_ASSET = (Get-ChildItem "$env:RUNNER_TEMP\edu-agent-*.tgz").FullName
           ./scripts/install.ps1
           edu --version
+          node scripts/mcp-smoke.mjs
 
       - name: One-line installer (macOS/Linux)
         if: runner.os != 'Windows'
@@ -74,3 +75,4 @@ jobs:
           npm pack --pack-destination "$RUNNER_TEMP"
           EDU_ASSET="$(ls "$RUNNER_TEMP"/edu-agent-*.tgz)" bash scripts/install.sh
           edu --version
+          node scripts/mcp-smoke.mjs

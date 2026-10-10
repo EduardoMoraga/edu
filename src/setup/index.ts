@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { eduMcpLaunch, spawnCli, type McpLaunch } from '../platform/index.js';
 import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { CliId } from '../core/contracts.js';
@@ -22,7 +22,7 @@ export interface SetupPlan extends SetupOptions {
   fallback: CliId[];
   alreadyInstalled: CliId[];
 }
-export interface ApplySetupOptions { runner?: SetupRunner; templatesDir?: string; detected?: CliId[]; lang?: 'en' | 'es'; brainRoot?: string }
+export interface ApplySetupOptions { runner?: SetupRunner; templatesDir?: string; detected?: CliId[]; lang?: 'en' | 'es'; brainRoot?: string; platform?: NodeJS.Platform }
 export interface SetupReport { installed: CliId[]; fallback: CliId[]; alreadyInstalled: CliId[]; failed: Array<{ cli: CliId; message: string }> }
 
 interface SetupManifest { version: 1; packageRoot: string; native: CliId[]; fallback: CliId[]; adapterManifestPath?: string }
@@ -36,11 +36,11 @@ const LIST_COMMANDS: Record<CliId, SetupCommand> = {
 };
 
 const defaultRunner: SetupRunner = ({ command, args }) => new Promise((resolveResult) => {
-  const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawnCli(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
-  child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-  child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+  child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk));
+  child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
   child.once('error', (error) => resolveResult({ exitCode: 127, stderr: error.message }));
   child.once('close', (code) => resolveResult({ exitCode: code ?? 1, stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString() }));
 });
@@ -145,12 +145,36 @@ async function writeManifest(path: string, manifest: SetupManifest): Promise<voi
 }
 
 /** Installs selected CLIs, falls back to the existing managed-file adapters, and initializes the global brain. */
+/**
+ * Generated plugins say `edu mcp`. Windows hosts spawn MCP servers without a shell and cannot start
+ * the `edu.cmd` shim by name, so rewrite the installed package's plugin MCP files before the native
+ * installers copy them.
+ */
+export async function localizePluginsForPlatform(packageRoot: string, platform: NodeJS.Platform = process.platform): Promise<string[]> {
+  if (platform !== 'win32') return [];
+  const launch = eduMcpLaunch(platform);
+  const targets: Array<[string, (edu: McpLaunch) => unknown]> = [
+    ['plugins/claude-code/.mcp.json', edu => ({ edu })],
+    ['plugins/codex/.mcp.json', edu => ({ mcpServers: { edu } })],
+    ['plugins/agy/mcp_config.json', edu => ({ mcpServers: { edu } })],
+  ];
+  const written: string[] = [];
+  for (const [relative, shape] of targets) {
+    const path = join(packageRoot, relative);
+    try { await access(path); } catch { continue; }
+    await writeFile(path, `${JSON.stringify(shape(launch), null, 2)}\n`);
+    written.push(path);
+  }
+  return written;
+}
+
 export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {}): Promise<SetupReport> {
   const runner = options.runner ?? plan.runner ?? defaultRunner;
   const report: SetupReport = { installed: [], fallback: [], alreadyInstalled: [...plan.alreadyInstalled], failed: [] };
   const pending = new Set(plan.fallback);
   const successful = new Set<CliId>();
   const failed = new Map<CliId, string>();
+  await localizePluginsForPlatform(plan.packageRoot, options.platform);
   // Codex refuses to run when CODEX_HOME points to a missing directory (fresh machines, custom homes).
   if (plan.commands.some(c => c.cli === 'codex')) {
     const { mkdir } = await import('node:fs/promises');

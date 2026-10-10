@@ -1,18 +1,21 @@
 import {
   initBrain
-} from "./chunk-XI7L3C5X.js";
+} from "./chunk-IFIRJDFB.js";
 import {
   applyInstall,
   getManifestPath,
   planInstall,
   uninstall
-} from "./chunk-ZV65G7PD.js";
+} from "./chunk-33ZZBVGB.js";
 import {
   instructionActions
 } from "./chunk-ROTDA577.js";
+import {
+  eduMcpLaunch,
+  spawnCli
+} from "./chunk-FEHCOPF2.js";
 
 // src/setup/index.ts
-import { spawn } from "child_process";
 import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from "fs/promises";
 import { dirname, join, resolve } from "path";
 var LIST_COMMANDS = {
@@ -23,11 +26,11 @@ var LIST_COMMANDS = {
   agy: { cli: "agy", command: "agy", args: ["plugin", "list"] }
 };
 var defaultRunner = ({ command, args }) => new Promise((resolveResult) => {
-  const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnCli(command, args, { stdio: ["ignore", "pipe", "pipe"] });
   const stdout = [];
   const stderr = [];
-  child.stdout.on("data", (chunk) => stdout.push(chunk));
-  child.stderr.on("data", (chunk) => stderr.push(chunk));
+  child.stdout?.on("data", (chunk) => stdout.push(chunk));
+  child.stderr?.on("data", (chunk) => stderr.push(chunk));
   child.once("error", (error) => resolveResult({ exitCode: 127, stderr: error.message }));
   child.once("close", (code) => resolveResult({ exitCode: code ?? 1, stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString() }));
 });
@@ -141,12 +144,35 @@ async function writeManifest(path, manifest) {
 `);
   await rename(temp, path);
 }
+async function localizePluginsForPlatform(packageRoot, platform = process.platform) {
+  if (platform !== "win32") return [];
+  const launch = eduMcpLaunch(platform);
+  const targets = [
+    ["plugins/claude-code/.mcp.json", (edu) => ({ edu })],
+    ["plugins/codex/.mcp.json", (edu) => ({ mcpServers: { edu } })],
+    ["plugins/agy/mcp_config.json", (edu) => ({ mcpServers: { edu } })]
+  ];
+  const written = [];
+  for (const [relative, shape] of targets) {
+    const path = join(packageRoot, relative);
+    try {
+      await access(path);
+    } catch {
+      continue;
+    }
+    await writeFile(path, `${JSON.stringify(shape(launch), null, 2)}
+`);
+    written.push(path);
+  }
+  return written;
+}
 async function applySetup(plan, options = {}) {
   const runner = options.runner ?? plan.runner ?? defaultRunner;
   const report = { installed: [], fallback: [], alreadyInstalled: [...plan.alreadyInstalled], failed: [] };
   const pending = new Set(plan.fallback);
   const successful = /* @__PURE__ */ new Set();
   const failed = /* @__PURE__ */ new Map();
+  await localizePluginsForPlatform(plan.packageRoot, options.platform);
   if (plan.commands.some((c) => c.cli === "codex")) {
     const { mkdir: mkdir2 } = await import("fs/promises");
     await mkdir2(process.env.CODEX_HOME || join(plan.home, ".codex"), { recursive: true }).catch(() => void 0);
@@ -269,9 +295,10 @@ async function needsFirstRunSetup(home) {
 
 export {
   planSetup,
+  localizePluginsForPlatform,
   applySetup,
   setupManifestPath,
   uninstallSetup,
   needsFirstRunSetup
 };
-//# sourceMappingURL=chunk-KSXISGXM.js.map
+//# sourceMappingURL=chunk-PFWGYRAM.js.map

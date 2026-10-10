@@ -190,3 +190,22 @@ describe('first-run plugin setup', () => {
     expect(await shouldRunFirstSetup(capture.ctx)).toBe(false);
   });
 });
+
+describe('Windows plugin localization', () => {
+  it('rewrites plugin MCP launchers to cmd /c on Windows and leaves other platforms untouched', async () => {
+    const { mkdtemp, mkdir, writeFile, readFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { localizePluginsForPlatform } = await import('./index.js');
+    const root = await mkdtemp(join(tmpdir(), 'edu-win-'));
+    await mkdir(join(root, 'plugins/claude-code'), { recursive: true });
+    await mkdir(join(root, 'plugins/codex'), { recursive: true });
+    await writeFile(join(root, 'plugins/claude-code/.mcp.json'), '{"edu":{"command":"edu","args":["mcp"]}}');
+    await writeFile(join(root, 'plugins/codex/.mcp.json'), '{"mcpServers":{"edu":{"command":"edu","args":["mcp"]}}}');
+    expect(await localizePluginsForPlatform(root, 'darwin')).toEqual([]);
+    const written = await localizePluginsForPlatform(root, 'win32');
+    expect(written).toHaveLength(2);
+    expect(JSON.parse(await readFile(join(root, 'plugins/claude-code/.mcp.json'), 'utf8'))).toEqual({ edu: { command: 'cmd', args: ['/c', 'edu', 'mcp'] } });
+    expect(JSON.parse(await readFile(join(root, 'plugins/codex/.mcp.json'), 'utf8')).mcpServers.edu.command).toBe('cmd');
+  });
+});
