@@ -1,8 +1,10 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { applySetup, OPENCODE_TUI_PLUGIN, planSetup, uninstallSetup, type SetupCommand, type SetupRunner } from './index.js';
+import { applyInstall } from '../adapters/installer.js';
+import { UNION } from '../adapters/merge.js';
 import { openHome } from '../cli/commands/live.js';
 import { shouldRunFirstSetup } from '../cli/commands/plugins.js';
 import { captureContext, out as output, runCli } from '../cli/testkit.js';
@@ -166,6 +168,87 @@ describe('native setup planning', () => {
     await expect(readFile(edu, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(join(dir, 'themes/edu.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(join(dir, 'tui.json'), 'utf8')).resolves.toBe(tuiJson);
+  });
+
+  /** What the OpenCode 1 setup (7d17fb4) recorded: tui-plugins/edu.tsx plus its path in tui.json `plugin`. */
+  async function installOpenCode1Leftovers(home: string, config = 'tui.json') {
+    const dir = join(home, '.config/opencode');
+    const stale = join(dir, 'tui-plugins/edu.tsx');
+    await applyInstall({
+      scope: 'global', root: packageRoot, home, templatesDir: join(packageRoot, 'templates'), notes: [],
+      actions: [
+        { cli: 'opencode', kind: 'file', path: stale, description: 'Install the Edu Deck OpenCode TUI plugin', content: '// old edu deck\n' },
+        { cli: 'opencode', kind: 'json-merge', path: join(dir, config), description: 'Load the Edu Deck TUI plugin', jsonPatch: { plugin: { [UNION]: [stale] } } },
+      ],
+    });
+    return { dir, stale };
+  }
+
+  it('removes the OpenCode 1 TUI leftovers a previous setup recorded, keeping every other entry and comment', async () => {
+    const home = await tempHome();
+    const dir = join(home, '.config/opencode');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'tui.json'), `${JSON.stringify({ $schema: 'https://opencode.ai/tui.json', plugin: ['opencode-subagent-statusline'] }, null, 2)}\n`);
+    const { stale } = await installOpenCode1Leftovers(home);
+    expect(JSON.parse(await readFile(join(dir, 'tui.json'), 'utf8')).plugin).toEqual(['opencode-subagent-statusline', stale]);
+    // OpenCode 2 migrated tui.json into cli.json once, edu entry included; the user has since commented it.
+    const cliJson = `{\n  // mine\n  "$schema": "https://opencode.ai/v2/cli.json",\n  "plugins": [\n    "opencode-subagent-statusline", // keep\n    "${stale}"\n  ]\n}\n`;
+    await writeFile(join(dir, 'cli.json'), cliJson);
+    const { runner } = fakeRunner();
+    for (let run = 0; run < 2; run++) {
+      const plan = await planSetup({ clis: ['opencode'], packageRoot, home, runner });
+      await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' });
+    }
+    await expect(readFile(stale, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readdir(join(dir, 'tui-plugins'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(JSON.parse(await readFile(join(dir, 'tui.json'), 'utf8'))).toEqual({ $schema: 'https://opencode.ai/tui.json', plugin: ['opencode-subagent-statusline'] });
+    const cli = await readFile(join(dir, 'cli.json'), 'utf8');
+    expect(cli).toContain('// mine');
+    expect(cli).toContain('"opencode-subagent-statusline", // keep');
+    expect(cli).not.toContain('tui-plugins/edu.tsx');
+    const manifest = JSON.parse(await readFile(join(home, '.edu/manifest.json'), 'utf8')) as { actions: Array<{ path: string }> };
+    expect(manifest.actions.map(action => action.path).filter(path => path === stale || path.startsWith(join(dir, 'tui.')))).toEqual([]);
+    await expect(readFile(join(dir, OPENCODE_TUI_PLUGIN), 'utf8')).resolves.toContain('export default { id, setup }');
+    await uninstallSetup({ home, runner });
+    await expect(readFile(join(dir, OPENCODE_TUI_PLUGIN), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(JSON.parse(await readFile(join(dir, 'tui.json'), 'utf8')).plugin).toEqual(['opencode-subagent-statusline']);
+    await expect(readFile(join(dir, 'cli.json'), 'utf8')).resolves.toBe(cli);
+  });
+
+  it('removes the leftovers from tui.jsonc in place and never fails when OpenCode already deleted the TUI config', async () => {
+    const home = await tempHome();
+    await mkdir(join(home, '.config/opencode'), { recursive: true });
+    await writeFile(join(home, '.config/opencode/tui.jsonc'), '{\n  // my TUI plugins\n  "plugin": [\n    "./herdr-tui-session.js", // keep\n  ],\n}\n');
+    const { dir, stale } = await installOpenCode1Leftovers(home, 'tui.jsonc');
+    expect(await readFile(join(dir, 'tui.jsonc'), 'utf8')).toContain(stale);
+    const { runner } = fakeRunner();
+    await applySetup(await planSetup({ clis: ['opencode'], packageRoot, home, runner }), { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' });
+    await expect(readFile(stale, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    const edited = await readFile(join(dir, 'tui.jsonc'), 'utf8');
+    expect(edited).toBe('{\n  // my TUI plugins\n  "plugin": [\n    "./herdr-tui-session.js", // keep\n  ],\n}\n');
+    await uninstallSetup({ home, runner });
+    await expect(readFile(join(dir, 'tui.jsonc'), 'utf8')).resolves.toBe(edited);
+
+    const other = await tempHome();
+    const leftovers = await installOpenCode1Leftovers(other);
+    await rm(join(leftovers.dir, 'tui.json'));
+    await applySetup(await planSetup({ clis: ['opencode'], packageRoot, home: other, runner }), { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' });
+    await expect(readFile(leftovers.stale, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(leftovers.dir, 'tui.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await uninstallSetup({ home: other, runner });
+    await expect(readFile(join(other, '.edu/manifest.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('keeps an OpenCode 1 leftover the user edited, stops tracking it, and still uninstalls cleanly', async () => {
+    const home = await tempHome();
+    const { dir, stale } = await installOpenCode1Leftovers(home);
+    await writeFile(stale, '// my own deck\n');
+    const { runner } = fakeRunner();
+    await applySetup(await planSetup({ clis: ['opencode'], packageRoot, home, runner }), { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' });
+    await expect(readFile(stale, 'utf8')).resolves.toBe('// my own deck\n');
+    await expect(readFile(join(dir, 'tui.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await uninstallSetup({ home, runner });
+    await expect(readFile(stale, 'utf8')).resolves.toBe('// my own deck\n');
   });
 
   it('never creates OpenCode TUI config files on a fresh home', async () => {

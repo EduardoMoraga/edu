@@ -13,7 +13,7 @@ import { createAgyIntegration } from './agy.js';
 import { ensureParents, materialize, readTarget, sha256 } from './operations.js';
 import { removeManagedBlock } from './blocks.js';
 import { containsPatch, parseJsonFile, unmergeJsonFile, unmergeToml } from './merge.js';
-import { CLI_IDS, type InstallPlan, type PlannedAction } from './types.js';
+import { CLI_IDS, type InstallPlan, type PlannedAction, type RetiredAction } from './types.js';
 
 interface StoredAction extends InstallAction { clis?: CliId[]; shared?: boolean; jsonPatch?: Record<string, unknown>; tomlBody?: string }
 interface StoredManifest extends InstallManifest { actions: StoredAction[]; createdDirs?: string[]; home?: string }
@@ -159,9 +159,12 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
     const conflict = plan.actions.find(action => otherTargets.has(action.path) && (!isSharedTarget(action.path, plan.home) || !shared.targets[action.path]));
     if (conflict) throw new Error(`Target already managed by ${otherScope} installation: ${conflict.path}`);
   }
+  const planned = new Set(plan.actions.map(action => action.path));
+  const retiring = (previous?.actions ?? []).filter(action => !planned.has(action.path) && isRetired(action, plan.retire ?? []));
   const existing = new Map((previous?.actions ?? []).map(action => [`${action.kind}:${action.path}`, action]));
   // Refuse drift before any write, including actions omitted from a repeat install.
   for (const action of previous?.actions ?? []) {
+    if (retiring.includes(action)) continue;
     const current = await readTarget(action.path);
     if (!isIntact(action, current)) throw new Error(`Edu installation drift: ${action.path}`);
     if (action.shared && !shared.targets[action.path]?.owners.includes(manifestPath)) throw new Error(`Missing shared ownership: ${action.path}`);
@@ -184,7 +187,7 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
   const packageFile = join(dirname(resolveTemplatesDir()), 'package.json');
   const pkg = JSON.parse(await readFile(packageFile, 'utf8')) as { version: string };
   const createdDirs = [...(previous?.createdDirs ?? [])];
-  const nextActions = [...(previous?.actions ?? [])];
+  const nextActions = (previous?.actions ?? []).filter(action => !retiring.includes(action));
   const backupStamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`;
   const legacyBackups: string[] = [];
   let sharedChanged = false;
@@ -243,6 +246,7 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
     if (oldIndex >= 0) nextActions[oldIndex] = saved;
     else nextActions.push(saved);
   }
+  for (const action of retiring) await retireAction(action, createdDirs);
   const manifest: StoredManifest = {
     version: 1, eduVersion: pkg.version, installedAt: previous?.installedAt ?? new Date().toISOString(),
     scope: plan.scope, actions: nextActions, createdDirs, home: plan.home,
@@ -255,6 +259,38 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
   await rename(temp, manifestPath);
   for (const backup of legacyBackups) await unlink(backup);
   return manifest;
+}
+
+function isRetired(action: StoredAction, retire: RetiredAction[]): boolean {
+  return !action.shared && retire.some(item => item.kind === action.kind && item.path === action.path &&
+    (!item.jsonPatch || JSON.stringify(item.jsonPatch) === JSON.stringify(action.jsonPatch)));
+}
+
+/**
+ * Undo one action an earlier Edu version recorded, leniently: a file is removed only while it is
+ * still byte-identical to what Edu wrote, a JSON merge loses only Edu's keys or entries (comments in
+ * JSONC kept), and anything missing or unparseable is left alone. Its backup is dropped either way.
+ */
+async function retireAction(action: StoredAction, createdDirs: string[]): Promise<void> {
+  const current = await readTarget(action.path).catch(() => undefined);
+  if (current && action.kind === 'file' && action.sha256 && sha256(current) === action.sha256) {
+    if (action.backup) await writeFile(action.path, await readFile(action.backup));
+    else await unlink(action.path);
+  } else if (current && action.kind === 'json-merge' && action.jsonPatch) {
+    let remaining: string | undefined;
+    try { remaining = unmergeJsonFile(action.path, current.toString('utf8'), action.jsonPatch); } catch { /* Not ours to repair. */ }
+    if (remaining !== undefined && remaining !== current.toString('utf8')) {
+      // Delete only a plain-JSON file Edu created that held nothing else; never one with user comments.
+      if (!action.backup && isPlainJson(current.toString('utf8')) && isEmptyJson(remaining)) await unlink(action.path);
+      else await writeFile(action.path, remaining);
+    }
+  }
+  if (action.backup) await unlink(action.backup).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+  // Drop directories Edu created for it once they are empty (e.g. ~/.config/opencode/tui-plugins).
+  for (let dir = dirname(action.path); createdDirs.includes(dir); dir = dirname(dir)) {
+    try { await rmdir(dir); } catch { break; }
+    createdDirs.splice(createdDirs.indexOf(dir), 1);
+  }
 }
 
 export async function uninstall(options: { manifestPath: string; force?: boolean }): Promise<void> {
@@ -366,6 +402,10 @@ export async function uninstall(options: { manifestPath: string; force?: boolean
       });
     }
   }
+}
+
+function isPlainJson(value: string): boolean {
+  try { JSON.parse(value); return true; } catch { return false; }
 }
 
 function isEmptyJson(value: string): boolean {

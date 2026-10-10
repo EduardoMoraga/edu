@@ -14,7 +14,15 @@ export interface InstallPlan {
   templatesDir: string;
   actions: PlannedAction[];
   notes: string[];
+  /**
+   * Actions an earlier Edu version recorded that this version no longer installs. applyInstall undoes
+   * each one found in the manifest (matching kind, path and, when given, jsonPatch) and stops tracking it.
+   * It never fails on them: a target the user or host already changed or removed is left as it is.
+   */
+  retire?: RetiredAction[];
 }
+
+export interface RetiredAction { kind: PlannedAction['kind']; path: string; jsonPatch?: Record<string, unknown> }
 
 export interface IntegrationOptions {
   home: string;

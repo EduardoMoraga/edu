@@ -3,7 +3,9 @@ import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from 'nod
 import { dirname, join, resolve } from 'node:path';
 import type { CliId } from '../core/contracts.js';
 import { instructionActions } from '../adapters/common.js';
+import { parse, type ParseError } from 'jsonc-parser';
 import { UNION } from '../adapters/merge.js';
+import { removeArrayItem } from '../detach/edit.js';
 import { applyInstall, getManifestPath, planInstall, uninstall } from '../adapters/installer.js';
 import type { InstallPlan, PlannedAction } from '../adapters/types.js';
 import { initBrain } from '../cli/setup.js';
@@ -122,6 +124,47 @@ async function appendOpenCodeAssets(plan: InstallPlan, packageRoot: string): Pro
     }
   }
   await appendOpenCodeTui(plan, sourceRoot, destinationRoot);
+  retireOpenCode1Tui(plan, destinationRoot);
+}
+
+/** Where the OpenCode 1 setup installed the Edu Deck, relative to ~/.config/opencode (OpenCode 2 never loads it). */
+const OPENCODE1_TUI_PLUGIN = 'tui-plugins/edu.tsx';
+
+/**
+ * Edu 0.6 pre-releases installed the Deck as tui-plugins/edu.tsx and added its path to `plugin` in
+ * tui.json (or tui.jsonc). Retire both from the manifest so a re-run removes them; uninstall stays exact.
+ */
+function retireOpenCode1Tui(plan: InstallPlan, destinationRoot: string): void {
+  const stale = join(destinationRoot, OPENCODE1_TUI_PLUGIN);
+  const jsonPatch = { plugin: { [UNION]: [stale] } };
+  plan.retire = [
+    ...(plan.retire ?? []),
+    { kind: 'file', path: stale },
+    { kind: 'json-merge', path: join(destinationRoot, 'tui.json'), jsonPatch },
+    { kind: 'json-merge', path: join(destinationRoot, 'tui.jsonc'), jsonPatch },
+  ];
+}
+
+/**
+ * OpenCode 2 migrates tui.json into cli.json once, so the OpenCode 1 Edu Deck path can survive in
+ * cli.json `plugins`, which Edu never recorded. Remove exactly that entry, editing in place so every
+ * other entry and comment stays; leave a file that does not parse alone.
+ */
+async function removeOpenCode1TuiFromCliJson(home: string): Promise<void> {
+  const destinationRoot = join(home, '.config/opencode');
+  const path = join(destinationRoot, 'cli.json');
+  let text: string;
+  try { text = await readFile(path, 'utf8'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+  const errors: ParseError[] = [];
+  const value = parse(text, errors, { allowTrailingComma: true }) as { plugins?: unknown } | undefined;
+  if (errors.length || !value || typeof value !== 'object' || !Array.isArray(value.plugins)) return;
+  const stale = join(destinationRoot, OPENCODE1_TUI_PLUGIN);
+  const indexes = value.plugins.flatMap((item, index) => item === stale ? [index] : []);
+  if (!indexes.length) return;
+  let next = text;
+  for (const index of indexes.reverse()) next = removeArrayItem(next, ['plugins', index]);
+  await writeFile(path, next);
 }
 
 /** Where `edu setup` installs the OpenCode 2 TUI plugin, relative to ~/.config/opencode. */
@@ -133,7 +176,8 @@ export const OPENCODE_TUI_PLUGIN = 'plugins/edu-deck/tui.tsx';
  * discovers every `<config>/plugins/<dir>/` that has a `tui` entrypoint. Installing the plugin as
  * plugins/edu-deck/tui.tsx loads it with no config edit; the server side ignores the directory because
  * it has no `server`/`index` entrypoint. tui.json / tui.jsonc are OpenCode 1 files that 2.x never reads
- * (tui.json is only migrated once into cli.json), so setup leaves them alone. The theme is installed
+ * (tui.json is only migrated once into cli.json), so setup only removes the entry an earlier Edu wrote
+ * there (see retireOpenCode1Tui). The theme is installed
  * but never selected; that stays the user's choice.
  */
 async function appendOpenCodeTui(plan: InstallPlan, sourceRoot: string, destinationRoot: string): Promise<void> {
@@ -243,6 +287,7 @@ export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {
     await applyInstall(adapterPlan);
     adapterManifestPath = getManifestPath('global', plan.packageRoot, plan.home);
   }
+  if (pending.has('opencode')) await removeOpenCode1TuiFromCliJson(plan.home);
 
   const brainRoot = resolve(options.brainRoot ?? process.env.EDU_HOME ?? join(plan.home, '.edu'));
   await initBrain({ location: { scope: 'global', root: brainRoot }, templatesDir: options.templatesDir ?? join(plan.packageRoot, 'templates'), detected: options.detected ?? plan.clis, lang: options.lang });

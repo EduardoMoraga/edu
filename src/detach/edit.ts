@@ -159,7 +159,7 @@ function jsonEdit(input: string, host: HostId, tools: readonly ToolId[], jsonc: 
  * Cuts one array element out of JSONC text: the value and its own comma only, so comments that
  * belong to neighbouring entries stay (jsonc-parser's modify would take the previous comment too).
  */
-function removeArrayItem(text: string, path: [string, number]): string {
+export function removeArrayItem(text: string, path: [string, number]): string {
   const root = parseTree(text, [], { allowTrailingComma: true });
   const node = root && findNodeAtLocation(root, path);
   if (!node) return text;
