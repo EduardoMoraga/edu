@@ -72,6 +72,8 @@ interface RecallHit {
 interface BrainLocation {
     scope: 'global' | 'project';
     root: string;
+    /** Absolute brain folder when `.edu/config.json` sets `brainDir`; default `<root>/brain`. Read it through `brainPath()`. */
+    brainDir?: string;
 }
 interface ContextRequest {
     query?: string;
@@ -386,6 +388,18 @@ interface EduConfig {
         obsidianVault?: string;
     };
     lang: 'en' | 'es';
+    /** Brain folder relative to the workspace root (the folder holding `.edu/`). Default `.edu/brain`. */
+    brainDir?: string;
+    /** Where `edu create` keeps copies of the original documents, relative to the workspace root. */
+    sourcesDir?: string;
+    /** The workspace agent's identity (e.g. "Albert"), used by briefs and identity injection. */
+    identity?: WorkspaceIdentity;
+}
+interface WorkspaceIdentity {
+    name: string;
+    role?: string;
+    tone?: string;
+    summary?: string;
 }
 type InstallScope = 'project' | 'global';
 /** One file operation the installer performs; recorded in the manifest for uninstall. */
@@ -452,4 +466,4 @@ interface ProgramOptions {
 }
 declare function createProgram(overrides?: Partial<CliContext>, options?: ProgramOptions): Command;
 
-export { type AgentStatus, type ApprovalPolicy, type Autonomy, type BrainLocation, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewJob, type CrewJobMode, type CrewJobStatus, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineRunRequest, type FailureType, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type Note, type NoteMeta, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageStats, createProgram };
+export { type AgentStatus, type ApprovalPolicy, type Autonomy, type BrainLocation, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewJob, type CrewJobMode, type CrewJobStatus, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineRunRequest, type FailureType, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type Note, type NoteMeta, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageStats, type WorkspaceIdentity, createProgram };
