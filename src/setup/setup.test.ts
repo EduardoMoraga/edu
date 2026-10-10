@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { applySetup, planSetup, uninstallSetup, type SetupCommand, type SetupRunner } from './index.js';
+import { applySetup, OPENCODE_TUI_PLUGIN, planSetup, uninstallSetup, type SetupCommand, type SetupRunner } from './index.js';
 import { openHome } from '../cli/commands/live.js';
 import { shouldRunFirstSetup } from '../cli/commands/plugins.js';
 import { captureContext, out as output, runCli } from '../cli/testkit.js';
@@ -125,7 +125,7 @@ describe('native setup planning', () => {
     expect(applied.fallback).toEqual(['opencode']);
     await expect(readFile(join(home, '.config/opencode/commands/edu-brief.md'), 'utf8')).resolves.toContain('$ARGUMENTS');
     await expect(readFile(join(home, '.config/opencode/agents/lead.md'), 'utf8')).resolves.toContain('id: lead');
-    await expect(readFile(join(home, '.config/opencode/plugins/edu.ts'), 'utf8')).resolves.toContain('session.created');
+    await expect(readFile(join(home, '.config/opencode/plugins/edu.ts'), 'utf8')).resolves.toMatch(/export default \{\s*id: 'edu',[\s\S]*async setup\(\)/);
     const config = JSON.parse(await readFile(join(home, '.config/opencode/opencode.json'), 'utf8')) as { mcp?: { edu?: unknown } };
     expect(config.mcp?.edu).toBeDefined();
     await uninstallSetup({ home, runner });
@@ -135,58 +135,48 @@ describe('native setup planning', () => {
     await expect(readFile(opencodeConfig, 'utf8')).resolves.toBe('{"theme":"midnight"}\n');
   });
 
-  it('installs the Edu OpenCode TUI plugin and theme, merges tui.json without duplicates, and reverses exactly', async () => {
+  it('installs the Edu OpenCode 2 TUI plugin as a discovered plugin directory plus the theme, and reverses exactly', async () => {
     const home = await tempHome();
     const dir = join(home, '.config/opencode');
-    const tuiConfig = join(dir, 'tui.json');
-    const original = `${JSON.stringify({ $schema: 'https://opencode.ai/tui.json', theme: 'gentleman', plugin: ['opencode-subagent-statusline', '/x/tui-plugins/gentle-logo.tsx'] }, null, 2)}\n`;
+    // OpenCode 1 TUI configs are left untouched: OpenCode 2 never reads them.
+    const tuiJson = `${JSON.stringify({ $schema: 'https://opencode.ai/tui.json', plugin: ['opencode-subagent-statusline'] }, null, 2)}\n`;
+    const tuiJsonc = '{\n  // my TUI plugins\n  "plugin": ["./herdr-tui-session.js"],\n}\n';
+    const cliJson = `${JSON.stringify({ $schema: 'https://opencode.ai/v2/cli.json', plugins: ['opencode-subagent-statusline'] }, null, 2)}\n`;
     await mkdir(dir, { recursive: true });
-    await writeFile(tuiConfig, original);
+    await writeFile(join(dir, 'tui.json'), tuiJson);
+    await writeFile(join(dir, 'tui.jsonc'), tuiJsonc);
+    await writeFile(join(dir, 'cli.json'), cliJson);
     const { runner } = fakeRunner();
-    const edu = join(dir, 'tui-plugins/edu.tsx');
+    const edu = join(dir, 'plugins/edu-deck/tui.tsx');
+    expect(join(dir, OPENCODE_TUI_PLUGIN)).toBe(edu);
     for (let run = 0; run < 2; run++) {
       const plan = await planSetup({ clis: ['opencode'], packageRoot, home, runner });
       await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' });
     }
-    await expect(readFile(edu, 'utf8')).resolves.toMatch(/^\/\*\* @jsxImportSource @opentui\/solid \*\//);
+    const source = await readFile(edu, 'utf8');
+    expect(source).toMatch(/^\/\*\* @jsxImportSource @opentui\/solid \*\//);
+    expect(source).toContain('export default { id, setup }');
+    expect(source).toContain("append: 'sidebar.content'");
     expect(JSON.parse(await readFile(join(dir, 'themes/edu.json'), 'utf8')).theme.accent).toBe('#F5A97F');
-    const merged = JSON.parse(await readFile(tuiConfig, 'utf8')) as { theme: string; plugin: string[] };
-    expect(merged.theme).toBe('gentleman');
-    expect(merged.plugin).toEqual(['opencode-subagent-statusline', '/x/tui-plugins/gentle-logo.tsx', edu]);
+    await expect(readFile(join(dir, 'tui.json'), 'utf8')).resolves.toBe(tuiJson);
+    await expect(readFile(join(dir, 'tui.jsonc'), 'utf8')).resolves.toBe(tuiJsonc);
+    await expect(readFile(join(dir, 'cli.json'), 'utf8')).resolves.toBe(cliJson);
+    await expect(readFile(join(dir, 'tui-plugins/edu.tsx'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await uninstallSetup({ home, runner });
-    await expect(readFile(tuiConfig, 'utf8')).resolves.toBe(original);
     await expect(readFile(edu, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(join(dir, 'themes/edu.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(dir, 'tui.json'), 'utf8')).resolves.toBe(tuiJson);
   });
 
-  it('creates tui.json when OpenCode has no TUI config and removes it on uninstall', async () => {
+  it('never creates OpenCode TUI config files on a fresh home', async () => {
     const home = await tempHome();
     const { runner } = fakeRunner();
     const plan = await planSetup({ clis: ['opencode'], packageRoot, home, runner });
     await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' });
-    const tuiConfig = join(home, '.config/opencode/tui.json');
-    expect(JSON.parse(await readFile(tuiConfig, 'utf8'))).toEqual({ plugin: [join(home, '.config/opencode/tui-plugins/edu.tsx')] });
+    for (const file of ['tui.json', 'tui.jsonc', 'cli.json']) {
+      await expect(readFile(join(home, '.config/opencode', file), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    }
     await uninstallSetup({ home, runner });
-    await expect(readFile(tuiConfig, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-  });
-
-  it('edits an existing tui.jsonc in place, keeping comments, when there is no tui.json', async () => {
-    const home = await tempHome();
-    const dir = join(home, '.config/opencode');
-    const jsonc = join(dir, 'tui.jsonc');
-    const original = '{\n  // my TUI plugins\n  "plugin": [\n    "./herdr-tui-session.js", // keep me\n  ],\n}\n';
-    await mkdir(dir, { recursive: true });
-    await writeFile(jsonc, original);
-    const { runner } = fakeRunner();
-    const plan = await planSetup({ clis: ['opencode'], packageRoot, home, runner });
-    await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' });
-    const edited = await readFile(jsonc, 'utf8');
-    expect(edited).toContain('// my TUI plugins');
-    expect(edited).toContain('// keep me');
-    expect(edited).toContain(JSON.stringify(join(dir, 'tui-plugins/edu.tsx')));
-    await expect(readFile(join(dir, 'tui.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-    await uninstallSetup({ home, runner });
-    await expect(readFile(jsonc, 'utf8')).resolves.toBe(original);
   });
 
   it('adds only the Codex global identity fallback after native plugin setup', async () => {
@@ -214,7 +204,7 @@ describe('native setup planning', () => {
     const result = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' /* packageRoot is this repo: never localize its plugin files */ });
     expect(result.installed).toEqual(['codex']);
     await expect(readFile(join(home, '.codex/AGENTS.md'), 'utf8')).resolves.toContain('edu:core:start');
-    await expect(readFile(join(home, '.config/opencode/plugins/edu.ts'), 'utf8')).resolves.toContain('session.created');
+    await expect(readFile(join(home, '.config/opencode/plugins/edu.ts'), 'utf8')).resolves.toMatch(/export default \{\s*id: 'edu',[\s\S]*async setup\(\)/);
     await uninstallSetup({ home, runner });
     await expect(readFile(join(home, '.codex/AGENTS.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(join(home, '.config/opencode/plugins/edu.ts'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });

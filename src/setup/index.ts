@@ -124,32 +124,27 @@ async function appendOpenCodeAssets(plan: InstallPlan, packageRoot: string): Pro
   await appendOpenCodeTui(plan, sourceRoot, destinationRoot);
 }
 
-async function exists(path: string): Promise<boolean> {
-  try { await access(path); return true; } catch { return false; }
-}
+/** Where `edu setup` installs the OpenCode 2 TUI plugin, relative to ~/.config/opencode. */
+export const OPENCODE_TUI_PLUGIN = 'plugins/edu-deck/tui.tsx';
 
 /**
- * The Edu Deck for OpenCode: TUI plugin, `edu` theme, and the plugin's absolute path in tui.json.
- * The theme is installed but never selected; that stays the user's choice. Writes tui.jsonc in
- * place (comments kept) only when the user has a tui.jsonc and no tui.json.
+ * The Edu Deck for OpenCode 2: TUI plugin and `edu` theme. OpenCode 2 reads TUI plugins from
+ * `plugins` in cli.json (directories or packages only; plain file paths are skipped) and also
+ * discovers every `<config>/plugins/<dir>/` that has a `tui` entrypoint. Installing the plugin as
+ * plugins/edu-deck/tui.tsx loads it with no config edit; the server side ignores the directory because
+ * it has no `server`/`index` entrypoint. tui.json / tui.jsonc are OpenCode 1 files that 2.x never reads
+ * (tui.json is only migrated once into cli.json), so setup leaves them alone. The theme is installed
+ * but never selected; that stays the user's choice.
  */
 async function appendOpenCodeTui(plan: InstallPlan, sourceRoot: string, destinationRoot: string): Promise<void> {
   let tui: string;
   try { tui = await readFile(join(sourceRoot, 'tui/edu.tsx'), 'utf8'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
-  const pluginPath = join(destinationRoot, 'tui-plugins/edu.tsx');
-  plan.actions.push({ cli: 'opencode', kind: 'file', path: pluginPath, description: 'Install the Edu Deck OpenCode TUI plugin', content: tui });
+  plan.actions.push({ cli: 'opencode', kind: 'file', path: join(destinationRoot, OPENCODE_TUI_PLUGIN), description: 'Install the Edu Deck OpenCode TUI plugin', content: tui });
   try {
     const theme = await readFile(join(sourceRoot, 'themes/edu.json'), 'utf8');
     plan.actions.push({ cli: 'opencode', kind: 'file', path: join(destinationRoot, 'themes/edu.json'), description: 'Install the edu OpenCode theme', content: theme });
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-  const json = join(destinationRoot, 'tui.json');
-  const jsonc = join(destinationRoot, 'tui.jsonc');
-  const config = !(await exists(json)) && await exists(jsonc) ? jsonc : json;
-  plan.actions.push({
-    cli: 'opencode', kind: 'json-merge', path: config, description: 'Load the Edu Deck TUI plugin',
-    jsonPatch: { plugin: { [UNION]: [pluginPath] } },
-  });
 }
 
 /** Read-only list checks first, so already-installed plugins do not receive duplicate native install commands. */

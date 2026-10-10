@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildPlugins } from './build-plugins.js';
 
@@ -62,6 +63,22 @@ describe('buildPlugins', () => {
     expect(JSON.parse(await readFile(join(root, 'plugins/pi/themes/edu.json'), 'utf8')).name).toBe('edu');
     expect(await readFile(join(root, 'plugins/opencode/tui/edu.tsx'), 'utf8')).toContain('@jsxImportSource @opentui/solid');
     expect(JSON.parse(await readFile(join(root, 'plugins/opencode/themes/edu.json'), 'utf8'))).toEqual({ theme: {} });
+  });
+
+  it('generates an OpenCode server plugin that satisfies both the OpenCode 2 and OpenCode 1 module contracts', async () => {
+    const root = await fixture();
+    await buildPlugins(root);
+    const source = await readFile(join(root, 'plugins/opencode/plugins/edu.ts'), 'utf8');
+    // The generated module is plain JavaScript, so it can be imported as-is.
+    const copy = join(root, 'edu-plugin.mjs');
+    await writeFile(copy, source);
+    const mod = await import(pathToFileURL(copy).href) as { default: { id: unknown; setup: unknown; server: unknown } };
+    // OpenCode 2 (packages/core/src/plugin/module.ts): default { id: string, setup | effect: function }.
+    expect(typeof mod.default.id).toBe('string');
+    expect(typeof mod.default.setup).toBe('function');
+    await expect((mod.default.setup as () => Promise<unknown>)()).resolves.toBeUndefined();
+    // OpenCode 1 (readV1Plugin): default { id, server: function } returning hooks.
+    await expect((mod.default.server as () => Promise<unknown>)()).resolves.toEqual({});
   });
 
   it('falls back to the minimal Pi extension when no Pi template exists', async () => {

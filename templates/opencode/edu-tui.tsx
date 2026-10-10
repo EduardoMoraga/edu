@@ -1,14 +1,23 @@
 /** @jsxImportSource @opentui/solid */
-// Edu for OpenCode: EDU wordmark on home, a stats line, a live deck in the session sidebar and
-// the /edu-deck command. Generated into plugins/opencode/tui by scripts/build-plugins.ts and
-// installed by `edu setup` into ~/.config/opencode/tui-plugins/edu.tsx (listed in tui.json).
+// Edu for OpenCode 2: a brain/crew line in the home footer, a live deck in the session sidebar and
+// the /edu-deck command. OpenCode 2 TUI plugin contract: `export default { id, setup(context) }`,
+// UI placed with context.ui.slot({ append: '<slot path>', render }), commands with context.keymap.layer.
+// Generated into plugins/opencode/tui by scripts/build-plugins.ts and installed by `edu setup` as
+// ~/.config/opencode/plugins/edu-deck/tui.tsx (OpenCode 2 discovers TUI plugins as directories).
 // @ts-nocheck: @opentui/solid and solid-js are provided by OpenCode at load time.
 import { execFile } from 'node:child_process'
 import { basename } from 'node:path'
 import { useTerminalDimensions } from '@opentui/solid'
 import { createSignal, For, Show } from 'solid-js'
 
-const id = 'edu'
+/** Edu's tagline, Spanish when EDU_LANG or the POSIX locale says so (same rule as the CLI). */
+const TAGLINE = (() => {
+  const env = process.env;
+  const lang = (env.EDU_LANG || env.LC_ALL || env.LC_MESSAGES || env.LANG || '').toLowerCase();
+  return lang.startsWith('es') ? 'tu agente orquestador, con memoria propia' : 'your orchestrator agent, with a memory of its own';
+})();
+
+const id = 'edu.deck'
 const windows = process.platform === 'win32'
 const EDU = process.env.EDU_BIN || 'edu'
 const REFRESH_MS = 3000
@@ -20,13 +29,6 @@ const WARN = '#EED49F'
 const BAD = '#ED8796'
 const MUTED = '#8087A2'
 
-const WORDMARK = [
-  '███████ ██████  ██   ██',
-  '██      ██   ██ ██   ██',
-  '█████   ██   ██ ██   ██',
-  '██      ██   ██ ██   ██',
-  '███████ ██████   █████ ',
-]
 const WORDMARK_SMALL = ['█▀▀ █▀▄ █ █', '██▄ █▄▀ █▄█']
 
 const ACTIVE = new Set(['running', 'queued', 'awaiting-approval'])
@@ -88,8 +90,8 @@ function summary(deck, cwd) {
   return lines.join('\n')
 }
 
-const tui = async (api) => {
-  const cwd = () => api.state?.path?.directory || process.cwd()
+function setup(context) {
+  const cwd = () => context.location?.directory || process.cwd()
   const [deck, setDeck] = createSignal(undefined)
   const [now, setNow] = createSignal(Date.now())
   let inflight = false
@@ -106,50 +108,41 @@ const tui = async (api) => {
   void refresh()
   const timer = setInterval(() => { void refresh() }, REFRESH_MS)
   timer.unref?.()
-  api.lifecycle.onDispose(() => clearInterval(timer))
 
-  const text = () => api.theme.current.text
-  const muted = () => api.theme.current.textMuted ?? MUTED
+  const text = () => context.theme?.text?.base ?? '#CAD3F5'
+  const muted = () => context.theme?.text?.muted ?? MUTED
 
-  const Logo = () => {
+  // Home footer status row: ◆ EDU project · brain c/p/e/t · crew running/approvals · spec.
+  const Stats = () => {
     const dim = useTerminalDimensions()
-    const art = () => (dim().width >= 40 && dim().height >= 20 ? WORDMARK : WORDMARK_SMALL)
     return (
-      <box flexDirection="column" alignItems="center">
-        <For each={art()}>{(line) => <text fg={ACCENT}>{line}</text>}</For>
-        <text fg={muted()}>your agent, with a memory</text>
+      <box flexDirection="row" flexShrink={0} gap={1}>
+        <text fg={ACCENT}><b>◆ EDU</b></text>
+        <Show when={deck()} fallback={<text fg={muted()}>{basename(cwd())}</text>}>
+          <text fg={text()}>{clip(deck().project.name, 20)}</text>
+          <Show when={deck().brain.present} fallback={<text fg={muted()}>· no brain · edu init</text>}>
+            <text fg={muted()}>· brain</text>
+            <text fg={OK}>{String(deck().brain.canonical)}</text>
+            <text fg={muted()}>/</text>
+            <text fg={WARN}>{String(deck().brain.proposed)}</text>
+            <text fg={muted()}>/</text>
+            <text fg={text()}>{String(deck().brain.episodic)}</text>
+            <text fg={muted()}>· crew</text>
+            <text fg={deck().jobs.some((job) => job.status === 'running') ? ACCENT : muted()}>
+              {String(deck().jobs.filter((job) => job.status === 'running').length)}
+            </text>
+            <Show when={deck().approvals}>
+              <text fg={WARN}>{`⏸ ${deck().approvals}`}</text>
+            </Show>
+            <Show when={deck().spec && dim().width >= 100}>
+              <text fg={muted()}>· spec</text>
+              <text fg={text()}>{clip(deck().spec.name, 20)}</text>
+            </Show>
+          </Show>
+        </Show>
       </box>
     )
   }
-
-  const Stats = () => (
-    <box flexDirection="row" justifyContent="center" gap={1}>
-      <text fg={ACCENT}>◆</text>
-      <Show when={deck()} fallback={<text fg={muted()}>{`Edu · ${basename(cwd())}`}</text>}>
-        <text fg={text()}>{deck().project.name}</text>
-        <Show when={deck().brain.present} fallback={<text fg={muted()}>· no brain here · edu init</text>}>
-          <text fg={muted()}>· brain</text>
-          <text fg={OK}>{String(deck().brain.canonical)}</text>
-          <text fg={muted()}>/</text>
-          <text fg={WARN}>{String(deck().brain.proposed)}</text>
-          <text fg={muted()}>/</text>
-          <text fg={text()}>{String(deck().brain.episodic)}</text>
-          <text fg={muted()}>/</text>
-          <text fg={muted()}>{String(deck().brain.transitive)}</text>
-          <text fg={muted()}>· crew</text>
-          <text fg={deck().jobs.some((job) => job.status === 'running') ? ACCENT : muted()}>
-            {String(deck().jobs.filter((job) => job.status === 'running').length)}
-          </text>
-          <text fg={muted()}>/</text>
-          <text fg={deck().approvals ? WARN : muted()}>{String(deck().approvals)}</text>
-          <Show when={deck().spec}>
-            <text fg={muted()}>· spec</text>
-            <text fg={text()}>{clip(deck().spec.name, 24)}</text>
-          </Show>
-        </Show>
-      </Show>
-    </box>
-  )
 
   const Row = (props) => (
     <box flexDirection="row" justifyContent="space-between">
@@ -160,7 +153,7 @@ const tui = async (api) => {
 
   const Sidebar = () => (
     <Show when={deck()}>
-      <box flexDirection="column">
+      <box flexDirection="column" paddingTop={1}>
         <Row right={deck().spec ? clip(deck().spec.name, 18) : undefined}>
           <text fg={ACCENT}><b>◆ EDU</b></text>
         </Row>
@@ -193,33 +186,36 @@ const tui = async (api) => {
     </Show>
   )
 
-  api.slots.register({
-    order: 100,
-    slots: {
-      home_logo() { return <Logo /> },
-      home_bottom() { return <Stats /> },
-      sidebar_content() { return <Sidebar /> },
+  // OpenCode 2 has no home-logo slot; the wordmark and tagline open the /edu-deck dialog instead.
+  const open = async () => {
+    await refresh()
+    const message = [...WORDMARK_SMALL, TAGLINE, '', summary(deck(), cwd())].join('\n')
+    await context.ui.dialog.alert({ title: '◆ Edu Deck', message })
+  }
+
+  context.ui.slot({ append: 'home.footer.status', render: () => <Stats /> })
+  context.ui.slot({ append: 'sidebar.content', render: () => <Sidebar /> })
+  // Commands live in a keymap layer owned by a mounted component; the app slot is always mounted.
+  context.ui.slot({
+    append: 'app',
+    render() {
+      context.keymap.layer(() => ({
+        mode: 'global',
+        commands: [{
+          id: 'edu.deck',
+          title: 'Edu Deck',
+          description: 'Brain, spec and crew for this project',
+          group: 'Edu',
+          slash: { name: 'edu-deck' },
+          palette: true,
+          run() { void open() },
+        }],
+      }))
+      return null
     },
   })
 
-  const open = async () => {
-    await refresh()
-    const message = summary(deck(), cwd())
-    const Alert = api.ui.DialogAlert
-    if (Alert && api.ui.dialog) api.ui.dialog.replace(() => <Alert title="◆ Edu Deck" message={message} />)
-    else api.ui.toast({ variant: 'info', title: 'Edu Deck', message, duration: 8000 })
-  }
-
-  const unregister = api.command?.register?.(() => [{
-    title: 'Edu Deck',
-    value: 'edu.deck',
-    description: 'Brain, spec and crew for this project',
-    category: 'Edu',
-    slash: { name: 'edu-deck' },
-    onSelect: () => { void open() },
-  }])
-  if (typeof unregister === 'function') api.lifecycle.onDispose(unregister)
+  return () => clearInterval(timer)
 }
 
-const plugin = { id, tui }
-export default plugin
+export default { id, setup }
