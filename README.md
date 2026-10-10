@@ -21,10 +21,22 @@ them, hand work to the others and watch it happen.
 
 ## Quickstart
 
-```bash
-npm i -g edu-agent      # Node >= 22 · or: npm i -g github:EduardoMoraga/edu
-edu setup               # detects your CLIs and installs Edu into each one
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.ps1 | iex
 ```
+
+**macOS / Linux**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.sh | bash
+```
+
+The installer checks Node.js 22+, installs Edu and runs `edu setup`, which connects Edu to every
+coding CLI it finds. Prefer npm directly?
+`npm i -g https://github.com/EduardoMoraga/edu/releases/latest/download/edu-agent.tgz` then `edu setup`
+(or `npm i -g github:EduardoMoraga/edu`).
 
 Open your CLI and ask: **"what do you remember?"** — Edu answers from its brain.
 

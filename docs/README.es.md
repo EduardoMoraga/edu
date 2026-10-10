@@ -21,10 +21,22 @@ cualquiera de ellos se puede delegar trabajo a los demás y verlo en curso.
 
 ## Inicio rápido
 
-```bash
-npm i -g edu-agent      # Node >= 22 · o bien: npm i -g github:EduardoMoraga/edu
-edu setup               # detecta sus CLIs e instala Edu en cada una
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.ps1 | iex
 ```
+
+**macOS / Linux**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.sh | bash
+```
+
+El instalador verifica Node.js 22+, instala Edu y ejecuta `edu setup`, que conecta Edu con cada CLI
+de programación que encuentre. ¿Prefiere npm directamente?
+`npm i -g https://github.com/EduardoMoraga/edu/releases/latest/download/edu-agent.tgz` y luego `edu setup`
+(o `npm i -g github:EduardoMoraga/edu`).
 
 Abra su CLI y pregunte: **"what do you remember?"** (o "¿qué recuerdas?"). Edu responde desde
 su cerebro.

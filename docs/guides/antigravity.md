@@ -3,7 +3,8 @@
 ## Install
 
 ```bash
-npm i -g edu-agent && edu setup
+# Windows: irm https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.ps1 | iex
+curl -fsSL https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.sh | bash
 ```
 
 Or install the plugin folder shipped in the npm package:

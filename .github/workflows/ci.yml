@@ -48,8 +48,28 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Committed dist is up to date
+        if: runner.os == 'Linux'
+        run: git diff --exit-code -- dist || (echo "dist/ is stale: run npm run build and commit it" && exit 1)
+
       - name: Check generated plugins
         run: npm run build:plugins -- --check
 
       - name: Smoke install
         run: bash scripts/smoke-install.sh
+
+      - name: One-line installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          npm pack --pack-destination $env:RUNNER_TEMP
+          $env:EDU_ASSET = (Get-ChildItem "$env:RUNNER_TEMP\edu-agent-*.tgz").FullName
+          ./scripts/install.ps1
+          edu --version
+
+      - name: One-line installer (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          EDU_ASSET="$(ls "$RUNNER_TEMP"/edu-agent-*.tgz)" bash scripts/install.sh
+          edu --version

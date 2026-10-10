@@ -1,6 +1,6 @@
 {
   "name": "edu-agent",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Edu — an installable, LLM-agnostic agentic harness: a self-improving second brain, an orchestrator with identity, and a live terminal view of your agents.",
   "type": "module",
   "bin": {
@@ -29,8 +29,8 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm test && npm run build",
     "prepack": "npm run build",
-    "prepare": "npm run build",
-    "smoke": "bash scripts/smoke-install.sh"
+    "smoke": "bash scripts/smoke-install.sh",
+    "check:dist": "npm run build && git diff --exit-code -- dist"
   },
   "keywords": [
     "agents",
