@@ -43,7 +43,7 @@ describe('configurable brain directory', () => {
     expect(note.path.startsWith(join(root, 'KNOW', '3-transitive'))).toBe(true);
     await brain.rebuildIndex();
     expect(await readFile(join(root, 'KNOW', '0-index', 'INDEX.md'), 'utf8')).toContain('Small PRs');
-    expect(await readFile(join(root, 'KNOW', '0-index', 'Lessons.base'), 'utf8')).toContain('KNOW/3-transitive');
+    expect(await readFile(join(root, 'KNOW', '0-index', 'Lessons.base'), 'utf8')).toContain('file.inFolder("KNOW/3-transitive")');
     expect((await brain.list()).map(n => n.meta.title)).toEqual(['Small PRs']);
   });
 });
@@ -61,6 +61,7 @@ describe('Obsidian Bases', () => {
     await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Small PRs', body: 'x' });
     await brain.rebuildIndex();
     const base = await readFile(join(root, '01-CONOCIMIENTO', '0-index', 'Lessons.base'), 'utf8');
+    expect(base).not.toContain('formula.project');
     expect(base).toContain('file.inFolder("04-PROYECTOS/demo/01-CONOCIMIENTO/3-transitive")');
     expect(base).toContain('kind == "lesson"');
   });
@@ -78,6 +79,8 @@ describe('Obsidian Bases', () => {
     await brain.write({ tier: 'transitive', kind: 'hypothesis', title: 'H', body: 'x' });
     await brain.rebuildIndex();
     const base = await readFile(join(vault, '01-CONOCIMIENTO', '0-index', 'Hypotheses.base'), 'utf8');
-    expect(base).toContain('file.inFolder("01-CONOCIMIENTO/3-transitive")');
+    // A brain directly under the vault root is the orchestrator: it spans every workspace's tier folder.
+    expect(base).toContain('file.path.contains("/3-transitive/")');
+    expect(base).toContain('formula.project');
   });
 });

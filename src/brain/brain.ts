@@ -1,8 +1,8 @@
 import { access, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { stringify } from 'yaml';
 import type { BrainLocation, CanonicalKind, ClaimBand, Note, NoteMeta, RecallHit, Tier } from '../core/contracts.js';
-import { brainPath, vaultFolder } from './location.js';
+import { brainPath } from './location.js';
+import { writeObsidianViews, type ViewOptions } from './views.js';
 import { INDEX_DIR, atomicWrite, createId, encodeNote, notePath, overlayNotes } from './store.js';
 import { assertDecisionReversion, isClosedEpisode, validateTransition, validateStatus } from './lifecycle.js';
 import { feedbackUsage, applyLearning, recordUsage } from './learning.js';
@@ -59,7 +59,7 @@ const defaultStatus = (tier: Tier, kind: NoteMeta['kind']): NoteMeta['status'] =
 export const REJECT_SOURCE = 'edu:reject';
 const immutableCanonical = (meta: NoteMeta) => meta.tier === 'canonical' && (meta.status === 'accepted' || meta.status === 'superseded');
 
-export function openBrain(locations: BrainLocation[]): Brain {
+export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions = {}): Brain {
   if (!locations.length) throw new Error('openBrain requires at least one location');
   const primary = locations[0]!;
   const all = () => overlayNotes(locations);
@@ -224,16 +224,7 @@ export function openBrain(locations: BrainLocation[]): Brain {
         lines.push('');
       }
       await atomicWrite(join(brainPath(primary), INDEX_DIR, 'INDEX.md'), `${lines.join('\n')}\n`);
-      for (const [kind, file, props] of [
-        ['lesson', 'Lessons.base', ['title', 'status', 'tags', 'usage.wins', 'usage.losses']],
-        ['commitment', 'Commitments.base', ['title', 'status', 'owner', 'due', 'tags']],
-        ['hypothesis', 'Hypotheses.base', ['title', 'status', 'band', 'tags']],
-        ['session', 'Sessions.base', ['title', 'status', 'created', 'source']],
-      ] as const) {
-        const folder = kind === 'session' ? '2-episodic' : kind === 'lesson' || kind === 'commitment' || kind === 'hypothesis' ? '3-transitive' : '';
-        const content = stringify({ filters: { and: [`file.inFolder("${vaultFolder(primary, folder)}")`, `kind == "${kind}"`] }, views: [{ type: 'table', name: kind[0]!.toUpperCase() + kind.slice(1), order: props.map(prop => prop.startsWith('usage.') ? `note.${prop}` : `note.${prop}`) }] });
-        await atomicWrite(join(brainPath(primary), INDEX_DIR, file), content);
-      }
+      await writeObsidianViews(primary, viewOptions);
     },
     async stats() {
       const notes = await all();

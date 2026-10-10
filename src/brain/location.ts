@@ -12,7 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { BrainLocation, WorkspaceIdentity } from '../core/contracts.js';
 
-export interface WorkspaceSettings { brainDir?: string; sourcesDir?: string; identity?: WorkspaceIdentity }
+export interface WorkspaceSettings { brainDir?: string; sourcesDir?: string; identity?: WorkspaceIdentity; lang?: 'en' | 'es' }
 
 /** The brain folder of a location. */
 export function brainPath(location: BrainLocation): string {
@@ -50,6 +50,7 @@ export async function readWorkspaceSettings(eduRoot: string): Promise<WorkspaceS
   if (brainDir) settings.brainDir = brainDir;
   const sourcesDir = text(config.sourcesDir);
   if (sourcesDir) settings.sourcesDir = sourcesDir;
+  if (config.lang === 'en' || config.lang === 'es') settings.lang = config.lang;
   const identity = config.identity as Record<string, unknown> | undefined;
   const name = text(identity?.name);
   if (identity && typeof identity === 'object' && name) {
@@ -65,19 +66,30 @@ export async function withBrainDir(location: BrainLocation): Promise<BrainLocati
   return brainDir ? { ...location, brainDir: resolveBrainDir(location.root, brainDir) } : location;
 }
 
-/** The brain-relative prefix Obsidian sees for a tier folder (vault = workspace root when brainDir is set). */
+/** Where a brain sits inside its enclosing Obsidian vault: the vault folder and the brain's vault-relative path ('/'-separated). */
+export interface VaultPlacement { vault: string; brainRel: string }
+
 /**
- * A brain folder's path as Obsidian sees it: relative to the nearest enclosing vault (a folder with
- * `.obsidian/`), following symlinks so a global brain linked into a vault still matches. Without an
- * enclosing vault it falls back to the path below the workspace root.
+ * The nearest enclosing vault (a folder with `.obsidian/`) of a brain folder, following symlinks so a
+ * global brain linked into a vault still matches. Undefined when no ancestor is a vault.
  */
-export function vaultFolder(location: BrainLocation, folder: string): string {
+export function vaultPlacement(location: BrainLocation): VaultPlacement | undefined {
   const brain = brainPath(location);
   let real = brain;
   try { real = realpathSync(brain); } catch { /* not created yet */ }
   for (let dir = dirname(real); dir !== dirname(dir); dir = dirname(dir)) {
-    if (existsSync(join(dir, '.obsidian'))) return `${relative(dir, real).split(sep).join('/')}/${folder}`;
+    if (existsSync(join(dir, '.obsidian'))) return { vault: dir, brainRel: relative(dir, real).split(sep).join('/') };
   }
+  return undefined;
+}
+
+/**
+ * A brain folder's path as Obsidian sees it: relative to the nearest enclosing vault (see
+ * `vaultPlacement`). Without an enclosing vault it falls back to the path below the workspace root.
+ */
+export function vaultFolder(location: BrainLocation, folder: string): string {
+  const placed = vaultPlacement(location);
+  if (placed) return `${placed.brainRel}/${folder}`;
   if (!location.brainDir) return `brain/${folder}`;
   const rel = relative(dirname(resolve(location.root)), location.brainDir).split(sep).join('/');
   return `${rel}/${folder}`;
