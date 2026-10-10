@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { access, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { CliId } from '../core/contracts.js';
 import { instructionActions } from '../adapters/common.js';
@@ -217,25 +217,43 @@ export async function uninstallSetup(options: { home: string; runner?: SetupRunn
   let manifest: SetupManifest;
   try { manifest = JSON.parse(await readFile(path, 'utf8')) as SetupManifest; }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Edu setup manifest not found: ${path}`);
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw error;
   }
   const runner = options.runner ?? defaultRunner;
   const commands: Record<CliId, (root: string) => SetupCommand[]> = {
-    claude: () => [{ cli: 'claude', command: 'claude', args: ['plugin', 'uninstall', 'edu@edu'] }],
-    codex: () => [{ cli: 'codex', command: 'codex', args: ['plugin', 'remove', 'edu@edu'] }],
+    claude: () => [
+      { cli: 'claude', command: 'claude', args: ['plugin', 'uninstall', 'edu@edu'] },
+      { cli: 'claude', command: 'claude', args: ['plugin', 'marketplace', 'remove', 'edu'] },
+    ],
+    codex: () => [
+      { cli: 'codex', command: 'codex', args: ['plugin', 'remove', 'edu@edu'] },
+      { cli: 'codex', command: 'codex', args: ['plugin', 'marketplace', 'remove', 'edu'] },
+    ],
     pi: (root) => [{ cli: 'pi', command: 'pi', args: ['remove', root] }],
     opencode: () => [],
     agy: () => [{ cli: 'agy', command: 'agy', args: ['plugin', 'uninstall', 'edu'] }],
   };
+  const failures: string[] = [];
   for (const cli of manifest.native) {
     for (const command of commands[cli](manifest.packageRoot)) {
-      const result = await runner(command);
-      if (result.exitCode !== 0) throw new Error(`${command.command} ${command.args.join(' ')} failed: ${result.stderr || result.stdout || result.exitCode}`);
+      try {
+        const result = await runner(command);
+        if (result.exitCode !== 0) failures.push(`${command.command} ${command.args.join(' ')} failed: ${result.stderr || result.stdout || result.exitCode}`);
+      } catch (error) {
+        failures.push(`${command.command} ${command.args.join(' ')} failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
-  if (manifest.adapterManifestPath) await uninstall({ manifestPath: manifest.adapterManifestPath, force: options.force });
-  await (await import('node:fs/promises')).unlink(path);
+  if (manifest.adapterManifestPath) {
+    try { await uninstall({ manifestPath: manifest.adapterManifestPath, force: options.force }); }
+    catch (error) {
+      failures.push(`Managed adapter cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new AggregateError(failures, failures.join('\n'));
+    }
+  }
+  await unlink(path);
+  if (failures.length) throw new AggregateError(failures, failures.join('\n'));
 }
 
 export async function needsFirstRunSetup(home: string): Promise<boolean> {

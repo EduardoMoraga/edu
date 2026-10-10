@@ -115,7 +115,7 @@ async function scan(directory: string, relative: string, files: Map<string, stri
     const path = join(directory, entry.name);
     const key = join(relative, entry.name).replaceAll('\\', '/');
     if (entry.isDirectory()) await scan(path, key, files);
-    else if (entry.isFile()) files.set(key, await readFile(path, 'utf8'));
+    else if (entry.isFile()) files.set(key, (await readFile(path, 'utf8')).replace(/\r\n/g, '\n'));
   }
 }
 

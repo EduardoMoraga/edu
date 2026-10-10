@@ -30,6 +30,7 @@ export interface CrewJobInfo {
   createdAt?: string;
   endedAt?: string;
   summary?: string;
+  mode?: 'pane' | 'headless';
 }
 
 export interface CrewChunk {
@@ -49,7 +50,7 @@ const STATUSES: ReadonlySet<string> = new Set(['queued', 'running', 'done', 'fai
 const TERMINAL: ReadonlySet<CrewJobStatus> = new Set(['done', 'failed', 'cancelled']);
 
 /** Reads `<brainRoot>/crew/*.json` and tails `<jobId>.jsonl` by byte offset. */
-export function fsCrewSource(brainRoot: string): CrewSource {
+export function fsCrewSource(brainRoot: string, refresh?: (jobId: string) => Promise<unknown>): CrewSource {
   const dir = join(brainRoot, 'crew');
   return {
     async list() {
@@ -59,7 +60,13 @@ export function fsCrewSource(brainRoot: string): CrewSource {
       } catch {
         return [];
       }
-      const jobs = await Promise.all(files.map((f) => readJob(join(dir, f))));
+      const jobs = await Promise.all(files.map(async f => {
+        const path = join(dir, f);
+        const job = await readJob(path);
+        if (job?.mode !== 'pane' || job.status !== 'running' || !refresh) return job;
+        await refresh(job.id).catch(() => undefined);
+        return (await readJob(path)) ?? job;
+      }));
       return jobs.filter((j): j is CrewJobInfo => j !== undefined);
     },
     async read(jobId, offset) {
@@ -83,6 +90,7 @@ async function readJob(path: string): Promise<CrewJobInfo | undefined> {
       createdAt: typeof job.createdAt === 'string' ? job.createdAt : undefined,
       endedAt: typeof job.endedAt === 'string' ? job.endedAt : undefined,
       summary: typeof job.summary === 'string' ? job.summary : undefined,
+      mode: job.mode === 'pane' ? 'pane' : 'headless',
     };
   } catch {
     return undefined; // missing, mid-write or malformed: picked up on a later poll

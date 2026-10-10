@@ -6,6 +6,7 @@
  */
 import type { Command } from 'commander';
 import { fsCrewSource } from '../../tui/crew.js';
+import { createCrew } from '../../crew/index.js';
 import type { CliContext } from '../context.js';
 import { uiLang } from '../i18n.js';
 import { action, parseIntOption } from '../kit.js';
@@ -25,7 +26,8 @@ export function registerWatch(program: Command, ctx: CliContext): void {
       action<WatchOpts>(ctx, async ({ g, opts, cmd }, jobId) => {
         const pollMs = parseIntOption(opts.poll ?? '500', '--poll');
         const ws = await openWorkspace(ctx, g.cwd);
-        const source = fsCrewSource(ws.primary.root);
+        const crew = createCrew({ brainRoot: ws.primary.root, locations: ws.locations });
+        const source = fsCrewSource(ws.primary.root, jobId => crew.status(jobId));
         const id = jobId?.trim() || undefined;
         const { watchInTui, watchPlain } = await import('../run/watch.js');
         if (!ctx.isTTY) return watchPlain(ctx, { source, jobId: id, lang: g.lang });

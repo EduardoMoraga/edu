@@ -43,6 +43,9 @@ what is connected.
 | **Antigravity** | `agy plugin install "$(npm root -g)/edu-agent/plugins/agy"` | skills, agents, rules (identity), MCP | ask, or name a skill: `edu-review` |
 | **DeepSeek** | use it as a model provider in OpenCode or Pi | everything the host CLI gets | same as the host CLI |
 
+Manual plugin installation is incomplete: run `edu setup` afterward to initialize the global
+brain and install the Codex identity instructions. The marketplace commands alone do not do this.
+
 Seven workflows, the same everywhere: **brief · recall · remember · reflect · crew · review ·
 status**. Per-CLI details: [Claude Code](docs/guides/claude.md) · [Codex](docs/guides/codex.md) ·
 [Pi](docs/guides/pi.md) · [OpenCode](docs/guides/opencode.md) ·
@@ -65,7 +68,8 @@ jobs can open in a visible pane next to you; otherwise they run headless.
 ```
 
 A read-only reviewer from a **different vendor** checks your diff (`edu_crew_review`) and
-returns ranked findings. Same-vendor review is used only when nothing else is installed.
+returns ranked findings. If no different vendor is installed, Edu asks you to select an
+available reviewer explicitly.
 
 **Mission control.** `edu watch` in a second terminal shows every crew job live: agents,
 status, tokens and cost.

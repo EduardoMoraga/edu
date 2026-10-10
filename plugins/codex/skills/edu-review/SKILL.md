@@ -17,8 +17,7 @@ description: "Get an independent, cross-vendor review of the current diff throug
 2. Call `edu_crew_review` with `base` (default: the working-tree diff against `HEAD`)
    and, only if the user named one, `cli`. Edu picks a reviewer from a different vendor
    than you when one is available, and runs it read-only.
-3. If it returns a job id instead of findings, poll `edu_crew_status` and fetch
-   `edu_crew_result`.
+3. `edu_crew_review` returns findings directly. Read its summary before deciding what to do.
 4. Verify each finding against the code before acting on it. Fix confirmed issues, or
    explain why a finding does not apply.
 
@@ -31,5 +30,5 @@ description: "Get an independent, cross-vendor review of the current diff throug
 ## Failure handling
 
 - `edu_crew_review` is missing: tell the user to run `edu setup`, then restart this CLI.
-- No other vendor is installed: say the review comes from the same vendor in a fresh
-  context, so it is weaker evidence.
+- No other vendor is installed: ask the user to select an installed reviewer CLI explicitly,
+  explaining that a same-vendor review is weaker evidence.

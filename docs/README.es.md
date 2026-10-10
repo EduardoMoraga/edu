@@ -44,6 +44,10 @@ cerebro global (`~/.edu`) y registra cada cambio para que `edu uninstall` pueda 
 | **Antigravity** | `agy plugin install "$(npm root -g)/edu-agent/plugins/agy"` | skills, agentes, reglas (identidad), MCP | en lenguaje natural o nombrando la skill: `edu-review` |
 | **DeepSeek** | como proveedor de modelos en OpenCode o Pi | todo lo que obtiene la CLI anfitriona | igual que la CLI anfitriona |
 
+La instalación manual del plugin queda incompleta: ejecute `edu setup` después para inicializar
+el cerebro global e instalar las instrucciones de identidad de Codex. Los comandos del marketplace
+no realizan estos pasos.
+
 Siete flujos, iguales en todas partes: **brief · recall · remember · reflect · crew · review ·
 status**. Las skills reconocen frases en español ("ponme al día", "recuerda esto", "pídele a
 codex que…"). Detalle por CLI: [Claude Code](guides/claude.md) · [Codex](guides/codex.md) ·
@@ -66,8 +70,8 @@ un panel visible a su lado; si no, corre en segundo plano.
 ```
 
 Un revisor de solo lectura de **otro proveedor** revisa su diff (`edu_crew_review`) y
-devuelve hallazgos ordenados por severidad. Solo se usa el mismo proveedor cuando no hay otro
-instalado.
+devuelve hallazgos ordenados por severidad. Si no hay otro proveedor instalado, Edu solicita
+que seleccione explícitamente un revisor disponible.
 
 **Centro de control.** `edu watch` en una segunda terminal muestra cada trabajo del equipo en
 vivo: agentes, estado, tokens y costo.

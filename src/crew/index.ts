@@ -1,7 +1,8 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Autonomy, BrainLocation, CliId, CrewJob, CrewJobMode, Engine } from '../core/contracts.js';
 import { detectEngines, createEngine } from '../engine/index.js';
 import { truncateToTokens } from '../context/index.js';
@@ -13,6 +14,8 @@ const execFile = promisify(execFileCallback);
 const defaultRoot = () => resolve(process.env.EDU_HOME || join(homedir(), '.edu'));
 export interface CrewOptions {
   brainRoot?: string;
+  workspaceRoot?: string;
+  callerEnv?: NodeJS.ProcessEnv;
   locations?: BrainLocation[];
   store?: CrewStore;
   engineFactory?: (cli: CliId) => Engine;
@@ -33,13 +36,22 @@ export function createCrew(options: CrewOptions = {}) {
   const detect = options.detectClis ?? detectEngines;
   const sleep = options.sleep ?? (ms => new Promise(resolveSleep => setTimeout(resolveSleep, ms)));
   const clock = options.clock ?? Date.now;
+  const workspaceRoot = options.workspaceRoot ?? (options.locations?.find(loc => loc.scope === 'project')?.root
+    ? dirname(options.locations.find(loc => loc.scope === 'project')!.root)
+    : options.brainRoot ? (basename(options.brainRoot) === '.edu' ? dirname(options.brainRoot) : options.brainRoot) : process.cwd());
 
   return {
     async dispatch(input: DispatchInput): Promise<CrewJob> {
       if (!input.task.trim()) throw new Error('Crew task must not be empty');
+      const boundary = await realpath(workspaceRoot);
+      const cwd = await realpath(resolve(input.cwd ?? workspaceRoot));
+      const fromBoundary = relative(boundary, cwd);
+      if (fromBoundary === '..' || fromBoundary.startsWith(`..${sep}`) || isAbsolute(fromBoundary)) {
+        throw new Error(`Crew dispatch cwd is outside the workspace: ${input.cwd ?? cwd}`);
+      }
       const requestedMode = input.mode ?? 'headless';
       const availablePane = requestedMode === 'pane' && await herdrAvailable(options.herdr);
-      const job = await store.create({ cli: input.cli, task: input.task.trim(), mode: availablePane ? 'pane' : 'headless', cwd: resolve(input.cwd ?? process.cwd()), autonomy: input.autonomy ?? 'ask' });
+      const job = await store.create({ cli: input.cli, task: input.task.trim(), mode: availablePane ? 'pane' : 'headless', cwd, autonomy: input.autonomy ?? 'ask' });
       if (requestedMode === 'pane' && !availablePane) await store.update(job.id, { note: 'Herdr unavailable; dispatched as headless.' });
       if (availablePane) return dispatchPane(job, { ...options.herdr, store, brainRoot: root });
       return (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root });
@@ -64,7 +76,9 @@ export function createCrew(options: CrewOptions = {}) {
     },
     async review(input: ReviewInput = {}): Promise<{ cli: CliId; summary: string }> {
       const available = await detect();
-      const reviewer = input.cli ?? available.find(cli => cli !== input.callerCli);
+      const callerEnv = options.callerEnv ?? process.env;
+      const caller = input.callerCli ?? (callerEnv.ANTIGRAVITY || callerEnv.ANTIGRAVITY_AGENT || callerEnv.GEMINI_CLI ? 'agy' : undefined);
+      const reviewer = input.cli ?? available.find(cli => cli !== caller);
       if (!reviewer || !available.includes(reviewer)) throw new Error('No available reviewer CLI different from the caller; specify an installed --cli');
       const base = input.base ?? 'HEAD';
       const rawDiff = await (options.diff ?? defaultDiff)(base, process.cwd());

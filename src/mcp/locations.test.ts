@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -28,4 +28,19 @@ describe('launchDirectory', () => {
     expect(launchDirectory({ PWD: home }, '/work/project')).toBe('/work/project');
     expect(launchDirectory({}, '/x/plugins/edu')).toBe('/x/plugins/edu');
   });
+});
+
+it('initializes a rebound workspace brain after a transient roots/list failure', async () => {
+  const { resolveReboundLocations } = await import('./stdio.js');
+  const root = await mkdtemp(join(tmpdir(), 'edu-rebound-'));
+  roots.push(root);
+  let attempts = 0;
+  const locations = await resolveReboundLocations('/plugin/edu', { EDU_HOME: join(root, 'global') }, async () => {
+    attempts++;
+    if (attempts === 1) throw new Error('roots not ready');
+    return [`file://${root}`];
+  });
+  expect(attempts).toBe(2);
+  expect(locations?.[0]).toEqual({ scope: 'project', root: join(root, '.edu') });
+  expect(await readFile(join(root, '.edu/EDU.md'), 'utf8')).toContain('Edu');
 });

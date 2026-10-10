@@ -76,6 +76,33 @@ describe('Edu MCP tools', () => {
 });
 
 describe('workspace binding', () => {
+  it('shares one rebound bind across concurrent first tool calls', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'edu-concurrent-bind-'));
+    roots.push(root);
+    const location = { scope: 'project' as const, root };
+    await openBrain([location]).init(location);
+    let binds = 0;
+    const server = createEduMcpServer({ locations: [location], resolveLocations: async () => {
+      binds++;
+      await new Promise(resolve => setTimeout(resolve, 10));
+      return [location];
+    } });
+    const client = new Client({ name: 'edu-test', version: '1.0.0' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(b);
+    await client.connect(a);
+    try {
+      await Promise.all([
+        client.callTool({ name: 'edu_brief', arguments: {} }),
+        client.callTool({ name: 'edu_commitments', arguments: {} }),
+      ]);
+      expect(binds).toBe(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it('rebinds to the brain of the client root before the first tool call', async () => {
     const pluginDir = await mkdtemp(join(tmpdir(), 'edu-plugin-'));
     const project = await mkdtemp(join(tmpdir(), 'edu-project-'));
@@ -125,5 +152,16 @@ describe('tool annotations', () => {
     expect(tools.find(t => t.name === 'edu_crew_dispatch')?.annotations?.destructiveHint).toBe(true);
     expect(tools.every(t => t.annotations)).toBe(true);
     await client.close();
+  });
+});
+
+describe('caller detection', () => {
+  it('prefers the MCP client name and falls back to environment hints', async () => {
+    const { detectCallerCli } = await import('./server.js');
+    expect(detectCallerCli({}, 'antigravity-cli')).toBe('agy');
+    expect(detectCallerCli({}, 'claude-code')).toBe('claude');
+    expect(detectCallerCli({}, 'codex-mcp-client')).toBe('codex');
+    expect(detectCallerCli({ OPENCODE: '1' })).toBe('opencode');
+    expect(detectCallerCli({})).toBeUndefined();
   });
 });

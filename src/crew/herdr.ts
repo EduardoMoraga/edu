@@ -39,12 +39,14 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
   const store = options.store ?? createCrewStore(options.brainRoot ?? process.env.EDU_HOME ?? `${process.env.HOME ?? ''}/.edu`);
   const runner = options.runner ?? defaultRunner;
   const now = options.now ?? (() => new Date());
+  let paneId: string | undefined;
+  let agentStarted = false;
   try {
     if (!await herdrAvailable(options)) throw new Error('Herdr pane mode requires HERDR_ENV=1 and herdr on PATH');
     const split = parse((await runner(['pane', 'split', '--current', '--direction', 'right', '--cwd', job.cwd, '--no-focus'])).stdout);
     const result = split.result as Record<string, unknown> | undefined;
     const pane = result?.pane as Record<string, unknown> | undefined;
-    const paneId = pane?.pane_id;
+    paneId = typeof pane?.pane_id === 'string' ? pane.pane_id : undefined;
     if (typeof paneId !== 'string' || !paneId) throw new Error('Herdr pane split did not return result.pane.pane_id');
     const agentName = `edu-${job.id.slice(0, 8)}`;
     const autonomyPrompt = job.autonomy === 'readonly'
@@ -55,10 +57,12 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
     const prompt = `${autonomyPrompt}\n\nMission: ${job.task}`;
     try {
       await runner(['agent', 'start', agentName, '--kind', job.cli, '--pane', paneId, ...agentArgs]);
+      agentStarted = true;
     } catch (error) {
       // The CLI is up but asking the human something (folder trust, sign-in). That is the user's call:
       // keep the job alive, point them to the pane, and deliver the prompt once the agent is ready.
       if (!/agent_not_ready/.test(errorMessage(error))) throw error;
+      agentStarted = true;
       const question = await lastPaneLines(paneId, options).catch(() => '');
       return store.update(job.id, {
         status: 'running', paneId, agentName, pendingPrompt: prompt,
@@ -68,7 +72,12 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
     await runner(['agent', 'prompt', agentName, prompt]);
     return store.update(job.id, { status: 'running', paneId, agentName, note: undefined, ...await promptBaseline(agentName, paneId, options, now) });
   } catch (error) {
-    return store.update(job.id, { status: 'failed', endedAt: now().toISOString(), summary: errorMessage(error) });
+    let summary = errorMessage(error);
+    if (paneId && !agentStarted) {
+      try { await runner(['pane', 'close', paneId]); }
+      catch (cleanupError) { summary += `; pane cleanup failed: ${errorMessage(cleanupError)}`; }
+    }
+    return store.update(job.id, { status: 'failed', endedAt: now().toISOString(), summary });
   }
 }
 
@@ -83,6 +92,7 @@ export async function refreshPane(job: CrewJob, options: HerdrOptions & { brainR
       return store.update(job.id, { pendingPrompt: undefined, note: undefined, ...await promptBaseline(job.agentName, job.paneId, options, options.now ?? (() => new Date())) });
     }
     if (status === 'working' || status === 'blocked') {
+      await appendPaneOutput(job, store, options);
       return job.observedWorking ? job : store.update(job.id, { observedWorking: true });
     }
     // herdr reports `done` for a finished, unseen turn; `idle` alone may mean the prompt was not picked up yet.
@@ -93,10 +103,14 @@ export async function refreshPane(job: CrewJob, options: HerdrOptions & { brainR
       changedSincePrompt = (await paneHash(job.paneId, options).catch(() => job.promptPaneHash)) !== job.promptPaneHash;
     }
     if (status === 'done' || (status === 'idle' && (job.observedWorking || changedSincePrompt))) {
+      await appendPaneOutput(job, store, options);
       const output = await (options.runner ?? defaultRunner)(['agent', 'read', job.agentName, '--source', 'recent-unwrapped', '--lines', '200']);
       return store.update(job.id, { status: 'done', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary: readResult(output.stdout) });
     }
-    if (status === 'failed' || status === 'error') return store.update(job.id, { status: 'failed', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary: `Herdr agent ${status}` });
+    if (status === 'failed' || status === 'error') {
+      await appendPaneOutput(job, store, options);
+      return store.update(job.id, { status: 'failed', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary: `Herdr agent ${status}` });
+    }
     return job;
   } catch (error) {
     // The agent is gone (crashed or exited): surface what the pane last showed instead of a bare lookup error.
@@ -104,6 +118,15 @@ export async function refreshPane(job: CrewJob, options: HerdrOptions & { brainR
     const summary = paneTail ? `Agent exited. Last pane output:\n${paneTail}` : errorMessage(error);
     return store.update(job.id, { status: 'failed', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary });
   }
+}
+
+async function appendPaneOutput(job: CrewJob, store: CrewStore, options: HerdrOptions): Promise<void> {
+  if (!job.paneId) return;
+  const text = await lastPaneLines(job.paneId, options).catch(() => '');
+  if (!text) return;
+  const previous = (await store.events(job.id)).filter(event => event.type === 'agent.text').at(-1);
+  if (previous?.type === 'agent.text' && previous.text === text) return;
+  await store.appendEvent(job.id, { type: 'agent.text', agentId: job.id, text, at: (options.now ?? (() => new Date()))().toISOString() });
 }
 
 async function agentState(name: string, options: HerdrOptions): Promise<{ status: string; seq?: number }> {

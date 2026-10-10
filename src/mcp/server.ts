@@ -49,7 +49,13 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
   let bound: Promise<void> | undefined;
   const bind = () => (bound ??= (async () => {
-    const locations = await opts.resolveLocations?.(server).catch(() => undefined);
+    let locations: BrainLocation[] | undefined;
+    try {
+      locations = await opts.resolveLocations?.(server);
+    } catch {
+      bound = undefined; // transient failure (e.g. roots/list not ready yet): retry on the next call
+      return;
+    }
     if (!locations?.length) return;
     brain = openBrain(locations);
     crew = createCrew({ ...opts.crewOptions, locations });
@@ -171,15 +177,23 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
 
   register('edu_crew_review', 'Dispatch a read-only review using a different available CLI', {
     cli: cliIds.optional(), base: z.string().optional(), maxTokens: tokenLimit,
-  }, async ({ cli, base }) => JSON.stringify(await crew.review({ cli, base, callerCli: detectCallerCli(process.env) })));
+  }, async ({ cli, base }) => JSON.stringify(await crew.review({ cli, base, callerCli: detectCallerCli(process.env, server.server.getClientVersion()?.name) })));
 
   return server;
 }
 
-export function detectCallerCli(env: NodeJS.ProcessEnv): import('../core/contracts.js').CliId | undefined {
+export function detectCallerCli(env: NodeJS.ProcessEnv, clientName?: string): import('../core/contracts.js').CliId | undefined {
+  // The MCP client names itself during initialize; that is more reliable than environment hints.
+  const name = (clientName ?? '').toLowerCase();
+  if (name.includes('claude')) return 'claude';
+  if (name.includes('codex')) return 'codex';
+  if (name.includes('opencode')) return 'opencode';
+  if (name.includes('antigravity') || name.includes('gemini') || name.includes('agy')) return 'agy';
+  if (/(^|[^a-z])pi([^a-z]|$)/.test(name)) return 'pi';
   if (env.CLAUDECODE) return 'claude';
   if (Object.keys(env).some(key => key.startsWith('CODEX_'))) return 'codex';
   if (Object.keys(env).some(key => key.startsWith('PI_'))) return 'pi';
   if (env.OPENCODE) return 'opencode';
+  if (env.ANTIGRAVITY || env.ANTIGRAVITY_AGENT || env.GEMINI_CLI) return 'agy';
   return undefined;
 }

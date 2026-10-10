@@ -89,6 +89,21 @@ describe('native setup planning', () => {
     expect(calls).toContainEqual({ cli: 'claude', command: 'claude', args: ['plugin', 'uninstall', 'edu@edu'] });
   });
 
+  it('continues cleanup after native uninstall failures, reports all failures, and is idempotent', async () => {
+    const home = await tempHome();
+    const { runner } = fakeRunner();
+    const plan = await planSetup({ clis: ['claude', 'codex'], packageRoot, home, runner });
+    await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates') });
+    const calls: SetupCommand[] = [];
+    const failingRunner: SetupRunner = async command => { calls.push(command); return { exitCode: 2, stderr: `${command.cli} unavailable` }; };
+    await expect(uninstallSetup({ home, runner: failingRunner })).rejects.toThrow(/claude.*codex/s);
+    expect(calls).toContainEqual({ cli: 'claude', command: 'claude', args: ['plugin', 'marketplace', 'remove', 'edu'] });
+    expect(calls).toContainEqual({ cli: 'codex', command: 'codex', args: ['plugin', 'marketplace', 'remove', 'edu'] });
+    await expect(readFile(join(home, '.codex/AGENTS.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(home, '.edu/plugin-setup.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(uninstallSetup({ home, runner: failingRunner })).resolves.toBeUndefined();
+  });
+
   it('falls back to managed global adapters when a native install fails', async () => {
     const home = await tempHome();
     const { runner } = fakeRunner((command) => command.args.at(-1) === 'list' ? { exitCode: 0, stdout: '' } : { exitCode: 2, stderr: 'native failure' });

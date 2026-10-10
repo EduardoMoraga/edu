@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -64,6 +64,75 @@ describe('crew jobs', () => {
     const job = await crew.dispatch({ cli: 'pi', task: 'Investigate', mode: 'pane', cwd: f.root });
     expect(job.mode).toBe('headless');
     expect(job.note).toContain('Herdr unavailable');
+  });
+
+  it('rejects dispatch directories outside the workspace, including symlink escapes', async () => {
+    const f = await fixture();
+    const workspace = join(f.root, 'workspace');
+    const outside = join(f.root, 'outside');
+    await mkdir(workspace);
+    await mkdir(outside);
+    await symlink(outside, join(workspace, 'escape'));
+    const crew = createCrew({ brainRoot: f.root, workspaceRoot: workspace, store: f.store,
+      startHeadless: async job => job });
+    await expect(crew.dispatch({ cli: 'pi', task: 'Escape', cwd: outside })).rejects.toThrow('outside the workspace');
+    await expect(crew.dispatch({ cli: 'pi', task: 'Escape', cwd: join(workspace, 'escape') })).rejects.toThrow('outside the workspace');
+    expect(await f.store.list()).toHaveLength(0);
+  });
+
+  it('uses a .edu brain root as the workspace boundary for CLI dispatch', async () => {
+    const f = await fixture();
+    const workspace = join(f.root, 'workspace');
+    await mkdir(join(workspace, '.edu'), { recursive: true });
+    const crew = createCrew({ brainRoot: join(workspace, '.edu'), store: f.store,
+      startHeadless: async job => job });
+    await expect(crew.dispatch({ cli: 'pi', task: 'Allowed', cwd: workspace })).resolves.toMatchObject({ cwd: await realpath(workspace) });
+    await expect(crew.dispatch({ cli: 'pi', task: 'Denied', cwd: f.root })).rejects.toThrow('outside the workspace');
+  });
+
+  it('closes a pane created when agent startup fails', async () => {
+    const f = await fixture();
+    const job = await f.store.create({ cli: 'pi', task: 'Run', mode: 'pane', cwd: f.root, autonomy: 'ask' });
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      if (args[0] === 'pane' && args[1] === 'split') return { stdout: JSON.stringify({ result: { pane: { pane_id: 'pane-orphan' } } }), stderr: '' };
+      if (args[0] === 'agent' && args[1] === 'start') throw new Error('startup failed');
+      return { stdout: '{}', stderr: '' };
+    };
+    const result = await dispatchPane(job, { env: { HERDR_ENV: '1' }, hasBinary: async () => true, runner, store: f.store });
+    expect(result.status).toBe('failed');
+    expect(calls).toContainEqual(['pane', 'close', 'pane-orphan']);
+  });
+
+  it('records pane output as live crew events while leaving the successful pane open', async () => {
+    const f = await fixture();
+    const job = await f.store.create({ cli: 'pi', task: 'Say READY', mode: 'pane', cwd: f.root, autonomy: 'ask' });
+    const calls: string[][] = [];
+    let agentStatus = 'working';
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      if (args[0] === 'agent' && args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { agent_status: agentStatus } } }), stderr: '' };
+      if (args[0] === 'agent' && args[1] === 'read') return { stdout: 'READY', stderr: '' };
+      if (args[0] === 'pane' && args[1] === 'read') return { stdout: 'Working...\nREADY', stderr: '' };
+      return { stdout: '{}', stderr: '' };
+    };
+    const running = await f.store.update(job.id, { status: 'running', paneId: 'pane-live', agentName: 'edu-live', promptedAt: new Date().toISOString() });
+    const options = { runner, store: f.store };
+    const { refreshPane } = await import('./herdr.js');
+    await refreshPane(running, options);
+    expect((await f.store.events(job.id)).some(e => e.type === 'agent.text' && e.text.includes('Working'))).toBe(true);
+    agentStatus = 'done';
+    await refreshPane(await f.store.get(job.id) ?? running, options);
+    expect(calls).not.toContainEqual(['pane', 'close', 'pane-live']);
+  });
+
+  it('does not choose Antigravity as its own reviewer when its environment identifies the caller', async () => {
+    const f = await fixture();
+    const crew = createCrew({ brainRoot: f.root, store: f.store, callerEnv: { ANTIGRAVITY: '1' },
+      detectClis: async () => ['agy', 'codex'], diff: async () => '',
+      engineFactory: cli => engine(cli, [{ type: 'agent.text', agentId: 'r', text: 'Review.', at: new Date().toISOString() }]) });
+    expect((await crew.review()).cli).toBe('codex');
   });
 
   it('keeps a pane job alive while the agent waits for a human answer, then delivers the task', async () => {

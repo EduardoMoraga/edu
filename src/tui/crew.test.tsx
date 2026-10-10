@@ -33,6 +33,16 @@ async function collect(stream: AsyncIterable<EduEvent>): Promise<EduEvent[]> {
 }
 
 describe('fsCrewSource', () => {
+  it('refreshes active pane jobs before listing them', async () => {
+    await writeJob({ id: JOB_A, cli: 'pi', task: 'pane task', mode: 'pane', status: 'running' });
+    const refreshed: string[] = [];
+    const jobs = await fsCrewSource(root, async id => {
+      refreshed.push(id);
+      await writeJob({ id: JOB_A, cli: 'pi', task: 'pane task', mode: 'pane', status: 'done', summary: 'completed' });
+    }).list();
+    expect(refreshed).toEqual([JOB_A]);
+    expect(jobs[0]).toMatchObject({ status: 'done', summary: 'completed' });
+  });
   it('lists valid jobs and skips malformed or temp files', async () => {
     await writeJob({ id: JOB_A, cli: 'codex', task: 'write tests', status: 'running', createdAt: at(0) });
     await writeFile(join(root, 'crew', 'broken.json'), '{nope');
