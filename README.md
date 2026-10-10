@@ -44,6 +44,38 @@ Open your CLI and ask: **"what do you remember?"** — Edu answers from its brai
 (`~/.edu`), and records every change so `edu uninstall` can reverse it. `edu doctor` shows
 what is connected.
 
+## Give Edu your knowledge: `edu create`
+
+Hand Edu a knowledge base (Word, PDF, Markdown or plain text) and it builds a self-contained,
+Obsidian-ready workspace whose agent knows your operation and answers by the name you chose:
+
+```bash
+edu create manual.docx clients.md --name Albert          # → ~/Edu/albert/
+cd ~/Edu/albert && claude                                 # or codex · pi · opencode
+```
+
+```
+albert/
+  00-START/README.md      home: what this is, Obsidian, first questions      (es: 00-INICIO)
+  01-KNOWLEDGE/           the brain, visible + sources/ (copies of originals) (es: 01-CONOCIMIENTO)
+  02-DELIVERABLES/ 03-LAB/ 04-PROJECTS/ 05-ARCHIVE/
+  .edu/                   config (brainDir, identity), EDU.md, playbooks
+  .obsidian/              the folder itself is the vault; opens on the README
+  AGENTS.md, CLAUDE.md    "You are Albert, this workspace's agent…"
+```
+
+- Extraction runs headless through the first installed CLI (claude, codex, pi, opencode) or
+  `--cli`. What a document states becomes **accepted** canonical notes (band `verified`, source
+  `file#heading`); interpretations stay **proposed** for you to approve. Procedures become
+  playbooks, terms one glossary note. Invalid answers are retried once, then Edu falls back to
+  the heading split.
+- `--no-llm` splits by headings, offline and deterministic. `--lang es|en` names the folders
+  (default `EDU_LANG`, then your locale, then Spanish). `--dir` sets the parent (default `~/Edu`);
+  a non-empty target needs `--yes`. Originals are never modified.
+- Add more later from inside the workspace: `edu create --add notes.pdf`.
+- PDFs use `pdftotext` when installed, otherwise a built-in JS reader. Scanned PDFs need OCR first.
+- Any brain can live in a visible folder: set `"brainDir": "01-KNOWLEDGE"` in `.edu/config.json`.
+
 ## Use Edu inside the agent you already love
 
 | CLI | Install (or just `edu setup`) | What you get | How to call it |

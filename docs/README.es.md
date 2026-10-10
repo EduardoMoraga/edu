@@ -45,6 +45,38 @@ su cerebro.
 cerebro global (`~/.edu`) y registra cada cambio para que `edu uninstall` pueda revertirlo.
 `edu doctor` muestra qué está conectado.
 
+## Entréguele su conocimiento a Edu: `edu create`
+
+Pásele a Edu una base de conocimiento (Word, PDF, Markdown o texto) y arma un espacio de trabajo
+autocontenido, listo para Obsidian, cuyo agente conoce su operación y responde con el nombre que eligió:
+
+```bash
+edu create manual.docx clientes.md --name Albert         # → ~/Edu/albert/
+cd ~/Edu/albert && claude                                 # o codex · pi · opencode
+```
+
+```
+albert/
+  00-INICIO/README.md     inicio: qué es, Obsidian, primeras preguntas
+  01-CONOCIMIENTO/        el cerebro, visible + fuentes/ (copias de los originales)
+  02-ENTREGABLES/ 03-LAB/ 04-PROYECTOS/ 05-ARCHIVO/
+  .edu/                   configuración (brainDir, identidad), EDU.md, playbooks
+  .obsidian/              la carpeta misma es la bóveda; abre en el README
+  AGENTS.md, CLAUDE.md    "Eres Albert, el agente de este espacio de trabajo…"
+```
+
+- La extracción corre sin interfaz con el primer CLI instalado (claude, codex, pi, opencode) o
+  `--cli`. Lo que el documento afirma queda como notas canónicas **aceptadas** (banda `verified`,
+  fuente `archivo#título`); las interpretaciones quedan **propuestas** para que usted las apruebe.
+  Los procedimientos se vuelven playbooks y los términos, una nota de glosario. Si la respuesta no
+  es válida, Edu reintenta una vez y luego divide por títulos.
+- `--no-llm` divide por títulos, sin conexión y determinista. `--lang es|en` nombra las carpetas
+  (por defecto `EDU_LANG`, luego el idioma del sistema, luego español). `--dir` fija la carpeta
+  padre (por defecto `~/Edu`); un destino no vacío exige `--yes`. Los originales nunca se modifican.
+- Agregue más después, desde dentro del espacio: `edu create --add notas.pdf`.
+- Los PDF usan `pdftotext` si está instalado; si no, un lector JS incluido. Los PDF escaneados necesitan OCR antes.
+- Cualquier cerebro puede vivir en una carpeta visible: `"brainDir": "01-CONOCIMIENTO"` en `.edu/config.json`.
+
 ## Edu dentro del agente que ya usa
 
 | CLI | Instalación (o simplemente `edu setup`) | Qué obtiene | Cómo usarlo |
