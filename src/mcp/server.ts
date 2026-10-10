@@ -1,10 +1,11 @@
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { autoMaintain, openBrain } from '../brain/index.js';
 import { brief, truncateToTokens } from '../context/index.js';
 import type { BrainLocation, ClaimBand, Note, Tier } from '../core/contracts.js';
 import { createCrew, type CrewOptions } from '../crew/index.js';
+import { eduHomeOf, listWorkspaces, selectWorkspace } from './projects.js';
 
 export interface EduMcpOptions {
   locations: BrainLocation[];
@@ -16,6 +17,10 @@ export interface EduMcpOptions {
    * (MCP roots) when the CLI launched the server from another directory, e.g. a plugin folder.
    */
   resolveLocations?: (server: McpServer) => Promise<BrainLocation[] | undefined>;
+  /** Environment for the workspace registry (EDU_HOME, HOME). Defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
+  /** Label of the workspace the server starts on (e.g. from `--project`); shown by edu_projects. */
+  workspace?: string;
 }
 
 const tokenLimit = z.number().int().positive().optional().describe('Maximum response tokens (default 800)');
@@ -37,6 +42,9 @@ const BRAIN_WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint
 const STARTS_AGENTS = { readOnlyHint: false, destructiveHint: true, openWorldHint: true } as const;
 export const TOOL_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean }> = {
   edu_brief: READ, edu_recall: READ, edu_read: READ, edu_commitments: READ, edu_crew_status: READ, edu_crew_result: READ,
+  edu_projects: READ,
+  // Switching only changes which local brain this server process uses; nothing is written or deleted.
+  edu_project_use: BRAIN_WRITE,
   edu_remember: BRAIN_WRITE, edu_feedback: BRAIN_WRITE, edu_propose_canonical: BRAIN_WRITE,
   edu_session_open: BRAIN_WRITE, edu_session_close: BRAIN_WRITE,
   edu_crew_dispatch: STARTS_AGENTS, edu_crew_review: STARTS_AGENTS,
@@ -49,6 +57,17 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
   let brainRoot = opts.locations[0]!.root;
+  const env = opts.env ?? process.env;
+  // ~/.edu is the global brain even when found by walking up from a folder under HOME.
+  const label = (locations: BrainLocation[]) => locations[0]!.scope === 'global' || resolve(locations[0]!.root) === eduHomeOf(env) ? 'global' : dirname(locations[0]!.root);
+  let workspace = opts.workspace ?? label(opts.locations);
+  let switched = false;
+  const use = (locations: BrainLocation[]) => {
+    brain = openBrain(locations);
+    crew = createCrew({ ...opts.crewOptions, locations });
+    eduMdPath = join(locations[0]!.root, 'EDU.md');
+    brainRoot = locations[0]!.root;
+  };
   let bound: Promise<void> | undefined;
   const bind = () => (bound ??= (async () => {
     let locations: BrainLocation[] | undefined;
@@ -58,11 +77,10 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
       bound = undefined; // transient failure (e.g. roots/list not ready yet): retry on the next call
       return;
     }
-    if (!locations?.length) return;
-    brain = openBrain(locations);
-    crew = createCrew({ ...opts.crewOptions, locations });
-    eduMdPath = join(locations[0]!.root, 'EDU.md');
-    brainRoot = locations[0]!.root;
+    // An explicit edu_project_use wins over the client's roots.
+    if (!locations?.length || switched) return;
+    use(locations);
+    workspace = label(locations);
   })());
   const respond = async (maxTokens: number | undefined, operation: () => Promise<string>) => {
     const limit = maxTokens ?? 800;
@@ -172,9 +190,28 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     return `Closed ${line(note)} instead of ${id} (unknown id; selected ${source ? `the only open session from ${source}` : 'the most recent open session'}).`;
   });
 
+  register('edu_projects', 'List the registered Edu workspaces and their agent names, marking the active one', { maxTokens: tokenLimit },
+    async () => {
+      const workspaces = await listWorkspaces(env);
+      const rows = workspaces.map(w => `${w.root === workspace || w.name === workspace ? '* ' : '  '}${w.name} · agent ${w.agent} · ${w.root}${w.present ? '' : ' (missing)'}`);
+      return [`Active: ${workspace}`, ...(rows.length ? rows : ['No registered workspaces. Create one with `edu create`.']),
+        'Switch with edu_project_use (workspace name, agent name, path, or "global").'].join('\n');
+    });
+
+  register('edu_project_use', 'Switch the active Edu workspace for this session by workspace name, agent name (e.g. "albert"), path, or "global"', {
+    workspace: z.string().min(1), maxTokens: tokenLimit,
+  }, async ({ workspace: selector }) => {
+    const selection = await selectWorkspace(selector, env);
+    use(selection.locations);
+    switched = true;
+    workspace = selection.root ?? 'global';
+    const agent = selection.root ? (await listWorkspaces(env)).find(w => w.root === selection.root)?.agent : undefined;
+    return `Active workspace: ${selection.label}${agent ? ` (agent ${agent})` : ''} · brain ${selection.locations[0]!.root}`;
+  });
+
   const cliIds = z.enum(['claude', 'codex', 'pi', 'opencode', 'agy']);
   const autonomy = z.enum(['readonly', 'ask', 'auto', 'full']);
-  register('edu_crew_dispatch', 'Dispatch a crew job to a coding CLI', {
+  register('edu_crew_dispatch', 'Dispatch a crew job to a coding CLI. mode "pane" opens a visible herdr pane (beside the caller inside herdr, otherwise a tab in the herdr "Edu" workspace) and falls back to headless with a note when herdr is unreachable', {
     cli: cliIds, task: z.string().min(1), mode: z.enum(['headless', 'pane']).optional(), cwd: z.string().optional(), autonomy: autonomy.optional(), maxTokens: tokenLimit,
   }, async ({ cli, task, mode, cwd, autonomy: selectedAutonomy }) => {
     const job = await crew.dispatch({ cli, task, mode, cwd, autonomy: selectedAutonomy });

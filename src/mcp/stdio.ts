@@ -5,28 +5,50 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { openBrain } from '../brain/index.js';
 import type { BrainLocation } from '../core/contracts.js';
 import { resolveBrainLocations } from './locations.js';
+import { selectWorkspace } from './projects.js';
 import { createEduMcpServer } from './server.js';
 
-export interface StdioOptions { cwd?: string; env?: NodeJS.ProcessEnv; now?: Date }
+export interface StdioOptions {
+  cwd?: string; env?: NodeJS.ProcessEnv; now?: Date;
+  /** Workspace to serve: registry name, agent name, path or "global". Defaults to EDU_PROJECT. */
+  project?: string;
+}
 
 /** Initialize the primary brain and attach the MCP server to stdio. */
 export async function runStdioServer(opts: StdioOptions = {}) {
+  const server = await createStdioServer(opts);
+  await server.connect(new StdioServerTransport());
+  return server;
+}
+
+/**
+ * Builds the server without a transport. With a project (`--project` or EDU_PROJECT) the workspace
+ * is pinned and MCP roots are ignored; otherwise the launch directory decides and roots may rebind.
+ */
+export async function createStdioServer(opts: StdioOptions = {}) {
   const env = opts.env ?? process.env;
   const cwd = opts.cwd ?? launchDirectory(env);
+  const project = opts.project?.trim() || env.EDU_PROJECT?.trim() || undefined;
+  if (project) {
+    const selection = await selectWorkspace(project, env, cwd);
+    return createEduMcpServer({
+      locations: selection.locations, now: opts.now, env, workspace: selection.root ?? 'global',
+      eduMdPath: join(selection.locations[0]!.root, 'EDU.md'),
+    });
+  }
   const locations = await resolveBrainLocations(cwd, env);
   const brain = openBrain(locations);
   await brain.init(locations[0]!);
-  const server = createEduMcpServer({
+  return createEduMcpServer({
     locations,
     now: opts.now,
+    env,
     eduMdPath: join(locations[0]!.root, 'EDU.md'),
     resolveLocations: async (mcp) => {
       if (!mcp.server.getClientCapabilities()?.roots) return undefined;
       return resolveReboundLocations(cwd, env, async () => (await mcp.server.listRoots()).roots.map(root => root.uri));
     },
   });
-  await server.connect(new StdioServerTransport());
-  return server;
 }
 
 /** Resolve the client's workspace and initialize its brain before exposing it to tool calls. */
