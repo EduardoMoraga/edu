@@ -34,8 +34,14 @@ describe('engine argv builders', () => {
     expect(built.args).toEqual(expect.arrayContaining([...AUTONOMY_FLAGS[cli][autonomy]]));
     expect(built.args).toContain('test-model');
     if (cli === 'codex' || cli === 'agy') {
-      expect(built.args.join(' ')).toContain('Be careful.');
-      expect(built.args.join(' ')).toContain('inspect this file');
+      // Codex receives the (system + user) prompt on stdin; agy on the command line.
+      const prompt = cli === 'codex' ? built.stdin ?? '' : built.args.join(' ');
+      expect(prompt).toContain('Be careful.');
+      expect(prompt).toContain('inspect this file');
+    }
+    if (cli === 'claude') {
+      expect(built.stdin).toContain('inspect this file');
+      expect(built.args).not.toContain('inspect this file');
     }
   });
   it('uses the expected resume/session switch for each adapter', () => {

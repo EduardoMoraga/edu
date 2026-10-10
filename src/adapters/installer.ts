@@ -22,6 +22,30 @@ interface SharedRegistry { version: 1; targets: Record<string, SharedTarget>; cr
 
 function sharedRegistryPath(home: string): string { return join(home, '.edu/shared-targets.json'); }
 
+/**
+ * Whether an Edu-managed target is still as Edu left it. For JSON merges Edu owns only its patched
+ * keys: host CLIs rewrite files such as ~/.claude.json constantly, so a whole-file hash would report
+ * drift on every run. Everything else is compared byte for byte.
+ */
+function isIntact(action: StoredAction, current: Buffer | undefined): boolean {
+  if (!current) return false;
+  if (action.kind === 'json-merge' && action.jsonPatch) {
+    try { return containsPatch(JSON.parse(current.toString('utf8')), action.jsonPatch); } catch { return false; }
+  }
+  return Boolean(action.sha256) && sha256(current) === action.sha256;
+}
+
+function containsPatch(target: unknown, patch: unknown): boolean {
+  if (Array.isArray(patch)) {
+    return Array.isArray(target) && patch.every(item => target.some(candidate => JSON.stringify(candidate) === JSON.stringify(item)));
+  }
+  if (patch && typeof patch === 'object') {
+    if (!target || typeof target !== 'object') return false;
+    return Object.entries(patch as Record<string, unknown>).every(([key, value]) => containsPatch((target as Record<string, unknown>)[key], value));
+  }
+  return JSON.stringify(target) === JSON.stringify(patch);
+}
+
 function isSharedTarget(path: string, home: string): boolean {
   return path === join(home, '.codex/config.toml') || path === join(home, '.pi/agent/mcp.json');
 }
@@ -150,7 +174,7 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
   // Refuse drift before any write, including actions omitted from a repeat install.
   for (const action of previous?.actions ?? []) {
     const current = await readTarget(action.path);
-    if (!current || !action.sha256 || sha256(current) !== action.sha256) throw new Error(`Edu installation drift: ${action.path}`);
+    if (!isIntact(action, current)) throw new Error(`Edu installation drift: ${action.path}`);
     if (action.shared && !shared.targets[action.path]?.owners.includes(manifestPath)) throw new Error(`Missing shared ownership: ${action.path}`);
   }
   const paths = new Set<string>();
@@ -265,7 +289,7 @@ export async function uninstall(options: { manifestPath: string; force?: boolean
   if (!options.force) {
     for (const action of manifest.actions) {
       const current = await readTarget(action.path);
-      if (!current || !action.sha256 || sha256(current) !== action.sha256) throw new Error(`Edu installation drift: ${action.path}`);
+      if (!isIntact(action, current)) throw new Error(`Edu installation drift: ${action.path}`);
     }
   }
   const sharedBackups: string[] = [];

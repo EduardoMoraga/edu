@@ -10,7 +10,8 @@ import type { ParseContext } from './parse.js';
 export const MAX_LINE_BYTES = 1024 * 1024;
 const STDERR_TAIL_BYTES = 8 * 1024;
 
-export interface CommandSpec { command: string; args: string[] }
+/** `stdin`, when set, is written to the child and closed: prompts travel there, not on the command line. */
+export interface CommandSpec { command: string; args: string[]; stdin?: string }
 export type LineParser = (line: string, ctx: ParseContext) => EduEvent[];
 
 export async function binaryAvailable(binary: string): Promise<boolean> {
@@ -55,7 +56,11 @@ export async function* runJsonlProcess(
 ): AsyncIterable<EduEvent> {
   let child: ChildProcess;
   try {
-    child = spawnCli(spec.command, spec.args, { cwd, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawnCli(spec.command, spec.args, { cwd, detached: process.platform !== 'win32', stdio: [spec.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+    if (spec.stdin !== undefined) {
+      child.stdin?.on('error', () => undefined); // a child that exits early must not crash Edu with EPIPE
+      child.stdin?.end(spec.stdin);
+    }
   } catch (error) {
     yield errorEvent(agentId, `Unable to start ${spec.command}: ${String(error)}`);
     return;

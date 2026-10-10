@@ -11,8 +11,8 @@ export function buildCodexArgv(req: EngineRunRequest): CommandSpec {
   const args = ['exec', '--json', ...autonomyFlags('codex', req.autonomy), '--skip-git-repo-check'];
   if (req.model) args.push('--model', req.model);
   if (req.resumeSessionId) args.push('resume', req.resumeSessionId);
-  args.push(prompt);
-  return { command: 'codex', args };
+  // `codex exec` reads the prompt from stdin when none is given on the command line.
+  return { command: 'codex', args, stdin: prompt };
 }
 
 export function parseLine(line: string, ctx: ParseContext) {

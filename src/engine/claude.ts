@@ -5,11 +5,12 @@ import { endEvent, makeUsage, parseJson, str, textEvent, toolCall, toolResult, t
 import type { CommandSpec } from './process.js';
 
 export function buildClaudeArgv(req: EngineRunRequest): CommandSpec {
-  const args = ['-p', req.prompt, '--output-format', 'stream-json', '--verbose', ...autonomyFlags('claude', req.autonomy)];
+  // The prompt goes through stdin: no shell quoting, no command-line length limit (Windows caps it).
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', ...autonomyFlags('claude', req.autonomy)];
   if (req.systemPrompt) args.push('--append-system-prompt', req.systemPrompt);
   if (req.model) args.push('--model', req.model);
   if (req.resumeSessionId) args.push('--resume', req.resumeSessionId);
-  return { command: 'claude', args };
+  return { command: 'claude', args, stdin: req.prompt };
 }
 
 export function parseLine(line: string, ctx: ParseContext) {

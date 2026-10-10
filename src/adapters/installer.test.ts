@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planInstall, applyInstall, uninstall, resolveTemplatesDir } from './installer.js';
+import { planInstall, applyInstall, uninstall, resolveTemplatesDir, getManifestPath } from './installer.js';
 import { diagnose } from './doctor.js';
 import { pathsFor } from './paths.js';
 import { createClaudeIntegration } from './claude.js';
@@ -306,5 +306,25 @@ describe('installer', () => {
     await uninstall({ manifestPath: lastToRemove });
     expect(await readFile(codexPath, 'utf8')).toBe(toml);
     expect(await readFile(piPath, 'utf8')).toBe(json);
+  });
+});
+
+describe('host-rewritten JSON files', () => {
+  it('does not report drift when the host CLI rewrites keys Edu does not own', async () => {
+    const { mkdtemp, readFile: read, writeFile: write } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const root = await mkdtemp(join(tmpdir(), 'edu-drift-root-'));
+    const home = await mkdtemp(join(tmpdir(), 'edu-drift-home-'));
+    const templatesDir = resolveTemplatesDir();
+    const plan = await planInstall({ clis: ['claude'], scope: 'global', root, home, templatesDir });
+    await applyInstall(plan);
+    const claudeJson = join(home, '.claude.json');
+    const state = JSON.parse(await read(claudeJson, 'utf8'));
+    state.numStartups = 42; // Claude Code rewrites its state file all the time
+    await write(claudeJson, JSON.stringify(state));
+    await expect(applyInstall(await planInstall({ clis: ['claude'], scope: 'global', root, home, templatesDir }))).resolves.toBeDefined();
+    await expect(uninstall({ manifestPath: getManifestPath('global', root, home) })).resolves.toBeUndefined();
+    expect(JSON.parse(await read(claudeJson, 'utf8')).mcpServers?.edu).toBeUndefined();
+    expect(JSON.parse(await read(claudeJson, 'utf8')).numStartups).toBe(42);
   });
 });
