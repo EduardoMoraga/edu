@@ -107,3 +107,23 @@ describe('workspace binding', () => {
     }
   });
 });
+
+describe('tool annotations', () => {
+  it('marks reads read-only and agent-starting tools as needing approval', async () => {
+    const { TOOL_ANNOTATIONS } = await import('./server.js');
+    expect(TOOL_ANNOTATIONS.edu_recall?.readOnlyHint).toBe(true);
+    expect(TOOL_ANNOTATIONS.edu_remember).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    expect(TOOL_ANNOTATIONS.edu_crew_dispatch).toMatchObject({ destructiveHint: true, openWorldHint: true });
+    const root = await mkdtemp(join(tmpdir(), 'edu-ann-'));
+    roots.push(root);
+    const server = createEduMcpServer({ locations: [{ scope: 'project', root }] });
+    const client = new Client({ name: 'edu-test', version: '1.0.0' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(b);
+    await client.connect(a);
+    const { tools } = await client.listTools();
+    expect(tools.find(t => t.name === 'edu_crew_dispatch')?.annotations?.destructiveHint).toBe(true);
+    expect(tools.every(t => t.annotations)).toBe(true);
+    await client.close();
+  });
+});

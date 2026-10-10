@@ -39,7 +39,7 @@ describe('buildPlugins', () => {
     expect(claude.version).toBe('2.3.4');
     expect(codex.version).toBe('2.3.4');
     expect(claudeMcp.edu).toEqual({ command: 'edu', args: ['mcp'] });
-    expect(codexMcp.mcpServers.edu).toEqual({ command: 'edu', args: ['mcp'], default_tools_approval_mode: 'approve' });
+    expect(codexMcp.mcpServers.edu).toEqual({ command: 'edu', args: ['mcp'] });
     expect(claudeHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start');
     expect(codexHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start');
     expect(await readFile(join(root, 'plugins/claude-code/skills/brief/SKILL.md'), 'utf8')).toContain('Brief skill.');

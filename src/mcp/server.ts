@@ -28,6 +28,20 @@ function line(note: Note): string {
   return `${note.meta.id} · ${note.meta.band ?? 'inferred'} · ${note.meta.status ?? 'unspecified'} · ${note.meta.title}`;
 }
 
+/**
+ * MCP tool annotations. Hosts (Codex, Claude…) use them to decide what can run without asking:
+ * reads never prompt, brain writes are local and non-destructive, crew tools start other agents.
+ */
+const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+const BRAIN_WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
+const STARTS_AGENTS = { readOnlyHint: false, destructiveHint: true, openWorldHint: true } as const;
+export const TOOL_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean }> = {
+  edu_brief: READ, edu_recall: READ, edu_read: READ, edu_commitments: READ, edu_crew_status: READ, edu_crew_result: READ,
+  edu_remember: BRAIN_WRITE, edu_feedback: BRAIN_WRITE, edu_propose_canonical: BRAIN_WRITE,
+  edu_session_open: BRAIN_WRITE, edu_session_close: BRAIN_WRITE,
+  edu_crew_dispatch: STARTS_AGENTS, edu_crew_review: STARTS_AGENTS,
+};
+
 export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   const server = new McpServer({ name: 'edu', version: '0.2.0' });
   let brain = openBrain(opts.locations);
@@ -64,7 +78,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     const sdkShape = Object.fromEntries(Object.entries(shape).map(([key, schema]) => [
       key, (schema as z.ZodType<unknown>).catch(null),
     ])) as z.ZodRawShape;
-    server.registerTool(name, { description, inputSchema: z.object(sdkShape) }, async (args) => {
+    server.registerTool(name, { description, inputSchema: z.object(sdkShape), annotations: TOOL_ANNOTATIONS[name] }, async (args) => {
       const requested = (args as Record<string, unknown>).maxTokens;
       const maxTokens = typeof requested === 'number' && Number.isSafeInteger(requested) && requested > 0 ? requested : undefined;
       return respond(maxTokens, async () => {

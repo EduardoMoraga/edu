@@ -4,8 +4,7 @@
       "command": "edu",
       "args": [
         "mcp"
-      ],
-      "default_tools_approval_mode": "approve"
+      ]
     }
   }
 }
