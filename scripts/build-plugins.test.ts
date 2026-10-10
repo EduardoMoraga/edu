@@ -88,6 +88,34 @@ describe('buildPlugins', () => {
     await expect(readFile(join(root, 'plugins/pi/themes/edu.json'), 'utf8')).rejects.toThrow();
   });
 
+  it('generates a Pi skills extension that adds only the package skills Pi has not already found elsewhere', async () => {
+    const root = await fixture();
+    await mkdir(join(root, 'templates/skills/edu-recall'), { recursive: true });
+    await writeFile(join(root, 'templates/skills/edu-recall/SKILL.md'), '---\nname: edu-recall\ndescription: Recall\n---\n\nRecall skill.\n');
+    await buildPlugins(root);
+    const skills = join(root, 'plugins/pi/skills');
+    // The generated module is plain JavaScript, so it can be imported as-is.
+    const copy = join(root, 'plugins/pi/extensions/edu-skills.mjs');
+    await writeFile(copy, await readFile(join(root, 'plugins/pi/extensions/edu-skills.ts'), 'utf8'));
+    const mod = await import(pathToFileURL(copy).href) as { default: (pi: unknown) => void };
+    type Command = { name: string; source: string; sourceInfo: { path: string } };
+    const discover = (commands: Command[]) => {
+      const handlers = new Map<string, (event: unknown) => unknown>();
+      mod.default({ on: (event: string, handler: (event: unknown) => unknown) => { handlers.set(event, handler); }, getCommands: () => commands });
+      return handlers.get('resources_discover')!({ type: 'resources_discover', cwd: root, reason: 'startup' });
+    };
+    // Nothing else provides them: Pi gets every package skill.
+    expect(discover([])).toEqual({ skillPaths: [join(skills, 'edu-brief'), join(skills, 'edu-recall')] });
+    // ~/.agents/skills (written by another CLI's setup) already has edu-brief: only edu-recall is added, so no collision.
+    const shared: Command = { name: 'skill:edu-brief', source: 'skill', sourceInfo: { path: '/home/u/.agents/skills/edu-brief/SKILL.md' } };
+    expect(discover([shared])).toEqual({ skillPaths: [join(skills, 'edu-recall')] });
+    // On /reload the package's own copies are still loaded; they do not count as found elsewhere.
+    const own: Command = { name: 'skill:edu-recall', source: 'skill', sourceInfo: { path: join(skills, 'edu-recall/SKILL.md') } };
+    expect(discover([shared, own])).toEqual({ skillPaths: [join(skills, 'edu-recall')] });
+    // A prompt template or extension command with a skill-like name is not a skill.
+    expect(discover([{ ...shared, source: 'prompt' }])).toEqual({ skillPaths: [join(skills, 'edu-brief'), join(skills, 'edu-recall')] });
+  });
+
   it('supports check mode and detects generated-file drift without writing', async () => {
     const root = await fixture();
     await buildPlugins(root);
@@ -96,6 +124,17 @@ describe('buildPlugins', () => {
     await writeFile(target, 'drift');
     await expect(buildPlugins(root, { check: true })).resolves.toMatchObject({ changed: true });
     expect(await readFile(target, 'utf8')).toBe('drift');
+  });
+});
+
+describe('Pi package manifest', () => {
+  it('does not declare the skills directory, so Pi never loads a second copy of a skill in ~/.agents/skills', async () => {
+    const pkg = JSON.parse(await readFile('package.json', 'utf8')) as { pi: Record<string, string[]> };
+    expect(pkg.pi.skills).toBeUndefined();
+    expect(pkg.pi.extensions).toEqual(['./plugins/pi/extensions']);
+    // The skills still ship: the edu-skills extension adds them on resources_discover.
+    expect(await readFile('plugins/pi/skills/edu-brief/SKILL.md', 'utf8')).toContain('name: edu-brief');
+    expect(await readFile('plugins/pi/extensions/edu-skills.ts', 'utf8')).toContain("'resources_discover'");
   });
 });
 
