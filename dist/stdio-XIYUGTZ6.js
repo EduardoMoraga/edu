@@ -1,25 +1,25 @@
 import {
   createCrew
-} from "./chunk-4BMCPVNF.js";
-import "./chunk-PZ3INQ2M.js";
+} from "./chunk-DYC4DXNX.js";
+import "./chunk-ZGSAFC3Y.js";
 import "./chunk-23I7IHDX.js";
 import "./chunk-BXZ573JQ.js";
-import "./chunk-US6QCIVG.js";
+import "./chunk-PYSJJP4V.js";
 import "./chunk-NTU4RUMO.js";
 import "./chunk-QNEUTXM7.js";
 import {
   resolveBrainLocations
-} from "./chunk-VYUC2ZDA.js";
+} from "./chunk-LZAMKNNP.js";
 import "./chunk-QMELCHFL.js";
 import "./chunk-ROTDA577.js";
 import "./chunk-B5FNIIOI.js";
 import {
   brief,
   truncateToTokens
-} from "./chunk-5FB6U2TS.js";
+} from "./chunk-ALETVR3V.js";
 import {
   openBrain
-} from "./chunk-RQB4HE56.js";
+} from "./chunk-G74JOKZO.js";
 import "./chunk-PILVA3OM.js";
 
 // src/mcp/stdio.ts
@@ -61,7 +61,7 @@ var TOOL_ANNOTATIONS = {
   edu_crew_approve: STARTS_AGENTS
 };
 function createEduMcpServer(opts) {
-  const server = new McpServer({ name: "edu", version: "0.5.1" });
+  const server = new McpServer({ name: "edu", version: "0.6.0" });
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0].root, "EDU.md");
@@ -309,4 +309,4 @@ export {
   resolveReboundLocations,
   runStdioServer
 };
-//# sourceMappingURL=stdio-RMX6KVGH.js.map
+//# sourceMappingURL=stdio-XIYUGTZ6.js.map

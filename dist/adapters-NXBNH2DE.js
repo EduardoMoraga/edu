@@ -1,6 +1,6 @@
 import {
   diagnose
-} from "./chunk-OOSJ34G5.js";
+} from "./chunk-F5YVY4BO.js";
 import {
   applyInstall,
   createAgyIntegration,
@@ -19,7 +19,7 @@ import {
   unmergeJson,
   unmergeToml,
   upsertManagedBlock
-} from "./chunk-66HGH7YW.js";
+} from "./chunk-NO3RXWHL.js";
 import {
   pathsFor
 } from "./chunk-ROTDA577.js";
@@ -45,4 +45,4 @@ export {
   unmergeToml,
   upsertManagedBlock
 };
-//# sourceMappingURL=adapters-ERB3BVF7.js.map
+//# sourceMappingURL=adapters-NXBNH2DE.js.map

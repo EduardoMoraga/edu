@@ -1,6 +1,6 @@
 import {
   openBrain
-} from "./chunk-RQB4HE56.js";
+} from "./chunk-G74JOKZO.js";
 
 // src/mcp/locations.ts
 import { stat } from "fs/promises";
@@ -71,4 +71,4 @@ export {
   identityName,
   lessonCount
 };
-//# sourceMappingURL=chunk-VYUC2ZDA.js.map
+//# sourceMappingURL=chunk-LZAMKNNP.js.map

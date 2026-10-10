@@ -4,7 +4,7 @@ import {
   hasTopLevelTomlKey,
   readTarget,
   sha256
-} from "./chunk-66HGH7YW.js";
+} from "./chunk-NO3RXWHL.js";
 import {
   binaryOnPath
 } from "./chunk-ROTDA577.js";
@@ -55,4 +55,4 @@ async function diagnose(options) {
 export {
   diagnose
 };
-//# sourceMappingURL=chunk-OOSJ34G5.js.map
+//# sourceMappingURL=chunk-F5YVY4BO.js.map

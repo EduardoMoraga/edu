@@ -44,6 +44,12 @@ function removeManagedBlock(text) {
 }
 
 // src/adapters/merge.ts
+import { applyEdits, modify, parse } from "jsonc-parser";
+var UNION = "$union";
+function unionItems(value) {
+  return record(value) && Object.keys(value).length === 1 && Array.isArray(value[UNION]) ? value[UNION] : void 0;
+}
+var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function record(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -73,7 +79,11 @@ function withoutEduEntry(value) {
 }
 function applyPatch(target, patch) {
   for (const [key, value] of Object.entries(patch)) {
-    if (Array.isArray(value)) {
+    const added = unionItems(value);
+    if (added) {
+      const prior = Array.isArray(target[key]) ? target[key] : [];
+      target[key] = [...prior, ...added.filter((item) => !prior.some((existing) => same(existing, item)))];
+    } else if (Array.isArray(value)) {
       if (value.every(isEduEntry)) {
         const prior = Array.isArray(target[key]) ? target[key] : [];
         target[key] = [...prior.map(withoutEduEntry).filter((entry) => entry !== void 0), ...value];
@@ -92,7 +102,13 @@ function applyPatch(target, patch) {
 function removePatch(target, patch) {
   for (const [key, value] of Object.entries(patch)) {
     if (!(key in target)) continue;
-    if (Array.isArray(value) && Array.isArray(target[key])) {
+    const removed = unionItems(value);
+    if (removed) {
+      if (!Array.isArray(target[key])) continue;
+      const remaining = target[key].filter((item) => !removed.some((owned) => same(owned, item)));
+      if (remaining.length) target[key] = remaining;
+      else delete target[key];
+    } else if (Array.isArray(value) && Array.isArray(target[key])) {
       if (value.every(isEduEntry)) {
         const remaining = target[key].map(withoutEduEntry).filter((entry) => entry !== void 0);
         if (remaining.length) target[key] = remaining;
@@ -119,6 +135,82 @@ function unmergeJson(text, patch) {
   removePatch(target, patch);
   const result = serialize(target);
   return JSON.stringify(parseJson(text)) === JSON.stringify(target) ? text : result;
+}
+function containsPatch(target, patch) {
+  const union = unionItems(patch);
+  if (union) return Array.isArray(target) && union.every((item) => target.some((candidate) => same(candidate, item)));
+  if (Array.isArray(patch)) {
+    return Array.isArray(target) && patch.every((item) => target.some((candidate) => same(candidate, item)));
+  }
+  if (patch && typeof patch === "object") {
+    if (!target || typeof target !== "object") return false;
+    return Object.entries(patch).every(([key, value]) => containsPatch(target[key], value));
+  }
+  return same(target, patch);
+}
+var isJsonc = (path) => path.toLowerCase().endsWith(".jsonc");
+var FORMAT = { formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" } };
+function parseJsonc(text) {
+  if (!text.trim()) return {};
+  const errors = [];
+  const value = parse(text, errors, { allowTrailingComma: true });
+  if (errors.length || !record(value)) throw new Error("Expected a JSONC object");
+  return value;
+}
+function leaves(patch, prefix = []) {
+  return Object.entries(patch).flatMap(([key, value]) => {
+    const union = unionItems(value);
+    if (union) return [{ path: [...prefix, key], union }];
+    return record(value) ? leaves(value, [...prefix, key]) : [{ path: [...prefix, key] }];
+  });
+}
+function at(value, path) {
+  return path.reduce((node, key) => record(node) ? node[key] : void 0, value);
+}
+function mergeJsonc(text, patch) {
+  const before = parseJsonc(text);
+  const after = parseJsonc(text);
+  applyPatch(after, patch);
+  if (same(before, after)) return text;
+  let out = text.trim() ? text : "{}\n";
+  for (const { path, union } of leaves(patch)) {
+    const current = at(before, path);
+    if (union && Array.isArray(current)) {
+      for (const item of union.filter((item2) => !current.some((existing) => same(existing, item2))).reverse()) {
+        out = applyEdits(out, modify(out, [...path, 0], item, { ...FORMAT, isArrayInsertion: true }));
+      }
+    } else out = applyEdits(out, modify(out, path, at(after, path), FORMAT));
+  }
+  return out;
+}
+function unmergeJsonc(text, patch) {
+  const before = parseJsonc(text);
+  const after = parseJsonc(text);
+  removePatch(after, patch);
+  if (same(before, after)) return text;
+  let out = text;
+  for (const { path, union } of leaves(patch)) {
+    const current = at(before, path);
+    if (union && Array.isArray(current) && Array.isArray(at(after, path))) {
+      const owned = current.map((item, index) => union.some((mine) => same(mine, item)) ? index : -1).filter((index) => index >= 0);
+      for (const index of owned.reverse()) out = applyEdits(out, modify(out, [...path, index], void 0, FORMAT));
+      continue;
+    }
+    const cut = path.findIndex((_, i) => at(after, path.slice(0, i + 1)) === void 0);
+    if (cut >= 0) {
+      if (at(before, path.slice(0, cut + 1)) !== void 0) out = applyEdits(out, modify(out, path.slice(0, cut + 1), void 0, FORMAT));
+    } else out = applyEdits(out, modify(out, path, at(after, path), FORMAT));
+  }
+  return out;
+}
+function mergeJsonFile(path, text, patch) {
+  return isJsonc(path) ? mergeJsonc(text, patch) : mergeJson(text, patch);
+}
+function unmergeJsonFile(path, text, patch) {
+  return isJsonc(path) ? unmergeJsonc(text, patch) : unmergeJson(text, patch);
+}
+function parseJsonFile(path, text) {
+  return isJsonc(path) ? parseJsonc(text) : JSON.parse(text);
 }
 var TOML_START = "# edu:start";
 var TOML_END = "# edu:end";
@@ -226,7 +318,7 @@ function materialize(action, before) {
     case "file":
       return Buffer.from(action.content ?? "", "utf8");
     case "json-merge":
-      return Buffer.from(mergeJson(text, action.jsonPatch ?? {}), "utf8");
+      return Buffer.from(mergeJsonFile(action.path, text, action.jsonPatch ?? {}), "utf8");
     case "toml-merge":
       return Buffer.from(mergeToml(text, action.tomlBody ?? ""), "utf8");
     default:
@@ -392,22 +484,12 @@ function isIntact(action, current) {
   if (!current) return false;
   if (action.kind === "json-merge" && action.jsonPatch) {
     try {
-      return containsPatch(JSON.parse(current.toString("utf8")), action.jsonPatch);
+      return containsPatch(parseJsonFile(action.path, current.toString("utf8")), action.jsonPatch);
     } catch {
       return false;
     }
   }
   return Boolean(action.sha256) && sha256(current) === action.sha256;
-}
-function containsPatch(target, patch) {
-  if (Array.isArray(patch)) {
-    return Array.isArray(target) && patch.every((item) => target.some((candidate) => JSON.stringify(candidate) === JSON.stringify(item)));
-  }
-  if (patch && typeof patch === "object") {
-    if (!target || typeof target !== "object") return false;
-    return Object.entries(patch).every(([key, value]) => containsPatch(target[key], value));
-  }
-  return JSON.stringify(target) === JSON.stringify(patch);
 }
 function isSharedTarget(path, home) {
   return path === join3(home, ".codex/config.toml") || path === join3(home, ".pi/agent/mcp.json");
@@ -521,8 +603,11 @@ async function applyInstall(plan6) {
     const conflict = plan6.actions.find((action) => otherTargets.has(action.path) && (!isSharedTarget(action.path, plan6.home) || !shared.targets[action.path]));
     if (conflict) throw new Error(`Target already managed by ${otherScope} installation: ${conflict.path}`);
   }
+  const planned = new Set(plan6.actions.map((action) => action.path));
+  const retiring = (previous?.actions ?? []).filter((action) => !planned.has(action.path) && isRetired(action, plan6.retire ?? []));
   const existing = new Map((previous?.actions ?? []).map((action) => [`${action.kind}:${action.path}`, action]));
   for (const action of previous?.actions ?? []) {
+    if (retiring.includes(action)) continue;
     const current = await readTarget(action.path);
     if (!isIntact(action, current)) throw new Error(`Edu installation drift: ${action.path}`);
     if (action.shared && !shared.targets[action.path]?.owners.includes(manifestPath)) throw new Error(`Missing shared ownership: ${action.path}`);
@@ -545,7 +630,7 @@ async function applyInstall(plan6) {
   const packageFile = join3(dirname2(resolveTemplatesDir()), "package.json");
   const pkg = JSON.parse(await readFile3(packageFile, "utf8"));
   const createdDirs = [...previous?.createdDirs ?? []];
-  const nextActions = [...previous?.actions ?? []];
+  const nextActions = (previous?.actions ?? []).filter((action) => !retiring.includes(action));
   const backupStamp = `${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${randomUUID()}`;
   const legacyBackups = [];
   let sharedChanged = false;
@@ -604,6 +689,7 @@ async function applyInstall(plan6) {
     if (oldIndex >= 0) nextActions[oldIndex] = saved;
     else nextActions.push(saved);
   }
+  for (const action of retiring) await retireAction(action, createdDirs);
   const manifest = {
     version: 1,
     eduVersion: pkg.version,
@@ -622,6 +708,37 @@ async function applyInstall(plan6) {
   await rename(temp, manifestPath);
   for (const backup of legacyBackups) await unlink(backup);
   return manifest;
+}
+function isRetired(action, retire) {
+  return !action.shared && retire.some((item) => item.kind === action.kind && item.path === action.path && (!item.jsonPatch || JSON.stringify(item.jsonPatch) === JSON.stringify(action.jsonPatch)));
+}
+async function retireAction(action, createdDirs) {
+  const current = await readTarget(action.path).catch(() => void 0);
+  if (current && action.kind === "file" && action.sha256 && sha256(current) === action.sha256) {
+    if (action.backup) await writeFile2(action.path, await readFile3(action.backup));
+    else await unlink(action.path);
+  } else if (current && action.kind === "json-merge" && action.jsonPatch) {
+    let remaining;
+    try {
+      remaining = unmergeJsonFile(action.path, current.toString("utf8"), action.jsonPatch);
+    } catch {
+    }
+    if (remaining !== void 0 && remaining !== current.toString("utf8")) {
+      if (!action.backup && isPlainJson(current.toString("utf8")) && isEmptyJson(remaining)) await unlink(action.path);
+      else await writeFile2(action.path, remaining);
+    }
+  }
+  if (action.backup) await unlink(action.backup).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  for (let dir = dirname2(action.path); createdDirs.includes(dir); dir = dirname2(dir)) {
+    try {
+      await rmdir(dir);
+    } catch {
+      break;
+    }
+    createdDirs.splice(createdDirs.indexOf(dir), 1);
+  }
 }
 async function uninstall(options) {
   const manifest = await loadManifest(options.manifestPath);
@@ -656,7 +773,7 @@ async function uninstall(options) {
       if (!target.owners.length) {
         const current2 = await readTarget(action.path);
         if (current2 && action.kind === "json-merge" && action.jsonPatch) {
-          const remaining = unmergeJson(current2.toString("utf8"), action.jsonPatch);
+          const remaining = unmergeJsonFile(action.path, current2.toString("utf8"), action.jsonPatch);
           if (!options.force && target.backup) await writeFile2(action.path, await readFile3(target.backup));
           else if (options.force && target.backup) await writeFile2(action.path, remaining);
           else if (isEmptyJson(remaining)) await unlink(action.path).catch((error) => {
@@ -704,7 +821,7 @@ async function uninstall(options) {
       });
       else await writeFile2(action.path, remaining);
     } else if (action.kind === "json-merge" && current && action.jsonPatch) {
-      const remaining = unmergeJson(current.toString("utf8"), action.jsonPatch);
+      const remaining = unmergeJsonFile(action.path, current.toString("utf8"), action.jsonPatch);
       if (options.force && action.backup) await writeFile2(action.path, remaining);
       else if (isEmptyJson(remaining)) await unlink(action.path).catch((error) => {
         if (error.code !== "ENOENT") throw error;
@@ -745,6 +862,14 @@ async function uninstall(options) {
     }
   }
 }
+function isPlainJson(value) {
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function isEmptyJson(value) {
   try {
     return Object.keys(JSON.parse(value)).length === 0;
@@ -756,6 +881,7 @@ function isEmptyJson(value) {
 export {
   upsertManagedBlock,
   removeManagedBlock,
+  UNION,
   mergeJson,
   unmergeJson,
   mergeToml,
@@ -776,4 +902,4 @@ export {
   applyInstall,
   uninstall
 };
-//# sourceMappingURL=chunk-66HGH7YW.js.map
+//# sourceMappingURL=chunk-NO3RXWHL.js.map

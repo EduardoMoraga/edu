@@ -163,7 +163,7 @@ function openBrain(locations) {
     async init(loc, opts = {}) {
       for (const folder of ["brain/0-index", "brain/1-canonical", "brain/2-episodic", "brain/3-transitive", "skills", "agents", "playbooks", "proposals", "runs"]) await mkdir(join(loc.root, folder), { recursive: true });
       try {
-        const { resolveTemplatesDir } = await import("./adapters-ERB3BVF7.js");
+        const { resolveTemplatesDir } = await import("./adapters-NXBNH2DE.js");
         const source = join(resolveTemplatesDir(), "playbooks");
         for (const name of await readdir(source)) {
           if (!name.endsWith(".md")) continue;
@@ -182,7 +182,7 @@ function openBrain(locations) {
       } catch {
         let contract = fallbackEdu;
         try {
-          const { resolveTemplatesDir } = await import("./adapters-ERB3BVF7.js");
+          const { resolveTemplatesDir } = await import("./adapters-NXBNH2DE.js");
           contract = await readFile(join(resolveTemplatesDir(), "EDU.md"), "utf8");
         } catch {
         }
@@ -466,4 +466,4 @@ export {
   importAlbert,
   importMoragent
 };
-//# sourceMappingURL=chunk-RQB4HE56.js.map
+//# sourceMappingURL=chunk-G74JOKZO.js.map

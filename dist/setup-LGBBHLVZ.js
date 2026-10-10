@@ -1,19 +1,21 @@
 import {
+  OPENCODE_TUI_PLUGIN,
   applySetup,
   localizePluginsForPlatform,
   needsFirstRunSetup,
   planSetup,
   setupManifestPath,
   uninstallSetup
-} from "./chunk-ECQLUDRK.js";
-import "./chunk-US6QCIVG.js";
-import "./chunk-VYUC2ZDA.js";
-import "./chunk-66HGH7YW.js";
+} from "./chunk-SPL7O2VD.js";
+import "./chunk-PYSJJP4V.js";
+import "./chunk-LZAMKNNP.js";
+import "./chunk-NO3RXWHL.js";
 import "./chunk-ROTDA577.js";
 import "./chunk-B5FNIIOI.js";
-import "./chunk-RQB4HE56.js";
+import "./chunk-G74JOKZO.js";
 import "./chunk-PILVA3OM.js";
 export {
+  OPENCODE_TUI_PLUGIN,
   applySetup,
   localizePluginsForPlatform,
   needsFirstRunSetup,
@@ -21,4 +23,4 @@ export {
   setupManifestPath,
   uninstallSetup
 };
-//# sourceMappingURL=setup-2OM3HZW3.js.map
+//# sourceMappingURL=setup-LGBBHLVZ.js.map

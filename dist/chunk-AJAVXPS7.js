@@ -13,7 +13,7 @@ import {
   applySetup,
   needsFirstRunSetup,
   planSetup
-} from "./chunk-ECQLUDRK.js";
+} from "./chunk-SPL7O2VD.js";
 import {
   t
 } from "./chunk-NTU4RUMO.js";
@@ -135,4 +135,4 @@ export {
   registerPluginSetup,
   shouldRunFirstSetup
 };
-//# sourceMappingURL=chunk-MQXMLH5P.js.map
+//# sourceMappingURL=chunk-AJAVXPS7.js.map
