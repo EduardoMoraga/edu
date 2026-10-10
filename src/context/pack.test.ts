@@ -93,3 +93,23 @@ describe('context packs', () => {
     expect((await brain.read(note.meta.id))?.meta.usage?.uses).toBe(1);
   });
 });
+
+describe('brief essentials', () => {
+  it('always includes accepted profile/preferences and active decisions', async () => {
+    const { mkdtemp } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { openBrain } = await import('../brain/index.js');
+    const { brief } = await import('./brief.js');
+    const root = await mkdtemp(join(tmpdir(), 'edu-brief-'));
+    const brain = openBrain([{ scope: 'project', root }]);
+    await brain.init({ scope: 'project', root });
+    const person = await brain.proposeCanonical({ title: 'Ada — perfil', body: 'Economist and data scientist.', tier: 'canonical', kind: 'person' });
+    await brain.acceptCanonical(person.meta.id);
+    await brain.write({ title: 'Cheil lives on another laptop', body: 'x', tier: 'transitive', kind: 'decision' });
+    const text = await brief(brain, 1500);
+    expect(text).toContain('Ada — perfil');
+    expect(text).toContain('Economist and data scientist.');
+    expect(text).toContain('Cheil lives on another laptop');
+  });
+});

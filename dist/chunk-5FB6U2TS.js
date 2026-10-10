@@ -87,11 +87,20 @@ ${line}`;
       if (clipped) add("Identity core", clipped);
     }
   }
+  const essentialKinds = /* @__PURE__ */ new Set(["person", "preference", "standard", "identity"]);
+  const essentials = notes.filter((note) => note.meta.tier === "canonical" && note.meta.status === "accepted" && essentialKinds.has(String(note.meta.kind))).sort((a, b) => Number(b.meta.kind === "person") - Number(a.meta.kind === "person") || a.meta.id.localeCompare(b.meta.id));
+  for (const note of essentials) {
+    const body = note.body.replace(/\s+/g, " ").trim();
+    add("Who and how", `- ${note.meta.title}: ${truncateToTokens(body, 90)}`, note);
+  }
   const pending = notes.filter((note) => note.meta.kind === "commitment" && (note.meta.status === "pending" || note.meta.status === "overdue")).sort((a, b) => (a.meta.due ?? "9999").localeCompare(b.meta.due ?? "9999") || a.meta.id.localeCompare(b.meta.id));
   const hypotheses = notes.filter((note) => note.meta.kind === "hypothesis" && note.meta.status === "open").sort(byNewest);
   for (const note of [...pending, ...hypotheses]) {
     const detail = note.meta.kind === "commitment" ? `due ${note.meta.due ?? "unspecified"}` : `band ${note.meta.band ?? "hypothesis"}`;
     add("Active commitments & open hypotheses", `- ${note.meta.title} (${detail})`, note);
+  }
+  for (const note of notes.filter((note2) => note2.meta.kind === "decision" && note2.meta.status === "active").sort(byNewest).slice(0, 8)) {
+    add("Active decisions", `- ${note.meta.title}`, note);
   }
   const allLessons = notes.filter((note) => note.meta.kind === "lesson" && (note.meta.status === "proven" || note.meta.status === "candidate"));
   const relevant = req.query ? rankNotes(req.query, allLessons, now, allLessons.length) : [];
@@ -134,4 +143,4 @@ export {
   buildContext,
   brief
 };
-//# sourceMappingURL=chunk-5CFFDI6K.js.map
+//# sourceMappingURL=chunk-5FB6U2TS.js.map

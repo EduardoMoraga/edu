@@ -3,7 +3,7 @@ import {
 } from "./chunk-XMKLHNXS.js";
 import {
   executeRun
-} from "./chunk-OI72I22L.js";
+} from "./chunk-PZ3INQ2M.js";
 import {
   packageTemplatesDir
 } from "./chunk-BXZ573JQ.js";
@@ -174,7 +174,7 @@ async function runInTui(ctx, opts) {
 }
 async function runHome(ctx, opts) {
   const { renderTui } = await import("./tui-RW3FNAAX.js");
-  const { respond } = await import("./respond-3QRMAN6D.js");
+  const { respond } = await import("./respond-QWMZ62G2.js");
   const { createEngine } = await import("./engine-TYTKXRE6.js");
   const channel = createChannel();
   const bridge = new ApprovalBridge();
@@ -264,4 +264,4 @@ export {
   runHome,
   runInTui
 };
-//# sourceMappingURL=live-QK4Z4XRR.js.map
+//# sourceMappingURL=live-SD44KR47.js.map

@@ -26,8 +26,8 @@ async function executeRun(ctx, setup) {
   const base = await effectiveConfig(ws.primary.root, available);
   const config = { ...base, mode: setup.mode ?? base.mode, defaultCli: setup.cli ?? base.defaultCli, approvals: setup.autoApprove ? "auto" : base.approvals };
   const [{ orchestrate }, { buildContext }, engineModule] = await Promise.all([
-    import("./orchestrator-CYCLTDVD.js"),
-    import("./context-VQJIMCYD.js"),
+    import("./orchestrator-YQRANSQ4.js"),
+    import("./context-76SCG3E7.js"),
     import("./engine-TYTKXRE6.js")
   ]);
   const eduMdPath = join(ws.primary.root, "EDU.md");
@@ -51,4 +51,4 @@ async function executeRun(ctx, setup) {
 export {
   executeRun
 };
-//# sourceMappingURL=chunk-OI72I22L.js.map
+//# sourceMappingURL=chunk-PZ3INQ2M.js.map
