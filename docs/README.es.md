@@ -33,8 +33,10 @@ irm https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.ps1
 curl -fsSL https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.sh | bash
 ```
 
-El instalador verifica Node.js 22+, instala Edu y ejecuta `edu setup`, que conecta Edu con cada CLI
-de programación que encuentre. ¿Prefiere npm directamente?
+El instalador verifica Node.js 22+ (si falta: `brew install node` en macOS con Homebrew,
+`winget install OpenJS.NodeJS.LTS` en Windows; si no, ofrece fnm o indica nodejs.org; nunca usa
+sudo), instala Edu, ejecuta `edu setup`, que conecta Edu con cada CLI de programación que encuentre,
+y muestra los siguientes pasos en su idioma. ¿Prefiere npm directamente?
 `npm i -g https://github.com/EduardoMoraga/edu/releases/latest/download/edu-agent.tgz` y luego `edu setup`
 (o `npm i -g github:EduardoMoraga/edu`).
 
@@ -44,6 +46,11 @@ su cerebro.
 `edu setup` instala de forma global con el sistema de plugins propio de cada CLI, crea el
 cerebro global (`~/.edu`) y registra cada cambio para que `edu uninstall` pueda revertirlo.
 `edu doctor` muestra qué está conectado.
+
+**Manténgase al día:** `edu update` instala la última versión publicada en GitHub con el npm del Node
+que ejecuta Edu, corre el nuevo `edu setup --yes`, reindexa y mantiene cada espacio registrado y
+muestra las novedades. `edu update --check` solo informa; `edu update v0.8.0` (o `--to v0.8.0`)
+elige una versión. Si la instalación falla, la versión actual queda tal como estaba.
 
 ## Entréguele su conocimiento a Edu: `edu create`
 
@@ -69,7 +76,9 @@ albert/
   `--cli`. Lo que el documento afirma queda como notas canónicas **aceptadas** (banda `verified`,
   fuente `archivo#título`); las interpretaciones quedan **propuestas** para que usted las apruebe.
   Los procedimientos se vuelven playbooks y los términos, una nota de glosario. Si la respuesta no
-  es válida, Edu reintenta una vez y luego divide por títulos.
+  es válida, Edu reintenta una vez y luego divide por títulos. Revíselas con `edu brain proposals`
+  (título, fuente, banda, por qué) y decida con `edu brain approve <id>` / `--all` / `--reject <id>`
+  (una propuesta rechazada se borra y queda un registro en la memoria episódica).
 - `--no-llm` divide por títulos, sin conexión y determinista. `--lang es|en` nombra las carpetas
   (por defecto `EDU_LANG`, luego el idioma del sistema, luego español). `--dir` fija la carpeta
   padre (por defecto `~/Edu`); un destino no vacío exige `--yes`. Los originales nunca se modifican.

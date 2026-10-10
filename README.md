@@ -33,8 +33,10 @@ irm https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.ps1
 curl -fsSL https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.sh | bash
 ```
 
-The installer checks Node.js 22+, installs Edu and runs `edu setup`, which connects Edu to every
-coding CLI it finds. Prefer npm directly?
+The installer checks Node.js 22+ (if missing: `brew install node` on macOS with Homebrew,
+`winget install OpenJS.NodeJS.LTS` on Windows, otherwise it offers fnm or points to nodejs.org; it
+never runs sudo), installs Edu, runs `edu setup`, which connects Edu to every coding CLI it finds,
+and prints the next steps in your language. Prefer npm directly?
 `npm i -g https://github.com/EduardoMoraga/edu/releases/latest/download/edu-agent.tgz` then `edu setup`
 (or `npm i -g github:EduardoMoraga/edu`).
 
@@ -43,6 +45,11 @@ Open your CLI and ask: **"what do you remember?"** — Edu answers from its brai
 `edu setup` installs globally with each CLI's own plugin system, creates the global brain
 (`~/.edu`), and records every change so `edu uninstall` can reverse it. `edu doctor` shows
 what is connected.
+
+**Stay current:** `edu update` installs the latest GitHub release with the npm of the Node that runs
+Edu, runs the new `edu setup --yes`, re-indexes and maintains every registered workspace and shows
+what's new. `edu update --check` only reports; `edu update v0.8.0` (or `--to v0.8.0`) picks a
+release. If the install fails, the current version stays as it was.
 
 ## Give Edu your knowledge: `edu create`
 
@@ -68,7 +75,9 @@ albert/
   `--cli`. What a document states becomes **accepted** canonical notes (band `verified`, source
   `file#heading`); interpretations stay **proposed** for you to approve. Procedures become
   playbooks, terms one glossary note. Invalid answers are retried once, then Edu falls back to
-  the heading split.
+  the heading split. Review them with `edu brain proposals` (title, source, band, why) and decide
+  with `edu brain approve <id>` / `--all` / `--reject <id>` (a rejected proposal is deleted and a
+  record stays in episodic memory).
 - `--no-llm` splits by headings, offline and deterministic. `--lang es|en` names the folders
   (default `EDU_LANG`, then your locale, then Spanish). `--dir` sets the parent (default `~/Edu`);
   a non-empty target needs `--yes`. Originals are never modified.
