@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
+import { brainPath, withBrainDir } from '../brain/location.js';
 
 export interface ProjectEntry { name: string; root: string; brain: string; addedAt: string }
 export interface ProjectRegistry { projects: ProjectEntry[] }
@@ -25,7 +26,7 @@ export async function readProjects(eduHome: string): Promise<ProjectRegistry> {
 export async function registerProject(eduHome: string, projectRoot: string): Promise<ProjectEntry> {
   const root = await realpath(resolve(projectRoot));
   const name = basename(root);
-  const brain = join(root, '.edu', 'brain');
+  const brain = brainPath(await withBrainDir({ scope: 'project', root: join(root, '.edu') }));
   const registry = await readProjects(eduHome);
   const existing = registry.projects.find(entry => entry.root === root);
   if (existing) return existing;

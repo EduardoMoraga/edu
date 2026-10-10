@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { BrainLocation } from '../core/contracts.js';
+import { withBrainDir } from '../brain/location.js';
 
 /** The nearest .edu directory overlays a global home, if one exists. */
 export async function resolveBrainLocations(cwd = process.cwd(), env: NodeJS.ProcessEnv = process.env): Promise<BrainLocation[]> {
@@ -11,7 +12,7 @@ export async function resolveBrainLocations(cwd = process.cwd(), env: NodeJS.Pro
     const root = join(current, '.edu');
     try {
       if ((await stat(root)).isDirectory()) {
-        locations.push({ scope: 'project', root });
+        locations.push(await withBrainDir({ scope: 'project', root }));
         break;
       }
     } catch (error) {
@@ -22,6 +23,6 @@ export async function resolveBrainLocations(cwd = process.cwd(), env: NodeJS.Pro
     current = parent;
   }
   const globalRoot = resolve(env.EDU_HOME || join(env.HOME || homedir(), '.edu'));
-  if (!locations.some(location => location.root === globalRoot)) locations.push({ scope: 'global', root: globalRoot });
+  if (!locations.some(location => location.root === globalRoot)) locations.push(await withBrainDir({ scope: 'global', root: globalRoot }));
   return locations;
 }

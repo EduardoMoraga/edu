@@ -138,21 +138,37 @@ const glyph: Record<string, [string, string]> = {
   cancelled: ['⊘', MUTED],
 }
 
+/**
+ * The brain folder, relative to the workspace: `brainDir` from `.edu/config.json` (edu ≥ 0.8, e.g. a
+ * visible `01-KNOWLEDGE`), else `.edu/brain`. Absolute or escaping values fall back to the default.
+ */
+async function brainDir($: EngineInterface): Promise<string> {
+  try {
+    if (await $.fs.exists('.edu/config.json')) {
+      const config = JSON.parse(await $.fs.read('.edu/config.json')) as Record<string, unknown>
+      const dir = typeof config.brainDir === 'string' ? config.brainDir.trim().replace(/\\/g, '/').replace(/\/+$/, '') : ''
+      if (dir && !dir.startsWith('/') && !/^[A-Za-z]:/.test(dir) && !dir.split('/').includes('..')) return dir
+    }
+  } catch { /* Unreadable config: use the default brain folder. */ }
+  return '.edu/brain'
+}
+
 async function refresh($: EngineInterface): Promise<void> {
-  const hasBrain = await $.fs.exists('.edu/brain')
+  const brain = await brainDir($)
+  const hasBrain = await $.fs.exists(brain)
   const usage = await $.session.usage().catch(() => undefined)
   const next: DeckSnapshot = {
     hasBrain,
     notes: hasBrain
       ? {
-          canonical: await countNotes($, '.edu/brain/1-canonical'),
-          episodic: await countNotes($, '.edu/brain/2-episodic'),
-          transitive: await countNotes($, '.edu/brain/3-transitive'),
+          canonical: await countNotes($, `${brain}/1-canonical`),
+          episodic: await countNotes($, `${brain}/2-episodic`),
+          transitive: await countNotes($, `${brain}/3-transitive`),
         }
       : { canonical: 0, episodic: 0, transitive: 0 },
-    toApprove: hasBrain ? await countStatus($, '.edu/brain/1-canonical', 'proposed') : 0,
+    toApprove: hasBrain ? await countStatus($, `${brain}/1-canonical`, 'proposed') : 0,
     maintenance: hasBrain
-      ? await maintenance($, await countStatus($, '.edu/brain/3-transitive', 'overdue', name => name.startsWith('C-')))
+      ? await maintenance($, await countStatus($, `${brain}/3-transitive`, 'overdue', name => name.startsWith('C-')))
       : { lastRun: null, promoted: 0, retired: 0, overdue: 0 },
     jobs: hasBrain ? await crewJobs($) : [],
     spec: hasBrain ? await latestSpec($) : undefined,
@@ -169,7 +185,7 @@ export const register: Register = on => {
     await refresh($).catch(() => undefined)
     $.clock.every(REFRESH_MS, () => { void refresh($).catch(() => undefined) })
     // Open on its own only inside an Edu project; elsewhere it waits for /edu-deck.
-    if (await $.fs.exists('.edu/brain')) void $.ui.open({ id: PANE, title: TITLE })
+    if (await $.fs.exists(await brainDir($))) void $.ui.open({ id: PANE, title: TITLE })
     return next(e)
   })
 

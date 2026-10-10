@@ -11,6 +11,8 @@ export const EduConfigSchema = z.object({
   roles: z.array(RoleSchema).min(1), approvals: z.enum(['always-ask', 'ask-on-write', 'auto']),
   context: z.object({ budgetTokens: z.number().int().positive() }),
   brain: z.object({ obsidianVault: z.string().optional() }), lang: z.enum(['en', 'es']),
+  brainDir: z.string().min(1).optional(), sourcesDir: z.string().min(1).optional(),
+  identity: z.object({ name: z.string().min(1), role: z.string().optional(), tone: z.string().optional(), summary: z.string().optional() }).optional(),
 });
 
 export function defaultConfig(defaultCli: CliId): EduConfig {

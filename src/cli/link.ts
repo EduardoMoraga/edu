@@ -6,6 +6,7 @@
 import { lstat, mkdir, readlink, realpath, symlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { BrainLocation } from '../core/contracts.js';
+import { brainPath } from '../brain/location.js';
 
 export type LinkState = 'ok' | 'missing' | 'conflict';
 
@@ -15,7 +16,7 @@ export function linkName(location: BrainLocation): string {
 }
 
 export function brainDir(location: BrainLocation): string {
-  return join(location.root, 'brain');
+  return brainPath(location);
 }
 
 export function linkPath(vault: string, location: BrainLocation): string {

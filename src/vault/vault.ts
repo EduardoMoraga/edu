@@ -158,8 +158,8 @@ export async function createVault(options: VaultOptions): Promise<VaultReport> {
   const linked: string[] = [];
   const conflicts: string[] = [];
   const missingProjects: string[] = [];
-  const entries = [...projects.map(project => ({ name: segment(project.name), target: project.brain, project: true })),
-    { name: '_global', target: join(options.eduHome, 'brain'), project: false }];
+  const entries = [...projects.map(project => ({ name: segment(project.name), target: project.brain, root: join(project.root, '.edu'), project: true })),
+    { name: '_global', target: join(options.eduHome, 'brain'), root: options.eduHome, project: false }];
   for (const entry of entries) {
     if (entry.project && !(await exists(entry.target))) { missingProjects.push(entry.name); continue; }
     const link = join(path, 'Edu', entry.name);
@@ -167,7 +167,7 @@ export async function createVault(options: VaultOptions): Promise<VaultReport> {
       await createVaultLink(link, entry.target, platform);
       linked.push(entry.name);
       // Home.md points at each brain's INDEX; make sure it exists and is current.
-      await openBrain([{ scope: entry.project ? 'project' : 'global', root: dirname(entry.target) }]).rebuildIndex().catch(() => undefined);
+      await openBrain([{ scope: entry.project ? 'project' : 'global', root: entry.root, ...(entry.target === join(entry.root, 'brain') ? {} : { brainDir: entry.target }) }]).rebuildIndex().catch(() => undefined);
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ELINKCONFLICT') throw error;

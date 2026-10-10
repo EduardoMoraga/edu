@@ -28,6 +28,17 @@ describe('edu deck', () => {
     expect(c.stderr).toEqual([]);
   });
 
+  it('reads a visible brain from brainDir and the configured agent name', async () => {
+    const c = await captureContext();
+    const root = c.dirs.cwd;
+    await fixture(root, 'config.json', JSON.stringify({ brainDir: '01-CONOCIMIENTO', identity: { name: 'Albert' } }), 1000);
+    await mkdir(join(root, '01-CONOCIMIENTO', '1-canonical', 'domain'), { recursive: true });
+    await writeFile(join(root, '01-CONOCIMIENTO', '1-canonical', 'domain', 'k.md'), '---\nstatus: accepted\ntitle: Channels\n---\nBody\n');
+    const snapshot = await deckSnapshot(root);
+    expect(snapshot.identity).toBe('Albert');
+    expect(snapshot.brain).toMatchObject({ present: true, canonical: 1 });
+  });
+
   it('reads note tiers, latest spec, jobs and human output', async () => {
     const c = await captureContext();
     const root = c.dirs.cwd;

@@ -3,6 +3,7 @@ import { dirname, isAbsolute, relative, resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { INDEX_DIR, TRANSITIVE_PREFIX, TIER_DIRS, type BrainLocation, type Note, type NoteMeta, type TransitiveKind } from '../core/contracts.js';
 import { parseMarkdown, serializeMarkdown } from './frontmatter.js';
+import { brainPath } from './location.js';
 
 export function slugify(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'note';
@@ -14,23 +15,24 @@ export function createId(meta: Pick<NoteMeta, 'tier' | 'kind' | 'title'>, date =
   return `${prefix}${slugify(meta.title)}`;
 }
 
-export function notePath(root: string, meta: NoteMeta, now = new Date()): string {
+/** `brain` is the brain folder itself (see `brainPath()`); the note must stay inside it. */
+export function notePath(brain: string, meta: NoteMeta, now = new Date()): string {
   let path: string;
   if (meta.tier === 'canonical') {
     const canonicalKinds = ['identity', 'standard', 'lexicon', 'domain', 'person', 'preference'];
     if (meta.kind && !canonicalKinds.includes(meta.kind)) throw new Error(`Invalid canonical kind: ${meta.kind}`);
-    path = join(root, 'brain', TIER_DIRS.canonical, slugify(String(meta.kind ?? 'domain')), `${slugify(meta.title)}.md`);
+    path = join(brain, TIER_DIRS.canonical, slugify(String(meta.kind ?? 'domain')), `${slugify(meta.title)}.md`);
   }
   else if (meta.tier === 'episodic') {
     const stamp = `${now.toISOString().slice(0, 10)}_${now.toISOString().slice(11, 16).replace(':', '')}`;
     const suffix = /-([a-f0-9]{8})$/.exec(meta.id)?.[1];
-    path = join(root, 'brain', TIER_DIRS.episodic, `${stamp}_${slugify(meta.title)}${suffix ? `-${suffix}` : ''}.md`);
+    path = join(brain, TIER_DIRS.episodic, `${stamp}_${slugify(meta.title)}${suffix ? `-${suffix}` : ''}.md`);
   } else {
     const prefix = TRANSITIVE_PREFIX[meta.kind as TransitiveKind];
     if (!prefix) throw new Error(`Invalid transitive kind: ${String(meta.kind)}`);
-    path = join(root, 'brain', TIER_DIRS.transitive, `${prefix}${slugify(meta.title)}.md`);
+    path = join(brain, TIER_DIRS.transitive, `${prefix}${slugify(meta.title)}.md`);
   }
-  const base = resolve(root);
+  const base = resolve(brain);
   const resolved = resolve(path);
   const rel = relative(base, resolved);
   if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) throw new Error('Brain note path escapes the brain root');
@@ -67,7 +69,7 @@ async function markdownFiles(dir: string): Promise<string[]> {
 export async function listLocation(location: BrainLocation): Promise<Note[]> {
   const notes: Note[] = [];
   for (const dir of [TIER_DIRS.canonical, TIER_DIRS.episodic, TIER_DIRS.transitive]) {
-    for (const path of await markdownFiles(join(location.root, 'brain', dir))) {
+    for (const path of await markdownFiles(join(brainPath(location), dir))) {
       const note = await readNote(path); if (note) notes.push(note);
     }
   }

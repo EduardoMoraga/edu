@@ -2,6 +2,7 @@ import { access, mkdir, readFile, readdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { stringify } from 'yaml';
 import type { BrainLocation, CanonicalKind, ClaimBand, Note, NoteMeta, RecallHit, Tier } from '../core/contracts.js';
+import { brainPath, vaultFolder } from './location.js';
 import { INDEX_DIR, atomicWrite, createId, encodeNote, notePath, overlayNotes } from './store.js';
 import { assertDecisionReversion, isClosedEpisode, validateTransition, validateStatus } from './lifecycle.js';
 import { feedbackUsage, applyLearning, recordUsage } from './learning.js';
@@ -83,7 +84,8 @@ export function openBrain(locations: BrainLocation[]): Brain {
 
   return {
     async init(loc, opts = {}) {
-      for (const folder of ['brain/0-index', 'brain/1-canonical', 'brain/2-episodic', 'brain/3-transitive', 'skills', 'agents', 'playbooks', 'proposals', 'runs']) await mkdir(join(loc.root, folder), { recursive: true });
+      for (const folder of ['0-index', '1-canonical', '2-episodic', '3-transitive']) await mkdir(join(brainPath(loc), folder), { recursive: true });
+      for (const folder of ['skills', 'agents', 'playbooks', 'proposals', 'runs']) await mkdir(join(loc.root, folder), { recursive: true });
       try {
         const { resolveTemplatesDir } = await import('../adapters/index.js');
         const source = join(resolveTemplatesDir(), 'playbooks');
@@ -122,7 +124,7 @@ export function openBrain(locations: BrainLocation[]): Brain {
         ...(input.owner ? { owner: input.owner } : {}), ...(input.due ? { due: input.due } : {}), ...(input.supersedes ? { supersedes: input.supersedes } : {}),
       };
       if (meta.status && meta.kind) validateStatus(meta.tier === 'canonical' ? 'canonical' : meta.kind, meta.status);
-      const path = notePath(primary.root, meta, now);
+      const path = notePath(brainPath(primary), meta, now);
       const note = { meta, body: input.body, path };
       let priorDecision: Note | undefined;
       if (meta.kind === 'decision' && meta.supersedes) {
@@ -201,7 +203,7 @@ export function openBrain(locations: BrainLocation[]): Brain {
         for (const note of group.sort((a, b) => a.meta.title.localeCompare(b.meta.title))) lines.push(`- [[${basename(note.path, '.md')}|${note.meta.title}]] — ${note.meta.band ?? 'inferred'} · ${note.meta.status ?? 'unspecified'}`);
         lines.push('');
       }
-      await atomicWrite(join(primary.root, 'brain', INDEX_DIR, 'INDEX.md'), `${lines.join('\n')}\n`);
+      await atomicWrite(join(brainPath(primary), INDEX_DIR, 'INDEX.md'), `${lines.join('\n')}\n`);
       for (const [kind, file, props] of [
         ['lesson', 'Lessons.base', ['title', 'status', 'tags', 'usage.wins', 'usage.losses']],
         ['commitment', 'Commitments.base', ['title', 'status', 'owner', 'due', 'tags']],
@@ -209,8 +211,8 @@ export function openBrain(locations: BrainLocation[]): Brain {
         ['session', 'Sessions.base', ['title', 'status', 'created', 'source']],
       ] as const) {
         const folder = kind === 'session' ? '2-episodic' : kind === 'lesson' || kind === 'commitment' || kind === 'hypothesis' ? '3-transitive' : '';
-        const content = stringify({ filters: { and: [`file.inFolder("brain/${folder}")`, `file.hasTag("${kind}")`] }, views: [{ type: 'table', name: kind[0]!.toUpperCase() + kind.slice(1), order: props.map(prop => prop.startsWith('usage.') ? `note.${prop}` : `note.${prop}`) }] });
-        await atomicWrite(join(primary.root, 'brain', INDEX_DIR, file), content);
+        const content = stringify({ filters: { and: [`file.inFolder("${vaultFolder(primary, folder)}")`, `file.hasTag("${kind}")`] }, views: [{ type: 'table', name: kind[0]!.toUpperCase() + kind.slice(1), order: props.map(prop => prop.startsWith('usage.') ? `note.${prop}` : `note.${prop}`) }] });
+        await atomicWrite(join(brainPath(primary), INDEX_DIR, file), content);
       }
     },
     async stats() {

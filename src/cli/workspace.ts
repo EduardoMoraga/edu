@@ -6,6 +6,7 @@ import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openBrain, type Brain } from '../brain/index.js';
 import type { BrainLocation, CliId, EduConfig } from '../core/contracts.js';
+import { readWorkspaceSettings } from '../brain/location.js';
 import { resolveBrainLocations } from '../mcp/locations.js';
 import type { CliContext } from './context.js';
 
@@ -40,8 +41,10 @@ export async function effectiveConfig(root: string, detected: CliId[]): Promise<
   return defaultConfig(detected[0] ?? 'claude');
 }
 
-/** Identity name from the first heading of EDU.md (`# Name — the contract`). */
+/** Identity name: `identity.name` in config.json, else the first heading of EDU.md (`# Name — the contract`). */
 export async function identityName(root: string): Promise<string> {
+  const configured = (await readWorkspaceSettings(root)).identity?.name;
+  if (configured) return configured;
   try {
     const text = await readFile(join(root, 'EDU.md'), 'utf8');
     const heading = /^#\s+(.+?)(?:\s+[—-]\s+.*)?$/m.exec(text)?.[1]?.trim();

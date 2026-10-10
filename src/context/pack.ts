@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { readWorkspaceSettings } from '../brain/location.js';
 import type { Brain } from '../brain/index.js';
 import { learnedWeight, rankNotes } from '../brain/index.js';
 import type { ContextPack, ContextRequest, ContextSection, Note } from '../core/contracts.js';
@@ -11,14 +12,28 @@ function byNewest(a: Note, b: Note): number {
   return b.meta.created.localeCompare(a.meta.created) || a.meta.id.localeCompare(b.meta.id);
 }
 
+/** "You are Albert, this workspace's agent, powered by Edu…" when `.edu/config.json` names the agent. */
+export async function agentIntro(eduRoot: string): Promise<string> {
+  const identity = (await readWorkspaceSettings(eduRoot)).identity;
+  if (!identity) return '';
+  return [
+    `You are **${identity.name}**, this workspace's agent, powered by Edu. Introduce yourself as ${identity.name}.`,
+    identity.role ? `Role: ${identity.role}` : '',
+    identity.summary ? `Operation: ${identity.summary}` : '',
+    identity.tone ? `Tone: ${identity.tone}` : '',
+  ].filter(Boolean).join('\n');
+}
+
 async function identityCore(path?: string): Promise<string> {
   if (!path) return '';
+  const intro = await agentIntro(dirname(path));
   try {
     const source = await readFile(path, 'utf8');
     const beforeMarker = source.split('<!-- edu:extended -->', 1)[0] ?? '';
-    return (beforeMarker === source ? source.split('\n').slice(0, 40).join('\n') : beforeMarker).trim();
+    const core = (beforeMarker === source ? source.split('\n').slice(0, 40).join('\n') : beforeMarker).trim();
+    return intro ? `${intro}\n\n${core}` : core;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return intro;
     throw error;
   }
 }

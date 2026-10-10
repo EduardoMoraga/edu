@@ -3,6 +3,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { readMaintainState } from '../../brain/auto-maintain.js';
+import { brainPath, withBrainDir } from '../../brain/location.js';
 import { parseMarkdownLenient } from '../../brain/frontmatter.js';
 import { TIER_DIRS, type Tier } from '../../core/contracts.js';
 import { getGlyphs } from '../../identity/index.js';
@@ -125,7 +126,7 @@ export async function deckSnapshot(root: string): Promise<DeckSnapshot> {
     updatedAt: Date.now(),
   };
   try {
-    const brainDir = join(eduRoot, 'brain');
+    const brainDir = brainPath(await withBrainDir({ scope: 'project', root: eduRoot }));
     if (!(await stat(brainDir)).isDirectory()) return empty;
     const tiers = Object.entries(TIER_DIRS) as Array<[Tier, string]>;
     const noteFiles: NoteFile[] = (await Promise.all(tiers.map(async ([tier, dir]) =>

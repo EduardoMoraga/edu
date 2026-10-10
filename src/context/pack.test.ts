@@ -22,6 +22,15 @@ async function fixture() {
 }
 
 describe('context packs', () => {
+  it('opens the identity core with the workspace agent name from config.json', async () => {
+    const { root, brain, eduMdPath } = await fixture();
+    await writeFile(join(root, 'config.json'), JSON.stringify({ identity: { name: 'Albert', role: 'Trade marketing analyst' } }));
+    const text = await brief(brain, 400, { eduMdPath });
+    expect(text).toContain("You are **Albert**, this workspace's agent, powered by Edu.");
+    expect(text).toContain('Role: Trade marketing analyst');
+    expect(text.indexOf('Albert')).toBeLessThan(text.indexOf('Keep promises.'));
+  });
+
   it('prioritizes sections, tracks deferred notes, and never exceeds a small budget', async () => {
     const { brain, eduMdPath } = await fixture();
     const commitment = await brain.write({ tier: 'transitive', kind: 'commitment', title: 'Ship the release', body: 'release', due: '2026-10-09' });

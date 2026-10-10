@@ -100,7 +100,9 @@ export interface RecallHit {
 /** Where a brain lives. Project brains overlay the global brain. */
 export interface BrainLocation {
   scope: 'global' | 'project';
-  root: string;          // directory containing EDU.md and brain/
+  root: string;          // directory containing EDU.md, config.json and (by default) brain/
+  /** Absolute brain folder when `.edu/config.json` sets `brainDir`; default `<root>/brain`. Read it through `brainPath()`. */
+  brainDir?: string;
 }
 
 // ─── Context budget ──────────────────────────────────────────────────────────
@@ -289,7 +291,15 @@ export interface EduConfig {
   context: { budgetTokens: number };
   brain: { obsidianVault?: string };
   lang: 'en' | 'es';
+  /** Brain folder relative to the workspace root (the folder holding `.edu/`). Default `.edu/brain`. */
+  brainDir?: string;
+  /** Where `edu create` keeps copies of the original documents, relative to the workspace root. */
+  sourcesDir?: string;
+  /** The workspace agent's identity (e.g. "Albert"), used by briefs and identity injection. */
+  identity?: WorkspaceIdentity;
 }
+
+export interface WorkspaceIdentity { name: string; role?: string; tone?: string; summary?: string }
 
 // ─── CLI integration (installer) ─────────────────────────────────────────────
 

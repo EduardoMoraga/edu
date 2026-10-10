@@ -8,6 +8,8 @@ export { rankNotes, tokenize } from './search.js';
 export { AUTO_MAINTAIN_INTERVAL_MS, autoMaintain, maintainStatePath, readMaintainState } from './auto-maintain.js';
 export type { AutoMaintainResult, MaintainState } from './auto-maintain.js';
 export { atomicWrite, createId, notePath, slugify } from './store.js';
+export { brainPath, isInside, readWorkspaceSettings, resolveBrainDir, vaultFolder, withBrainDir } from './location.js';
+export type { WorkspaceSettings } from './location.js';
 export { importAlbert } from './import/albert.js';
 export { importMoragent } from './import/moragent.js';
 export type { ImportReport } from './import/types.js';
