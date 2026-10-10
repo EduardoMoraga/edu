@@ -1,6 +1,8 @@
 import { mkdtemp, rm, mkdir, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/index.js';
 import type { CliId, EduEvent, Engine } from '../core/contracts.js';
@@ -9,6 +11,7 @@ import { dispatchPane, type HerdrRunner } from './herdr.js';
 import { createCrewStore } from './store.js';
 
 const roots: string[] = [];
+const execFile = promisify(execFileCallback);
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'edu-crew-'));
   roots.push(root);
@@ -288,5 +291,16 @@ describe('crew jobs', () => {
       { type: 'agent.end', agentId: 'review', ok: false, summary: 'Provider failed.', at: new Date().toISOString() },
     ]), detectClis: async () => ['claude'], diff: async () => '' });
     await expect(failingCrew.review({ cli: 'claude', callerCli: 'codex', base: 'main' })).rejects.toThrow('reviewer ended unsuccessfully');
+  });
+
+  it('explains when review has no git repository or an unknown base', async () => {
+    const f = await fixture();
+    const crew = createCrew({ brainRoot: f.root, workspaceRoot: f.root, detectClis: async () => ['codex'] });
+    await expect(crew.review({ cli: 'codex' })).rejects.toThrow('cross-vendor review needs a git repository to diff');
+    const gitRoot = join(f.root, 'repository');
+    await mkdir(gitRoot);
+    await execFile('git', ['init', '-q', gitRoot]);
+    const inRepo = createCrew({ brainRoot: f.root, workspaceRoot: gitRoot, detectClis: async () => ['codex'] });
+    await expect(inRepo.review({ cli: 'codex', base: 'ref-that-does-not-exist-0029' })).rejects.toThrow('Unknown git base ref');
   });
 });

@@ -33,7 +33,9 @@ var en = {
   "doctor.auth": "  sign in: {hint}",
   "doctor.brain": "{scope} brain {root}: {total} notes",
   "doctor.brainMissing": "{scope} brain {root}: not initialized \u2014 run: edu init{flag}",
-  "doctor.vaultNone": "Obsidian: no vault linked \u2014 run: edu brain link <vault>",
+  "doctor.project": "Registered project: {name} ({root})",
+  "doctor.projectMissing": "Missing registered project: {name} ({root}); entry kept",
+  "doctor.vaultNone": "Obsidian: no project vault link found \u2014 run: edu vault --check",
   "doctor.vaultOk": "Obsidian: {link} \u2192 brain",
   "doctor.vaultBroken": "Obsidian: {link} does not point to this brain",
   "run.noCli": "No supported coding CLI found on PATH. Install one, or try: edu demo",
@@ -97,7 +99,9 @@ var es = {
   "doctor.auth": "  inicia sesi\xF3n: {hint}",
   "doctor.brain": "cerebro {scope} {root}: {total} notas",
   "doctor.brainMissing": "cerebro {scope} {root}: sin inicializar \u2014 ejecuta: edu init{flag}",
-  "doctor.vaultNone": "Obsidian: sin vault vinculado \u2014 ejecuta: edu brain link <vault>",
+  "doctor.project": "Proyecto registrado: {name} ({root})",
+  "doctor.projectMissing": "Falta el proyecto registrado: {name} ({root}); se conserva la entrada",
+  "doctor.vaultNone": "Obsidian: no se encontr\xF3 un enlace de vault para este proyecto \u2014 ejecuta: edu vault --check",
   "doctor.vaultOk": "Obsidian: {link} \u2192 cerebro",
   "doctor.vaultBroken": "Obsidian: {link} no apunta a este cerebro",
   "run.noCli": "No hay ning\xFAn CLI de c\xF3digo compatible en el PATH. Instala uno o prueba: edu demo",
@@ -145,4 +149,4 @@ export {
   uiLang,
   t
 };
-//# sourceMappingURL=chunk-NQTHVZEM.js.map
+//# sourceMappingURL=chunk-VIZUUMRZ.js.map

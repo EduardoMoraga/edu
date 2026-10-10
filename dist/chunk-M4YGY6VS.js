@@ -9,7 +9,7 @@ import {
 import {
   createCrew,
   runWorker
-} from "./chunk-RBQOEXV2.js";
+} from "./chunk-AGEVZL4M.js";
 import {
   action,
   look,
@@ -18,7 +18,7 @@ import {
   printJson,
   registerPluginSetup,
   statusLine
-} from "./chunk-R25BSKVR.js";
+} from "./chunk-I4WLEQ24.js";
 import {
   detectTheme,
   formatTokens,
@@ -38,7 +38,7 @@ import {
 import {
   t,
   uiLang
-} from "./chunk-NQTHVZEM.js";
+} from "./chunk-VIZUUMRZ.js";
 import {
   initBrain
 } from "./chunk-DDWOZAZN.js";
@@ -253,7 +253,53 @@ function registerCrew(program, ctx) {
 }
 
 // src/cli/commands/doctor.ts
-import { join as join3 } from "path";
+import { join as join4 } from "path";
+
+// src/vault/registry.ts
+import { randomUUID } from "crypto";
+import { mkdir as mkdir2, readFile, realpath as realpath2, rename, rm, writeFile } from "fs/promises";
+import { basename as basename2, dirname as dirname2, join as join3, resolve as resolve3 } from "path";
+async function readProjects(eduHome) {
+  let raw;
+  try {
+    raw = await readFile(join3(eduHome, "projects.json"), "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return { projects: [] };
+    throw error;
+  }
+  const data = JSON.parse(raw);
+  if (!data || typeof data !== "object" || !("projects" in data) || !Array.isArray(data.projects) || !data.projects.every((entry) => entry && typeof entry === "object" && ["name", "root", "brain", "addedAt"].every((key) => typeof entry[key] === "string"))) {
+    throw new Error(`Invalid project registry: ${join3(eduHome, "projects.json")}`);
+  }
+  return data;
+}
+async function registerProject(eduHome, projectRoot) {
+  const root = await realpath2(resolve3(projectRoot));
+  const name = basename2(root);
+  const brain = join3(root, ".edu", "brain");
+  const registry = await readProjects(eduHome);
+  const existing = registry.projects.find((entry2) => entry2.root === root);
+  if (existing) return existing;
+  if (registry.projects.some((entry2) => entry2.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error(`Project name conflict in registry: ${name}`);
+  }
+  const entry = { name, root, brain, addedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  registry.projects.push(entry);
+  const path = join3(eduHome, "projects.json");
+  await mkdir2(dirname2(path), { recursive: true });
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temp, `${JSON.stringify(registry, null, 2)}
+`);
+    await rename(temp, path);
+  } catch (error) {
+    await rm(temp, { force: true });
+    throw error;
+  }
+  return entry;
+}
+
+// src/cli/commands/doctor.ts
 var AUTH_HINTS = {
   claude: "run `claude` once and sign in, or set ANTHROPIC_API_KEY",
   codex: "run `codex login`",
@@ -281,10 +327,15 @@ function registerDoctor(program, ctx) {
         if (d.installed) lines.push({ level: "ok", text: t(lang, "doctor.auth", { hint: AUTH_HINTS[d.cli] }) });
       }
       const ws = await openWorkspace(ctx, g.cwd);
+      const projects = await readProjects(globalHome(ctx));
+      for (const project of projects.projects) {
+        const ready = await exists(project.root) && await exists(project.brain);
+        lines.push({ level: ready ? "ok" : "warn", text: t(lang, ready ? "doctor.project" : "doctor.projectMissing", { name: project.name, root: project.root }) });
+      }
       const locations = ws.locations.some((l) => l.scope === "global") ? ws.locations : [...ws.locations, { scope: "global", root: globalHome(ctx) }];
       const brains = [];
       for (const loc of locations) {
-        const ready = await exists(join3(loc.root, "EDU.md"));
+        const ready = await exists(join4(loc.root, "EDU.md"));
         const total = ready ? (await openBrain([loc]).stats()).total : 0;
         brains.push({ ...loc, ready, total });
         lines.push(
@@ -292,10 +343,17 @@ function registerDoctor(program, ctx) {
         );
       }
       let vault = { state: "none" };
-      if (await exists(join3(ws.primary.root, "config.json"))) {
+      if (await exists(join4(ws.primary.root, "config.json"))) {
         const config = await effectiveConfig(ws.primary.root, []);
         if (config.brain.obsidianVault) {
           const link = linkPath(config.brain.obsidianVault, ws.primary);
+          vault = { link, state: await linkState(link, brainDir(ws.primary)) };
+        }
+      }
+      if (vault.state === "none") {
+        const defaultVault = join4(process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home, "EduVault");
+        if (await exists(join4(defaultVault, "Home.md"))) {
+          const link = linkPath(defaultVault, ws.primary);
           vault = { link, state: await linkState(link, brainDir(ws.primary)) };
         }
       }
@@ -303,7 +361,7 @@ function registerDoctor(program, ctx) {
       else if (vault.state === "ok") lines.push({ level: "ok", text: t(lang, "doctor.vaultOk", { link: vault.link }) });
       else lines.push({ level: "fail", text: t(lang, "doctor.vaultBroken", { link: vault.link }) });
       if (g.json || opts.json) {
-        printJson(ctx, { node: process.version, clis, brains, vault, lines });
+        printJson(ctx, { node: process.version, clis, projects: projects.projects, brains, vault, lines });
         return;
       }
       const style = look(ctx);
@@ -316,8 +374,8 @@ function registerDoctor(program, ctx) {
 }
 
 // src/cli/commands/evidence.ts
-import { readdir, readFile } from "fs/promises";
-import { join as join4 } from "path";
+import { readdir, readFile as readFile2 } from "fs/promises";
+import { join as join5 } from "path";
 
 // src/evidence/metrics.ts
 function aggregateMetrics(episodes, options = {}) {
@@ -370,7 +428,7 @@ function registerEvidence(program, ctx) {
     const by = oneOf2(opts.by ?? "cli", ["cli", "role", "level"], "--by");
     const since = parseSince(opts.since ?? "30d");
     const ws = await openWorkspace(ctx, g.cwd);
-    const episodes = await readEpisodes(join4(ws.primary.root, "runs"));
+    const episodes = await readEpisodes(join5(ws.primary.root, "runs"));
     const projected = episodes.map((episode) => ({ ...episode, cli: by === "cli" ? episode.cli : void 0, role: by === "role" ? episode.role : void 0, level: by === "level" ? episode.level : void 0 }));
     const rows = aggregateMetrics(projected, { since }).map((group) => ({
       group: group.group[by],
@@ -430,18 +488,18 @@ async function readEpisodes(root) {
   const summaries = [];
   for (const item of entries.filter((value) => value.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
     const entry = item.name;
-    const dir = join4(root, entry);
+    const dir = join5(root, entry);
     const [task, outcome, interventions, verifications, attributions, tools, entropy] = await Promise.all([
-      json(join4(dir, "task.json")),
-      json(join4(dir, "outcome.json")),
-      jsonl(join4(dir, "intervention.jsonl")),
-      jsonl(join4(dir, "verification.jsonl")),
-      jsonl(join4(dir, "attribution.jsonl")),
-      jsonl(join4(dir, "tool.jsonl")),
-      json(join4(dir, "entropy.json"))
+      json(join5(dir, "task.json")),
+      json(join5(dir, "outcome.json")),
+      jsonl(join5(dir, "intervention.jsonl")),
+      jsonl(join5(dir, "verification.jsonl")),
+      jsonl(join5(dir, "attribution.jsonl")),
+      jsonl(join5(dir, "tool.jsonl")),
+      json(join5(dir, "entropy.json"))
     ]);
     const metrics = object(outcome.metrics);
-    const start = (await jsonl(join4(dir, "action.jsonl"))).find((event) => event.type === "run.start");
+    const start = (await jsonl(join5(dir, "action.jsonl"))).find((event) => event.type === "run.start");
     if (!start) continue;
     const label = outcome.label;
     if (!["autonomous_verified_success", "assisted_verified_success", "unverified_success", "failed", "unsafe_invalid"].includes(label)) continue;
@@ -488,7 +546,7 @@ function countRecoveredTools(events) {
 }
 async function json(path) {
   try {
-    return object(JSON.parse(await readFile(path, "utf8")));
+    return object(JSON.parse(await readFile2(path, "utf8")));
   } catch (error) {
     if (error.code === "ENOENT") return {};
     throw error;
@@ -496,7 +554,7 @@ async function json(path) {
 }
 async function jsonl(path) {
   try {
-    return (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => object(JSON.parse(line)));
+    return (await readFile2(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => object(JSON.parse(line)));
   } catch (error) {
     if (error.code === "ENOENT") return [];
     throw error;
@@ -529,7 +587,7 @@ function pct(value) {
 }
 
 // src/cli/hooks.ts
-import { join as join5 } from "path";
+import { join as join6 } from "path";
 
 // src/cli/statusline.ts
 var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -591,14 +649,14 @@ async function safeHook(ctx, name, body) {
 }
 async function initializedWorkspace(ctx, cwd) {
   const ws = await openWorkspace(ctx, cwd);
-  return await exists(join5(ws.primary.root, "EDU.md")) ? ws : void 0;
+  return await exists(join6(ws.primary.root, "EDU.md")) ? ws : void 0;
 }
 async function sessionStart(ctx, cwd) {
   const input = parseJsonObject(await ctx.readStdin(500));
   const ws = await initializedWorkspace(ctx, str(input?.cwd) ?? cwd);
   if (!ws) return;
   const { brief } = await import("./context-PAFLCUYP.js");
-  const text = await brief(ws.brain, 1500, { eduMdPath: join5(ws.primary.root, "EDU.md") });
+  const text = await brief(ws.brain, 1500, { eduMdPath: join6(ws.primary.root, "EDU.md") });
   if (text.trim()) ctx.out(text);
 }
 async function sessionEnd(ctx, cwd) {
@@ -638,7 +696,7 @@ async function codexNotify(ctx, cwd, payload) {
 function registerIntegrations(program, ctx) {
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-A4W3PRTQ.js");
+      const { runStdioServer } = await import("./stdio-FMTVAIXC.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -666,7 +724,7 @@ function registerIntegrations(program, ctx) {
 }
 
 // src/cli/commands/learn.ts
-import { join as join6 } from "path";
+import { join as join7 } from "path";
 function tokenTable(pack, glyphs) {
   const width = Math.max(7, ...pack.sections.map((s) => s.title.length));
   const rule = glyphs.rule.repeat(width + 20);
@@ -686,7 +744,7 @@ function registerLearn(program, ctx) {
       const config = await effectiveConfig(ws.primary.root, []);
       const budgetTokens = opts.budget ? parseIntOption(opts.budget, "--budget") : config.context.budgetTokens;
       const { buildContext } = await import("./context-PAFLCUYP.js");
-      const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join6(ws.primary.root, "EDU.md"), trackUsage: false });
+      const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join7(ws.primary.root, "EDU.md"), trackUsage: false });
       if (g.json || opts.json) return printJson(ctx, pack);
       const { glyphs } = look(ctx);
       ctx.out(t(g.lang, "context.title", { tokens: pack.tokens, budget: pack.budgetTokens }));
@@ -776,9 +834,9 @@ function registerWatch(program, ctx) {
         }))
       };
       const id = jobId?.trim() || void 0;
-      const { watchInTui, watchPlain } = await import("./watch-VFGUAOPK.js");
+      const { watchInTui, watchPlain } = await import("./watch-SESEDPF3.js");
       if (!ctx.isTTY) return watchPlain(ctx, { source, jobId: id, lang: g.lang });
-      const { cliDispatch, selfRunner } = await import("./commands-AXTJDLGM.js");
+      const { cliDispatch, selfRunner } = await import("./commands-A3K3KNQH.js");
       const explicitLang = cmd.optsWithGlobals().lang !== void 0;
       await watchInTui({
         source,
@@ -795,10 +853,10 @@ function registerWatch(program, ctx) {
 }
 
 // src/cli/commands/live.ts
-import { resolve as resolve3 } from "path";
+import { resolve as resolve4 } from "path";
 
 // src/cli/commands/setup.ts
-import { join as join7 } from "path";
+import { join as join8 } from "path";
 var CLI_CHOICES = ["claude", "codex", "pi", "opencode", "agy"];
 function parseCli2(value) {
   const id = value.trim().toLowerCase();
@@ -819,7 +877,7 @@ function parseScope(value) {
 function registerSetup(program, ctx) {
   program.command("init").description("create a brain: ./.edu (or ~/.edu with --global), config, roles and skills").option("--global", "initialize the global brain (EDU_HOME or ~/.edu)").option("--name <name>", "identity name", "Edu").option("--cli <cli>", "default CLI (claude, codex, pi, opencode, agy)").action(
     action(ctx, async ({ g, opts }) => {
-      const root = opts.global ? globalHome(ctx) : join7(g.cwd, ".edu");
+      const root = opts.global ? globalHome(ctx) : join8(g.cwd, ".edu");
       const detected = await ctx.detectClis();
       const report = await initBrain({
         location: { scope: opts.global ? "global" : "project", root },
@@ -829,6 +887,7 @@ function registerSetup(program, ctx) {
         lang: g.lang,
         detected
       });
+      if (!opts.global) await registerProject(globalHome(ctx), g.cwd);
       ctx.out(t(g.lang, "init.done", { root: report.root }));
       ctx.out(t(g.lang, report.configCreated ? "init.config.created" : "init.config.kept", { cli: report.defaultCli }));
       ctx.out(t(g.lang, "init.copied", { agents: report.agents.length, skills: report.skills.length }));
@@ -905,7 +964,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-2AQTSMXR.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-NQHYFJBT.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -918,7 +977,7 @@ async function openHome(ctx, g) {
   ctx.out(t(g.lang, "home.brain", { total: stats.total, lessons: lessonCount(stats.byStatus) }));
   ctx.out(clis.length ? t(g.lang, "home.clis", { clis: clis.join(", ") }) : t(g.lang, "home.noClis"));
   ctx.out(t(g.lang, "home.hint"));
-  const { runHome } = await import("./live-Y6A2VLF2.js");
+  const { runHome } = await import("./live-L3QOFDZQ.js");
   await runHome(ctx, { cwd: g.cwd, lang: g.lang, name });
 }
 function modeFrom(opts) {
@@ -940,7 +999,7 @@ function registerLive(program, ctx) {
       const text = (goal ?? "").trim();
       if (!text) throw new Error("a goal is required");
       if (opts.detach) {
-        const { createCrew: createCrew2 } = await import("./crew-XGGQMXIH.js");
+        const { createCrew: createCrew2 } = await import("./crew-BXBXSJSB.js");
         const ws = await openWorkspace(ctx, g.cwd);
         const job = await createCrew2({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
           goal: text,
@@ -956,7 +1015,7 @@ function registerLive(program, ctx) {
       }
       if (ctx.isTTY) {
         const ws = await openWorkspace(ctx, g.cwd);
-        const { runInTui } = await import("./live-Y6A2VLF2.js");
+        const { runInTui } = await import("./live-L3QOFDZQ.js");
         const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, playbook: opts.playbook, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
         if (result) ctx.out(t(g.lang, "run.done", { status: t(g.lang, result.ok ? "run.ok" : "run.failed"), summary: result.summary }));
         if (!result?.ok) ctx.setExitCode(1);
@@ -977,7 +1036,7 @@ function registerLive(program, ctx) {
       const run = await loadRun(opts.replay);
       for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
       if (!ctx.isTTY) return printPlain(ctx, run.events);
-      const { playInTui } = await import("./live-Y6A2VLF2.js");
+      const { playInTui } = await import("./live-L3QOFDZQ.js");
       await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2e3 }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -986,13 +1045,13 @@ function registerLive(program, ctx) {
       const speed = parsePositive(opts.speed ?? "1", "--speed");
       const { demoScript } = await import("./fake-5VATECTT.js");
       const events = demoScript();
-      if (opts.save) await atomicWrite(resolve3(g.cwd, opts.save), `${events.map((event) => JSON.stringify(event)).join("\n")}
+      if (opts.save) await atomicWrite(resolve4(g.cwd, opts.save), `${events.map((event) => JSON.stringify(event)).join("\n")}
 `);
       if (!ctx.isTTY) {
         ctx.out(t(g.lang, "demo.plain"));
         return printPlain(ctx, events);
       }
-      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-7LH7FTDQ.js"), import("./live-Y6A2VLF2.js")]);
+      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-7LH7FTDQ.js"), import("./live-L3QOFDZQ.js")]);
       await playInTui(timedEvents(events, { speed }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -1001,7 +1060,7 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes) {
   const available = ctx.availableClis ?? await ctx.detectClis();
   if (!available.length) throw new Error(t(g.lang, "run.noCli"));
   if (!yes && !ctx.stdinIsTTY) throw new Error("Plain runs require --yes when stdin is not a TTY");
-  const { executeRun } = await import("./session-62OLJGZJ.js");
+  const { executeRun } = await import("./session-SJOD6X2M.js");
   const format = createPlainFormatter(getGlyphs(ctx.env));
   const abort = new AbortController();
   const onSigint = () => {
@@ -1034,9 +1093,258 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes) {
   }
 }
 
+// src/cli/commands/vault.ts
+import { join as join10, resolve as resolve6 } from "path";
+
+// src/vault/vault.ts
+import { randomBytes } from "crypto";
+import { access, copyFile, mkdir as mkdir3, readFile as readFile3, readdir as readdir2, realpath as realpath3, writeFile as writeFile2 } from "fs/promises";
+import { basename as basename3, dirname as dirname3, join as join9, posix, resolve as resolve5, win32 } from "path";
+var START = "<!-- edu:projects -->";
+var END = "<!-- /edu:projects -->";
+var IGNORED = ["runs/", "crew/", "proposals/", "backups/"];
+function pathParts(path, platform) {
+  const api = platform === "win32" ? win32 : posix;
+  return api.resolve(path).split(/[\\/]+/).filter(Boolean).map((part) => platform === "win32" ? part.toLowerCase() : part);
+}
+function unsafeVaultPathReason(path, home, platform) {
+  const api = platform === "win32" ? win32 : posix;
+  const vault = api.resolve(path);
+  const userHome = api.resolve(home);
+  const compare = (value) => platform === "win32" ? value.toLowerCase() : value;
+  if (compare(vault) === compare(api.parse(vault).root)) return "a drive or filesystem root";
+  const relative = api.relative(vault, userHome);
+  if (relative === "" || relative !== ".." && !relative.startsWith(`..${api.sep}`) && !api.isAbsolute(relative)) {
+    return "the home folder or one of its ancestors";
+  }
+  const segments = pathParts(vault, platform);
+  const denied = /* @__PURE__ */ new Set([
+    "appdata",
+    "library",
+    ".config",
+    "program files",
+    "program files (x86)",
+    "programdata",
+    "windows",
+    "system32",
+    "syswow64",
+    "system",
+    "etc",
+    "usr",
+    "bin",
+    "sbin",
+    ".edu"
+  ]);
+  if (segments.some((part) => denied.has(part.toLowerCase()))) return "an application, system, or project-brain folder";
+  return void 0;
+}
+async function exists2(path) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function physicalCandidate(path) {
+  let ancestor = path;
+  const suffix = [];
+  while (true) {
+    try {
+      return resolve5(await realpath3(ancestor), ...suffix.reverse());
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const parent = dirname3(ancestor);
+      if (parent === ancestor) throw error;
+      suffix.push(basename3(ancestor));
+      ancestor = parent;
+    }
+  }
+}
+function segment(name) {
+  if (!name || name === "." || name === ".." || name === "_global" || /[\\/\0-\x1f]/.test(name)) {
+    throw new Error(`Invalid project link name: ${name}`);
+  }
+  return name;
+}
+function projectList(projects) {
+  return projects.map((project) => `- [[Edu/${segment(project.name)}/0-index/INDEX]]`).join("\n");
+}
+function homePage(name, projects) {
+  return `# ${name}
+
+Edu links your project brains here; it does not copy them.
+Open a project below to browse its memory.
+Only Edu writes to the linked brains.
+Keep personal drafts in Notes/.
+Use edu remember or an Edu MCP tool to save memory.
+Run edu vault again after initializing another project.
+
+${START}
+${projectList(projects)}
+${END}
+`;
+}
+function refreshProjects(text, projects) {
+  const start = text.indexOf(START);
+  const end = text.indexOf(END, start + START.length);
+  if (start < 0 || end < 0) throw new Error("Home.md has no Edu project markers; refusing to overwrite user text");
+  return `${text.slice(0, start + START.length)}
+${projectList(projects)}
+${text.slice(end)}`;
+}
+async function validatePath(path, home, platform) {
+  const reason = unsafeVaultPathReason(path, home, platform);
+  if (reason) throw new Error(`Unsafe vault path (${reason}): Obsidian walks the whole tree and can hit EPERM or become very slow`);
+  const physical = await physicalCandidate(path);
+  const physicalReason = unsafeVaultPathReason(physical, home, platform);
+  if (physicalReason) throw new Error(`Unsafe vault path (${physicalReason}): ${physical}`);
+  if (await exists2(path)) {
+    if (await exists2(join9(path, ".edu"))) throw new Error("Unsafe vault path: this folder contains a project brain (.edu/)");
+  }
+}
+async function createVault(options) {
+  const platform = options.platform ?? process.platform;
+  const path = resolve5(options.path);
+  await validatePath(path, options.home, platform);
+  const projects = (await readProjects(options.eduHome)).projects;
+  const current = await readdir2(path).catch((error) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  const homeFile = join9(path, "Home.md");
+  if (current.length && !(await exists2(homeFile) && (await readFile3(homeFile, "utf8")).includes(START))) {
+    throw new Error(`Folder is not empty and is not an Edu vault: ${path}`);
+  }
+  await mkdir3(join9(path, ".obsidian"), { recursive: true });
+  await mkdir3(join9(path, "Edu"), { recursive: true });
+  await mkdir3(join9(path, "Notes"), { recursive: true });
+  const appFile = join9(path, ".obsidian", "app.json");
+  if (!await exists2(appFile)) await writeFile2(appFile, `${JSON.stringify({ userIgnoreFilters: IGNORED }, null, 2)}
+`);
+  const notesReadme = join9(path, "Notes", "README.md");
+  if (!await exists2(notesReadme)) await writeFile2(notesReadme, "# Notes\n\nKeep your own notes and drafts here. Edu does not write memory into this folder.\n");
+  const name = options.name?.trim() || "Edu";
+  const original = await readFile3(homeFile, "utf8").catch((error) => {
+    if (error.code === "ENOENT") return void 0;
+    throw error;
+  });
+  const nextHome = original === void 0 ? homePage(name, projects) : refreshProjects(original, projects);
+  if (nextHome !== original) await writeFile2(homeFile, nextHome);
+  const linked = [];
+  const conflicts = [];
+  const missingProjects = [];
+  const entries = [
+    ...projects.map((project) => ({ name: segment(project.name), target: project.brain, project: true })),
+    { name: "_global", target: join9(options.eduHome, "brain"), project: false }
+  ];
+  for (const entry of entries) {
+    if (entry.project && !await exists2(entry.target)) {
+      missingProjects.push(entry.name);
+      continue;
+    }
+    const link = join9(path, "Edu", entry.name);
+    try {
+      await createVaultLink(link, entry.target, platform);
+      linked.push(entry.name);
+      await openBrain([{ scope: entry.project ? "project" : "global", root: dirname3(entry.target) }]).rebuildIndex().catch(() => void 0);
+    } catch (error) {
+      if (error.code !== "ELINKCONFLICT") throw error;
+      conflicts.push(link);
+    }
+  }
+  const registration = options.register === false ? "skipped (--no-register)" : await registerObsidianVault(path, { home: options.home, platform, env: options.env ?? process.env, now: options.now });
+  return { path, name, linked, conflicts, missingProjects, registration };
+}
+async function registerObsidianVault(vault, options) {
+  const config = options.platform === "win32" ? join9(options.env.APPDATA || join9(options.home, "AppData", "Roaming"), "obsidian") : options.platform === "darwin" ? join9(options.home, "Library", "Application Support", "obsidian") : join9(options.home, ".config", "obsidian");
+  const configFile = join9(config, "obsidian.json");
+  if (!await exists2(configFile)) return "skipped (Obsidian not installed)";
+  const parsed = JSON.parse(await readFile3(configFile, "utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid Obsidian obsidian.json");
+  const data = parsed;
+  if (data.vaults !== void 0 && (!data.vaults || typeof data.vaults !== "object" || Array.isArray(data.vaults))) throw new Error("Invalid Obsidian vault list");
+  data.vaults ??= {};
+  if (Object.values(data.vaults).some((entry) => resolve5(entry.path ?? "") === resolve5(vault))) return "already registered";
+  const now = options.now ?? /* @__PURE__ */ new Date();
+  const stamp = now.toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "Z");
+  await copyFile(configFile, `${configFile}.${stamp}.${randomBytes(3).toString("hex")}.bak`);
+  data.vaults[randomBytes(8).toString("hex")] = { path: resolve5(vault), ts: now.getTime(), open: false };
+  await writeFile2(configFile, `${JSON.stringify(data, null, 2)}
+`);
+  return "registered";
+}
+async function countNotes(dir) {
+  let count = 0;
+  for (const entry of await readdir2(dir, { withFileTypes: true }).catch(() => [])) {
+    if (entry.isDirectory() && entry.name === "0-index") continue;
+    if (entry.isDirectory()) count += await countNotes(join9(dir, entry.name));
+    else if (entry.isFile() && entry.name.endsWith(".md")) count++;
+  }
+  return count;
+}
+async function checkVault(options) {
+  const path = resolve5(options.path);
+  const platform = options.platform ?? process.platform;
+  const physical = await physicalCandidate(path).catch(() => path);
+  const unsafe = unsafeVaultPathReason(path, options.home, platform) ?? unsafeVaultPathReason(physical, options.home, platform) ?? (await exists2(join9(path, ".edu")) ? "contains a project brain" : void 0);
+  const projects = (await readProjects(options.eduHome)).projects;
+  const entries = [
+    ...projects.map((project) => ({ name: segment(project.name), target: project.brain, project: true })),
+    { name: "_global", target: join9(options.eduHome, "brain"), project: false }
+  ];
+  const links = [];
+  const missingProjects = [];
+  for (const entry of entries) {
+    const present = await exists2(entry.target);
+    if (!present && entry.project) missingProjects.push(entry.name);
+    const state = await linkState(join9(path, "Edu", entry.name), entry.target);
+    links.push({
+      name: entry.name,
+      state: state === "conflict" ? "conflict" : state === "missing" || !present ? "broken" : "ok",
+      notes: present ? await countNotes(entry.target) : 0
+    });
+  }
+  const warnings = [];
+  for (const entry of await readdir2(path, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory() || ["Edu", "Notes", ".obsidian"].includes(entry.name)) continue;
+    const notes = await countNotes(join9(path, entry.name));
+    if (notes >= 20) warnings.push(`${entry.name}/ contains ${notes} notes outside Edu/ and Notes/; another tool may be writing generated notes`);
+  }
+  return { path, unsafe, links, missingProjects, warnings };
+}
+
+// src/cli/commands/vault.ts
+function registerVault(program, ctx) {
+  program.command("vault").description("create or check a safe Obsidian window onto registered project brains").argument("[path]", "vault directory (default ~/EduVault)").option("--name <name>", "vault title", "Edu").option("--no-register", "do not add the vault to Obsidian").option("--check", "report unsafe paths, broken links and note counts without writing").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, path) => {
+    const home = process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home;
+    const vaultPath = path ? resolve6(g.cwd, path) : join10(home, "EduVault");
+    const common = { path: vaultPath, home, eduHome: globalHome(ctx) };
+    if (opts.check) {
+      const report2 = await checkVault(common);
+      if (g.json || opts.json) return printJson(ctx, report2);
+      ctx.out(`Vault: ${report2.path}`);
+      if (report2.unsafe) ctx.err(`Unsafe vault path: ${report2.unsafe}`);
+      for (const link of report2.links) ctx.out(`  ${link.name}: ${link.state} (${link.notes} notes)`);
+      for (const name of report2.missingProjects) ctx.err(`Missing registered project: ${name}`);
+      for (const warning of report2.warnings) ctx.err(`Warning: ${warning}`);
+      if (report2.unsafe || report2.links.some((link) => link.state !== "ok")) ctx.setExitCode(1);
+      return;
+    }
+    const report = await createVault({ ...common, name: opts.name, register: opts.register, env: ctx.env });
+    if (g.json || opts.json) return printJson(ctx, report);
+    ctx.out(`Edu vault: ${report.path}`);
+    ctx.out(`Linked: ${report.linked.join(", ") || "none"}`);
+    for (const conflict of report.conflicts) ctx.err(`Link conflict (not replaced): ${conflict}`);
+    for (const name of report.missingProjects) ctx.err(`Missing registered project (not removed): ${name}`);
+    ctx.out(`Obsidian registration: ${report.registration}`);
+    ctx.out(`Next: open Obsidian and choose the ${report.name} vault.`);
+  }));
+}
+
 // src/cli/program.ts
 var GROUPS = [
-  ["Get started:", ["init", "install", "uninstall", "doctor"]],
+  ["Get started:", ["init", "vault", "install", "uninstall", "doctor"]],
   ["Work:", ["run", "ui", "demo"]],
   ["Brain:", ["brain", "context", "reflect", "proposals", "metrics", "checks"]],
   ["Integrations:", ["mcp", "statusline", "hook"]]
@@ -1068,6 +1376,7 @@ function createProgram(overrides = {}, options = {}) {
     }
   });
   registerSetup(program, ctx);
+  registerVault(program, ctx);
   registerLive(program, ctx);
   registerBrain(program, ctx);
   registerLearn(program, ctx);
@@ -1087,4 +1396,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-SX33E5Z5.js.map
+//# sourceMappingURL=chunk-M4YGY6VS.js.map

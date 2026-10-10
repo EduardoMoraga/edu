@@ -13,6 +13,9 @@ block in `~/.config/opencode/AGENTS.md`. Every change is recorded for `edu unins
 
 ## Verify
 
+Run `edu vault` after `edu init` to browse linked project memory in Obsidian;
+`edu vault --check` reports broken links.
+
 Ask: **"what do you remember?"** OpenCode should call `edu_brief`. `opencode mcp list` shows
 the `edu` server; `edu doctor` shows the integration.
 

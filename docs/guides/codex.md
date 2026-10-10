@@ -23,6 +23,9 @@ hooks do not fire.
 Ask: **"what do you remember?"** Codex should call `edu_brief`. `edu doctor` shows the
 integration from a terminal.
 
+To browse project memory in Obsidian without copying notes, run `edu vault` from a
+terminal after `edu init`; use `edu vault --check` to inspect links.
+
 ## What you get
 
 Codex has no plugin slash commands; the workflows ship as skills. Ask in plain English or

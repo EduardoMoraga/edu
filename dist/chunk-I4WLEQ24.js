@@ -11,7 +11,7 @@ import {
 } from "./chunk-BXZ573JQ.js";
 import {
   t
-} from "./chunk-NQTHVZEM.js";
+} from "./chunk-VIZUUMRZ.js";
 import {
   applySetup,
   needsFirstRunSetup,
@@ -135,4 +135,4 @@ export {
   registerPluginSetup,
   shouldRunFirstSetup
 };
-//# sourceMappingURL=chunk-R25BSKVR.js.map
+//# sourceMappingURL=chunk-I4WLEQ24.js.map

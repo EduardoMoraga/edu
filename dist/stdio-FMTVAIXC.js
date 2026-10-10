@@ -1,10 +1,10 @@
 import {
   createCrew
-} from "./chunk-RBQOEXV2.js";
-import "./chunk-OAH5CHIA.js";
+} from "./chunk-AGEVZL4M.js";
+import "./chunk-SSA6DJ42.js";
 import "./chunk-XXPGZ7G6.js";
 import "./chunk-BXZ573JQ.js";
-import "./chunk-NQTHVZEM.js";
+import "./chunk-VIZUUMRZ.js";
 import "./chunk-WRB5MXFD.js";
 import "./chunk-DDWOZAZN.js";
 import {
@@ -62,7 +62,7 @@ var TOOL_ANNOTATIONS = {
   edu_crew_approve: STARTS_AGENTS
 };
 function createEduMcpServer(opts) {
-  const server = new McpServer({ name: "edu", version: "0.3.0" });
+  const server = new McpServer({ name: "edu", version: "0.3.1" });
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0].root, "EDU.md");
@@ -179,17 +179,26 @@ ${note.body}`;
     maxTokens: tokenLimit
   }, async ({ title, source }) => {
     const note = await brain.openSession(title, source ?? "mcp");
-    return `Opened ${line(note)}`;
+    return `Session id: ${note.meta.id}
+Opened ${line(note)}`;
   });
   register("edu_session_close", "Close a work session with a summary", {
     id: z.string().min(1),
     summary: z.string(),
+    source: z.string().optional(),
     maxTokens: tokenLimit
-  }, async ({ id, summary }) => {
+  }, async ({ id, summary, source }) => {
     const current = await brain.read(id);
-    if (!current || current.meta.kind !== "session") throw new Error(`Session not found: ${id}`);
-    const note = await brain.closeSession(id, summary);
-    return `Closed ${line(note)}`;
+    if (current && current.meta.kind === "session") {
+      const note2 = await brain.closeSession(id, summary);
+      return `Closed ${line(note2)}`;
+    }
+    const open = await brain.list({ kind: "session", status: "open-session" });
+    const matching = source ? open.filter((note2) => note2.meta.source === source) : open;
+    const fallback = source && matching.length === 1 ? matching[0] : !source && matching.length ? [...matching].sort((a, b) => b.meta.created.localeCompare(a.meta.created))[0] : void 0;
+    if (!fallback) throw new Error(`Session not found: ${id}. Open session ids: ${open.map((note2) => note2.meta.id).join(", ") || "none"}`);
+    const note = await brain.closeSession(fallback.meta.id, summary);
+    return `Closed ${line(note)} instead of ${id} (unknown id; selected ${source ? `the only open session from ${source}` : "the most recent open session"}).`;
   });
   const cliIds = z.enum(["claude", "codex", "pi", "opencode", "agy"]);
   const autonomy = z.enum(["readonly", "ask", "auto", "full"]);
@@ -301,4 +310,4 @@ export {
   resolveReboundLocations,
   runStdioServer
 };
-//# sourceMappingURL=stdio-A4W3PRTQ.js.map
+//# sourceMappingURL=stdio-FMTVAIXC.js.map

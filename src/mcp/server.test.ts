@@ -165,3 +165,58 @@ describe('caller detection', () => {
     expect(detectCallerCli({})).toBeUndefined();
   });
 });
+
+describe('session id recovery', () => {
+  it('advertises the id first and closes the latest open session for an unknown id', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'edu-session-recovery-'));
+    roots.push(root);
+    const location = { scope: 'project' as const, root };
+    const brain = openBrain([location]);
+    await brain.init(location);
+    const server = createEduMcpServer({ locations: [location] });
+    const client = new Client({ name: 'edu-test', version: '1.0.0' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(b);
+    await client.connect(a);
+    try {
+      const opened = await client.callTool({ name: 'edu_session_open', arguments: { title: 'Work', source: 'codex' } });
+      const text = opened.content.find(item => item.type === 'text')?.text ?? '';
+      const id = (await brain.list({ kind: 'session' }))[0]!.meta.id;
+      expect(text.startsWith(`Session id: ${id}`)).toBe(true);
+      const closed = await client.callTool({ name: 'edu_session_close', arguments: { id: 'wrong', summary: 'Finished.' } });
+      expect(closed.isError).not.toBe(true);
+      expect(closed.content.find(item => item.type === 'text')?.text).toContain(`instead of wrong`);
+      expect((await brain.read(id))?.meta.status).toBe('closed');
+      const empty = await client.callTool({ name: 'edu_session_close', arguments: { id: 'missing', summary: 'Again.' } });
+      expect(empty.isError).toBe(true);
+      expect(empty.content.find(item => item.type === 'text')?.text).toContain('Open session ids: none');
+    } finally { await client.close(); await server.close(); }
+  });
+
+  it('uses the unique matching source and lists ids when that source is ambiguous', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'edu-session-source-'));
+    roots.push(root);
+    const location = { scope: 'project' as const, root };
+    const brain = openBrain([location]);
+    await brain.init(location);
+    const first = await brain.openSession('First', 'codex');
+    const second = await brain.openSession('Second', 'claude');
+    const server = createEduMcpServer({ locations: [location] });
+    const client = new Client({ name: 'edu-test', version: '1.0.0' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(b);
+    await client.connect(a);
+    try {
+      const chosen = await client.callTool({ name: 'edu_session_close', arguments: { id: 'unknown', source: 'claude', summary: 'Done' } });
+      expect(chosen.isError).not.toBe(true);
+      expect((await brain.read(second.meta.id))?.meta.status).toBe('closed');
+      expect((await brain.read(first.meta.id))?.meta.status).toBe('open-session');
+      const third = await brain.openSession('Third', 'codex');
+      const ambiguous = await client.callTool({ name: 'edu_session_close', arguments: { id: 'unknown', source: 'codex', summary: 'Done' } });
+      expect(ambiguous.isError).toBe(true);
+      const text = ambiguous.content.find(item => item.type === 'text')?.text ?? '';
+      expect(text).toContain(first.meta.id);
+      expect(text).toContain(third.meta.id);
+    } finally { await client.close(); await server.close(); }
+  });
+});

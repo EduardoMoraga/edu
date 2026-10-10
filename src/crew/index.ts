@@ -103,10 +103,10 @@ export function createCrew(options: CrewOptions = {}) {
       const reviewer = input.cli ?? available.find(cli => cli !== caller);
       if (!reviewer || !available.includes(reviewer)) throw new Error('No available reviewer CLI different from the caller; specify an installed --cli');
       const base = input.base ?? 'HEAD';
-      const rawDiff = await (options.diff ?? defaultDiff)(base, process.cwd());
+      const rawDiff = await (options.diff ?? defaultDiff)(base, workspaceRoot);
       const prompt = `Review the following changes. Do not modify files. Return concrete findings first, then residual risks.\n\n\`\`\`diff\n${truncateToTokens(rawDiff, 6000)}\n\`\`\``;
       let summary = '';
-      for await (const event of engineFactory(reviewer).run({ cli: reviewer, prompt, cwd: process.cwd(), autonomy: 'readonly', systemPrompt: 'You are an independent, read-only code reviewer. Never request write access.' }, `review-${Date.now()}`)) {
+      for await (const event of engineFactory(reviewer).run({ cli: reviewer, prompt, cwd: workspaceRoot, autonomy: 'readonly', systemPrompt: 'You are an independent, read-only code reviewer. Never request write access.' }, `review-${Date.now()}`)) {
         if (event.type === 'agent.text') summary += event.text;
         else if (event.type === 'agent.end' || event.type === 'run.end') {
           if (!event.ok) throw new Error('reviewer ended unsuccessfully');
@@ -122,7 +122,14 @@ export function createCrew(options: CrewOptions = {}) {
 }
 
 async function defaultDiff(base: string, cwd: string): Promise<string> {
-  const result = await execFile('git', ['diff', base, '--'], { cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+  let inside: string;
+  try { inside = (await execFile('git', ['rev-parse', '--is-inside-work-tree'], { cwd, encoding: 'utf8' })).stdout.trim(); }
+  catch { throw new Error('cross-vendor review needs a git repository to diff; run it inside a repo or pass files'); }
+  if (inside !== 'true') throw new Error('cross-vendor review needs a git repository to diff; run it inside a repo or pass files');
+  if (base.startsWith('-') || base.includes('\0')) throw new Error(`Unknown git base ref: ${base}`);
+  try { await execFile('git', ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`], { cwd, encoding: 'utf8' }); }
+  catch { throw new Error(`Unknown git base ref: ${base}`); }
+  const result = await execFile('git', ['diff', '--no-ext-diff', '--no-textconv', base, '--'], { cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
   return result.stdout;
 }
 

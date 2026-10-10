@@ -17,3 +17,8 @@ as they happen; `edu_feedback` when a note helped or misled. End with
 **Crew.** For independent work or a second opinion, `edu_crew_dispatch` to another CLI,
 then `edu_crew_status` / `edu_crew_result`. Before calling a change done, ask for a
 cross-vendor `edu_crew_review`. Never bypass approvals.
+
+**Brain vs vault.** Memory lives in the brain: `.edu/` in each project plus `~/.edu`
+(global); you are its only writer. Obsidian is a window onto it, not another memory:
+`edu vault` creates the human's dashboard vault and links every project brain into it.
+Never invent a parallel note structure, never make a home or system folder a vault.

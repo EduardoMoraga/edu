@@ -135,6 +135,24 @@ demand (`edu_recall`, `edu_read`), so context stays lean.
 `edu reflect` proposes lessons and skill changes from recent work; nothing becomes truth
 until you run `edu proposals accept <id>`.
 
+## Obsidian: a window, not a second memory
+
+Run `edu init` in each project, then `edu vault` once. Edu creates `~/EduVault`, links
+registered brains, and adds it to Obsidian's vault list when Obsidian is installed.
+`edu vault --check` reports broken links and note counts; `edu vault --no-register` skips
+Obsidian registration.
+
+```text
+<project>/.edu/brain/ ──link──> ~/EduVault/Edu/<project>/
+~/.edu/brain/        ──link──> ~/EduVault/Edu/_global/
+                               ~/EduVault/Notes/  (your own notes)
+```
+
+**One writer:** only Edu writes brain memory. Keep your drafts in `Notes/`; do not copy
+brain notes or let another tool generate a second memory folder in the vault. Never use
+your home folder as the vault: Obsidian scans the whole tree, which can be very slow or
+fail on protected files. Use a dedicated folder such as `~/EduVault` instead.
+
 ## Evidence and metrics
 
 A change counts when it is verified, not when it looks right. Edu records context, tool,

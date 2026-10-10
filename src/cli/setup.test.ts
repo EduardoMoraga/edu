@@ -11,13 +11,16 @@ describe('edu init', () => {
     await runCli(c, ['init', '--name', 'Ada']);
     expect(c.exitCode).toBeUndefined();
     const root = join(c.dirs.cwd, '.edu');
+    const registry = JSON.parse(await readFile(join(c.dirs.eduHome, 'projects.json'), 'utf8'));
+    expect(registry.projects).toHaveLength(1);
+    expect(registry.projects[0].brain).toBe(join(await (await import('node:fs/promises')).realpath(c.dirs.cwd), '.edu', 'brain'));
     const contract = await readFile(join(root, 'EDU.md'), 'utf8');
     expect(contract.split('\n')[0]).toBe('# Ada — the contract');
     expect(contract).not.toContain('{{name}}');
     const config = JSON.parse(await readFile(join(root, 'config.json'), 'utf8'));
     expect(config).toMatchObject({ version: 1, mode: 'solo', defaultCli: 'codex', lang: 'en' });
     expect((await readdir(join(root, 'agents'))).sort()).toEqual(['builder.md', 'explorer.md', 'lead.md', 'reviewer.md']);
-    expect((await readdir(join(root, 'skills'))).sort()).toEqual(['edu-brain', 'edu-brief', 'edu-crew', 'edu-recall', 'edu-reflect', 'edu-remember', 'edu-review', 'edu-run', 'edu-status']);
+    expect((await readdir(join(root, 'skills'))).sort()).toEqual(['edu-brain', 'edu-brief', 'edu-crew', 'edu-recall', 'edu-reflect', 'edu-remember', 'edu-review', 'edu-run', 'edu-status', 'edu-vault']);
     for (const dir of ['brain/1-canonical', 'brain/2-episodic', 'brain/3-transitive', 'runs', 'proposals']) {
       expect(await missing(join(root, dir))).toBe(false);
     }
@@ -38,6 +41,7 @@ describe('edu init', () => {
     await runCli(c, ['init', '--global']);
     expect(await missing(join(c.dirs.eduHome, 'EDU.md'))).toBe(false);
     expect(await missing(join(c.dirs.cwd, '.edu'))).toBe(true);
+    expect(await missing(join(c.dirs.eduHome, 'projects.json'))).toBe(true);
   });
 
   it('rejects an unknown default CLI', async () => {

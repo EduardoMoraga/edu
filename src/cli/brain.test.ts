@@ -102,6 +102,6 @@ describe('edu context / proposals / doctor', () => {
     c.stdout.length = 0;
     await runCli(c, ['doctor']);
     expect(out(c)).toMatch(/✓ Node v\d+/);
-    expect(out(c)).toContain('Obsidian: no vault linked');
+    expect(out(c)).toContain('Obsidian: no project vault link found');
   });
 });

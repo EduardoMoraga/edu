@@ -17,9 +17,12 @@ function frontmatter(text: string): Record<string, unknown> {
 const AUTONOMY: Autonomy[] = ['readonly', 'ask', 'auto', 'full'];
 
 describe('templates/EDU.md', () => {
-  it('stays under the 1200-token budget (≈ chars / 3.7)', async () => {
+  it('keeps the injected core small and the whole contract bounded (≈ chars / 3.7)', async () => {
     const text = await read('EDU.md');
-    expect(Math.ceil(text.length / 3.7)).toBeLessThan(1200);
+    // Only the core is injected at every session start; the extended part is read on demand.
+    const core = /<!-- edu:core -->([\s\S]*?)<!-- \/edu:core -->/.exec(text)?.[1] ?? '';
+    expect(Math.ceil(core.length / 3.7)).toBeLessThan(600);
+    expect(Math.ceil(text.length / 3.7)).toBeLessThan(2000);
   });
   it('has a short, delimited core section with the name placeholder', async () => {
     const text = await read('EDU.md');

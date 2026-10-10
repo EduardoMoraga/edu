@@ -8,6 +8,7 @@ import { t } from '../i18n.js';
 import { action, look, printJson, statusLine, type Level } from '../kit.js';
 import { brainDir, linkPath, linkState } from '../link.js';
 import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
+import { readProjects } from '../../vault/registry.js';
 
 export const AUTH_HINTS: Record<CliId, string> = {
   claude: 'run `claude` once and sign in, or set ANTHROPIC_API_KEY',
@@ -50,6 +51,11 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         }
 
         const ws = await openWorkspace(ctx, g.cwd);
+        const projects = await readProjects(globalHome(ctx));
+        for (const project of projects.projects) {
+          const ready = await exists(project.root) && await exists(project.brain);
+          lines.push({ level: ready ? 'ok' : 'warn', text: t(lang, ready ? 'doctor.project' : 'doctor.projectMissing', { name: project.name, root: project.root }) });
+        }
         const locations: BrainLocation[] = ws.locations.some((l) => l.scope === 'global')
           ? ws.locations
           : [...ws.locations, { scope: 'global', root: globalHome(ctx) }];
@@ -73,12 +79,19 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
             vault = { link, state: await linkState(link, brainDir(ws.primary)) };
           }
         }
+        if (vault.state === 'none') {
+          const defaultVault = join(process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, 'EduVault');
+          if (await exists(join(defaultVault, 'Home.md'))) {
+            const link = linkPath(defaultVault, ws.primary);
+            vault = { link, state: await linkState(link, brainDir(ws.primary)) };
+          }
+        }
         if (vault.state === 'none') lines.push({ level: 'warn', text: t(lang, 'doctor.vaultNone') });
         else if (vault.state === 'ok') lines.push({ level: 'ok', text: t(lang, 'doctor.vaultOk', { link: vault.link! }) });
         else lines.push({ level: 'fail', text: t(lang, 'doctor.vaultBroken', { link: vault.link! }) });
 
         if (g.json || opts.json) {
-          printJson(ctx, { node: process.version, clis, brains, vault, lines });
+          printJson(ctx, { node: process.version, clis, projects: projects.projects, brains, vault, lines });
           return;
         }
         const style = look(ctx);

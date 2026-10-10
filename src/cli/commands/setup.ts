@@ -8,6 +8,7 @@ import { t } from '../i18n.js';
 import { action, printJson } from '../kit.js';
 import { packageTemplatesDir } from '../package.js';
 import { initBrain } from '../setup.js';
+import { registerProject } from '../../vault/registry.js';
 
 export const CLI_CHOICES: CliId[] = ['claude', 'codex', 'pi', 'opencode', 'agy'];
 
@@ -53,6 +54,7 @@ export function registerSetup(program: Command, ctx: CliContext): void {
           lang: g.lang,
           detected,
         });
+        if (!opts.global) await registerProject(globalHome(ctx), g.cwd);
         ctx.out(t(g.lang, 'init.done', { root: report.root }));
         ctx.out(t(g.lang, report.configCreated ? 'init.config.created' : 'init.config.kept', { cli: report.defaultCli }));
         ctx.out(t(g.lang, 'init.copied', { agents: report.agents.length, skills: report.skills.length }));

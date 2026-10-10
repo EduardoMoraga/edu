@@ -15,12 +15,13 @@ import { registerPluginSetup } from './commands/plugins.js';
 import { registerWatch } from './commands/watch.js';
 import { openHome, registerLive } from './commands/live.js';
 import { registerSetup } from './commands/setup.js';
+import { registerVault } from './commands/vault.js';
 import { processContext, resolveGlobals, type CliContext } from './context.js';
 import { t } from './i18n.js';
 import { packageVersion } from './package.js';
 
 const GROUPS: Array<[string, string[]]> = [
-  ['Get started:', ['init', 'install', 'uninstall', 'doctor']],
+  ['Get started:', ['init', 'vault', 'install', 'uninstall', 'doctor']],
   ['Work:', ['run', 'ui', 'demo']],
   ['Brain:', ['brain', 'context', 'reflect', 'proposals', 'metrics', 'checks']],
   ['Integrations:', ['mcp', 'statusline', 'hook']],
@@ -68,6 +69,7 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   });
 
   registerSetup(program, ctx);
+  registerVault(program, ctx);
   registerLive(program, ctx);
   registerBrain(program, ctx);
   registerLearn(program, ctx);

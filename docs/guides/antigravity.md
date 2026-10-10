@@ -17,6 +17,9 @@ In PowerShell: `agy plugin install "$(npm root -g)\edu-agent\plugins\agy"`.
 
 ## Verify
 
+Run `edu vault` after `edu init` to browse linked project memory in Obsidian;
+`edu vault --check` reports broken links.
+
 Ask: **"what do you remember?"** Antigravity should call `edu_brief`. `agy plugin list`
 shows `edu`; `edu doctor` shows the integration.
 

@@ -134,6 +134,25 @@ consulta bajo demanda (`edu_recall`, `edu_read`), de modo que el contexto se man
 `edu reflect` propone lecciones y cambios de skills a partir del trabajo reciente; nada se
 vuelve verdad hasta que usted ejecuta `edu proposals accept <id>`.
 
+## Obsidian: una ventana, no una segunda memoria
+
+Ejecute `edu init` en cada proyecto y después `edu vault`. Edu crea `~/EduVault`, enlaza
+los cerebros registrados y, si Obsidian está instalado, registra la bóveda para abrirla.
+`edu vault --check` informa enlaces rotos y cantidad de notas; `edu vault --no-register`
+omite el registro en Obsidian.
+
+```text
+<proyecto>/.edu/brain/ ──enlace──> ~/EduVault/Edu/<proyecto>/
+~/.edu/brain/         ──enlace──> ~/EduVault/Edu/_global/
+                                ~/EduVault/Notes/  (notas propias)
+```
+
+**Un solo escritor:** solo Edu escribe la memoria del cerebro. Guarde borradores en
+`Notes/`; no copie notas del cerebro ni permita que otra herramienta genere una segunda
+carpeta de memoria. No use su carpeta personal como bóveda: Obsidian recorre todo el
+árbol, puede ralentizarse y fallar al encontrar archivos protegidos. Use una carpeta
+dedicada como `~/EduVault`.
+
 ## Evidencia y métricas
 
 Un cambio cuenta cuando está verificado, no cuando parece correcto. Edu registra trazas de
