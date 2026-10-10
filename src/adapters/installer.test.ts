@@ -1,3 +1,4 @@
+import { eduMcpLaunch } from '../platform/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -297,7 +298,7 @@ describe('installer', () => {
     const lastToRemove = last === 'first' ? paths[0]! : paths[1]!;
     await uninstall({ manifestPath: firstToRemove });
     expect(await readFile(codexPath, 'utf8')).toContain('[mcp_servers.edu]');
-    expect(JSON.parse(await readFile(piPath, 'utf8')).mcpServers.edu.command).toBe('edu');
+    expect(JSON.parse(await readFile(piPath, 'utf8')).mcpServers.edu.command).toBe(eduMcpLaunch().command);
     const remainingRoot = last === 'first' ? opts.root : secondRoot;
     const diagnoses = await diagnose({ root: remainingRoot, home: opts.home, detectBinary: async () => false });
     expect(diagnoses.find(entry => entry.cli === 'codex')).toMatchObject({ integrated: true, drift: false });
