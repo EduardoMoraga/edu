@@ -81,7 +81,7 @@ describe('native setup planning', () => {
     const home = await tempHome();
     const { calls, runner } = fakeRunner((command) => command.args.at(-1) === 'list' ? { exitCode: 0, stdout: '' } : { exitCode: 0 });
     const plan = await planSetup({ clis: ['claude'], packageRoot, home, runner });
-    const applied = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates') });
+    const applied = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' /* packageRoot is this repo: never localize its plugin files */ });
     expect(applied.installed).toEqual(['claude']);
     const manifest = JSON.parse(await readFile(join(home, '.edu/plugin-setup.json'), 'utf8')) as { native: string[] };
     expect(manifest.native).toEqual(['claude']);
@@ -93,7 +93,7 @@ describe('native setup planning', () => {
     const home = await tempHome();
     const { runner } = fakeRunner();
     const plan = await planSetup({ clis: ['claude', 'codex'], packageRoot, home, runner });
-    await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates') });
+    await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' /* packageRoot is this repo: never localize its plugin files */ });
     const calls: SetupCommand[] = [];
     const failingRunner: SetupRunner = async command => { calls.push(command); return { exitCode: 2, stderr: `${command.cli} unavailable` }; };
     await expect(uninstallSetup({ home, runner: failingRunner })).rejects.toThrow(/claude.*codex/s);
@@ -108,7 +108,7 @@ describe('native setup planning', () => {
     const home = await tempHome();
     const { runner } = fakeRunner((command) => command.args.at(-1) === 'list' ? { exitCode: 0, stdout: '' } : { exitCode: 2, stderr: 'native failure' });
     const plan = await planSetup({ clis: ['claude'], packageRoot, home, runner });
-    const applied = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates') });
+    const applied = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' /* packageRoot is this repo: never localize its plugin files */ });
     expect(applied.fallback).toEqual(['claude']);
     await expect(readFile(join(home, '.edu/manifest.json'), 'utf8')).resolves.toContain('claude');
     await uninstallSetup({ home, runner });
@@ -121,7 +121,7 @@ describe('native setup planning', () => {
     await writeFile(opencodeConfig, '{"theme":"midnight"}\n');
     const { runner } = fakeRunner();
     const plan = await planSetup({ clis: ['opencode'], packageRoot, home, runner });
-    const applied = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates') });
+    const applied = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' /* packageRoot is this repo: never localize its plugin files */ });
     expect(applied.fallback).toEqual(['opencode']);
     await expect(readFile(join(home, '.config/opencode/commands/edu-brief.md'), 'utf8')).resolves.toContain('$ARGUMENTS');
     await expect(readFile(join(home, '.config/opencode/agents/lead.md'), 'utf8')).resolves.toContain('id: lead');
@@ -139,7 +139,7 @@ describe('native setup planning', () => {
     const home = await tempHome();
     const { runner } = fakeRunner((command) => command.args.includes('list') ? { exitCode: 0, stdout: '' } : { exitCode: 0 });
     const plan = await planSetup({ clis: ['codex'], packageRoot, home, runner });
-    const applied = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates') });
+    const applied = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' /* packageRoot is this repo: never localize its plugin files */ });
     expect(applied.installed).toContain('codex');
     const instructions = await readFile(join(home, '.codex/AGENTS.md'), 'utf8');
     expect(instructions).toContain('<!-- edu:core:start -->');
@@ -157,7 +157,7 @@ describe('native setup planning', () => {
     await writeFile(opencodeConfig, '{"theme":"midnight"}\n');
     const { runner } = fakeRunner((command) => command.args.includes('list') ? { exitCode: 0, stdout: '' } : { exitCode: 0 });
     const plan = await planSetup({ clis: ['opencode', 'codex'], packageRoot, home, runner });
-    const result = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates') });
+    const result = await applySetup(plan, { runner, templatesDir: join(packageRoot, 'templates'), platform: 'linux' /* packageRoot is this repo: never localize its plugin files */ });
     expect(result.installed).toEqual(['codex']);
     await expect(readFile(join(home, '.codex/AGENTS.md'), 'utf8')).resolves.toContain('edu:core:start');
     await expect(readFile(join(home, '.config/opencode/plugins/edu.ts'), 'utf8')).resolves.toContain('session.created');
