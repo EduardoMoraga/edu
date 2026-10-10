@@ -28,14 +28,14 @@ reversible; everything in v0.1 keeps working; Windows + macOS + Linux CI.
 
 | ID | Task | Route | Owner | Status |
 |---|---|---|---|---|
-| R0 | Research native plugin formats per CLI + herdr agent API | delegated (explorer) | lead | 🔄 |
-| P1 | Spec §16 plugin-first + contracts | inline (lead) | lead | ☐ |
-| P2 | Crew MCP tools (dispatch headless / herdr pane, status, result, review) | delegated (mora → codex) | backend | ☐ |
-| P3 | Native packaging: Claude plugin + marketplace, Codex, Pi package, OpenCode, Gemini/agy extension; `edu setup` | delegated (mora → codex) | backend | ☐ |
-| P4 | Shared slash-command/prompt set + identity per CLI; README rewrite plugin-first (en/es) | delegated (mora → claude) | frontend | ☐ |
-| P5 | Mission-control TUI fixes: wrapping, multi-line composer, `/` palette, es locale | delegated (mora → claude) | frontend | ☐ |
-| P6 | In-CLI acceptance: real headless calls inside each CLI using Edu tools (pi), cross review (agy) | delegated | dev, helper | ☐ |
-| P7 | Fix round, CI 3 OS, release v0.2.0 | lead | lead | ☐ |
+| R0 | Research native plugin formats per CLI + herdr agent API | delegated (explorer) | lead | ✅ |
+| P1 | Spec §16 plugin-first + contracts | inline (lead) | lead | ✅ |
+| P2 | Crew MCP tools (dispatch headless / herdr pane, status, result, review) | delegated (mora → codex) | backend | ✅ |
+| P3 | Native packaging: Claude plugin + marketplace, Codex, Pi package, OpenCode, Gemini/agy extension; `edu setup` | delegated (mora → codex) | backend | ✅ |
+| P4 | Shared slash-command/prompt set + identity per CLI; README rewrite plugin-first (en/es) | delegated (mora → claude) | frontend | ✅ |
+| P5 | Mission-control TUI fixes: wrapping, multi-line composer, `/` palette, es locale | delegated (mora → claude) | frontend | ✅ |
+| P6 | In-CLI acceptance: real headless calls inside each CLI using Edu tools (pi), cross review (agy) | delegated | dev, helper | ✅ |
+| P7 | Fix round, CI 3 OS, release v0.2.0 | lead | lead | ✅ |
 
 ## Acceptance
 - On a clean HOME: `npm i -g …` + `edu setup` → each installed CLI shows Edu's commands and can call
@@ -49,5 +49,16 @@ reversible; everything in v0.1 keeps working; Windows + macOS + Linux CI.
 ## Progress / evidence
 - v0.1.1 shipped (composer focus + ctrl+c fix) after user report.
 
+- R0 research verified native formats (Claude/Codex marketplaces, Pi package, OpenCode, agy plugin).
+- P2–P5 by crew (Codex ×2, Claude ×2). Lead integration fixed: Codex stdin hang, MCP roots binding for
+  agy, herdr completion detection (agent_status, state_change_seq, pane hash), human-in-the-loop trust
+  prompts, Codex home creation, setup failure reporting.
+- In-CLI acceptance with real model calls: Claude, Codex, Pi, OpenCode, Antigravity all call edu_recall;
+  Claude → Codex crew dispatch; visible herdr pane job with Pi; `edu setup` native in 4 CLIs + uninstall.
+- Audits: agy ship-with-fixes (10 findings) → all fixed (audit/v0.2-fixes.md), incl. security fix:
+  MCP annotations replace server-wide Codex auto-approval (verified against real codex exec).
+  Pi black-box: 4/5 pass, 1 blocked on auth in isolated home, 0 defects.
+- 445 tests; CI green on Linux, macOS, Windows.
+
 ## Next step
-R0 results → spec §16 → dispatch P2–P5.
+Release v0.2.0. Future: npm registry publish, Gemini CLI extension manifest, long-horizon evals.
