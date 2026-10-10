@@ -50,7 +50,8 @@ jobs:
 
       - name: Committed dist is up to date
         if: runner.os == 'Linux'
-        run: git diff --exit-code -- dist || (echo "dist/ is stale: run npm run build and commit it" && exit 1)
+        run: |
+          git diff --exit-code -- dist || (echo "dist/ is stale - run npm run build and commit it" && exit 1)
 
       - name: Check generated plugins
         run: npm run build:plugins -- --check
