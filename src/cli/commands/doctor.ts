@@ -9,6 +9,7 @@ import { action, look, printJson, statusLine, type Level } from '../kit.js';
 import { brainDir, linkPath, linkState } from '../link.js';
 import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
 import { readProjects } from '../../vault/registry.js';
+import { scanContext } from '../../doctor/context.js';
 
 export const AUTH_HINTS: Record<CliId, string> = {
   claude: 'run `claude` once and sign in, or set ANTHROPIC_API_KEY',
@@ -35,9 +36,27 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
     .command('doctor')
     .description('check Node, coding CLIs, integrations, brains and the Obsidian link')
     .option('--json', 'machine-readable output')
+    .option('--context', 'measure startup instructions and competing integrations')
     .action(
-      action<{ json?: boolean }>(ctx, async ({ g, opts }) => {
+      action<{ json?: boolean; context?: boolean }>(ctx, async ({ g, opts }) => {
         const lang = g.lang;
+        if (opts.context) {
+          const report = await scanContext({ home: ctx.home, env: ctx.env });
+          if (g.json || opts.json) { printJson(ctx, report); return; }
+          for (const host of report.hosts) {
+            const owners = Object.entries(host.tokens.byOwner).filter(([, count]) => count > 0).map(([owner, count]) => `${owner} ${count}`).join(', ');
+            const hookOwners = Object.entries(host.hooks.byOwner).map(([owner, count]) => `${owner} ${count}`).join(', ') || 'none';
+            const mcpOwners = Object.entries(host.mcpServers.byOwner).map(([owner, count]) => `${owner} ${count}`).join(', ') || 'none';
+            ctx.out(lang === 'es'
+              ? `${host.host}: ~${host.tokens.total} tokens antes de escribir (${owners}). Hooks: ${host.hooks.total} (${hookOwners}); MCP: ${host.mcpServers.total} (${mcpOwners}); plugins: ${host.plugins.join(', ') || 'ninguno'}.`
+              : `${host.host}: ~${host.tokens.total} tokens before you type (${owners}). Hooks: ${host.hooks.total} (${hookOwners}); MCP: ${host.mcpServers.total} (${mcpOwners}); plugins: ${host.plugins.join(', ') || 'none'}.`);
+            if (host.competingMemory) ctx.out(lang === 'es' ? `  Memorias en competencia: ${host.memoryWriters.join(', ')}.` : `  Competing memory writers: ${host.memoryWriters.join(', ')}.`);
+            if (host.competingOrchestration) ctx.out(lang === 'es' ? `  Orquestadores en competencia: ${host.orchestrationProtocols.join(', ')}.` : `  Competing orchestrators: ${host.orchestrationProtocols.join(', ')}.`);
+            if (host.detachCommand) ctx.out(`  ${host.detachCommand}`);
+            for (const warning of host.warnings) ctx.out(`  ${warning}`);
+          }
+          return;
+        }
         const lines: DoctorLine[] = [nodeLine(process.version, lang)];
         const { diagnose } = await import('../../adapters/index.js');
         const clis = await diagnose({ root: g.cwd, home: ctx.home });

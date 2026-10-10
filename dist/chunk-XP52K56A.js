@@ -253,7 +253,7 @@ function registerCrew(program, ctx) {
 }
 
 // src/cli/commands/doctor.ts
-import { join as join4 } from "path";
+import { join as join6 } from "path";
 
 // src/vault/registry.ts
 import { randomUUID } from "crypto";
@@ -299,6 +299,488 @@ async function registerProject(eduHome, projectRoot) {
   return entry;
 }
 
+// src/doctor/context.ts
+import { lstat as lstat2, readFile as readFile2, readdir, realpath as realpath3 } from "fs/promises";
+import { join as join5, relative, resolve as resolve4, sep } from "path";
+import { parse as parse2 } from "jsonc-parser";
+
+// src/detach/edit.ts
+import { applyEdits, modify, parse } from "jsonc-parser";
+
+// src/detach/signatures.ts
+var TOOL_IDS = ["gentle-ai", "engram", "moragent", "orca", "axi", "codegraph", "herdr", "hermes", "edu"];
+var SIGNATURES = {
+  "gentle-ai": { marker: "gentle-ai", commands: ["gentle-ai", "gentle-shell"], mcp: [], plugins: ["gentle-ai"], packages: ["gentle-pi"], extras: { claudeOutputStyle: "Gentleman", opencodeDefaultAgent: "gentle-orchestrator" }, memoryWriter: false, orchestrator: true, keepSections: { persona: ["Rules", "Expertise"] } },
+  engram: { marker: "engram", commands: ["engram"], mcp: ["engram"], plugins: ["engram"], packages: ["gentle-engram"], extras: { codexInstructionKeys: ["model_instructions_file", "experimental_compact_prompt_file"] }, memoryWriter: true, orchestrator: false },
+  moragent: { marker: "moragent", commands: ["mora ", "moragent"], mcp: ["moragent"], plugins: ["moragent"], packages: ["moragent"], memoryWriter: true, orchestrator: true },
+  orca: { marker: "orca", commands: ["orca"], mcp: ["orca"], plugins: ["orca"], packages: ["orca"], memoryWriter: false, orchestrator: false },
+  axi: { marker: "axi", commands: ["-axi"], mcp: [], plugins: ["axi"], packages: ["axi"], memoryWriter: false, orchestrator: false },
+  codegraph: { marker: "codegraph", commands: ["codegraph"], mcp: ["codegraph"], plugins: ["codegraph"], packages: ["codegraph"], memoryWriter: false, orchestrator: false },
+  herdr: { marker: "herdr", commands: ["herdr"], mcp: ["herdr"], plugins: ["herdr"], packages: ["herdr"], memoryWriter: false, orchestrator: false },
+  hermes: { marker: "hermes", commands: ["hermes"], mcp: ["hermes"], plugins: ["hermes"], packages: ["hermes"], memoryWriter: false, orchestrator: false },
+  edu: { marker: "edu", commands: ["edu "], mcp: ["edu"], plugins: ["edu"], packages: ["edu"], memoryWriter: true, orchestrator: true }
+};
+function ownerOf(value, field) {
+  const lower = value.toLowerCase();
+  return TOOL_IDS.find((id) => SIGNATURES[id][field].some((part) => field === "mcp" ? lower === part : lower.includes(part) || field === "commands" && lower === part.trim()));
+}
+function assertDetachable(ids) {
+  if (ids.includes("edu")) throw new Error("Edu cannot detach itself.");
+  const unknown = ids.filter((id) => !TOOL_IDS.includes(id));
+  if (unknown.length) throw new Error(`Unknown tool: ${unknown.join(", ")}`);
+  return [...new Set(ids)];
+}
+
+// src/detach/edit.ts
+var selected = (value, field, tools) => {
+  const owner = ownerOf(value, field);
+  return owner !== void 0 && tools.includes(owner);
+};
+function editInstructions(input, tools) {
+  const marker = /<!--\s*(\/)?([\w-]+):([\w-]+)\s*-->/g;
+  const stack = [];
+  const spans = [];
+  for (const match of input.matchAll(marker)) {
+    const [token, close, owner, name] = match;
+    const at = match.index;
+    if (!close) {
+      stack.push({ owner, name, start: at });
+      continue;
+    }
+    const index = stack.findLastIndex((item) => item.owner === owner && item.name === name);
+    if (index < 0) continue;
+    const last = stack[index];
+    stack.length = index;
+    const tool = tools.find((id) => SIGNATURES[id].marker === owner);
+    if (tool && !stack.some((item) => tools.some((id) => SIGNATURES[id].marker === item.owner))) {
+      const body = input.slice(last.start + input.slice(last.start).indexOf("-->") + 3, at);
+      spans.push({ start: last.start, end: at + token.length, keep: keptSections(body, SIGNATURES[tool].keepSections?.[name] ?? []) });
+    }
+  }
+  let text = input;
+  for (const { start, end, keep } of spans.sort((a, b) => b.start - a.start)) text = text.slice(0, start) + keep + text.slice(end);
+  if (spans.length) text = text.replace(/\n{3,}/g, "\n\n").replace(/^\n+/, "");
+  return { text, changes: spans.map((span) => span.keep ? "instruction block (your sections kept)" : "instruction block") };
+}
+function keptSections(body, titles) {
+  if (!titles.length) return "";
+  const parts = body.split(/(?=^## )/m);
+  const kept = parts.filter((part) => {
+    const title = /^## (.+)$/m.exec(part)?.[1]?.trim();
+    return title !== void 0 && titles.includes(title);
+  });
+  return kept.length ? `${kept.map((part) => part.trimEnd()).join("\n\n")}
+` : "";
+}
+function commandOf(value) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const record = value;
+  if (typeof record.command === "string") return record.command;
+  if (Array.isArray(record.command)) return record.command.filter((part) => typeof part === "string").join(" ");
+  return void 0;
+}
+function pruneHooks(value, tools, changes) {
+  if (Array.isArray(value)) {
+    return value.map((item) => pruneHooks(item, tools, changes)).filter((item) => item !== void 0);
+  }
+  if (!value || typeof value !== "object") return value;
+  const object2 = value;
+  const command = commandOf(object2);
+  if (command && selected(command, "commands", tools)) {
+    changes.push(`hook: ${ownerOf(command, "commands")}`);
+    return void 0;
+  }
+  const result = { ...object2 };
+  for (const [key, child] of Object.entries(object2)) {
+    if (key === "hooks" || key === "handlers" || Array.isArray(child)) {
+      const next = pruneHooks(child, tools, changes);
+      if (Array.isArray(next) && next.length === 0 && (key === "hooks" || key === "handlers")) return void 0;
+      result[key] = next;
+    }
+  }
+  return result;
+}
+function editObject(input, host, tools, changes) {
+  const result = structuredClone(input);
+  for (const key of ["mcpServers", "mcp_servers", "mcp"]) {
+    const servers = result[key];
+    if (!servers || typeof servers !== "object" || Array.isArray(servers)) continue;
+    for (const id of Object.keys(servers)) if (selected(id, "mcp", tools)) {
+      delete servers[id];
+      changes.push(`MCP: ${id}`);
+    }
+  }
+  for (const key of ["enabledPlugins", "plugins"]) {
+    const plugins = result[key];
+    if (plugins && typeof plugins === "object" && !Array.isArray(plugins)) {
+      for (const id of Object.keys(plugins)) if (selected(id, "plugins", tools)) {
+        delete plugins[id];
+        changes.push(`plugin: ${id}`);
+      }
+    } else if (Array.isArray(plugins)) {
+      result[key] = plugins.filter((item) => {
+        const remove = typeof item === "string" && selected(item, "plugins", tools);
+        if (remove) changes.push(`plugin: ${item}`);
+        return !remove;
+      });
+    }
+  }
+  if (host === "pi" && Array.isArray(result.packages)) {
+    result.packages = result.packages.filter((item) => {
+      const remove = typeof item === "string" && selected(item, "packages", tools);
+      if (remove) changes.push(`package: ${item}`);
+      return !remove;
+    });
+  }
+  if (host === "claude") {
+    if (tools.some((tool) => SIGNATURES[tool].extras?.claudeOutputStyle === result.outputStyle)) {
+      delete result.outputStyle;
+      changes.push("outputStyle");
+    }
+    const status = commandOf(result.statusLine);
+    if (status && selected(status, "commands", tools)) {
+      delete result.statusLine;
+      changes.push("statusLine");
+    }
+  }
+  if (host === "opencode" && tools.some((tool) => SIGNATURES[tool].extras?.opencodeDefaultAgent === result.default_agent)) {
+    delete result.default_agent;
+    changes.push("default_agent");
+  }
+  if (result.hooks) {
+    const hooks = pruneHooks(result.hooks, tools, changes);
+    result.hooks = hooks ?? {};
+  }
+  return result;
+}
+function jsonEdit(input, host, tools, jsonc) {
+  const errors = [];
+  const value = jsonc ? parse(input, errors, { allowTrailingComma: true }) : JSON.parse(input);
+  if (errors.length || !value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid host configuration; refusing partial edit");
+  const changes = [];
+  const result = editObject(value, host, tools, changes);
+  if (!changes.length) return { text: input, changes };
+  if (!jsonc) return { text: `${JSON.stringify(result, null, 2)}
+`, changes };
+  let text = input;
+  const before = value;
+  for (const key of /* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(result)])) {
+    const oldValue = before[key];
+    const newValue = result[key];
+    if (JSON.stringify(oldValue) === JSON.stringify(newValue)) continue;
+    if (oldValue && newValue && typeof oldValue === "object" && typeof newValue === "object" && !Array.isArray(oldValue) && !Array.isArray(newValue)) {
+      const oldMap = oldValue;
+      const newMap = newValue;
+      for (const child of /* @__PURE__ */ new Set([...Object.keys(oldMap), ...Object.keys(newMap)])) {
+        if (JSON.stringify(oldMap[child]) === JSON.stringify(newMap[child])) continue;
+        text = applyEdits(text, modify(text, [key, child], newMap[child], { formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" } }));
+      }
+    } else {
+      text = applyEdits(text, modify(text, [key], newValue, { formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" } }));
+    }
+  }
+  return { text, changes };
+}
+function bracketDepth(text) {
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (const c of text) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (quote && c === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (c === quote) quote = "";
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "#") break;
+    if (c === "[" || c === "{") depth++;
+    if (c === "]" || c === "}") depth--;
+  }
+  return depth;
+}
+function tomlEdit(input, tools) {
+  const lines = input.match(/.*(?:\n|$)/g)?.filter(Boolean) ?? [];
+  const changes = [];
+  const output = [];
+  let section = "";
+  let dropSection = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const heading = /^\s*\[{1,2}(.+?)\]{1,2}\s*(?:#.*)?(?:\n)?$/.exec(line);
+    if (heading) {
+      section = heading[1].trim();
+      const plugin = /^plugins\.(?:"([^"]+)"|'([^']+)'|([^.]+))/.exec(section);
+      const mcp = /^mcp_servers\.(?:"([^"]+)"|'([^']+)'|([^.]+))/.exec(section);
+      const market = /^marketplaces\.(?:"([^"]+)"|'([^']+)'|([^.]+))/.exec(section);
+      const id = plugin?.[1] || plugin?.[2] || plugin?.[3] || mcp?.[1] || mcp?.[2] || mcp?.[3] || market?.[1] || market?.[2] || market?.[3];
+      dropSection = Boolean(id && selected(id, plugin || market ? "plugins" : "mcp", tools));
+      if (dropSection) changes.push(`${plugin ? "plugin" : market ? "marketplace" : "MCP"}: ${id}`);
+    }
+    if (dropSection) continue;
+    if (!section) {
+      const key = /^\s*([\w-]+)\s*=\s*(.*?)(?:\n)?$/.exec(line);
+      if (key) {
+        const [statement] = key;
+        let end = i;
+        let depth = bracketDepth(statement);
+        while (depth > 0 && end + 1 < lines.length) depth += bracketDepth(lines[++end]);
+        const raw = lines.slice(i, end + 1).join("");
+        const remove = tools.some((tool) => SIGNATURES[tool].extras?.codexInstructionKeys?.includes(key[1]) && raw.toLowerCase().includes(tool)) || key[1] === "notify" && tools.some((tool) => SIGNATURES[tool].commands.some((part) => raw.toLowerCase().includes(part)));
+        if (remove) {
+          changes.push(`config: ${key[1]}`);
+          i = end;
+          continue;
+        }
+      }
+    }
+    output.push(line);
+  }
+  return { text: output.join(""), changes };
+}
+function editContent(kind, host, input, tools) {
+  if (kind === "instructions") return editInstructions(input, tools);
+  if (kind === "toml") return tomlEdit(input, tools);
+  return jsonEdit(input, host, tools, kind === "jsonc");
+}
+
+// src/doctor/hosts.ts
+import { join as join4, win32 } from "path";
+var HOST_IDS = ["claude", "codex", "pi", "opencode", "gemini"];
+var FILES = {
+  claude: [[".claude/CLAUDE.md", "instructions"], [".claude/settings.json", "json"], [".claude.json", "json"]],
+  codex: [[".codex/AGENTS.md", "instructions"], [".codex/config.toml", "toml"], [".codex/hooks.json", "hooks"]],
+  pi: [[".pi/agent/AGENTS.md", "instructions"], [".pi/agent/settings.json", "json"], [".pi/agent/mcp.json", "json"]],
+  opencode: [[".config/opencode/AGENTS.md", "instructions"], [".config/opencode/opencode.json", "json"], [".config/opencode/opencode.jsonc", "jsonc"]],
+  gemini: [[".gemini/GEMINI.md", "instructions"], [".gemini/settings.json", "json"]]
+};
+var SKILL_DIRS = {
+  claude: [".claude/skills", ".claude/agents"],
+  codex: [".codex/skills", ".agents/skills"],
+  pi: [".pi/agent/skills", ".pi/agent/extensions"],
+  opencode: [".config/opencode/skills", ".config/opencode/plugins"],
+  gemini: [".gemini/skills"]
+};
+function hostFiles(home, env = {}, hosts = HOST_IDS) {
+  const root = env.USERPROFILE || home;
+  return hosts.flatMap((host) => FILES[host].map(([relative3, kind]) => {
+    const pathJoin = /^[A-Za-z]:\\|^\\\\/.test(root) ? win32.join : join4;
+    const path = host === "opencode" && env.APPDATA && relative3.startsWith(".config/opencode/") ? (/^[A-Za-z]:\\|^\\\\/.test(env.APPDATA) ? win32.join : join4)(env.APPDATA, relative3.slice(".config/".length)) : pathJoin(root, relative3);
+    return { host, path, relative: relative3, kind };
+  }));
+}
+function parseHosts(value) {
+  if (!value) return [...HOST_IDS];
+  const hosts = value.split(",").map((host) => host.trim());
+  const invalid = hosts.filter((host) => !HOST_IDS.includes(host));
+  if (invalid.length) throw new Error(`Unknown host: ${invalid.join(", ")}`);
+  return [...new Set(hosts)];
+}
+
+// src/doctor/context.ts
+var add = (counts, owner, amount = 1) => {
+  counts[owner] = (counts[owner] ?? 0) + amount;
+};
+async function safeText(path, home) {
+  const lexical = relative(resolve4(home), resolve4(path));
+  if (lexical === ".." || lexical.startsWith(`..${sep}`)) return void 0;
+  try {
+    const info = await lstat2(path);
+    if (!info.isFile() && !info.isSymbolicLink()) return void 0;
+    const target = await realpath3(path);
+    const rel = relative(await realpath3(home), target);
+    if (rel === ".." || rel.startsWith(`..${sep}`)) return void 0;
+    return await readFile2(path, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return void 0;
+    throw error;
+  }
+}
+async function skillDescriptions(home, host, env) {
+  const root = env.USERPROFILE || home;
+  const descriptions = [];
+  for (const dir of SKILL_DIRS[host] ?? []) {
+    const base = join5(host === "opencode" && env.APPDATA ? env.APPDATA : root, host === "opencode" && env.APPDATA ? dir.slice(".config/".length) : dir);
+    let entries;
+    try {
+      entries = await readdir(base, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      const text = await safeText(join5(base, entry.name, "SKILL.md"), root);
+      if (!text) continue;
+      const description = /^description:\s*(.+)$/m.exec(text)?.[1];
+      if (description) descriptions.push({ owner: ownerOf(entry.name, "plugins") ?? "user", chars: description.length });
+    }
+  }
+  return descriptions;
+}
+function scanHooks(value, counts) {
+  if (Array.isArray(value)) {
+    for (const child of value) scanHooks(child, counts);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  const object2 = value;
+  const command = typeof object2.command === "string" ? object2.command : Array.isArray(object2.command) ? object2.command.join(" ") : void 0;
+  if (command) {
+    add(counts, ownerOf(command, "commands") ?? "user");
+    return;
+  }
+  for (const child of Object.values(object2)) scanHooks(child, counts);
+}
+function scanObject(value, report, owners) {
+  scanHooks(value.hooks, report.hooks.byOwner);
+  for (const key of ["mcpServers", "mcp_servers", "mcp"]) {
+    const servers = value[key];
+    if (!servers || typeof servers !== "object" || Array.isArray(servers)) continue;
+    for (const name of Object.keys(servers)) {
+      report.mcpServers.names.push(name);
+      const owner = ownerOf(name, "mcp");
+      add(report.mcpServers.byOwner, owner ?? "user");
+      if (owner) owners.add(owner);
+    }
+  }
+  for (const key of ["enabledPlugins", "plugins"]) {
+    const plugins = value[key];
+    const names = Array.isArray(plugins) ? plugins.filter((item) => typeof item === "string") : plugins && typeof plugins === "object" ? Object.entries(plugins).filter(([, enabled]) => enabled !== false).map(([name]) => name) : [];
+    for (const name of names) {
+      report.plugins.push(name);
+      const owner = ownerOf(name, "plugins");
+      if (owner) owners.add(owner);
+    }
+  }
+  if (Array.isArray(value.packages)) {
+    for (const item of value.packages) if (typeof item === "string") {
+      const owner = ownerOf(item, "packages");
+      if (owner) owners.add(owner);
+    }
+  }
+  if (value.outputStyle === SIGNATURES["gentle-ai"].extras?.claudeOutputStyle || value.default_agent === SIGNATURES["gentle-ai"].extras?.opencodeDefaultAgent) owners.add("gentle-ai");
+  const status = value.statusLine;
+  if (status && typeof status === "object") {
+    const command = status.command;
+    if (typeof command === "string") {
+      const owner = ownerOf(command, "commands");
+      if (owner) owners.add(owner);
+    }
+  }
+}
+function scanToml(text, report, owners) {
+  const pluginStates = /* @__PURE__ */ new Map();
+  let activePlugin;
+  for (const line of text.split("\n")) {
+    const heading = /^\s*\[([^\]]+)\]/.exec(line)?.[1];
+    if (heading) {
+      const mcp = /^mcp_servers\.(?:"([^"]+)"|([^.]+))/.exec(heading);
+      const plugin = /^plugins\.(?:"([^"]+)"|([^.]+))/.exec(heading);
+      activePlugin = plugin?.[1] ?? plugin?.[2];
+      if (mcp) {
+        const name = mcp[1] ?? mcp[2];
+        if (!report.mcpServers.names.includes(name)) {
+          report.mcpServers.names.push(name);
+          const owner = ownerOf(name, "mcp");
+          add(report.mcpServers.byOwner, owner ?? "user");
+          if (owner) owners.add(owner);
+        }
+      }
+      if (activePlugin && !pluginStates.has(activePlugin)) pluginStates.set(activePlugin, true);
+    }
+    if (activePlugin && /^\s*enabled\s*=\s*false\b/.test(line)) pluginStates.set(activePlugin, false);
+    if (SIGNATURES.engram.extras?.codexInstructionKeys?.some((key) => new RegExp(`^\\s*${key}\\s*=`).test(line) && /engram/i.test(line))) owners.add("engram");
+  }
+  for (const [name, enabled] of pluginStates) if (enabled) {
+    report.plugins.push(name);
+    const owner = ownerOf(name, "plugins");
+    if (owner) owners.add(owner);
+  }
+}
+async function scanContext(input) {
+  const hosts = [];
+  for (const host of input.hosts ?? ["claude", "codex", "pi", "opencode", "gemini"]) {
+    const report = { host, tokens: { total: 0, byOwner: {} }, hooks: { total: 0, byOwner: {} }, mcpServers: { total: 0, byOwner: {}, names: [] }, plugins: [], memoryWriters: [], orchestrationProtocols: [], competingMemory: false, competingOrchestration: false, detachCommand: null, warnings: [] };
+    const owners = /* @__PURE__ */ new Set();
+    let found = false;
+    let codexToml = "";
+    for (const file of hostFiles(input.home, input.env, [host])) {
+      const text = await safeText(file.path, input.env.USERPROFILE || input.home);
+      if (text === void 0) continue;
+      found = true;
+      if (file.kind === "instructions") {
+        const chars = text.length;
+        let assigned = 0;
+        for (const owner of TOOL_IDS) {
+          const removed = chars - editInstructions(text, [owner]).text.length;
+          if (removed) {
+            add(report.tokens.byOwner, owner, Math.round(removed / 4));
+            assigned += removed;
+            owners.add(owner);
+          }
+        }
+        add(report.tokens.byOwner, "user", Math.round(Math.max(0, chars - assigned) / 4));
+        report.tokens.total += Math.round(chars / 4);
+      } else if (file.kind === "toml") {
+        codexToml = text;
+        scanToml(text, report, owners);
+      } else {
+        try {
+          scanObject(file.kind === "jsonc" ? parse2(text) : JSON.parse(text), report, owners);
+        } catch {
+          report.warnings.push(`Could not parse ${file.relative}`);
+        }
+      }
+    }
+    if (!found) continue;
+    if (host === "codex") {
+      const home = input.env.USERPROFILE || input.home;
+      const seen = /* @__PURE__ */ new Set();
+      for (const key of SIGNATURES.engram.extras?.codexInstructionKeys ?? []) {
+        const value = new RegExp(`^\\s*${key}\\s*=\\s*["']([^"']+)["']`, "m").exec(codexToml)?.[1];
+        if (!value || !value.toLowerCase().includes("engram")) continue;
+        const path = value.startsWith("~/") ? join5(home, value.slice(2)) : resolve4(home, value);
+        if (seen.has(path)) continue;
+        seen.add(path);
+        const text = await safeText(path, home);
+        if (text) {
+          const count = Math.round(text.length / 4);
+          add(report.tokens.byOwner, "engram", count);
+          report.tokens.total += count;
+          owners.add("engram");
+        }
+      }
+    }
+    for (const description of await skillDescriptions(input.home, host, input.env)) {
+      const count = Math.round(description.chars / 4);
+      add(report.tokens.byOwner, description.owner, count);
+      report.tokens.total += count;
+    }
+    report.hooks.total = Object.values(report.hooks.byOwner).reduce((a, b) => a + b, 0);
+    report.mcpServers.total = report.mcpServers.names.length;
+    for (const owner of Object.keys(report.hooks.byOwner)) if (owner !== "user") owners.add(owner);
+    report.memoryWriters = TOOL_IDS.filter((id) => owners.has(id) && SIGNATURES[id].memoryWriter);
+    report.orchestrationProtocols = TOOL_IDS.filter((id) => owners.has(id) && SIGNATURES[id].orchestrator);
+    report.competingMemory = report.memoryWriters.length > 1;
+    report.competingOrchestration = report.orchestrationProtocols.length > 1;
+    const removable = TOOL_IDS.filter((id) => id !== "edu" && owners.has(id));
+    report.detachCommand = removable.length ? `edu detach ${removable.join(" ")} --host ${host}` : null;
+    hosts.push(report);
+  }
+  return { hosts };
+}
+
 // src/cli/commands/doctor.ts
 var AUTH_HINTS = {
   claude: "run `claude` once and sign in, or set ANTHROPIC_API_KEY",
@@ -312,9 +794,27 @@ function nodeLine(version, lang) {
   return major >= 22 ? { level: "ok", text: t(lang, "doctor.node", { version }) } : { level: "fail", text: t(lang, "doctor.nodeOld", { version }) };
 }
 function registerDoctor(program, ctx) {
-  program.command("doctor").description("check Node, coding CLIs, integrations, brains and the Obsidian link").option("--json", "machine-readable output").action(
+  program.command("doctor").description("check Node, coding CLIs, integrations, brains and the Obsidian link").option("--json", "machine-readable output").option("--context", "measure startup instructions and competing integrations").action(
     action(ctx, async ({ g, opts }) => {
       const lang = g.lang;
+      if (opts.context) {
+        const report = await scanContext({ home: ctx.home, env: ctx.env });
+        if (g.json || opts.json) {
+          printJson(ctx, report);
+          return;
+        }
+        for (const host of report.hosts) {
+          const owners = Object.entries(host.tokens.byOwner).filter(([, count]) => count > 0).map(([owner, count]) => `${owner} ${count}`).join(", ");
+          const hookOwners = Object.entries(host.hooks.byOwner).map(([owner, count]) => `${owner} ${count}`).join(", ") || "none";
+          const mcpOwners = Object.entries(host.mcpServers.byOwner).map(([owner, count]) => `${owner} ${count}`).join(", ") || "none";
+          ctx.out(lang === "es" ? `${host.host}: ~${host.tokens.total} tokens antes de escribir (${owners}). Hooks: ${host.hooks.total} (${hookOwners}); MCP: ${host.mcpServers.total} (${mcpOwners}); plugins: ${host.plugins.join(", ") || "ninguno"}.` : `${host.host}: ~${host.tokens.total} tokens before you type (${owners}). Hooks: ${host.hooks.total} (${hookOwners}); MCP: ${host.mcpServers.total} (${mcpOwners}); plugins: ${host.plugins.join(", ") || "none"}.`);
+          if (host.competingMemory) ctx.out(lang === "es" ? `  Memorias en competencia: ${host.memoryWriters.join(", ")}.` : `  Competing memory writers: ${host.memoryWriters.join(", ")}.`);
+          if (host.competingOrchestration) ctx.out(lang === "es" ? `  Orquestadores en competencia: ${host.orchestrationProtocols.join(", ")}.` : `  Competing orchestrators: ${host.orchestrationProtocols.join(", ")}.`);
+          if (host.detachCommand) ctx.out(`  ${host.detachCommand}`);
+          for (const warning of host.warnings) ctx.out(`  ${warning}`);
+        }
+        return;
+      }
       const lines = [nodeLine(process.version, lang)];
       const { diagnose } = await import("./adapters-ERB3BVF7.js");
       const clis = await diagnose({ root: g.cwd, home: ctx.home });
@@ -335,7 +835,7 @@ function registerDoctor(program, ctx) {
       const locations = ws.locations.some((l) => l.scope === "global") ? ws.locations : [...ws.locations, { scope: "global", root: globalHome(ctx) }];
       const brains = [];
       for (const loc of locations) {
-        const ready = await exists(join4(loc.root, "EDU.md"));
+        const ready = await exists(join6(loc.root, "EDU.md"));
         const total = ready ? (await openBrain([loc]).stats()).total : 0;
         brains.push({ ...loc, ready, total });
         lines.push(
@@ -343,7 +843,7 @@ function registerDoctor(program, ctx) {
         );
       }
       let vault = { state: "none" };
-      if (await exists(join4(ws.primary.root, "config.json"))) {
+      if (await exists(join6(ws.primary.root, "config.json"))) {
         const config = await effectiveConfig(ws.primary.root, []);
         if (config.brain.obsidianVault) {
           const link = linkPath(config.brain.obsidianVault, ws.primary);
@@ -351,8 +851,8 @@ function registerDoctor(program, ctx) {
         }
       }
       if (vault.state === "none") {
-        const defaultVault = join4(process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home, "EduVault");
-        if (await exists(join4(defaultVault, "Home.md"))) {
+        const defaultVault = join6(process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home, "EduVault");
+        if (await exists(join6(defaultVault, "Home.md"))) {
           const link = linkPath(defaultVault, ws.primary);
           vault = { link, state: await linkState(link, brainDir(ws.primary)) };
         }
@@ -373,18 +873,200 @@ function registerDoctor(program, ctx) {
   );
 }
 
+// src/detach/engine.ts
+import { createHash, randomUUID as randomUUID2 } from "crypto";
+import { lstat as lstat3, mkdir as mkdir3, readFile as readFile3, readdir as readdir2, rename as rename2, stat, writeFile as writeFile2 } from "fs/promises";
+import { dirname as dirname3, join as join7, relative as relative2, resolve as resolve5, sep as sep2 } from "path";
+var hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+var backupRoot = (home) => join7(home, ".edu", "backups");
+async function existingFile(path) {
+  try {
+    const info = await lstat3(path);
+    if (info.isSymbolicLink()) throw new Error(`Refusing symlinked host configuration: ${path}`);
+    if (!info.isFile()) return void 0;
+    return await readFile3(path);
+  } catch (error) {
+    if (error.code === "ENOENT") return void 0;
+    throw error;
+  }
+}
+async function referencedTokens(home, config, changes) {
+  let tokens = 0;
+  for (const key of ["model_instructions_file", "experimental_compact_prompt_file"]) {
+    if (!changes.includes(`config: ${key}`)) continue;
+    const value = new RegExp(`^\\s*${key}\\s*=\\s*["']([^"']+)["']`, "m").exec(config)?.[1];
+    if (!value) continue;
+    const path = value.startsWith("~/") ? join7(home, value.slice(2)) : resolve5(home, value);
+    try {
+      inside(home, path);
+      const bytes = await existingFile(path);
+      if (bytes) tokens += Math.round(bytes.toString("utf8").length / 4);
+    } catch {
+    }
+  }
+  return tokens;
+}
+function inside(home, path) {
+  const rel = relative2(resolve5(home), resolve5(path));
+  if (!rel || rel === ".." || rel.startsWith(`..${sep2}`) || rel.startsWith(sep2)) throw new Error(`Host file is outside the supplied home: ${path}`);
+  return rel;
+}
+async function createDetachPlan(input) {
+  const tools = assertDetachable(input.tools);
+  if (!tools.length) throw new Error("Name at least one tool to detach.");
+  const home = resolve5(input.env.USERPROFILE || input.home);
+  const files = [];
+  for (const file of hostFiles(home, input.env, input.hosts)) {
+    const rel = inside(home, file.path);
+    const before = await existingFile(file.path);
+    if (!before) continue;
+    const result = editContent(file.kind, file.host, before.toString("utf8"), tools);
+    const after = Buffer.from(result.text);
+    if (after.equals(before)) continue;
+    const tokensSaved = file.kind === "instructions" ? Math.max(0, Math.round((before.toString("utf8").length - result.text.length) / 4)) : file.kind === "toml" ? await referencedTokens(home, before.toString("utf8"), result.changes) : 0;
+    files.push({ host: file.host, path: file.path, relative: rel, before, after, sha256Before: hash(before), sha256After: hash(after), changes: result.changes, tokensSaved });
+  }
+  return { home, hosts: input.hosts, tools, files, tokensSaved: files.reduce((n, file) => n + file.tokensSaved, 0) };
+}
+async function atomicWrite2(path, bytes) {
+  const temp = join7(dirname3(path), `.edu-detach-${randomUUID2()}.tmp`);
+  const mode = (await stat(path)).mode;
+  try {
+    await writeFile2(temp, bytes, { mode });
+    await rename2(temp, path);
+  } catch (error) {
+    await import("fs/promises").then((fs) => fs.rm(temp, { force: true }));
+    throw error;
+  }
+}
+async function applyDetach(plan) {
+  if (!plan.files.length) throw new Error("No matching integrations found; nothing to detach.");
+  for (const file of plan.files) if (hash(await existingFile(file.path) ?? Buffer.alloc(0)) !== file.sha256Before) throw new Error(`Host configuration changed since planning: ${file.path}`);
+  const id = `detach-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${randomUUID2().slice(0, 8)}`;
+  const root = join7(backupRoot(plan.home), id);
+  const manifest = {
+    id,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    tools: plan.tools,
+    hosts: plan.hosts,
+    files: plan.files.map((file) => ({ host: file.host, path: file.relative, sha256Before: file.sha256Before, sha256After: file.sha256After, changes: file.changes }))
+  };
+  for (const file of plan.files) {
+    const backup = join7(root, file.relative);
+    await mkdir3(dirname3(backup), { recursive: true });
+    await writeFile2(backup, file.before);
+  }
+  await writeFile2(join7(root, "manifest.json"), `${JSON.stringify(manifest, null, 2)}
+`);
+  const applied = [];
+  try {
+    for (const file of plan.files) {
+      await atomicWrite2(file.path, file.after);
+      applied.push(file);
+    }
+  } catch (error) {
+    for (const file of applied.reverse()) await atomicWrite2(file.path, file.before);
+    throw error;
+  }
+  return manifest;
+}
+async function listDetachBackups(home) {
+  try {
+    const ids = (await readdir2(backupRoot(home))).filter((id) => /^detach-[\w-]+$/.test(id)).sort().reverse();
+    const active = [];
+    for (const id of ids) {
+      try {
+        const manifest = JSON.parse(await readFile3(join7(backupRoot(home), id, "manifest.json"), "utf8"));
+        if (!manifest.undoneAt) active.push(id);
+      } catch {
+      }
+    }
+    return active;
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+async function undoDetach(input) {
+  const id = input.id ?? (await listDetachBackups(input.home))[0];
+  if (!id || !/^detach-[\w-]+$/.test(id)) throw new Error("No matching detach backup found.");
+  const root = join7(backupRoot(input.home), id);
+  const manifest = JSON.parse(await readFile3(join7(root, "manifest.json"), "utf8"));
+  if (manifest.id !== id || manifest.undoneAt) throw new Error("Detach backup is invalid or already restored.");
+  const restore = [];
+  for (const file of manifest.files) {
+    const path = join7(input.home, file.path);
+    inside(input.home, path);
+    const before = await readFile3(join7(root, file.path));
+    if (hash(before) !== file.sha256Before) throw new Error(`Backup checksum mismatch: ${file.path}`);
+    const current = await existingFile(path);
+    if (!current || !input.force && hash(current) !== file.sha256After) throw new Error(`Refusing drifted file: ${file.path}; use --force to overwrite`);
+    restore.push({ path, before });
+  }
+  for (const file of restore) await atomicWrite2(file.path, file.before);
+  manifest.undoneAt = (/* @__PURE__ */ new Date()).toISOString();
+  await writeFile2(join7(root, "manifest.json"), `${JSON.stringify(manifest, null, 2)}
+`);
+  return { id, restored: manifest.files.map((file) => file.path) };
+}
+
+// src/cli/commands/detach.ts
+function registerDetach(program, ctx) {
+  program.command("detach").description("reversibly remove competing CLI instructions, hooks, MCP servers and plugins").argument("[tools...]", "tool IDs to detach (never edu)").option("--host <hosts>", "comma-separated coding CLI hosts").option("--dry-run", "show planned edits without writing").option("--yes", "apply without prompting").option("--keep-binaries", "do not suggest binary uninstall commands").option("--undo [id]", "restore the latest or named detach backup").option("--list", "list active detach backups").option("--force", "overwrite drifted files during undo").action(action(ctx, async ({ g, opts }, rawTools) => {
+    const es = g.lang === "es";
+    if (opts.list) {
+      const ids = await listDetachBackups(ctx.home);
+      ctx.out(ids.length ? ids.join("\n") : es ? "No hay respaldos activos." : "No active detach backups.");
+      return;
+    }
+    if (opts.undo !== void 0) {
+      const result = await undoDetach({ home: ctx.home, id: typeof opts.undo === "string" ? opts.undo : void 0, force: opts.force });
+      ctx.out(es ? `Restaurado ${result.id}: ${result.restored.join(", ")}` : `Restored ${result.id}: ${result.restored.join(", ")}`);
+      return;
+    }
+    const tools = rawTools?.split(" ").filter(Boolean) ?? [];
+    const plan = await createDetachPlan({ home: ctx.home, env: ctx.env, hosts: parseHosts(opts.host), tools });
+    const dryRun = opts.dryRun || (!ctx.isTTY || !ctx.stdinIsTTY) && !opts.yes;
+    ctx.out(es ? `Plan: ${plan.files.length} archivo(s), ~${plan.tokensSaved} tokens menos.` : `Plan: ${plan.files.length} file(s), ~${plan.tokensSaved} fewer tokens.`);
+    for (const host of plan.hosts) {
+      const files = plan.files.filter((file) => file.host === host);
+      if (!files.length) continue;
+      const tokens = files.reduce((sum, file) => sum + file.tokensSaved, 0);
+      ctx.out(es ? `  ${host}: ${files.length} archivo(s), ~${tokens} tokens; ${files.flatMap((file) => file.changes).join(", ")}` : `  ${host}: ${files.length} file(s), ~${tokens} tokens; ${files.flatMap((file) => file.changes).join(", ")}`);
+    }
+    if (dryRun || !plan.files.length) {
+      ctx.out(es ? "Simulaci\xF3n: no se escribi\xF3 nada." : "Dry run: nothing was written.");
+      return;
+    }
+    if (!opts.yes && !await ctx.confirm(es ? "\xBFAplicar estos cambios con respaldo?" : "Apply these backed-up changes?")) {
+      ctx.out(es ? "Cancelado: no se escribi\xF3 nada." : "Cancelled: nothing was written.");
+      return;
+    }
+    const applied = await applyDetach(plan);
+    ctx.out(es ? `Aplicado. Respaldo: ${applied.id}. Revertir: edu detach --undo ${applied.id}` : `Applied. Backup: ${applied.id}. Undo: edu detach --undo ${applied.id}`);
+    if (!opts.keepBinaries) {
+      const suggestions = [
+        plan.tools.includes("gentle-ai") && "brew uninstall gentle-ai",
+        plan.tools.includes("engram") && "brew uninstall engram",
+        plan.tools.includes("moragent") && "npm uninstall -g moragent"
+      ].filter(Boolean);
+      if (suggestions.length) ctx.out(es ? `Los binarios siguen instalados. Si ya no se necesitan: ${suggestions.join(" \xB7 ")}` : `Binaries remain installed. If no longer needed: ${suggestions.join(" \xB7 ")}`);
+    }
+  }));
+}
+
 // src/cli/commands/evidence.ts
-import { readdir, readFile as readFile2 } from "fs/promises";
-import { join as join5 } from "path";
+import { readdir as readdir3, readFile as readFile4 } from "fs/promises";
+import { join as join8 } from "path";
 
 // src/evidence/metrics.ts
 function aggregateMetrics(episodes, options = {}) {
-  const selected = episodes.filter((episode) => {
+  const selected2 = episodes.filter((episode) => {
     const time = Date.parse(episode.startedAt);
     return (!options.since || time >= Date.parse(options.since)) && (!options.until || time <= Date.parse(options.until));
   });
   const groups = /* @__PURE__ */ new Map();
-  for (const episode of selected) {
+  for (const episode of selected2) {
     const key = JSON.stringify({ cli: episode.cli, role: episode.role, level: episode.level, window: timeWindow(episode.startedAt, options.window) });
     groups.set(key, [...groups.get(key) ?? [], episode]);
   }
@@ -428,7 +1110,7 @@ function registerEvidence(program, ctx) {
     const by = oneOf2(opts.by ?? "cli", ["cli", "role", "level"], "--by");
     const since = parseSince(opts.since ?? "30d");
     const ws = await openWorkspace(ctx, g.cwd);
-    const episodes = await readEpisodes(join5(ws.primary.root, "runs"));
+    const episodes = await readEpisodes(join8(ws.primary.root, "runs"));
     const projected = episodes.map((episode) => ({ ...episode, cli: by === "cli" ? episode.cli : void 0, role: by === "role" ? episode.role : void 0, level: by === "level" ? episode.level : void 0 }));
     const rows = aggregateMetrics(projected, { since }).map((group) => ({
       group: group.group[by],
@@ -480,7 +1162,7 @@ function registerEvidence(program, ctx) {
 async function readEpisodes(root) {
   let entries;
   try {
-    entries = await readdir(root, { withFileTypes: true });
+    entries = await readdir3(root, { withFileTypes: true });
   } catch (error) {
     if (error.code === "ENOENT") return [];
     throw error;
@@ -488,18 +1170,18 @@ async function readEpisodes(root) {
   const summaries = [];
   for (const item of entries.filter((value) => value.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
     const entry = item.name;
-    const dir = join5(root, entry);
+    const dir = join8(root, entry);
     const [task, outcome, interventions, verifications, attributions, tools, entropy] = await Promise.all([
-      json(join5(dir, "task.json")),
-      json(join5(dir, "outcome.json")),
-      jsonl(join5(dir, "intervention.jsonl")),
-      jsonl(join5(dir, "verification.jsonl")),
-      jsonl(join5(dir, "attribution.jsonl")),
-      jsonl(join5(dir, "tool.jsonl")),
-      json(join5(dir, "entropy.json"))
+      json(join8(dir, "task.json")),
+      json(join8(dir, "outcome.json")),
+      jsonl(join8(dir, "intervention.jsonl")),
+      jsonl(join8(dir, "verification.jsonl")),
+      jsonl(join8(dir, "attribution.jsonl")),
+      jsonl(join8(dir, "tool.jsonl")),
+      json(join8(dir, "entropy.json"))
     ]);
     const metrics = object(outcome.metrics);
-    const start = (await jsonl(join5(dir, "action.jsonl"))).find((event) => event.type === "run.start");
+    const start = (await jsonl(join8(dir, "action.jsonl"))).find((event) => event.type === "run.start");
     if (!start) continue;
     const label = outcome.label;
     if (!["autonomous_verified_success", "assisted_verified_success", "unverified_success", "failed", "unsafe_invalid"].includes(label)) continue;
@@ -546,7 +1228,7 @@ function countRecoveredTools(events) {
 }
 async function json(path) {
   try {
-    return object(JSON.parse(await readFile2(path, "utf8")));
+    return object(JSON.parse(await readFile4(path, "utf8")));
   } catch (error) {
     if (error.code === "ENOENT") return {};
     throw error;
@@ -554,7 +1236,7 @@ async function json(path) {
 }
 async function jsonl(path) {
   try {
-    return (await readFile2(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => object(JSON.parse(line)));
+    return (await readFile4(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => object(JSON.parse(line)));
   } catch (error) {
     if (error.code === "ENOENT") return [];
     throw error;
@@ -572,10 +1254,10 @@ function integer(value, flag, minimum) {
   return Number(value);
 }
 function parseSince(value) {
-  const relative = /^(\d+)([dhw])$/.exec(value);
-  if (relative) {
+  const relative3 = /^(\d+)([dhw])$/.exec(value);
+  if (relative3) {
     const units = { d: 864e5, h: 36e5, w: 6048e5 };
-    const time2 = Date.now() - Number(relative[1]) * units[relative[2]];
+    const time2 = Date.now() - Number(relative3[1]) * units[relative3[2]];
     return new Date(time2).toISOString();
   }
   const time = Date.parse(value);
@@ -587,7 +1269,7 @@ function pct(value) {
 }
 
 // src/cli/hooks.ts
-import { join as join6 } from "path";
+import { join as join9 } from "path";
 
 // src/cli/statusline.ts
 var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -649,14 +1331,14 @@ async function safeHook(ctx, name, body) {
 }
 async function initializedWorkspace(ctx, cwd) {
   const ws = await openWorkspace(ctx, cwd);
-  return await exists(join6(ws.primary.root, "EDU.md")) ? ws : void 0;
+  return await exists(join9(ws.primary.root, "EDU.md")) ? ws : void 0;
 }
 async function sessionStart(ctx, cwd) {
   const input = parseJsonObject(await ctx.readStdin(500));
   const ws = await initializedWorkspace(ctx, str(input?.cwd) ?? cwd);
   if (!ws) return;
   const { brief } = await import("./context-PAFLCUYP.js");
-  const text = await brief(ws.brain, 1500, { eduMdPath: join6(ws.primary.root, "EDU.md") });
+  const text = await brief(ws.brain, 1500, { eduMdPath: join9(ws.primary.root, "EDU.md") });
   if (text.trim()) ctx.out(text);
 }
 async function sessionEnd(ctx, cwd) {
@@ -724,7 +1406,7 @@ function registerIntegrations(program, ctx) {
 }
 
 // src/cli/commands/learn.ts
-import { join as join7 } from "path";
+import { join as join10 } from "path";
 function tokenTable(pack, glyphs) {
   const width = Math.max(7, ...pack.sections.map((s) => s.title.length));
   const rule = glyphs.rule.repeat(width + 20);
@@ -744,7 +1426,7 @@ function registerLearn(program, ctx) {
       const config = await effectiveConfig(ws.primary.root, []);
       const budgetTokens = opts.budget ? parseIntOption(opts.budget, "--budget") : config.context.budgetTokens;
       const { buildContext } = await import("./context-PAFLCUYP.js");
-      const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join7(ws.primary.root, "EDU.md"), trackUsage: false });
+      const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join10(ws.primary.root, "EDU.md"), trackUsage: false });
       if (g.json || opts.json) return printJson(ctx, pack);
       const { glyphs } = look(ctx);
       ctx.out(t(g.lang, "context.title", { tokens: pack.tokens, budget: pack.budgetTokens }));
@@ -853,10 +1535,10 @@ function registerWatch(program, ctx) {
 }
 
 // src/cli/commands/live.ts
-import { resolve as resolve4 } from "path";
+import { resolve as resolve6 } from "path";
 
 // src/cli/commands/setup.ts
-import { join as join8 } from "path";
+import { join as join11 } from "path";
 var CLI_CHOICES = ["claude", "codex", "pi", "opencode", "agy"];
 function parseCli2(value) {
   const id = value.trim().toLowerCase();
@@ -877,7 +1559,7 @@ function parseScope(value) {
 function registerSetup(program, ctx) {
   program.command("init").description("create a brain: ./.edu (or ~/.edu with --global), config, roles and skills").option("--global", "initialize the global brain (EDU_HOME or ~/.edu)").option("--name <name>", "identity name", "Edu").option("--cli <cli>", "default CLI (claude, codex, pi, opencode, agy)").action(
     action(ctx, async ({ g, opts }) => {
-      const root = opts.global ? globalHome(ctx) : join8(g.cwd, ".edu");
+      const root = opts.global ? globalHome(ctx) : join11(g.cwd, ".edu");
       const detected = await ctx.detectClis();
       const report = await initBrain({
         location: { scope: opts.global ? "global" : "project", root },
@@ -1045,7 +1727,7 @@ function registerLive(program, ctx) {
       const speed = parsePositive(opts.speed ?? "1", "--speed");
       const { demoScript } = await import("./fake-5VATECTT.js");
       const events = demoScript();
-      if (opts.save) await atomicWrite(resolve4(g.cwd, opts.save), `${events.map((event) => JSON.stringify(event)).join("\n")}
+      if (opts.save) await atomicWrite(resolve6(g.cwd, opts.save), `${events.map((event) => JSON.stringify(event)).join("\n")}
 `);
       if (!ctx.isTTY) {
         ctx.out(t(g.lang, "demo.plain"));
@@ -1094,32 +1776,32 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes) {
 }
 
 // src/cli/commands/vault.ts
-import { join as join10, resolve as resolve6 } from "path";
+import { join as join13, resolve as resolve8 } from "path";
 
 // src/vault/vault.ts
 import { randomBytes } from "crypto";
-import { access, copyFile, mkdir as mkdir3, readFile as readFile3, readdir as readdir2, realpath as realpath3, writeFile as writeFile2 } from "fs/promises";
-import { basename as basename3, dirname as dirname3, join as join9, posix, resolve as resolve5, win32 } from "path";
+import { access, copyFile, mkdir as mkdir4, readFile as readFile5, readdir as readdir4, realpath as realpath4, writeFile as writeFile3 } from "fs/promises";
+import { basename as basename3, dirname as dirname4, join as join12, posix, resolve as resolve7, win32 as win322 } from "path";
 var START = "<!-- edu:projects -->";
 var END = "<!-- /edu:projects -->";
 var IGNORED = ["runs/", "crew/", "proposals/", "backups/"];
 function pathParts(path, platform) {
-  const api = platform === "win32" ? win32 : posix;
+  const api = platform === "win32" ? win322 : posix;
   return api.resolve(path).split(/[\\/]+/).filter(Boolean).map((part) => platform === "win32" ? part.toLowerCase() : part);
 }
 function unsafeVaultPathReason(path, home, platform) {
-  const api = platform === "win32" ? win32 : posix;
+  const api = platform === "win32" ? win322 : posix;
   const vault = api.resolve(path);
   const userHome = api.resolve(home);
   const compare = (value) => platform === "win32" ? value.toLowerCase() : value;
   if (compare(vault) === compare(api.parse(vault).root)) return "a drive or filesystem root";
-  const relative = api.relative(vault, userHome);
-  if (relative === "" || relative !== ".." && !relative.startsWith(`..${api.sep}`) && !api.isAbsolute(relative)) {
+  const relative3 = api.relative(vault, userHome);
+  if (relative3 === "" || relative3 !== ".." && !relative3.startsWith(`..${api.sep}`) && !api.isAbsolute(relative3)) {
     return "the home folder or one of its ancestors";
   }
   const segments = pathParts(vault, platform).map((part) => part.toLowerCase());
   if (segments.includes(".edu")) return "an application, system, or project-brain folder";
-  const insideHome = relative === ".." || relative.split(api.sep).every((part) => part === "..");
+  const insideHome = relative3 === ".." || relative3.split(api.sep).every((part) => part === "..");
   if (insideHome) {
     const fromHome = api.relative(userHome, vault).split(/[\\/]+/).filter(Boolean).map((part) => part.toLowerCase());
     if (fromHome[0] && (/* @__PURE__ */ new Set(["appdata", "library", ".config", ".local", ".cache"])).has(fromHome[0])) {
@@ -1147,10 +1829,10 @@ async function physicalCandidate(path) {
   const suffix = [];
   while (true) {
     try {
-      return resolve5(await realpath3(ancestor), ...suffix.reverse());
+      return resolve7(await realpath4(ancestor), ...suffix.reverse());
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
-      const parent = dirname3(ancestor);
+      const parent = dirname4(ancestor);
       if (parent === ancestor) throw error;
       suffix.push(basename3(ancestor));
       ancestor = parent;
@@ -1197,54 +1879,54 @@ async function validatePath(path, home, platform) {
   const physicalReason = unsafeVaultPathReason(physical, physicalHome, platform);
   if (physicalReason) throw new Error(`Unsafe vault path (${physicalReason}): ${physical}`);
   if (await exists2(path)) {
-    if (await exists2(join9(path, ".edu"))) throw new Error("Unsafe vault path: this folder contains a project brain (.edu/)");
+    if (await exists2(join12(path, ".edu"))) throw new Error("Unsafe vault path: this folder contains a project brain (.edu/)");
   }
 }
 async function createVault(options) {
   const platform = options.platform ?? process.platform;
-  const path = resolve5(options.path);
+  const path = resolve7(options.path);
   await validatePath(path, options.home, platform);
   const projects = (await readProjects(options.eduHome)).projects;
-  const current = await readdir2(path).catch((error) => {
+  const current = await readdir4(path).catch((error) => {
     if (error.code === "ENOENT") return [];
     throw error;
   });
-  const homeFile = join9(path, "Home.md");
-  if (current.length && !(await exists2(homeFile) && (await readFile3(homeFile, "utf8")).includes(START))) {
+  const homeFile = join12(path, "Home.md");
+  if (current.length && !(await exists2(homeFile) && (await readFile5(homeFile, "utf8")).includes(START))) {
     throw new Error(`Folder is not empty and is not an Edu vault: ${path}`);
   }
-  await mkdir3(join9(path, ".obsidian"), { recursive: true });
-  await mkdir3(join9(path, "Edu"), { recursive: true });
-  await mkdir3(join9(path, "Notes"), { recursive: true });
-  const appFile = join9(path, ".obsidian", "app.json");
-  if (!await exists2(appFile)) await writeFile2(appFile, `${JSON.stringify({ userIgnoreFilters: IGNORED }, null, 2)}
+  await mkdir4(join12(path, ".obsidian"), { recursive: true });
+  await mkdir4(join12(path, "Edu"), { recursive: true });
+  await mkdir4(join12(path, "Notes"), { recursive: true });
+  const appFile = join12(path, ".obsidian", "app.json");
+  if (!await exists2(appFile)) await writeFile3(appFile, `${JSON.stringify({ userIgnoreFilters: IGNORED }, null, 2)}
 `);
-  const notesReadme = join9(path, "Notes", "README.md");
-  if (!await exists2(notesReadme)) await writeFile2(notesReadme, "# Notes\n\nKeep your own notes and drafts here. Edu does not write memory into this folder.\n");
+  const notesReadme = join12(path, "Notes", "README.md");
+  if (!await exists2(notesReadme)) await writeFile3(notesReadme, "# Notes\n\nKeep your own notes and drafts here. Edu does not write memory into this folder.\n");
   const name = options.name?.trim() || "Edu";
-  const original = await readFile3(homeFile, "utf8").catch((error) => {
+  const original = await readFile5(homeFile, "utf8").catch((error) => {
     if (error.code === "ENOENT") return void 0;
     throw error;
   });
   const nextHome = original === void 0 ? homePage(name, projects) : refreshProjects(original, projects);
-  if (nextHome !== original) await writeFile2(homeFile, nextHome);
+  if (nextHome !== original) await writeFile3(homeFile, nextHome);
   const linked = [];
   const conflicts = [];
   const missingProjects = [];
   const entries = [
     ...projects.map((project) => ({ name: segment(project.name), target: project.brain, project: true })),
-    { name: "_global", target: join9(options.eduHome, "brain"), project: false }
+    { name: "_global", target: join12(options.eduHome, "brain"), project: false }
   ];
   for (const entry of entries) {
     if (entry.project && !await exists2(entry.target)) {
       missingProjects.push(entry.name);
       continue;
     }
-    const link = join9(path, "Edu", entry.name);
+    const link = join12(path, "Edu", entry.name);
     try {
       await createVaultLink(link, entry.target, platform);
       linked.push(entry.name);
-      await openBrain([{ scope: entry.project ? "project" : "global", root: dirname3(entry.target) }]).rebuildIndex().catch(() => void 0);
+      await openBrain([{ scope: entry.project ? "project" : "global", root: dirname4(entry.target) }]).rebuildIndex().catch(() => void 0);
     } catch (error) {
       if (error.code !== "ELINKCONFLICT") throw error;
       conflicts.push(link);
@@ -1254,48 +1936,48 @@ async function createVault(options) {
   return { path, name, linked, conflicts, missingProjects, registration };
 }
 async function registerObsidianVault(vault, options) {
-  const config = options.platform === "win32" ? join9(options.env.APPDATA || join9(options.home, "AppData", "Roaming"), "obsidian") : options.platform === "darwin" ? join9(options.home, "Library", "Application Support", "obsidian") : join9(options.home, ".config", "obsidian");
-  const configFile = join9(config, "obsidian.json");
+  const config = options.platform === "win32" ? join12(options.env.APPDATA || join12(options.home, "AppData", "Roaming"), "obsidian") : options.platform === "darwin" ? join12(options.home, "Library", "Application Support", "obsidian") : join12(options.home, ".config", "obsidian");
+  const configFile = join12(config, "obsidian.json");
   if (!await exists2(configFile)) return "skipped (Obsidian not installed)";
-  const parsed = JSON.parse(await readFile3(configFile, "utf8"));
+  const parsed = JSON.parse(await readFile5(configFile, "utf8"));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid Obsidian obsidian.json");
   const data = parsed;
   if (data.vaults !== void 0 && (!data.vaults || typeof data.vaults !== "object" || Array.isArray(data.vaults))) throw new Error("Invalid Obsidian vault list");
   data.vaults ??= {};
-  if (Object.values(data.vaults).some((entry) => resolve5(entry.path ?? "") === resolve5(vault))) return "already registered";
+  if (Object.values(data.vaults).some((entry) => resolve7(entry.path ?? "") === resolve7(vault))) return "already registered";
   const now = options.now ?? /* @__PURE__ */ new Date();
   const stamp = now.toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "Z");
   await copyFile(configFile, `${configFile}.${stamp}.${randomBytes(3).toString("hex")}.bak`);
-  data.vaults[randomBytes(8).toString("hex")] = { path: resolve5(vault), ts: now.getTime(), open: false };
-  await writeFile2(configFile, `${JSON.stringify(data, null, 2)}
+  data.vaults[randomBytes(8).toString("hex")] = { path: resolve7(vault), ts: now.getTime(), open: false };
+  await writeFile3(configFile, `${JSON.stringify(data, null, 2)}
 `);
   return "registered";
 }
 async function countNotes(dir) {
   let count = 0;
-  for (const entry of await readdir2(dir, { withFileTypes: true }).catch(() => [])) {
+  for (const entry of await readdir4(dir, { withFileTypes: true }).catch(() => [])) {
     if (entry.isDirectory() && entry.name === "0-index") continue;
-    if (entry.isDirectory()) count += await countNotes(join9(dir, entry.name));
+    if (entry.isDirectory()) count += await countNotes(join12(dir, entry.name));
     else if (entry.isFile() && entry.name.endsWith(".md")) count++;
   }
   return count;
 }
 async function checkVault(options) {
-  const path = resolve5(options.path);
+  const path = resolve7(options.path);
   const platform = options.platform ?? process.platform;
   const physical = await physicalCandidate(path).catch(() => path);
-  const unsafe = unsafeVaultPathReason(path, options.home, platform) ?? unsafeVaultPathReason(physical, await physicalCandidate(options.home).catch(() => options.home), platform) ?? (await exists2(join9(path, ".edu")) ? "contains a project brain" : void 0);
+  const unsafe = unsafeVaultPathReason(path, options.home, platform) ?? unsafeVaultPathReason(physical, await physicalCandidate(options.home).catch(() => options.home), platform) ?? (await exists2(join12(path, ".edu")) ? "contains a project brain" : void 0);
   const projects = (await readProjects(options.eduHome)).projects;
   const entries = [
     ...projects.map((project) => ({ name: segment(project.name), target: project.brain, project: true })),
-    { name: "_global", target: join9(options.eduHome, "brain"), project: false }
+    { name: "_global", target: join12(options.eduHome, "brain"), project: false }
   ];
   const links = [];
   const missingProjects = [];
   for (const entry of entries) {
     const present = await exists2(entry.target);
     if (!present && entry.project) missingProjects.push(entry.name);
-    const state = await linkState(join9(path, "Edu", entry.name), entry.target);
+    const state = await linkState(join12(path, "Edu", entry.name), entry.target);
     links.push({
       name: entry.name,
       state: state === "conflict" ? "conflict" : state === "missing" || !present ? "broken" : "ok",
@@ -1303,9 +1985,9 @@ async function checkVault(options) {
     });
   }
   const warnings = [];
-  for (const entry of await readdir2(path, { withFileTypes: true }).catch(() => [])) {
+  for (const entry of await readdir4(path, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isDirectory() || ["Edu", "Notes", ".obsidian"].includes(entry.name)) continue;
-    const notes = await countNotes(join9(path, entry.name));
+    const notes = await countNotes(join12(path, entry.name));
     if (notes >= 20) warnings.push(`${entry.name}/ contains ${notes} notes outside Edu/ and Notes/; another tool may be writing generated notes`);
   }
   return { path, unsafe, links, missingProjects, warnings };
@@ -1315,7 +1997,7 @@ async function checkVault(options) {
 function registerVault(program, ctx) {
   program.command("vault").description("create or check a safe Obsidian window onto registered project brains").argument("[path]", "vault directory (default ~/EduVault)").option("--name <name>", "vault title", "Edu").option("--no-register", "do not add the vault to Obsidian").option("--check", "report unsafe paths, broken links and note counts without writing").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, path) => {
     const home = process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home;
-    const vaultPath = path ? resolve6(g.cwd, path) : join10(home, "EduVault");
+    const vaultPath = path ? resolve8(g.cwd, path) : join13(home, "EduVault");
     const common = { path: vaultPath, home, eduHome: globalHome(ctx) };
     if (opts.check) {
       const report2 = await checkVault(common);
@@ -1341,7 +2023,7 @@ function registerVault(program, ctx) {
 
 // src/cli/program.ts
 var GROUPS = [
-  ["Get started:", ["init", "vault", "install", "uninstall", "doctor"]],
+  ["Get started:", ["init", "vault", "install", "uninstall", "doctor", "detach"]],
   ["Work:", ["run", "ui", "demo"]],
   ["Brain:", ["brain", "context", "reflect", "proposals", "metrics", "checks"]],
   ["Integrations:", ["mcp", "statusline", "hook"]]
@@ -1378,6 +2060,7 @@ function createProgram(overrides = {}, options = {}) {
   registerBrain(program, ctx);
   registerLearn(program, ctx);
   registerDoctor(program, ctx);
+  registerDetach(program, ctx);
   registerEvidence(program, ctx);
   registerIntegrations(program, ctx);
   registerPluginSetup(program, ctx);
@@ -1393,4 +2076,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-B4CUYKKL.js.map
+//# sourceMappingURL=chunk-XP52K56A.js.map

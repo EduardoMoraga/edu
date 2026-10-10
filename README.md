@@ -171,6 +171,22 @@ lead, explorer, builder and reviewer roles (see [Edu as your orchestrator](#edu-
 
 ## Uninstall
 
+To audit competing startup context before removing anything:
+
+```bash
+edu doctor --context                  # estimated instruction tokens, hooks, MCPs and plugins by host
+edu detach gentle-ai engram --dry-run # inspect selective removals; non-TTY runs dry by default
+edu detach gentle-ai engram --yes     # back up and apply across detected hosts
+edu detach --list                     # find an active backup ID
+edu detach --undo                     # restore the latest backup byte-for-byte
+```
+
+`edu detach` never removes Edu or uninstalls binaries. Backups live under
+`~/.edu/backups/detach-*/`; undo refuses changed files unless `--force` is explicit.
+Use `--host claude,codex,pi,opencode,gemini` to limit the hosts.
+
+## Remove Edu
+
 ```bash
 edu uninstall --scope global   # reverses everything edu setup recorded
 npm rm -g edu-agent

@@ -172,6 +172,22 @@ orquesta los roles lead, explorer, builder y reviewer (vea
 
 ## Desinstalar
 
+Para revisar el contexto que cargan las CLI antes de quitar integraciones:
+
+```bash
+edu doctor --context                  # estimación de tokens, hooks, MCP y plugins por host
+edu detach gentle-ai engram --dry-run # muestra las eliminaciones selectivas
+edu detach gentle-ai engram --yes     # respalda y aplica los cambios
+edu detach --list                     # muestra los respaldos activos
+edu detach --undo                     # restaura el último respaldo byte por byte
+```
+
+`edu detach` no quita Edu ni desinstala binarios. Los respaldos quedan en
+`~/.edu/backups/detach-*/`; la restauración rechaza archivos modificados salvo
+que se indique `--force`. Use `--host claude,codex,pi,opencode,gemini` para limitar los hosts.
+
+## Quitar Edu
+
 ```bash
 edu uninstall --scope global   # revierte todo lo que registró edu setup
 npm rm -g edu-agent

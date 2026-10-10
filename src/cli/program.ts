@@ -8,6 +8,7 @@ import { detectTheme, getGlyphs, renderBanner } from '../identity/index.js';
 import { registerBrain } from './commands/brain.js';
 import { registerCrew } from './commands/crew.js';
 import { registerDoctor } from './commands/doctor.js';
+import { registerDetach } from './commands/detach.js';
 import { registerEvidence } from './commands/evidence.js';
 import { registerIntegrations } from './commands/integrations.js';
 import { registerLearn } from './commands/learn.js';
@@ -21,7 +22,7 @@ import { t } from './i18n.js';
 import { packageVersion } from './package.js';
 
 const GROUPS: Array<[string, string[]]> = [
-  ['Get started:', ['init', 'vault', 'install', 'uninstall', 'doctor']],
+  ['Get started:', ['init', 'vault', 'install', 'uninstall', 'doctor', 'detach']],
   ['Work:', ['run', 'ui', 'demo']],
   ['Brain:', ['brain', 'context', 'reflect', 'proposals', 'metrics', 'checks']],
   ['Integrations:', ['mcp', 'statusline', 'hook']],
@@ -74,6 +75,7 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerBrain(program, ctx);
   registerLearn(program, ctx);
   registerDoctor(program, ctx);
+  registerDetach(program, ctx);
   registerEvidence(program, ctx);
   registerIntegrations(program, ctx);
   registerPluginSetup(program, ctx);
