@@ -225,6 +225,7 @@ export type EduEvent =
   | { type: 'agent.end'; agentId: string; ok: boolean; summary: string; sessionId?: string; at: string }
   | { type: 'error'; agentId?: string; message: string; at: string }
   | { type: 'task.define'; requirements: Requirement[]; successCriteria?: string[]; at: string }
+  | { type: 'spec.ready'; path: string; requirements: Requirement[]; checks: DeterministicCheck[]; steps: Array<{ id: string; role: string; cli: CliId; task: string }>; at: string }
   | { type: 'context.trace'; noteId: string; contribution: string; influenced: boolean; at: string }
   | { type: 'verify.result'; checkId?: string; method?: string; requirementIds: string[]; ok: boolean; output: string; exitCode?: number | null; durationMs?: number; timedOut?: boolean; kind: 'reproduction' | 'deterministic' | 'targeted-test' | 'regression' | 'lint' | 'review'; at: string }
   | { type: 'failure.attribution'; observed: string; expected: string; failureType: FailureType; evidence: string[]; alternatives: string[]; next: string; at: string }
@@ -271,6 +272,7 @@ export interface EduConfig {
   version: 1;
   mode: OrchestrationMode;
   defaultCli: CliId;
+  playbook?: string;
   roles: RoleSpec[];
   approvals: ApprovalPolicy;
   context: { budgetTokens: number };

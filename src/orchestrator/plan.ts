@@ -12,6 +12,13 @@ export const PlanSchema = z.object({
 }).strict()),
 }).strict().superRefine((plan, context) => {
   const ids = new Set(plan.requirements.map((requirement) => requirement.id));
+  if (ids.size !== plan.requirements.length) context.addIssue({ code: 'custom', path: ['requirements'], message: 'Requirement IDs must be unique.' });
+  const checkIds = new Set<string>();
+  for (const check of plan.checks) {
+    if (checkIds.has(check.id)) context.addIssue({ code: 'custom', path: ['checks'], message: `Duplicate check ID '${check.id}'.` });
+    checkIds.add(check.id);
+    if (!check.requirementIds.length) context.addIssue({ code: 'custom', path: ['checks'], message: `Check '${check.id}' must reference at least one requirement.` });
+  }
   for (const check of plan.checks) for (const requirementId of check.requirementIds) {
     if (!ids.has(requirementId)) context.addIssue({ code: 'custom', path: ['checks'], message: `Check '${check.id}' references unknown requirement '${requirementId}'.` });
   }
@@ -22,11 +29,13 @@ export interface PlanningPromptOptions {
   harnessLevel?: HarnessLevel;
   registryInfo?: string;
   taskState?: string;
+  playbook?: string;
 }
 
 export const planningPrompt = (goal: string, context: string, options: PlanningPromptOptions = {}) => [
-  'Create a safe, concise execution plan for the user goal. Return only JSON matching {"requirements":[{"id":"...","text":"..."}],"checks":[{"id":"...","requirementIds":["..."],"command":"...","expect":{"exitCode":0,"stdoutIncludes":"..."},"timeoutMs":30000}],"steps":[{"id":"...","role":"explorer|builder|reviewer","task":"...","dependsOn":[],"parallelSafe":false}]}. requirements must express observable success conditions; checks must be deterministic and bind to requirement ids. Select checks only from the supplied registry; never invent commands.',
+  'Create a safe, concise execution plan for the user goal. Return only JSON matching {"requirements":[{"id":"R-1","text":"..."}],"checks":[{"id":"...","requirementIds":["R-1"],"command":"...","expect":{"exitCode":0,"stdoutIncludes":"..."},"timeoutMs":30000}],"steps":[{"id":"...","role":"explorer|builder|reviewer","task":"...","dependsOn":[],"parallelSafe":false}]}. Requirements must express observable success conditions with R-ids. Propose deterministic checks bound to requirement ids; prefer supplied registry checks when they fit. Proposed commands become part of the spec and run only after spec approval. Never propose destructive commands.',
   'Use unique step ids; dependencies must reference earlier steps. Mark parallelSafe only for independent read-only work. Use builder for changes.',
+  ...(options.playbook ? [`Follow this playbook method when planning:\n${options.playbook}`] : []),
   ...(options.harnessLevel === 'H3' ? ['Builder steps must follow reproduce → attribute → fix → verify → report; if verification disproves attribution, return to attribution before one bounded fix. Edu will run deterministic checks.'] : []),
   ...(options.registryInfo ? [`Available tool and deterministic-check registry:\n${options.registryInfo}`] : []),
   ...(options.taskState ? [`Current task state:\n${options.taskState}`] : []),
@@ -43,6 +52,9 @@ export function extractJson(text: string): unknown {
 
 export function extractPlan(text: string): Plan {
   const plan = PlanSchema.parse(extractJson(text));
+  for (const check of plan.checks) {
+    if (isDestructiveCheckCommand(check.command)) throw new Error(`Plan check '${check.id}' contains an obviously destructive command: ${check.command}`);
+  }
   const ids = new Set<string>();
   for (const step of plan.steps) {
     if (ids.has(step.id)) throw new Error(`Plan contains duplicate step id '${step.id}'`);
@@ -52,6 +64,10 @@ export function extractPlan(text: string): Plan {
     ids.add(step.id);
   }
   return plan;
+}
+
+export function isDestructiveCheckCommand(command: string): boolean {
+  return /\brm\s+-(?:[A-Za-z]*r[A-Za-z]*f|[A-Za-z]*f[A-Za-z]*r)\b|\bgit\s+push\b|\bcurl\b[^\n|]*\|\s*(?:ba)?sh\b|\bsudo\b|>\s*\/dev\/|\bformat\b/i.test(command);
 }
 
 export function repairPrompt(prior: string, error: string): string {

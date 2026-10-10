@@ -13,6 +13,8 @@ import { auditGitDiff } from '../evidence/entropy.js';
 import { assignCli } from './assign.js';
 import type { ContextProvider } from './types.js';
 import { extractPlan, planningPrompt, repairPrompt } from './plan.js';
+import { applyPlaybookRoles, loadPlaybook, workerMethod } from './playbook.js';
+import { writeSpec } from './spec.js';
 
 export interface ApprovalRequest { agentId: string; stepId: string; title: string; detail: string }
 export interface OrchestrateDeps {
@@ -20,6 +22,9 @@ export interface OrchestrateDeps {
   available: CliId[]; cwd: string; onEvent(event: EduEvent): void | Promise<void>;
   approve(request: ApprovalRequest): Promise<boolean>; signal?: AbortSignal; runsDir: string; now?: () => Date;
   harnessLevel?: HarnessLevel;
+  playbookName?: string;
+  /** True when an upstream --yes policy, rather than a human, answers approval prompts. */
+  autoApprove?: boolean;
   composerMessages?: AsyncIterable<string>;
 }
 export interface StepResult { id: string; ok: boolean; summary: string; skipped?: boolean }
@@ -34,7 +39,9 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
   const events: EduEvent[] = [];
   const evidenceEvents: EduEvent[] = [];
   const allEvents: EduEvent[] = [];
-  const harnessLevel = deps.harnessLevel ?? 'H3';
+  let harnessLevel = deps.harnessLevel ?? 'H3';
+  let activeDeps = deps;
+  let methodSummary = '';
   const startCommit = await exec('git', ['rev-parse', 'HEAD'], { cwd: deps.cwd }).then(result => result.stdout.trim()).catch(() => undefined);
   const steps: StepResult[] = [];
   const at = () => iso(deps);
@@ -88,6 +95,10 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
   let ok = false;
   try {
     if (deps.signal?.aborted) throw new Error('Run cancelled before start.');
+    const playbook = await loadPlaybook(deps.playbookName ?? deps.config.playbook ?? 'default', dirname(deps.runsDir));
+    harnessLevel = deps.harnessLevel ?? playbook.harness;
+    methodSummary = workerMethod(playbook);
+    activeDeps = { ...deps, config: applyPlaybookRoles(deps.config, playbook) };
     if (harnessLevel === 'H2' || harnessLevel === 'H3') {
       pack = await deps.context.build({ query: goal, budgetTokens: deps.config.context.budgetTokens });
       for (const section of pack.sections) for (const noteId of section.noteIds) {
@@ -108,21 +119,21 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       await writeFile(taskStatePath, taskState, 'utf8');
     }
     const leadId = `${runId}-lead`;
-    const leadCli = assignCli('lead', deps.config, deps.available);
-    const prompt = planningPrompt(goal, pack.text, { harnessLevel, registryInfo, taskState });
-    const planText = await runText(deps, emit, leadCli, leadId, 'lead', prompt, 'readonly', supportContext());
+    const leadCli = assignCli('lead', activeDeps.config, deps.available);
+    const prompt = planningPrompt(goal, pack.text, { harnessLevel, registryInfo, taskState, playbook: playbook.body });
+    const planText = await runText(activeDeps, emit, leadCli, leadId, 'lead', prompt, 'readonly', supportContext(), methodSummary);
     let plan;
     try { plan = extractPlan(planText.text); }
     catch (first) {
-      const repaired = await runText(deps, emit, leadCli, leadId, 'lead', repairPrompt(planText.text, String(first)), 'readonly', supportContext());
+      const repaired = await runText(activeDeps, emit, leadCli, leadId, 'lead', repairPrompt(planText.text, String(first)), 'readonly', supportContext(), methodSummary);
       try { plan = extractPlan(repaired.text); }
       catch (second) { throw new Error(`Unable to produce a valid plan after one repair: ${String(second)}`); }
     }
     await emit({ type: 'agent.end', agentId: leadId, ok: true, summary: `Planned ${plan.steps.length} step(s).`, ...(planText.sessionId ? { sessionId: planText.sessionId } : {}), at: at() });
     requirements = plan.requirements;
     await emitEvidence({ type: 'task.define', requirements, successCriteria: requirements.map((requirement) => requirement.text), at: at() });
+    effectiveChecks = resolveChecks(plan.checks, registeredChecks);
     if (harnessLevel === 'H3') {
-      effectiveChecks = resolveChecks(plan.checks, registeredChecks);
       const requirementIds = new Set(requirements.map(requirement => requirement.id));
       const selectedIds = new Set(effectiveChecks.map(check => check.id));
       for (const check of registeredChecks) {
@@ -137,7 +148,28 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     for (const step of plan.steps) {
       if (step.role !== 'explorer' && step.role !== 'builder' && step.role !== 'reviewer') throw new Error(`Unsupported plan role '${step.role}' in step '${step.id}'.`);
     }
-    const approvals = plan.steps.filter(step => needsApproval(deps.config.approvals, deps.config.roles.find(role => role.id === step.role)?.autonomy ?? 'readonly'));
+    const spec = await writeSpec(dirname(deps.runsDir), goal, playbook.name, harnessLevel, plan, activeDeps.config, deps.available, deps.now?.() ?? new Date(), runId);
+    await emit({ type: 'spec.ready', path: spec.path, requirements, checks: plan.checks, steps: plan.steps.map(step => ({ id: step.id, role: step.role, cli: assignCli(step.role, activeDeps.config, deps.available), task: step.task })), at: at() });
+    const hasProposedChecks = plan.checks.some(check => !registeredChecks.some(registered => sameCheck(registered, check)));
+    if (playbook.requireSpecApproval || hasProposedChecks) {
+      const agentId = `${runId}-lead`;
+      const approvalId = `${runId}-approval-spec`;
+      await emit({ type: 'approval.request', agentId, approvalId, title: 'Approve spec', detail: spec.markdown, at: at() });
+      let approved = false;
+      try { approved = await awaitApproval(deps.approve({ agentId, stepId: 'spec', title: 'Approve spec', detail: spec.markdown }), deps.signal); }
+      catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
+      if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting spec approval.');
+      const policyApproval = deps.autoApprove || activeDeps.config.approvals === 'auto';
+      await emit({ type: 'approval.resolve', approvalId, approved, by: policyApproval ? 'policy' : 'user', at: at() });
+      if (!policyApproval) await recordApprovalIntervention(approved, 'spec approval');
+      if (!approved) {
+        summary = 'spec rejected';
+        for (const step of plan.steps) steps.push({ id: step.id, ok: false, summary: 'Not run because the spec was rejected.', skipped: true });
+        await closeEpisode(sessionId, summary);
+        return await finish(false);
+      }
+    }
+    const approvals = plan.steps.filter(step => needsApproval(activeDeps.config.approvals, activeDeps.config.roles.find(role => role.id === step.role)?.autonomy ?? 'readonly'));
     for (const step of approvals) {
       const agentId = `${runId}-${step.id}`;
       const approvalId = `${runId}-approval-${step.id}`;
@@ -166,10 +198,10 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       const ready = [...pending.values()].filter(step => step.dependsOn.every(id => completed.has(id)));
       if (!ready.length) throw new Error('Plan contains a dependency cycle or an unsatisfied dependency.');
       const first = ready[0]!;
-      const firstRole = deps.config.roles.find(role => role.id === first.role);
+      const firstRole = activeDeps.config.roles.find(role => role.id === first.role);
       const firstReadonly = firstRole?.autonomy === 'readonly';
       const batch = first.parallelSafe && firstReadonly
-        ? ready.filter(step => step.parallelSafe && deps.config.roles.find(role => role.id === step.role)?.autonomy === 'readonly').slice(0, 3)
+        ? ready.filter(step => step.parallelSafe && activeDeps.config.roles.find(role => role.id === step.role)?.autonomy === 'readonly').slice(0, 3)
         : [first];
       const batchController = new AbortController();
       const batchSignal = deps.signal ? AbortSignal.any([deps.signal, batchController.signal]) : batchController.signal;
@@ -193,18 +225,46 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       }
     }
 
-    const builder = deps.config.roles.find(role => role.id === 'builder');
+    const builder = activeDeps.config.roles.find(role => role.id === 'builder');
+    if (effectiveChecks.length) {
+      let results = await verifyChecks(effectiveChecks);
+      for (let round = 1; results.some(result => !result.ok) && builder && round <= playbook.maxFixRounds; round++) {
+        const details = results.filter(result => !result.ok).map(result => {
+          const check = effectiveChecks.find(candidate => candidate.id === result.checkId)!;
+          return `${check.id}: observed exit=${result.exitCode}, stdout=${JSON.stringify(result.stdout)}, stderr=${JSON.stringify(result.stderr)}, timeout=${result.timedOut}; expected exit=${check.expect.exitCode ?? 0}${check.expect.stdoutIncludes === undefined ? '' : `, stdout includes ${JSON.stringify(check.expect.stdoutIncludes)}`}`;
+        }).join('\n');
+        if (needsApproval(activeDeps.config.approvals, builder.autonomy)) {
+          const agentId = `${runId}-verification-fix-${round}`;
+          const approvalId = `${runId}-approval-verification-fix-${round}`;
+          const title = 'Approve deterministic-verification correction';
+          const detail = `A deterministic check failed; authorize bounded builder correction ${round}/${playbook.maxFixRounds}.\n${details}`;
+          await emit({ type: 'approval.request', agentId, approvalId, title, detail, at: at() });
+          let approved = false;
+          try { approved = await awaitApproval(deps.approve({ agentId, stepId: `verification-fix-${round}`, title, detail }), deps.signal); }
+          catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
+          if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting verification correction approval.');
+          await emit({ type: 'approval.resolve', approvalId, approved, by: deps.autoApprove ? 'policy' : 'user', at: at() });
+          if (!deps.autoApprove) await recordApprovalIntervention(approved, detail);
+          if (!approved) throw new Error('Run stopped: deterministic-verification correction was rejected.');
+        }
+        const fix = await runText(activeDeps, emit, assignCli('builder', activeDeps.config, deps.available), `${runId}-verification-fix-${round}`, 'builder',
+          `${builderPrompt('Correct the failed deterministic verification.', goal, supportContext(), `Observed vs expected:\n${details}`, harnessLevel)}\nReproduce, attribute, fix, verify, then report. If verification disproves attribution, return to attribution before changing code.`, builder.autonomy, supportContext(), methodSummary);
+        steps.push({ id: `verification-fix-${round}`, ok: true, summary: fix.summary });
+        results = await verifyChecks(effectiveChecks);
+      }
+      if (results.some(result => !result.ok)) throw new Error(`Deterministic verification failed after ${playbook.maxFixRounds} fix round(s).`);
+    }
     const reviewerId = `${runId}-reviewer`;
-    const reviewerCli = assignCli('reviewer', deps.config, deps.available);
-    const review = await runText(deps, emit, reviewerCli, reviewerId, 'reviewer',
+    const reviewerCli = assignCli('reviewer', activeDeps.config, deps.available);
+    const review = await runText(activeDeps, emit, reviewerCli, reviewerId, 'reviewer',
       `Review the completed work. Return strict JSON {"verdict":"pass"|"fix","issues":[string]}.\nGoal: ${goal}\nRequirements: ${JSON.stringify(requirements)}\nSteps: ${JSON.stringify(steps)}`,
-      'readonly', supportContext());
+      'readonly', supportContext(), methodSummary);
     let verdict;
     try { verdict = VerdictSchema.parse(parseJson(review.text)); }
     catch (error) { throw new Error(`Reviewer returned invalid JSON: ${String(error)}`); }
     if (verdict.verdict === 'fix') {
       if (!builder) throw new Error('Review requested a fix but no builder role is configured.');
-      if (needsApproval(deps.config.approvals, builder.autonomy)) {
+      if (needsApproval(activeDeps.config.approvals, builder.autonomy)) {
         const approvalId = `${runId}-approval-review-fix`;
         const agentId = `${runId}-fix`;
         const title = 'Approve review-fix builder step';
@@ -224,34 +284,12 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
         }
       }
       const fixId = `${runId}-fix`;
-      const fix = await runText(deps, emit, builder.cli && deps.config.mode === 'crew' ? builder.cli : assignCli('builder', deps.config, deps.available), fixId, 'builder',
-        `${builderPrompt(`Address these review issues in one fix round only: ${JSON.stringify(verdict.issues)}`, goal, supportContext(), workflowEvidence, harnessLevel)}\nCompleted steps: ${JSON.stringify([...completed])}`, builder.autonomy, supportContext());
+      const fix = await runText(activeDeps, emit, builder.cli && activeDeps.config.mode === 'crew' ? builder.cli : assignCli('builder', activeDeps.config, deps.available), fixId, 'builder',
+        `${builderPrompt(`Address these review issues in one fix round only: ${JSON.stringify(verdict.issues)}`, goal, supportContext(), workflowEvidence, harnessLevel)}\nCompleted steps: ${JSON.stringify([...completed])}`, builder.autonomy, supportContext(), methodSummary);
       steps.push({ id: 'review-fix', ok: true, summary: fix.summary });
-    }
-    if (harnessLevel === 'H3' && effectiveChecks.length) {
-      let results = await verifyChecks(effectiveChecks);
-      if (results.some((result) => !result.ok) && builder) {
-        const details = results.filter((result) => !result.ok).map((result) => `${result.checkId}: ${result.output}`).join('\n');
-        if (needsApproval(deps.config.approvals, builder.autonomy)) {
-          const agentId = `${runId}-verification-fix`;
-          const approvalId = `${runId}-approval-verification-fix`;
-          const title = 'Approve H3 deterministic-verification correction';
-          const detail = `A deterministic check failed; authorize one bounded builder correction.\n${details}`;
-          await emit({ type: 'approval.request', agentId, approvalId, title, detail, at: at() });
-          let approved = false;
-          try { approved = await awaitApproval(deps.approve({ agentId, stepId: 'verification-fix', title, detail }), deps.signal); }
-          catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
-          if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting H3 correction approval.');
-          await emit({ type: 'approval.resolve', approvalId, approved, by: 'user', at: at() });
-          await recordApprovalIntervention(approved, detail);
-          if (!approved) throw new Error('Run stopped: H3 deterministic-verification correction was rejected.');
-        }
-        const fix = await runText(deps, emit, assignCli('builder', deps.config, deps.available), `${runId}-verification-fix`, 'builder',
-          `${builderPrompt('Correct the failed deterministic verification in one bounded round.', goal, supportContext(), `Observed verification failure:\n${details}`, 'H3')}\nReproduce the failure, attribute it to evidence, fix the cause, verify again, and report. If verification disproves attribution, return to attribution before changing code.`, builder.autonomy, supportContext());
-        steps.push({ id: 'verification-fix', ok: true, summary: fix.summary });
-        results = await verifyChecks(effectiveChecks);
+      if (effectiveChecks.length && (await verifyChecks(effectiveChecks)).some(result => !result.ok)) {
+        throw new Error('Deterministic verification failed after the review correction.');
       }
-      if (results.some((result) => !result.ok)) throw new Error('Deterministic verification failed after the bounded H3 correction.');
     }
     summary = `Completed ${steps.length} step(s); review ${verdict.verdict}${verdict.issues.length ? `: ${verdict.issues.join('; ')}` : ''}.`;
     ok = true;
@@ -265,14 +303,14 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
   }
 
   async function executeStep(step: { id: string; role: string; task: string; dependsOn: string[] }, signal?: AbortSignal): Promise<StepResult> {
-    const role = deps.config.roles.find(candidate => candidate.id === step.role);
-    const cli = assignCli(step.role, deps.config, deps.available);
+    const role = activeDeps.config.roles.find(candidate => candidate.id === step.role);
+    const cli = assignCli(step.role, activeDeps.config, deps.available);
     const agentId = `${runId}-${step.id}`;
     const dependencyContext = step.dependsOn.map(id => `${id}: ${steps.find(item => item.id === id)?.summary ?? ''}`).join('\n');
     const prompt = step.role === 'builder'
       ? builderPrompt(step.task, goal, supportContext(), workflowEvidence, harnessLevel)
       : `${step.task}\n\nGoal: ${goal}\n\nContext:\n${supportContext()}\n\nDependencies:\n${dependencyContext}`;
-    const response = await runText(deps, emit, cli, agentId, step.role, prompt, role?.autonomy ?? 'readonly', supportContext(), signal);
+    const response = await runText(activeDeps, emit, cli, agentId, step.role, prompt, role?.autonomy ?? 'readonly', supportContext(), methodSummary, signal);
     return { id: step.id, ok: true, summary: response.summary || response.text };
   }
   async function closeEpisode(id: string | undefined, text: string) {
@@ -307,7 +345,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     });
     const hasIntervention = evidenceEvents.some((event) => event.type === 'intervention');
     const label: OutcomeLabel = entropyUnsafe ? 'unsafe_invalid' : !success ? 'failed' : !verified ? 'unverified_success' : hasIntervention ? 'assisted_verified_success' : 'autonomous_verified_success';
-    await emitEvidence({ type: 'outcome', label, metrics: { harnessLevel, cli: deps.config.defaultCli, role: 'builder', verifiedRequirements: requirements.filter((requirement) => {
+    await emitEvidence({ type: 'outcome', label, metrics: { harnessLevel, cli: activeDeps.config.defaultCli, role: 'builder', verifiedRequirements: requirements.filter((requirement) => {
       const latest = evidenceEvents.filter((event) => event.type === 'verify.result' && event.kind !== 'reproduction' && event.requirementIds.includes(requirement.id)).at(-1);
       return latest?.type === 'verify.result' && latest.ok;
     }).map((requirement) => requirement.id), entropySeverity: evidenceEvents.filter(event => event.type === 'entropy.finding').reduce((severity, event) => Math.max(severity, event.severity), 0), elapsedMs: Date.parse(at()) - Date.parse(events[0]?.at ?? at()) }, at: at() });
@@ -390,11 +428,11 @@ function parseJson(value: string): unknown {
   catch (error) { throw new Error(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
-async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise<void>, cli: CliId, agentId: string, roleId: RoleId, prompt: string, autonomy: EngineRunRequest['autonomy'], context: string, signal: AbortSignal | undefined = deps.signal): Promise<{ text: string; summary: string; sessionId?: string }> {
+async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise<void>, cli: CliId, agentId: string, roleId: RoleId, prompt: string, autonomy: EngineRunRequest['autonomy'], context: string, methodSummary = '', signal: AbortSignal | undefined = deps.signal): Promise<{ text: string; summary: string; sessionId?: string }> {
   const role = deps.config.roles.find(candidate => candidate.id === roleId);
   await emit({ type: 'agent.spawn', agentId, role: roleId, cli, task: prompt.slice(0, 160), at: (deps.now?.() ?? new Date()).toISOString() });
   await emit({ type: 'agent.status', agentId, status: 'running', at: (deps.now?.() ?? new Date()).toISOString() });
-  const request: EngineRunRequest = { cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, ...(role?.mission ? { systemPrompt: role.mission } : {}), ...(role?.model ? { model: role.model } : {}), signal };
+  const request: EngineRunRequest = { cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, systemPrompt: [role?.mission, methodSummary].filter(Boolean).join('\n\n'), ...(role?.model ? { model: role.model } : {}), signal };
   let text = ''; let summary = ''; let sessionId: string | undefined;
   try {
     for await (const event of deps.engines(cli).run(request, agentId)) {
@@ -415,14 +453,13 @@ async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise
 }
 
 function resolveChecks(planned: Awaited<ReturnType<typeof loadChecks>>, registered: Awaited<ReturnType<typeof loadChecks>>) {
-  if (!planned.length) return registered;
   const byId = new Map(registered.map(check => [check.id, check]));
   return planned.map(check => {
     const configured = byId.get(check.id);
-    if (!configured || !sameCheck(configured, check)) {
-      throw new Error(`Plan check '${check.id}' does not exactly match a registered deterministic check.`);
+    if (configured && !sameCheck(configured, check)) {
+      throw new Error(`Plan check '${check.id}' reuses a registered ID but changes its definition.`);
     }
-    return configured;
+    return configured ?? check;
   });
 }
 

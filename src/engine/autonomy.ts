@@ -5,7 +5,8 @@ export const AUTONOMY_FLAGS: Record<CliId, Record<Autonomy, readonly string[]>> 
   claude: {
     readonly: ['--permission-mode', 'plan'],
     ask: ['--permission-mode', 'default'],
-    auto: ['--permission-mode', 'acceptEdits'],
+    // acceptEdits alone blocks shell tests; explicitly allow Bash for builder verification.
+    auto: ['--permission-mode', 'acceptEdits', '--allowedTools', 'Bash'],
     full: ['--permission-mode', 'bypassPermissions'],
   },
   codex: {

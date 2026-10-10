@@ -234,7 +234,7 @@ describe('orchestrator contracts', () => {
     try {
       await orchestrate('task only goal', { config: defaultConfig('claude'), brain, context: { build: async () => { contextBuilds++; return pack; } }, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true, harnessLevel: 'H0' });
       expect(contextBuilds).toBe(0);
-      expect(requests.every(request => !request.prompt.includes('brief'))).toBe(true);
+      expect(requests.every(request => !request.prompt.includes('Brain context pack:\nbrief'))).toBe(true);
       expect(requests[0]?.prompt).toContain('task only goal');
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
@@ -352,7 +352,7 @@ describe('orchestrator contracts', () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
-  it('refuses model-proposed shell commands not present in the trusted check registry', async () => {
+  it('does not run proposed shell commands before spec approval', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-check-boundary-'));
     const plan = { requirements: [{ id: 'r1', text: 'no side effect' }], checks: [{ id: 'injected', requirementIds: ['r1'], command: 'touch marker', expect: {}, timeoutMs: 1000 }], steps: [] };
     const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
@@ -361,9 +361,9 @@ describe('orchestrator contracts', () => {
     } };
     const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
     try {
-      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true, harnessLevel: 'H3' });
+      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => false, harnessLevel: 'H3' });
       expect(result.ok).toBe(false);
-      expect(result.summary).toContain('does not exactly match a registered');
+      expect(result.summary).toBe('spec rejected');
       await expect(readFile(join(dir, 'marker'), 'utf8')).rejects.toThrow();
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
@@ -437,7 +437,7 @@ describe('orchestrator contracts', () => {
     const closed: string[] = [];
     const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async (_id: string, summary: string) => { closed.push(summary); } } as never;
     try {
-      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => events.push(event), approve: async () => false });
+      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => events.push(event), approve: async request => request.stepId === 'spec' });
       expect(result.ok).toBe(false);
       expect(fixes).toBe(0);
       expect(events.some(event => event.type === 'approval.request' && event.title.includes('review-fix'))).toBe(true);

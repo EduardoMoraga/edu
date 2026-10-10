@@ -17,7 +17,7 @@ describe('edu init', () => {
     const config = JSON.parse(await readFile(join(root, 'config.json'), 'utf8'));
     expect(config).toMatchObject({ version: 1, mode: 'solo', defaultCli: 'codex', lang: 'en' });
     expect((await readdir(join(root, 'agents'))).sort()).toEqual(['builder.md', 'explorer.md', 'lead.md', 'reviewer.md']);
-    expect((await readdir(join(root, 'skills'))).sort()).toEqual(['edu-brain', 'edu-brief', 'edu-crew', 'edu-recall', 'edu-reflect', 'edu-remember', 'edu-review', 'edu-status']);
+    expect((await readdir(join(root, 'skills'))).sort()).toEqual(['edu-brain', 'edu-brief', 'edu-crew', 'edu-recall', 'edu-reflect', 'edu-remember', 'edu-review', 'edu-run', 'edu-status']);
     for (const dir of ['brain/1-canonical', 'brain/2-episodic', 'brain/3-transitive', 'runs', 'proposals']) {
       expect(await missing(join(root, dir))).toBe(false);
     }

@@ -1,4 +1,4 @@
-import { access, mkdir, readFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { stringify } from 'yaml';
 import type { BrainLocation, CanonicalKind, ClaimBand, Note, NoteMeta, RecallHit, Tier } from '../core/contracts.js';
@@ -83,7 +83,19 @@ export function openBrain(locations: BrainLocation[]): Brain {
 
   return {
     async init(loc, opts = {}) {
-      for (const folder of ['brain/0-index', 'brain/1-canonical', 'brain/2-episodic', 'brain/3-transitive', 'skills', 'agents', 'proposals', 'runs']) await mkdir(join(loc.root, folder), { recursive: true });
+      for (const folder of ['brain/0-index', 'brain/1-canonical', 'brain/2-episodic', 'brain/3-transitive', 'skills', 'agents', 'playbooks', 'proposals', 'runs']) await mkdir(join(loc.root, folder), { recursive: true });
+      try {
+        const { resolveTemplatesDir } = await import('../adapters/index.js');
+        const source = join(resolveTemplatesDir(), 'playbooks');
+        for (const name of await readdir(source)) {
+          if (!name.endsWith('.md')) continue;
+          const target = join(loc.root, 'playbooks', name);
+          try { await access(target); }
+          catch { await atomicWrite(target, await readFile(join(source, name), 'utf8')); }
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
       try { await access(join(loc.root, 'EDU.md')); }
       catch {
         let contract = fallbackEdu;
