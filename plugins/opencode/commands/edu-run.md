@@ -1,5 +1,5 @@
 ---
-description: Edu run: orchestrate a goal with your playbook — spec, your approval, build, verified outcome
+description: "Edu run: orchestrate a goal with your playbook — spec, your approval, build, verified outcome"
 agent: build
 subtask: false
 ---

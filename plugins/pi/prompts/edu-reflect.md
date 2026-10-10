@@ -1,6 +1,6 @@
 ---
-description: Edu reflect: propose evidence-linked lessons and hypotheses from recent sessions
-argument-hint: [period or topic, e.g. 7d or auth]
+description: "Edu reflect: propose evidence-linked lessons and hypotheses from recent sessions"
+argument-hint: "[period or topic, e.g. 7d or auth]"
 ---
 
 Follow the `edu-reflect` skill. Scope: $ARGUMENTS

@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Check the change against the goal and return a clear verdict, pass or fix.
+description: "Check the change against the goal and return a clear verdict, pass or fix."
 tools: Read, Grep, Glob
 ---
 

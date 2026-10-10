@@ -1,6 +1,6 @@
 ---
 name: builder
-description: Make the smallest correct change that meets the task, with its tests.
+description: "Make the smallest correct change that meets the task, with its tests."
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---
 

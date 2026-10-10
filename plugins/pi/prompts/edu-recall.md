@@ -1,6 +1,6 @@
 ---
-description: Edu recall: search the second brain for past decisions, lessons and sessions
-argument-hint: <topic or question>
+description: "Edu recall: search the second brain for past decisions, lessons and sessions"
+argument-hint: "<topic or question>"
 ---
 
 Follow the `edu-recall` skill for this query: $ARGUMENTS

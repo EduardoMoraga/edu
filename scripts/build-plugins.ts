@@ -179,20 +179,23 @@ function extractCore(identity: string): string {
   return match?.[1]?.trim() ?? identity.trim();
 }
 
+/** Quotes a frontmatter value so `: ` and other YAML syntax inside it stay plain text. */
+const yamlValue = (value: string): string => JSON.stringify(value);
+
 function claudeAgent(agent: { name: string; content: string; frontmatter: Record<string, string>; body: string }): string {
   const description = agent.frontmatter.mission ?? agent.frontmatter.title ?? agent.name;
   const tools = agent.frontmatter.autonomy === 'readonly' ? 'Read, Grep, Glob' : 'Read, Write, Edit, Bash, Grep, Glob';
-  return `---\nname: ${agent.name}\ndescription: ${description}\ntools: ${tools}\n---\n\n${agent.body}`;
+  return `---\nname: ${agent.name}\ndescription: ${yamlValue(description)}\ntools: ${tools}\n---\n\n${agent.body}`;
 }
 
 function opencodeCommand(command: { frontmatter: Record<string, string>; body: string }): string {
-  return `---\ndescription: ${command.frontmatter.description ?? command.name}\nagent: build\nsubtask: false\n---\n\n${command.body.replaceAll('$ARGUMENTS', '$ARGUMENTS')}`;
+  return `---\ndescription: ${yamlValue(command.frontmatter.description ?? command.name)}\nagent: build\nsubtask: false\n---\n\n${command.body.replaceAll('$ARGUMENTS', '$ARGUMENTS')}`;
 }
 
 function piPrompt(command: { frontmatter: Record<string, string>; body: string }): string {
   const description = command.frontmatter.description ?? command.name;
   const hint = command.frontmatter['argument-hint'];
-  return `---\ndescription: ${description}${hint ? `\nargument-hint: ${hint}` : ''}\n---\n\n${command.body}`;
+  return `---\ndescription: ${yamlValue(description)}${hint ? `\nargument-hint: ${yamlValue(hint)}` : ''}\n---\n\n${command.body}`;
 }
 
 function piExtension(): string {

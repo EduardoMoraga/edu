@@ -1,6 +1,6 @@
 ---
-description: Edu run: orchestrate a goal with your playbook — spec, your approval, build, verified outcome
-argument-hint: <goal>   e.g. add a --json flag to the status command
+description: "Edu run: orchestrate a goal with your playbook — spec, your approval, build, verified outcome"
+argument-hint: "<goal>   e.g. add a --json flag to the status command"
 ---
 
 Follow the `edu-run` skill for: $ARGUMENTS

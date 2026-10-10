@@ -1,6 +1,6 @@
 ---
-description: Edu brief: what Edu remembers for this session (commitments, hypotheses, lessons)
-argument-hint: [today's goal]
+description: "Edu brief: what Edu remembers for this session (commitments, hypotheses, lessons)"
+argument-hint: "[today's goal]"
 ---
 
 Follow the `edu-brief` skill.

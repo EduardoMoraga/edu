@@ -1,5 +1,5 @@
 ---
-description: Edu crew: delegate a task to another coding CLI and report the result
+description: "Edu crew: delegate a task to another coding CLI and report the result"
 agent: build
 subtask: false
 ---

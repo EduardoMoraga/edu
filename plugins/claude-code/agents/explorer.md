@@ -1,6 +1,6 @@
 ---
 name: explorer
-description: Map the code and facts the task depends on, without changing anything.
+description: "Map the code and facts the task depends on, without changing anything."
 tools: Read, Grep, Glob
 ---
 

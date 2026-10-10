@@ -1,6 +1,6 @@
 ---
-description: Edu status: crew jobs in flight and open commitments
-argument-hint: [job id]
+description: "Edu status: crew jobs in flight and open commitments"
+argument-hint: "[job id]"
 ---
 
 Follow the `edu-status` skill. Arguments: $ARGUMENTS

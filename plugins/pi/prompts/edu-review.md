@@ -1,6 +1,6 @@
 ---
-description: Edu review: cross-vendor, read-only review of the current diff
-argument-hint: [base ref, e.g. main] [cli]
+description: "Edu review: cross-vendor, read-only review of the current diff"
+argument-hint: "[base ref, e.g. main] [cli]"
 ---
 
 Follow the `edu-review` skill. Arguments: $ARGUMENTS

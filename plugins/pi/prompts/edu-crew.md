@@ -1,6 +1,6 @@
 ---
-description: Edu crew: delegate a task to another coding CLI and report the result
-argument-hint: <cli>: <task>   e.g. codex: write tests for src/auth
+description: "Edu crew: delegate a task to another coding CLI and report the result"
+argument-hint: "<cli>: <task>   e.g. codex: write tests for src/auth"
 ---
 
 Follow the `edu-crew` skill for: $ARGUMENTS

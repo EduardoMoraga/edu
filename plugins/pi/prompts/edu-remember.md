@@ -1,6 +1,6 @@
 ---
-description: Edu remember: save a decision, hypothesis, commitment or lesson
-argument-hint: <what to remember>
+description: "Edu remember: save a decision, hypothesis, commitment or lesson"
+argument-hint: "<what to remember>"
 ---
 
 Follow the `edu-remember` skill for: $ARGUMENTS

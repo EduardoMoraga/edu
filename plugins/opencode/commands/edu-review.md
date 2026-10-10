@@ -1,5 +1,5 @@
 ---
-description: Edu review: cross-vendor, read-only review of the current diff
+description: "Edu review: cross-vendor, read-only review of the current diff"
 agent: build
 subtask: false
 ---

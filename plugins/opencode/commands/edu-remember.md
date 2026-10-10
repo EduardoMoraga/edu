@@ -1,5 +1,5 @@
 ---
-description: Edu remember: save a decision, hypothesis, commitment or lesson
+description: "Edu remember: save a decision, hypothesis, commitment or lesson"
 agent: build
 subtask: false
 ---

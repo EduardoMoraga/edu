@@ -1,5 +1,5 @@
 ---
-description: Edu brief: what Edu remembers for this session (commitments, hypotheses, lessons)
+description: "Edu brief: what Edu remembers for this session (commitments, hypotheses, lessons)"
 agent: build
 subtask: false
 ---

@@ -81,3 +81,23 @@ describe('buildPlugins', () => {
     expect(await readFile(target, 'utf8')).toBe('drift');
   });
 });
+
+describe('generated frontmatter', () => {
+  it('is valid YAML in every shipped prompt, command and agent', async () => {
+    const { readdir } = await import('node:fs/promises');
+    const { parse } = await import('yaml');
+    const dirs = ['plugins/pi/prompts', 'plugins/opencode/commands', 'plugins/opencode/agents', 'plugins/claude-code/agents'];
+    let checked = 0;
+    for (const dir of dirs) {
+      const files = await readdir(dir).catch(() => [] as string[]);
+      for (const file of files.filter((name) => name.endsWith('.md'))) {
+        const text = await readFile(join(dir, file), 'utf8');
+        const block = /^---\n([\s\S]*?)\n---/.exec(text)?.[1];
+        if (block === undefined) continue;
+        expect(() => parse(block), `${dir}/${file}`).not.toThrow();
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});

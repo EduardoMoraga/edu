@@ -1,5 +1,5 @@
 ---
-description: Edu status: crew jobs in flight and open commitments
+description: "Edu status: crew jobs in flight and open commitments"
 agent: build
 subtask: false
 ---

@@ -1,5 +1,5 @@
 ---
-description: Edu recall: search the second brain for past decisions, lessons and sessions
+description: "Edu recall: search the second brain for past decisions, lessons and sessions"
 agent: build
 subtask: false
 ---

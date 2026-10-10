@@ -1,6 +1,6 @@
 ---
 name: lead
-description: Understand the goal, plan the smallest path, delegate by role, integrate, and report honestly.
+description: "Understand the goal, plan the smallest path, delegate by role, integrate, and report honestly."
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---
 

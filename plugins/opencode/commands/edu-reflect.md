@@ -1,5 +1,5 @@
 ---
-description: Edu reflect: propose evidence-linked lessons and hypotheses from recent sessions
+description: "Edu reflect: propose evidence-linked lessons and hypotheses from recent sessions"
 agent: build
 subtask: false
 ---
