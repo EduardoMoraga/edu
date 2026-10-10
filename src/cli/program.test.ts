@@ -31,6 +31,8 @@ const COMMANDS: string[][] = [
   ['proposals', 'accept'],
   ['proposals', 'reject'],
   ['mcp'],
+  ['connect'],
+  ['connect', 'hermes'],
   ['statusline'],
   ['deck'],
   ['hook'],

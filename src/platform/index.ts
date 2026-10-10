@@ -8,7 +8,7 @@
  * Anything else falls back to cross-spawn, which resolves PATHEXT and escapes arguments.
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { delimiter, dirname, extname, join, resolve } from 'node:path';
 import crossSpawn from 'cross-spawn';
 
@@ -75,4 +75,35 @@ export interface McpLaunch { command: string; args: string[] }
  */
 export function eduMcpLaunch(platform: NodeJS.Platform = process.platform): McpLaunch {
   return platform === 'win32' ? { command: 'cmd', args: ['/c', 'edu', 'mcp'] } : { command: 'edu', args: ['mcp'] };
+}
+
+export interface ServiceLaunchInput {
+  platform?: NodeJS.Platform;
+  /** The Node binary running Edu now (process.execPath). */
+  execPath?: string;
+  /** The Edu CLI script running now (process.argv[1]), when it is a real file. */
+  entry?: string;
+  env?: NodeJS.ProcessEnv;
+  exists?: (path: string) => boolean;
+  realpath?: (path: string) => string;
+}
+
+/**
+ * How a background service with a minimal PATH (Hermes under launchd, systemd units) should start
+ * `edu mcp`: absolute Node plus the absolute Edu script, so neither `edu` nor the `node` in its
+ * `#!/usr/bin/env node` shebang has to be on the service's PATH. Falls back to the absolute `edu`
+ * shim on PATH, then to the plain host launch.
+ */
+export function eduServiceMcpLaunch(input: ServiceLaunchInput = {}): McpLaunch {
+  const platform = input.platform ?? process.platform;
+  const exists = input.exists ?? existsSync;
+  const real = input.realpath ?? ((path: string) => realpathSync(path));
+  const execPath = input.execPath ?? process.execPath;
+  const entry = input.entry ?? process.argv[1];
+  if (entry && exists(entry) && /\.(?:c|m)?js$/i.test(real(entry)) && exists(execPath)) {
+    return { command: execPath, args: [real(entry), 'mcp'] };
+  }
+  const shim = platform === 'win32' ? undefined : whichSync('edu', input.env ?? process.env, platform);
+  if (shim) return { command: shim, args: ['mcp'] };
+  return eduMcpLaunch(platform);
 }

@@ -2,12 +2,19 @@ import { mkdtemp, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { eduMcpLaunch, nodeScriptFromCmdShim, spawnCli } from './index.js';
+import { eduMcpLaunch, eduServiceMcpLaunch, nodeScriptFromCmdShim, spawnCli } from './index.js';
 
 describe('platform launching', () => {
   it('starts edu through cmd /c only on Windows', () => {
     expect(eduMcpLaunch('win32')).toEqual({ command: 'cmd', args: ['/c', 'edu', 'mcp'] });
     expect(eduMcpLaunch('darwin')).toEqual({ command: 'edu', args: ['mcp'] });
+  });
+
+  it('gives background services an absolute Node + script launch, then the absolute shim, then the plain launch', () => {
+    const files = new Set(['/n/bin/node', '/n/lib/edu/dist/cli.js', '/n/bin/edu', '/usr/bin/edu']);
+    const base = { platform: 'darwin' as const, execPath: '/n/bin/node', exists: (p: string) => files.has(p), realpath: (p: string) => (p === '/n/bin/edu' ? '/n/lib/edu/dist/cli.js' : p) };
+    expect(eduServiceMcpLaunch({ ...base, entry: '/n/bin/edu' })).toEqual({ command: '/n/bin/node', args: ['/n/lib/edu/dist/cli.js', 'mcp'] });
+    expect(eduServiceMcpLaunch({ ...base, entry: '/missing/cli.js', env: { PATH: '/nowhere' } })).toEqual({ command: 'edu', args: ['mcp'] });
   });
 
   it('runs a CLI by bare name, including Windows .cmd shims, and passes arguments with spaces intact', async () => {

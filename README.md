@@ -104,6 +104,9 @@ review · status**. Per-CLI details: [Claude Code](docs/guides/claude.md) · [Co
 [Pi](docs/guides/pi.md) · [OpenCode](docs/guides/opencode.md) ·
 [Antigravity](docs/guides/antigravity.md).
 
+Chat with your workspaces from Telegram: `edu connect hermes --project <workspace>` adds Edu to
+[Hermes](docs/guides/hermes.md), and `--undo` reverts it byte for byte.
+
 ## The crew
 
 Ask Codex to write tests from inside Claude, and watch it work:
