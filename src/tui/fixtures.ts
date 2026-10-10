@@ -42,3 +42,18 @@ export function oauthRun(): EduEvent[] {
     { type: 'agent.status', agentId: 'bld', status: 'awaiting-approval', at: at(237) },
   ];
 }
+
+/** The home chat as live.ts streams it: "Hola" answered from memory, no crew. */
+export function chatEvents(): EduEvent[] {
+  const at = fixtureAt;
+  const answer = '¡Hola! Tienes un compromiso abierto: entregar el informe semanal de Cheil el viernes [[C-entregar-informe-semanal-cheil]]. Decidimos usar Bun para los scripts [[D-usar-bun]] (verified).';
+  return [
+    { type: 'chat.user', text: 'Hola', at: at(0) },
+    { type: 'brain.recall', agentId: 'edu', noteIds: ['C-entregar-informe-semanal-cheil', 'D-usar-bun'], at: at(0) },
+    { type: 'agent.spawn', agentId: 'edu', role: 'lead', cli: 'claude', task: 'Hola', at: at(0) },
+    { type: 'agent.status', agentId: 'edu', status: 'running', at: at(0) },
+    { type: 'context.usage', agentId: 'edu', usedTokens: 2_400, windowTokens: 200_000, at: at(1) },
+    { type: 'agent.text', agentId: 'edu', text: answer, at: at(4) },
+    { type: 'agent.end', agentId: 'edu', ok: true, summary: answer, sessionId: 's-1', at: at(4) },
+  ];
+}

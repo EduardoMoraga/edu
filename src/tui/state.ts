@@ -12,6 +12,7 @@ import type {
   TransitiveKind,
   Usage,
 } from '../core/contracts.js';
+import { initialChat, reduceChat, type ChatState } from './chat.js';
 import { initialMission, reduceMission, type MissionState } from './mission.js';
 import { leadId } from './selectors.js';
 
@@ -105,6 +106,8 @@ export interface TuiState {
   focus: { agentId?: string; pinned: boolean };
   /** Mission control: message bus, progress, gate, checks and flow pulses. */
   mission: MissionState;
+  /** Home-view conversation: user messages and Edu's chat answers. */
+  chat: ChatState;
 }
 
 /** Per-agent log cap; older entries are dropped to keep memory bounded. */
@@ -120,6 +123,7 @@ export const initialState: TuiState = {
   now: 0,
   focus: { pinned: false },
   mission: initialMission,
+  chat: initialChat,
 };
 
 const TERMINAL: ReadonlySet<AgentStatus> = new Set(['done', 'failed', 'cancelled']);
@@ -132,9 +136,11 @@ export function reduce(state: TuiState, event: EduEvent): TuiState {
     leadId: leadId(next),
     agentStatus: (id) => next.agents[id]?.status,
     parentOf: (id) => next.agents[id]?.parentId,
+    lastText: (id) => lastText(next.agents[id]),
     ...(approvalAgent ? { approvalAgent } : {}),
   });
-  return mission === next.mission ? next : { ...next, mission };
+  const chat = reduceChat(next.chat, event, next.now);
+  return mission === next.mission && chat === next.chat ? next : { ...next, mission, chat };
 }
 
 function reduceCore(state: TuiState, event: EduEvent): TuiState {
@@ -288,6 +294,12 @@ export function reduceAll(events: Iterable<EduEvent>, from: TuiState = initialSt
 }
 
 // ─── Internals ───────────────────────────────────────────────────────────────
+
+/** The agent's newest assistant text, if any. */
+function lastText(agent: AgentView | undefined): string | undefined {
+  const entry = agent?.log.findLast((e) => e.kind === 'text');
+  return entry?.kind === 'text' ? entry.text : undefined;
+}
 
 /** Newest spec wins; an event without a usable path is ignored. */
 function reduceSpec(s: TuiState, event: Record<string, unknown>): TuiState {

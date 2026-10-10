@@ -40,6 +40,21 @@ describe('home routing', () => {
     expect(runTask).toHaveBeenCalledTimes(1);
   });
 
+  it('emits chat.user for every submitted message before routing it', async () => {
+    const order: string[] = [];
+    const emitted: EduEvent[] = [];
+    const home = createHomeSession({
+      lang: 'en', say: () => {}, runTask: async () => { order.push('task'); },
+      respond: async ({ message }) => { order.push(`respond:${message}`); return { kind: 'chat' as const, text: 'ok' }; },
+      emit: event => { emitted.push(event); order.push(event.type); },
+    });
+    await home.submit('  Hola  ');
+    await home.submit('   ');
+    await home.submit('/run Build it');
+    expect(emitted.map(event => event.type === 'chat.user' && event.text)).toEqual(['Hola', '/run Build it']);
+    expect(order).toEqual(['chat.user', 'respond:Hola', 'chat.user', 'task']);
+  });
+
   it('uses FakeEngine chat classification before starting orchestration', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'edu-home-'));
     dirs.push(cwd);

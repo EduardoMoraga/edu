@@ -2,7 +2,9 @@
  * Keyboard and paste handling for the live view. Keys by pane:
  *
  * - everywhere: ctrl+c cancels a running run (quits when idle), PgUp/PgDn
- *   scroll the focus pane, tab cycles panes, any key closes the help overlay.
+ *   scroll the focus pane (the transcript in the conversation view), tab
+ *   cycles panes — or, once mission control has a conversation, toggles
+ *   chat ⇄ constellation (shift+tab still cycles) — any key closes the help overlay.
  * - composer: typing edits a multi-line draft (←/→, home/end, ↑/↓ between
  *   lines, alt+enter newline), Enter submits, Esc clears (or leaves when
  *   empty), `/` opens the command palette, `?` in an empty draft opens help.
@@ -50,6 +52,8 @@ export interface AppInput {
   scroll: { total: number; height: number; set: Setter<ScrollState> };
   setLang: Setter<UiLang>;
   strings: UiStrings;
+  /** Switches chat ⇄ constellation; returns false when there is nothing to switch. */
+  toggleView?: () => boolean;
 }
 
 export function useAppInput(input: AppInput): void {
@@ -86,6 +90,9 @@ export function useAppInput(input: AppInput): void {
         return input.setHelp(true);
       case 'agents':
         return input.setPane('agents');
+      case 'view':
+        if (!input.toggleView?.()) say(fill(strings.notice.unavailable, { name: '/view' }));
+        return;
       case 'approve':
       case 'reject':
         return decide(name === 'approve');
@@ -168,7 +175,7 @@ export function useAppInput(input: AppInput): void {
       say(undefined);
       return;
     }
-    if (key.tab) return cyclePane(key.shift);
+    if (key.tab) return onTab(key.shift);
     if (text === '?' && !editor.text) return input.setHelp(true);
     if (editKey(editor, text, key).kind === 'submit') return submit();
     // Functional update: several keys can arrive before the next render.
@@ -182,6 +189,11 @@ export function useAppInput(input: AppInput): void {
   const cyclePane = (back: boolean) =>
     input.setPane((p) => PANES[(PANES.indexOf(p) + (back ? PANES.length - 1 : 1)) % PANES.length]!);
 
+  const onTab = (shift: boolean) => {
+    if (!shift && input.toggleView?.()) return;
+    cyclePane(shift);
+  };
+
   useInput((text: string, key: Key) => {
     if (key.ctrl && text === 'c') {
       // Nothing running yet (home screen) or already finished: quit right away.
@@ -191,7 +203,7 @@ export function useAppInput(input: AppInput): void {
     if (input.help) return input.setHelp(false);
     if (key.pageUp || key.pageDown) return scrollFocus(key.pageUp ? -page : page);
     if (pane === 'composer') return onComposerKey(text, key);
-    if (key.tab) return cyclePane(key.shift);
+    if (key.tab) return onTab(key.shift);
     if (text === '/') {
       input.setPane('composer');
       input.setEditor(insert(EMPTY_EDITOR, '/'));

@@ -54,6 +54,8 @@ export interface StatusInput {
   approval?: PendingApproval;
   queued: number;
   cancelling?: boolean;
+  /** Conversation view: idle status reads as a chat, and page keys scroll the transcript. */
+  chat?: boolean;
 }
 
 /** The full-width bottom bar; a filled banner for approvals and run errors. */
@@ -84,7 +86,9 @@ export function statusLine(input: StatusInput): DisplayLine {
       ? { text: `${strings.header.cancelling}${glyphs.ellipsis}`, tone: 'accent' as ToneToken }
       : state.run.startedAt !== undefined
         ? { text: `${glyphs.status.running} ${strings.status.running}`, tone: 'peach' as ToneToken }
-        : { text: `${glyphs.status.queued} ${strings.header.waiting}`, tone: 'muted' as ToneToken };
+        : input.chat
+          ? { text: `${glyphs.roles.lead} chat`, tone: 'accent' as ToneToken }
+          : { text: `${glyphs.status.queued} ${strings.header.waiting}`, tone: 'muted' as ToneToken };
   const left: DisplayLine = [
     { text: ' ' },
     { text: status.text, tone: status.tone, bold: true },
@@ -92,7 +96,9 @@ export function statusLine(input: StatusInput): DisplayLine {
     ...(elapsed ? [{ text: `${sep}${elapsed}`, tone: 'muted' as const }] : []),
     ...(ended && state.run.summary ? [{ text: `${sep}${state.run.summary}`, dim: true }] : []),
   ];
-  const hint = glyphs.unicode ? '↑↓ agents · pgup/pgdn bus · / commands · ? help · q quit ' : 'up/dn agents - pgup/pgdn bus - / commands - ? help - q quit ';
+  const hint = input.chat
+    ? glyphs.unicode ? 'pgup/pgdn chat · tab view · / commands · ? help · q quit ' : 'pgup/pgdn chat - tab view - / commands - ? help - q quit '
+    : glyphs.unicode ? '↑↓ agents · pgup/pgdn bus · / commands · ? help · q quit ' : 'up/dn agents - pgup/pgdn bus - / commands - ? help - q quit ';
   const room = width - displayWidth(left.map((s) => s.text).join(''));
   if (room < displayWidth(hint) + 2) return fitLine(left, width, glyphs.ellipsis);
   return fitLine([...left, { text: ' '.repeat(room - displayWidth(hint)) }, { text: hint, tone: 'muted', dim: true }], width);

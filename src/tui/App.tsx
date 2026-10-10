@@ -18,7 +18,9 @@ import { FocusPane } from './components/FocusPane.js';
 import { Header, headerModel } from './components/Header.js';
 import { busLines } from './mission/bus.js';
 import { missionLayout } from './mission/layout.js';
-import { MissionView } from './mission/MissionView.js';
+import { MissionView, type StageView } from './mission/MissionView.js';
+import { transcriptLines } from './mission/transcript.js';
+import { CHAT_AGENT_ID } from './chat.js';
 import { PULSE_MS } from './mission.js';
 import { HelpOverlay } from './components/HelpOverlay.js';
 import { Palette } from './components/Palette.js';
@@ -107,6 +109,9 @@ export function App(props: AppProps) {
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
   const [cancelling, setCancelling] = useState(false);
   const [scroll, setScroll] = useState<ScrollState>(FOLLOW);
+  const [chatScroll, setChatScroll] = useState<ScrollState>(FOLLOW);
+  /** The user's chat ⇄ constellation choice, valid only while the automatic view it overrode stays the same. */
+  const [viewChoice, setViewChoice] = useState<{ view: StageView; auto: StageView } | undefined>();
   const pulseSeq = state.mission.pulses.at(-1)?.seq ?? 0;
   const now = useLiveClock(live && state.run.endedAt === undefined, state.now, pulseSeq);
 
@@ -164,6 +169,24 @@ export function App(props: AppProps) {
     [mission?.columns, state.mission.bus, state.run.startedAt, glyphs],
   );
   const busView = mission ? focusWindow(bus, mission.busHeight - 2, scroll) : undefined;
+
+  // Conversation view: while only the chat agent has spoken, the stage is the transcript.
+  const turns = state.chat.turns;
+  const crewActive = state.run.startedAt !== undefined || state.order.some((id) => id !== CHAT_AGENT_ID);
+  const autoView: StageView = !crewActive && (turns.length > 0 || state.agents[CHAT_AGENT_ID] || (props.onSubmit && !props.crew)) ? 'chat' : 'constellation';
+  const stageView = viewChoice?.auto === autoView ? viewChoice.view : autoView;
+  const chatView = Boolean(mission) && stageView === 'chat';
+  const waiting = state.agents[CHAT_AGENT_ID]?.status === 'running' && turns.at(-1)?.role === 'user';
+  const transcript = useMemo(
+    () => (mission ? transcriptLines({ turns, width: mission.stage.width - 4, glyphs, waiting, empty: strings.chat.empty }) : []),
+    [mission?.stage.width, turns, glyphs, waiting, strings],
+  );
+  const transcriptView = mission ? focusWindow(transcript, mission.stage.height - 2, chatScroll) : undefined;
+  const toggleView = (): boolean => {
+    if (!mission || turns.length === 0) return false;
+    setViewChoice({ view: stageView === 'chat' ? 'constellation' : 'chat', auto: autoView });
+    return true;
+  };
   const brainRows = brainLines(state.brain, props.context, layout.inner, glyphs, strings).length;
   const taskLines: DisplayLine[] = agent?.task
     ? wrapPlain(agent.task, layout.focusWidth, { maxLines: TASK_LINES, ellipsis: glyphs.ellipsis }).map((text) => [{ text }])
@@ -202,9 +225,14 @@ export function App(props: AppProps) {
     setDetail,
     cancelling,
     setCancelling,
-    scroll: mission ? { total: bus.length, height: mission.busHeight - 2, set: setScroll } : { total: lines.length, height: logHeight, set: setScroll },
+    scroll: mission
+      ? chatView
+        ? { total: transcript.length, height: mission.stage.height - 2, set: setChatScroll }
+        : { total: bus.length, height: mission.busHeight - 2, set: setScroll }
+      : { total: lines.length, height: logHeight, set: setScroll },
     setLang,
     strings,
+    toggleView,
   });
 
   const twoColumns = layout.mode !== 'narrow';
@@ -224,6 +252,8 @@ export function App(props: AppProps) {
           showDetail={detail}
           cancelling={cancelling}
           bus={{ ...busView, total: bus.length }}
+          stageView={chatView ? 'chat' : 'constellation'}
+          {...(chatView && transcriptView ? { transcript: transcriptView } : {})}
           overlay={overlay ?? undefined}
           notice={noticeLines.map((text) => [{ text: ` ${text}`, tone: 'accent' }])}
           composer={<Composer editor={editor} active={pane === 'composer'} width={mission.columns - 2} />}

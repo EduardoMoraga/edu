@@ -108,6 +108,7 @@ export async function runHome(ctx: CliContext, opts: HomeOptions): Promise<void>
   const emit = (event: EduEvent) => { bridge.observe(event); channel.push(event); };
   const home = createHomeSession({
     lang: opts.lang,
+    emit,
     say: text => emit({ type: 'agent.text', agentId: 'edu', text, at: new Date().toISOString() }),
     respond: ({ message, forceChat }) => runTurn(signal => respond({ message, forceChat, history, config, brain: ws.brain,
       engines: ctx.engineFactory ?? createEngine, cwd: opts.cwd, contractPath: join(ws.primary.root, 'EDU.md'), onEvent: emit, signal })),

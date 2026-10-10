@@ -21,6 +21,8 @@ export interface DeckInput {
   glyphs: Glyphs;
   strings: UiStrings;
   focusId?: string;
+  /** Conversation view: only run · gate (when used) · brain · context; the transcript is the main area. */
+  chat?: boolean;
 }
 
 interface Section {
@@ -58,50 +60,16 @@ export function deckLines(input: DeckInput): DisplayLine[] {
 
 function buildSections(input: DeckInput, inner: number): Section[] {
   const { state, glyphs, strings, now } = input;
-  const sep = ` ${glyphs.sep} `;
-  const totals = runTotals(state);
-  const lead = leadId(state);
-  const model = state.order.map((id) => state.agents[id]?.model).find(Boolean) ?? runClis(state).join('+');
-  const sections: Section[] = [];
-
-  sections.push({
-    title: 'run',
-    priority: 9,
-    lines: [
-      [{ text: [model || '—', state.run.mode ?? 'solo'].join(sep), tone: 'peach', bold: true }],
-      [
-        { text: `${totals.costPartial && totals.costUsd !== undefined ? (glyphs.unicode ? '≥' : '>=') : ''}${formatCost(totals.costUsd)}`, bold: true },
-        { text: sep, tone: 'muted' },
-        { text: `${formatTokens(totals.tokens)} tok`, bold: true },
-        { text: `${sep}${totals.running} active`, tone: 'muted' },
-      ],
-    ],
-  });
-
-  const ctx = state.brain.context;
-  if (ctx && ctx.budgetTokens > 0) {
-    const ratio = ctx.usedTokens / ctx.budgetTokens;
-    const label = `${formatPercent(ratio)} ${formatTokens(ctx.usedTokens)}/${formatTokens(ctx.budgetTokens)}`;
-    const cells = Math.max(5, Math.min(16, inner - label.length - 5));
-    sections.push({ title: 'context', priority: 8, lines: [[{ text: 'ctx ', tone: 'muted' }, ...meter(ratio, cells, glyphs), { text: ` ${label}` }]] });
+  const run = runSection(input);
+  const context = contextSection(state, inner, glyphs);
+  const gate = gateSection(state, glyphs);
+  const brain = brainSection(state, inner, glyphs);
+  if (input.chat) {
+    return [run, ...(gateUsed(state) ? [gate] : []), ...(brain ? [brain] : []), ...(context ? [context] : [])];
   }
+  const sections: Section[] = [run, ...(context ? [context] : []), gate];
 
-  const { gate } = state.mission;
-  const pending = state.approvals.length;
-  const current = state.approvals[0];
-  const gateLine: DisplayLine = [
-    { text: `${glyphs.ok} ${gate.allowed} allowed`, tone: 'success' },
-    { text: sep, tone: 'muted' },
-    { text: `${glyphs.fail} ${gate.denied} denied`, tone: gate.denied ? 'danger' : 'muted' },
-    { text: sep, tone: 'muted' },
-    { text: `${glyphs.approval} ${pending} pending`, tone: pending ? 'accent' : 'muted', bold: pending > 0 },
-  ];
-  sections.push({
-    title: 'gate',
-    priority: 7,
-    lines: current ? [gateLine, [{ text: `${glyphs.approval} `, tone: 'accent', bold: true }, { text: current.title }]] : [gateLine],
-  });
-
+  const lead = leadId(state);
   const ids = state.order.filter((id) => id !== lead);
   const agentRows: DisplayLine[] = ids.map((id, i) => {
     const a = state.agents[id]!;
@@ -124,19 +92,71 @@ function buildSections(input: DeckInput, inner: number): Section[] {
     const total = Math.max(state.mission.specChecks.length, state.mission.checks.length);
     sections.push({ title: 'checks', note: `${passed}/${total}`, priority: 5, lines: checkLines });
   }
+  if (brain) sections.push(brain);
 
+  const focus = input.focusId ? state.agents[input.focusId] : undefined;
+  const log = focus ? logLines(focus.log, inner, glyphs, strings) : [];
+  sections.push({ title: focus ? `log ${glyphs.sep} ${focus.id}` : 'log', priority: 3, grow: true, min: 3, lines: log.length ? log : [[{ text: strings.focus.waiting, dim: true }]] });
+  return sections;
+}
+
+function runSection(input: DeckInput): Section {
+  const { state, glyphs } = input;
+  const sep = ` ${glyphs.sep} `;
+  const totals = runTotals(state);
+  const model = state.order.map((id) => state.agents[id]?.model).find(Boolean) ?? runClis(state).join('+');
+  return {
+    title: 'run',
+    priority: 9,
+    lines: [
+      [{ text: [model || '—', state.run.mode ?? 'solo'].join(sep), tone: 'peach', bold: true }],
+      [
+        { text: `${totals.costPartial && totals.costUsd !== undefined ? (glyphs.unicode ? '≥' : '>=') : ''}${formatCost(totals.costUsd)}`, bold: true },
+        { text: sep, tone: 'muted' },
+        { text: `${formatTokens(totals.tokens)} tok`, bold: true },
+        { text: `${sep}${totals.running} active`, tone: 'muted' },
+      ],
+    ],
+  };
+}
+
+function contextSection(state: TuiState, inner: number, glyphs: Glyphs): Section | undefined {
+  const ctx = state.brain.context;
+  if (!ctx || !(ctx.budgetTokens > 0)) return undefined;
+  const ratio = ctx.usedTokens / ctx.budgetTokens;
+  const label = `${formatPercent(ratio)} ${formatTokens(ctx.usedTokens)}/${formatTokens(ctx.budgetTokens)}`;
+  const cells = Math.max(5, Math.min(16, inner - label.length - 5));
+  return { title: 'context', priority: 8, lines: [[{ text: 'ctx ', tone: 'muted' }, ...meter(ratio, cells, glyphs), { text: ` ${label}` }]] };
+}
+
+function gateSection(state: TuiState, glyphs: Glyphs): Section {
+  const sep = ` ${glyphs.sep} `;
+  const { gate } = state.mission;
+  const pending = state.approvals.length;
+  const current = state.approvals[0];
+  const gateLine: DisplayLine = [
+    { text: `${glyphs.ok} ${gate.allowed} allowed`, tone: 'success' },
+    { text: sep, tone: 'muted' },
+    { text: `${glyphs.fail} ${gate.denied} denied`, tone: gate.denied ? 'danger' : 'muted' },
+    { text: sep, tone: 'muted' },
+    { text: `${glyphs.approval} ${pending} pending`, tone: pending ? 'accent' : 'muted', bold: pending > 0 },
+  ];
+  return {
+    title: 'gate',
+    priority: 7,
+    lines: current ? [gateLine, [{ text: `${glyphs.approval} `, tone: 'accent', bold: true }, { text: current.title }]] : [gateLine],
+  };
+}
+
+function brainSection(state: TuiState, inner: number, glyphs: Glyphs): Section | undefined {
   const brain: DisplayLine[] = [];
   if (state.brain.recalledIds.length) {
     const recalled: DisplayLine = [{ text: `${recallMark(glyphs)} `, tone: 'brain' }, { text: state.brain.recalledIds.join(', '), tone: 'muted' }];
     brain.push(...wrapSegments(recalled, inner, { indent: 2, maxLines: 2, ellipsis: glyphs.ellipsis }));
   }
   for (const l of state.brain.learnings.slice(-2)) brain.push([{ text: '+ ', tone: 'brain', bold: true }, { text: l.noteId, tone: 'brain' }, { text: ` ${l.title}`, dim: true }]);
-  if (brain.length) sections.push({ title: 'brain', priority: 4, lines: brain });
-
-  const focus = input.focusId ? state.agents[input.focusId] : undefined;
-  const log = focus ? logLines(focus.log, inner, glyphs, strings) : [];
-  sections.push({ title: focus ? `log ${glyphs.sep} ${focus.id}` : 'log', priority: 3, grow: true, min: 3, lines: log.length ? log : [[{ text: strings.focus.waiting, dim: true }]] });
-  return sections;
+  const note = `${recallMark(glyphs)}${state.brain.recalledIds.length} +${state.brain.learnings.length}`;
+  return brain.length ? { title: 'brain', note, priority: 4, lines: brain } : undefined;
 }
 
 function checkRows(state: TuiState, glyphs: Glyphs): DisplayLine[] {
@@ -153,8 +173,8 @@ function checkRows(state: TuiState, glyphs: Glyphs): DisplayLine[] {
   });
 }
 
-/** The collapsed deck: one line of run, context, gate, checks and brain. */
-export function deckSummary(state: TuiState, glyphs: Glyphs): DisplayLine {
+/** The collapsed deck: one line of run, context, gate, checks and brain (`chat` hides an unused gate). */
+export function deckSummary(state: TuiState, glyphs: Glyphs, chat = false): DisplayLine {
   const sep: DisplayLine[number] = { text: glyphs.unicode ? '  │  ' : '  |  ', tone: 'border' };
   const totals = runTotals(state);
   const model = state.order.map((id) => state.agents[id]?.model).find(Boolean) ?? runClis(state).join('+');
@@ -168,7 +188,7 @@ export function deckSummary(state: TuiState, glyphs: Glyphs): DisplayLine {
     out.push(sep, { text: 'ctx ', tone: 'muted' }, ...meter(ratio, 5, glyphs), { text: ` ${formatPercent(ratio)}` });
   }
   const { gate } = state.mission;
-  out.push(sep, { text: 'gate ', tone: 'muted' }, { text: `${glyphs.ok}${gate.allowed} `, tone: 'success' }, { text: `${glyphs.fail}${gate.denied} `, tone: gate.denied ? 'danger' : 'muted' }, {
+  if (!chat || gateUsed(state)) out.push(sep, { text: 'gate ', tone: 'muted' }, { text: `${glyphs.ok}${gate.allowed} `, tone: 'success' }, { text: `${glyphs.fail}${gate.denied} `, tone: gate.denied ? 'danger' : 'muted' }, {
     text: `${glyphs.approval}${state.approvals.length}`,
     tone: state.approvals.length ? 'accent' : 'muted',
   });
@@ -178,6 +198,12 @@ export function deckSummary(state: TuiState, glyphs: Glyphs): DisplayLine {
     out.push(sep, { text: 'brain ', tone: 'muted' }, { text: `${recallMark(glyphs)}${state.brain.recalledIds.length} +${state.brain.learnings.length}`, tone: 'brain' });
   }
   return out;
+}
+
+/** True once anything went through the approval gate. */
+function gateUsed(state: TuiState): boolean {
+  const { gate } = state.mission;
+  return gate.requested + gate.allowed + gate.denied + state.approvals.length > 0;
 }
 
 function recallMark(glyphs: Glyphs): string {

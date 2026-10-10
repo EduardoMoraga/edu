@@ -185,6 +185,12 @@ type EduEvent = {
     ok: boolean;
     summary: string;
     at: string;
+}
+/** What the user typed in the home view, before Edu routes it to chat or a task. */
+ | {
+    type: 'chat.user';
+    text: string;
+    at: string;
 } | {
     type: 'agent.spawn';
     agentId: string;

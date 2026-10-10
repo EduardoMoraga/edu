@@ -1,11 +1,14 @@
 /** Sequential home input routing, independent of the Ink view. */
 import type { ChatResult } from '../../chat/respond.js';
+import type { EduEvent } from '../../core/contracts.js';
 import { t, type Lang } from '../i18n.js';
 
 export interface HomeSessionDeps {
   respond(input: { message: string; forceChat: boolean }): Promise<ChatResult>;
   runTask(goal: string): Promise<void>;
   say(text: string): void;
+  /** Receives `chat.user` as soon as the user submits, so the view shows the message before Edu answers. */
+  emit?(event: EduEvent): void;
   lang: Lang;
 }
 
@@ -38,6 +41,8 @@ export function createHomeSession(deps: HomeSessionDeps): { submit(text: string)
   };
   return {
     submit(text) {
+      const message = text.trim();
+      if (message) deps.emit?.({ type: 'chat.user', text: message, at: new Date().toISOString() });
       const next = tail.then(() => handle(text));
       tail = next.catch(() => {});
       return next;

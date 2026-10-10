@@ -17,6 +17,7 @@ export interface UiStrings {
   approval: { title: string; approve: string; reject: string; details: string; more: string };
   brain: { recalled: string; nothing: string; learned: string; notes: string; ctx: string };
   composer: { idle: string; active: string; hint: string };
+  chat: { empty: string };
   help: { title: string; close: string; keys: Array<[string, string]> };
   palette: { title: string; empty: string; hint: string; describe: Record<string, string> };
   notice: {
@@ -57,6 +58,7 @@ const en: UiStrings = {
     active: 'type what you want Edu to do, then press enter',
     hint: 'enter send · alt+enter newline · / commands · esc clear',
   },
+  chat: { empty: 'say hi, ask what Edu remembers, or /run a goal for the crew' },
   help: {
     title: 'KEYS',
     close: 'any key closes this help',
@@ -64,7 +66,7 @@ const en: UiStrings = {
       ['↑ ↓', 'select agent (scroll in the focus pane)'],
       ['pgup pgdn', 'scroll the focus pane by a page'],
       ['home end', 'focus pane: oldest line · follow newest output'],
-      ['tab', 'cycle panes: agents → focus → composer'],
+      ['tab', 'cycle panes; with a conversation in mission control: chat ⇄ constellation (shift+tab cycles panes)'],
       ['y n', 'approve or reject the pending request'],
       ['d', 'show or hide approval details'],
       ['enter', 'send the composer message to the lead'],
@@ -84,6 +86,7 @@ const en: UiStrings = {
     describe: {
       help: 'show the keyboard help',
       agents: 'jump to the agent list',
+      view: 'switch between the conversation and the constellation',
       approve: 'approve the pending request',
       reject: 'reject the pending request',
       cancel: 'cancel the current run',
@@ -135,6 +138,7 @@ const es: UiStrings = {
     active: 'escribe lo que quieres que Edu haga y presiona enter',
     hint: 'enter envía · alt+enter nueva línea · / comandos · esc borra',
   },
+  chat: { empty: 'saluda, pregunta qué recuerda Edu, o usa /run con un objetivo para el equipo' },
   help: {
     title: 'TECLAS',
     close: 'cualquier tecla cierra esta ayuda',
@@ -142,7 +146,7 @@ const es: UiStrings = {
       ['↑ ↓', 'elegir agente (desplaza en el panel de foco)'],
       ['pgup pgdn', 'desplazar el panel de foco una página'],
       ['home end', 'panel de foco: línea más antigua · seguir lo nuevo'],
-      ['tab', 'cambiar de panel: agentes → foco → mensaje'],
+      ['tab', 'cambiar de panel; con una conversación en mission control: chat ⇄ constelación (shift+tab cambia de panel)'],
       ['y n', 'aprobar o rechazar la solicitud pendiente'],
       ['d', 'mostrar u ocultar los detalles de la aprobación'],
       ['enter', 'enviar el mensaje al líder'],
@@ -162,6 +166,7 @@ const es: UiStrings = {
     describe: {
       help: 'mostrar la ayuda de teclado',
       agents: 'ir a la lista de agentes',
+      view: 'alternar entre la conversación y la constelación',
       approve: 'aprobar la solicitud pendiente',
       reject: 'rechazar la solicitud pendiente',
       cancel: 'cancelar la ejecución actual',

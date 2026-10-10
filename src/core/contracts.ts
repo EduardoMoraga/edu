@@ -217,6 +217,8 @@ export interface Usage {
 export type EduEvent =
   | { type: 'run.start'; runId: string; goal: string; mode: OrchestrationMode; at: string }
   | { type: 'run.end'; runId: string; ok: boolean; summary: string; at: string }
+  /** What the user typed in the home view, before Edu routes it to chat or a task. */
+  | { type: 'chat.user'; text: string; at: string }
   | { type: 'agent.spawn'; agentId: string; parentId?: string; role: RoleId; cli: CliId; model?: string; task: string; at: string }
   | { type: 'agent.status'; agentId: string; status: AgentStatus; at: string }
   | { type: 'agent.text'; agentId: string; text: string; at: string }

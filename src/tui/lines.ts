@@ -5,6 +5,7 @@
  */
 import type { Glyphs, ToneToken } from '../identity/index.js';
 import { displayWidth, truncate } from '../identity/index.js';
+import { sameText } from './mission.js';
 import type { LogEntry } from './state.js';
 import { uiStrings, type UiStrings } from './strings.js';
 import { wrapSegments } from './wrap.js';
@@ -62,7 +63,9 @@ export function logLines(
   const w = Math.max(8, width);
   // Wrapped entries hang under their glyph so the left edge stays scannable.
   const push = (line: DisplayLine, indent = 2) => lines.push(...wrapSegments(line, w, { indent, ellipsis: glyphs.ellipsis }));
+  let lastText: string | undefined;
   for (const entry of entries) {
+    if (entry.kind === 'text') lastText = entry.text;
     switch (entry.kind) {
       case 'text':
         for (const l of wrapText(entry.text.trim(), w)) lines.push([{ text: l }]);
@@ -106,14 +109,17 @@ export function logLines(
       case 'intervention':
         push([{ text: `intervention: ${entry.action}${entry.avoidable ? ` (avoidable; ${entry.harnessGap})` : ''}${entry.detail ? ` — ${oneLine(entry.detail)}` : ''}`, dim: !entry.avoidable }]);
         break;
-      case 'end':
+      case 'end': {
+        // An answer the agent already printed is not repeated as its summary.
+        const summary = entry.summary.trim() && !(entry.ok && sameText(entry.summary, lastText)) ? entry.summary.trim() : '';
         lines.push([]);
         push([
           { text: `${entry.ok ? glyphs.ok : glyphs.fail} `, tone: entry.ok ? 'success' : 'danger', bold: true },
           { text: entry.ok ? strings.log.done : strings.log.failed, bold: true },
-          ...(entry.summary ? [{ text: ` ${glyphs.sep} ${entry.summary.trim()}`, dim: true }] : []),
+          ...(summary ? [{ text: ` ${glyphs.sep} ${summary}`, dim: true }] : []),
         ]);
         break;
+      }
     }
   }
   return lines;

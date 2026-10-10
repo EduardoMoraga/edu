@@ -30,29 +30,45 @@ export interface MissionViewProps {
   cancelling: boolean;
   /** The visible bus rows and how many newer rows are hidden below. */
   bus: { lines: DisplayLine[]; newer: number; total: number };
+  /** `chat` shows the conversation transcript instead of the constellation, with a compact deck. */
+  stageView?: StageView;
+  /** The visible transcript rows (chat view). */
+  transcript?: { lines: DisplayLine[]; newer: number };
   /** Replaces the stage (help, palette). */
   overlay?: ReactNode;
   notice: DisplayLine[];
   composer: ReactNode;
 }
 
+export type StageView = 'constellation' | 'chat';
+
 export function MissionView(props: MissionViewProps) {
   const { glyphs, strings } = useUi();
   const { state, layout, now } = props;
   const { stage } = layout;
+  const chat = props.stageView === 'chat';
+  const newer = props.transcript?.newer ?? 0;
   const stageLines = props.overlay
     ? []
-    : panel(
-        constellationLines({ state, width: stage.width - 4, height: stage.height - 2, now, glyphs, strings, animate: props.animate, focusId: props.focusId }),
-        glyphs,
-        { width: stage.width, height: stage.height, title: 'constellation', tone: 'border' },
-      );
+    : chat
+      ? panel(props.transcript?.lines ?? [], glyphs, {
+          width: stage.width,
+          height: stage.height,
+          title: 'conversation',
+          tone: 'border',
+          ...(newer > 0 ? { note: `${newer} newer ${glyphs.unicode ? '↓' : 'v'} end` } : {}),
+        })
+      : panel(
+          constellationLines({ state, width: stage.width - 4, height: stage.height - 2, now, glyphs, strings, animate: props.animate, focusId: props.focusId }),
+          glyphs,
+          { width: stage.width, height: stage.height, title: 'constellation', tone: 'border' },
+        );
   const main =
     layout.mode === 'full' && !props.overlay
       ? joinColumns(
           [
             { lines: stageLines, width: stage.width },
-            { lines: deckLines({ state, width: layout.deckWidth, height: stage.height, now, glyphs, strings, focusId: props.focusId }), width: layout.deckWidth },
+            { lines: deckLines({ state, width: layout.deckWidth, height: stage.height, now, glyphs, strings, focusId: props.focusId, chat }), width: layout.deckWidth },
           ],
           1,
         )
@@ -66,7 +82,7 @@ export function MissionView(props: MissionViewProps) {
     titleTone: detail ? 'accent' : 'muted',
     note: detail ? undefined : props.bus.newer > 0 ? `${props.bus.newer} newer ${glyphs.unicode ? '↓' : 'v'} end` : `${props.bus.total}`,
   });
-  const status = statusLine({ state, width: layout.columns, now, glyphs, strings, approval: props.approval, queued: props.queued, cancelling: props.cancelling });
+  const status = statusLine({ state, width: layout.columns, now, glyphs, strings, approval: props.approval, queued: props.queued, cancelling: props.cancelling, chat });
 
   return (
     <Box flexDirection="column" width={layout.columns}>
@@ -78,7 +94,7 @@ export function MissionView(props: MissionViewProps) {
       ) : (
         main.map((line, i) => <Line key={`m${i}`} line={line} />)
       )}
-      {layout.mode === 'compact' ? <Line line={fitLine([{ text: ' ' }, ...deckSummary(state, glyphs)], layout.columns, glyphs.ellipsis)} /> : null}
+      {layout.mode === 'compact' ? <Line line={fitLine([{ text: ' ' }, ...deckSummary(state, glyphs, chat)], layout.columns, glyphs.ellipsis)} /> : null}
       {busPanel.map((line, i) => (
         <Line key={`b${i}`} line={line} />
       ))}

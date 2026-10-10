@@ -16,7 +16,8 @@ export type CommandName =
   | 'dispatch'
   | 'status'
   | 'run'
-  | 'ask';
+  | 'ask'
+  | 'view';
 
 export interface PaletteCommand {
   name: CommandName;
@@ -31,6 +32,7 @@ export const COMMANDS: readonly PaletteCommand[] = [
   { name: 'ask', args: '<question>' },
   { name: 'help' },
   { name: 'agents' },
+  { name: 'view' },
   { name: 'approve' },
   { name: 'reject' },
   { name: 'cancel' },

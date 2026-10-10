@@ -12,6 +12,7 @@ type FieldKind = 'string' | 'number' | 'boolean' | 'object' | 'array';
 const REQUIRED: Record<string, Record<string, FieldKind>> = {
   'run.start': { runId: 'string', goal: 'string', mode: 'string' },
   'run.end': { runId: 'string', ok: 'boolean', summary: 'string' },
+  'chat.user': { text: 'string' },
   'agent.spawn': { agentId: 'string', role: 'string', cli: 'string', task: 'string' },
   'agent.status': { agentId: 'string', status: 'string' },
   'agent.text': { agentId: 'string', text: 'string' },

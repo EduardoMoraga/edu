@@ -98,6 +98,8 @@ export interface MissionContext {
   leadId?: string;
   agentStatus(id: string): AgentStatus | undefined;
   parentOf(id: string): string | undefined;
+  /** The agent's newest assistant text, so an identical end summary is not logged twice. */
+  lastText?(id: string): string | undefined;
   /** Agent that owned an approval, resolved before the core fold removed it. */
   approvalAgent?: string;
 }
@@ -111,9 +113,14 @@ export function reduceMission(m: MissionState, event: EduEvent, ctx: MissionCont
       return bus(m, { at, from: 'edu', to: 'crew', kind: 'run', text: `run started · ${event.goal}` });
     case 'run.end':
       return bus(m, { at, from: 'edu', to: 'you', kind: 'run', text: event.summary, ok: event.ok });
+    case 'chat.user': {
+      const text = oneLine(event.text);
+      return text ? bus(m, { at, from: 'you', to: 'edu', kind: 'message', text }) : m;
+    }
     case 'agent.spawn': {
       const parent = event.parentId ?? 'edu';
-      const next = bus(m, { at, from: parent, to: event.agentId, kind: 'spawn', text: event.task });
+      // Edu answering in chat "spawns" itself: `edu → edu` says nothing, the user's line already did.
+      const next = parent === event.agentId ? m : bus(m, { at, from: parent, to: event.agentId, kind: 'spawn', text: event.task });
       return progress(pulse(next, ctx, event.agentId, 'out', 'spawn'), event.agentId, ctx);
     }
     case 'agent.status':
@@ -160,7 +167,8 @@ export function reduceMission(m: MissionState, event: EduEvent, ctx: MissionCont
     case 'brain.learn':
       return bus(m, { at, from: lead, to: 'brain', kind: 'learning', text: `${event.noteId} · ${event.title}` });
     case 'agent.end': {
-      const next = bus(m, { at, from: event.agentId, to: up(event.agentId), kind: event.ok ? 'result' : 'error', text: oneLine(event.summary), ok: event.ok });
+      const text = event.ok && sameText(event.summary, ctx.lastText?.(event.agentId)) ? 'done' : oneLine(event.summary);
+      const next = bus(m, { at, from: event.agentId, to: up(event.agentId), kind: event.ok ? 'result' : 'error', text, ok: event.ok });
       return progress(pulse(next, ctx, event.agentId, 'in', event.ok ? 'result' : 'error'), event.agentId, ctx);
     }
     case 'error': {
@@ -246,6 +254,11 @@ function progress(m: MissionState, id: string, ctx: MissionContext): MissionStat
 /** The tool named by the matching call, so results read `Edit → builder`. */
 function toolName(m: MissionState, agentId: string, callId: string): string {
   return m.bus.findLast((e) => e.kind === 'tool' && e.from === agentId && e.callId === callId)?.to ?? 'tool';
+}
+
+/** True when an end summary only repeats the agent's last text. */
+export function sameText(summary: string, text: string | undefined): boolean {
+  return text !== undefined && oneLine(summary) !== '' && oneLine(summary) === oneLine(text);
 }
 
 function oneLine(text: string): string {
