@@ -18,6 +18,10 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   const skills = await readSkills(join(templates, 'skills'));
   const agents = await readMarkdown(join(templates, 'agents'));
   const commands = await readMarkdown(join(templates, 'commands'));
+  // Optional: the Edu Deck pane for Claude Code (absent in minimal template sets).
+  const deckModule = await readFile(join(templates, 'claude-mod', 'deck.tsx'), 'utf8').catch(() => undefined);
+  const deckState = await readFile(join(templates, 'claude-mod', 'deck-state.d.ts'), 'utf8').catch(() => undefined);
+  const deck = deckModule && deckState ? { deckModule, deckState } : undefined;
   const generated = new Map<string, string>();
   const add = (path: string, content: string) => generated.set(path, `${content.replace(/\r\n/g, '\n').replace(/\s*$/, '')}\n`);
   const mcp = { command: 'edu', args: ['mcp'] };
@@ -32,9 +36,14 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
     plugins: [{ name: 'edu', source: { source: 'local', path: './plugins/codex' }, policy: { installation: 'AVAILABLE' }, category: 'Productivity' }],
   }));
 
-  add('plugins/claude-code/.claude-plugin/plugin.json', json({ name: 'edu', version: pkg.version, description: DESCRIPTION, author: AUTHOR }));
+  add('plugins/claude-code/.claude-plugin/plugin.json', json({ name: 'edu', version: pkg.version, description: DESCRIPTION, author: AUTHOR, ...(deck ? { types: './types/index.d.ts' } : {}) }));
   add('plugins/claude-code/.mcp.json', json({ edu: mcp }));
-  add('plugins/claude-code/hooks/hooks.json', json(hook));
+  // Command hooks (identity at session start) plus the Edu Deck pane module, in one plugin.
+  add('plugins/claude-code/hooks/hooks.json', json(deck ? { ...hook, modules: ['./deck.tsx'] } : hook));
+  if (deck) {
+    add('plugins/claude-code/hooks/deck.tsx', deck.deckModule);
+    add('plugins/claude-code/types/index.d.ts', deck.deckState);
+  }
   add('plugins/claude-code/output-styles/edu.md', core);
   for (const skill of skills) add(`plugins/claude-code/skills/${skill.name.replace(/^edu-/, '')}/SKILL.md`, skill.content);
   for (const agent of agents) add(`plugins/claude-code/agents/${agent.name}.md`, claudeAgent(agent));
