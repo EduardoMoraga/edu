@@ -1,17 +1,19 @@
 /**
  * Edu palette and color-level detection.
  *
- * One accent (warm amber) carries identity and attention; green and red are
- * reserved for outcomes; everything else is the terminal's default foreground
- * or a muted gray. Every token has truecolor, 256 and 16-color variants, and
+ * One accent (warm amber) carries identity and attention, with a softer peach
+ * for agent names and live activity; green and red are reserved for outcomes;
+ * lavender marks brain (learning) activity; everything else is the terminal's
+ * default foreground or a muted gray. `ink` is the dark foreground used on
+ * filled alert banners. Every token has truecolor, 256 and 16-color variants, and
  * level 0 (NO_COLOR, pipes) emits no escapes at all.
  */
 
 export type ColorLevel = 0 | 1 | 2 | 3;
 
-export type ToneToken = 'accent' | 'success' | 'danger' | 'muted' | 'border';
+export type ToneToken = 'accent' | 'peach' | 'success' | 'danger' | 'brain' | 'muted' | 'border' | 'ink';
 
-type Ansi16 = 'yellow' | 'green' | 'red' | 'gray' | 'blue' | 'cyan' | 'magenta' | 'white';
+type Ansi16 = 'black' | 'yellow' | 'green' | 'red' | 'gray' | 'blue' | 'cyan' | 'magenta' | 'white';
 
 export interface PaletteEntry {
   truecolor: string;
@@ -21,13 +23,17 @@ export interface PaletteEntry {
 
 export const PALETTE: Readonly<Record<ToneToken, PaletteEntry>> = {
   accent: { truecolor: '#F5A855', ansi256: 215, ansi16: 'yellow' },
+  peach: { truecolor: '#FFC9A3', ansi256: 223, ansi16: 'yellow' },
   success: { truecolor: '#8CC48A', ansi256: 114, ansi16: 'green' },
   danger: { truecolor: '#E5717A', ansi256: 168, ansi16: 'red' },
+  brain: { truecolor: '#B9A3F0', ansi256: 147, ansi16: 'magenta' },
   muted: { truecolor: '#8A919E', ansi256: 246, ansi16: 'gray' },
   border: { truecolor: '#4E5562', ansi256: 240, ansi16: 'gray' },
+  ink: { truecolor: '#1C1A17', ansi256: 234, ansi16: 'black' },
 };
 
 const ANSI16_CODE: Record<Ansi16, number> = {
+  black: 30,
   red: 31,
   green: 32,
   yellow: 33,

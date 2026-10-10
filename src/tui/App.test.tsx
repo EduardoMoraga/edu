@@ -10,7 +10,7 @@ const ANSI = /\u001B\[/;
 const plain = createTheme(0);
 
 const mount = (props: Partial<AppProps> = {}) =>
-  render(<App events={oauthRun()} theme={plain} glyphs={UNICODE_GLYPHS} columns={100} rows={30} {...props} />);
+  render(<App events={oauthRun()} theme={plain} glyphs={UNICODE_GLYPHS} columns={100} rows={30} view="list" {...props} />);
 
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 

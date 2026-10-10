@@ -13,7 +13,7 @@ import { fixtureAt, oauthRun } from './fixtures.js';
 const plain = createTheme(0);
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 const mount = (props: Partial<AppProps> = {}) =>
-  render(<App events={oauthRun()} theme={plain} glyphs={UNICODE_GLYPHS} columns={100} rows={30} {...props} />);
+  render(<App events={oauthRun()} theme={plain} glyphs={UNICODE_GLYPHS} columns={100} rows={30} view="list" {...props} />);
 
 let instance: ReturnType<typeof render> | undefined;
 afterEach(() => {

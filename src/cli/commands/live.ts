@@ -126,8 +126,8 @@ export function registerLive(program: Command, ctx: CliContext): void {
     .action(
       action<DemoOpts>(ctx, async ({ g, opts }) => {
         const speed = parsePositive(opts.speed ?? '1', '--speed');
-        const { demoScript } = await import('../../engine/fake.js');
-        const events = demoScript();
+        const { demoEvents } = await import('../../tui/demo.js');
+        const events = demoEvents();
         if (opts.save) await atomicWrite(resolve(g.cwd, opts.save), `${events.map(event => JSON.stringify(event)).join('\n')}\n`);
         if (!ctx.isTTY) {
           ctx.out(t(g.lang, 'demo.plain'));

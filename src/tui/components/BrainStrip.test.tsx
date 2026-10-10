@@ -55,7 +55,7 @@ describe('BrainStrip ctx%', () => {
 
   it('reaches the live App brain strip', () => {
     const { lastFrame, unmount } = render(
-      <App events={[...oauthRun(), usage(4000, 16000, 999)]} theme={createTheme(0)} glyphs={UNICODE_GLYPHS} columns={110} rows={30} />,
+      <App events={[...oauthRun(), usage(4000, 16000, 999)]} theme={createTheme(0)} glyphs={UNICODE_GLYPHS} columns={110} rows={30} view="list" />,
     );
     expect(lastFrame()).toContain('ctx 25% of 16k');
     unmount();

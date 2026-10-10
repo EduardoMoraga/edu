@@ -6,6 +6,8 @@ export * from './state.js';
 export * from './selectors.js';
 export * from './replay.js';
 export * from './layout.js';
+export * from './mission.js';
+export { missionLayout, type MissionLayout, type MissionMode } from './mission/layout.js';
 export { logLines, wrapText, type DisplayLine, type Segment } from './lines.js';
 export { fsCrewSource, watchCrew, type CrewChunk, type CrewJobInfo, type CrewJobStatus, type CrewSource, type WatchOptions } from './crew.js';
 export { langFromEnv, uiStrings, type UiLang, type UiStrings } from './strings.js';

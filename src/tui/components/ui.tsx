@@ -30,15 +30,16 @@ export interface TxProps {
   bold?: boolean;
   dim?: boolean;
   italic?: boolean;
+  bg?: ToneToken;
   wrap?: 'wrap' | 'truncate' | 'truncate-end' | 'truncate-middle' | 'truncate-start';
   children?: ReactNode;
 }
 
-export function Tx({ tone, bold, dim, italic, wrap, children }: TxProps) {
+export function Tx({ tone, bold, dim, italic, bg, wrap, children }: TxProps) {
   const { theme } = useUi();
   if (!theme.styled) return <Text wrap={wrap}>{children}</Text>;
   return (
-    <Text color={tone ? theme.color(tone) : undefined} bold={bold} dimColor={dim} italic={italic} wrap={wrap}>
+    <Text color={tone ? theme.color(tone) : undefined} backgroundColor={bg ? theme.color(bg) : undefined} bold={bold} dimColor={dim} italic={italic} wrap={wrap}>
       {children}
     </Text>
   );
@@ -50,7 +51,7 @@ export function Line({ line }: { line: DisplayLine }) {
   return (
     <Text wrap="truncate-end">
       {line.map((s, i) => (
-        <Tx key={i} tone={s.tone} bold={s.bold} dim={s.dim} italic={s.italic}>
+        <Tx key={i} tone={s.tone} bold={s.bold} dim={s.dim} italic={s.italic} bg={s.bg}>
           {s.text}
         </Tx>
       ))}

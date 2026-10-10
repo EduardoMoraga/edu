@@ -11,7 +11,7 @@ describe('palette model', () => {
   it('filters by prefix first, then substring', () => {
     const names = filterCommands(availableCommands(true), 're').map((c) => c.name);
     expect(names).toEqual(['reject', 'recall']);
-    expect(filterCommands(availableCommands(false), 'a').map((c) => c.name)[0]).toBe('agents');
+    expect(filterCommands(availableCommands(false), 'a').map((c) => c.name).slice(0, 2)).toEqual(['ask', 'agents']);
   });
 
   it('opens only for a bare /word draft', () => {

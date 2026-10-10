@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentStatus } from '../core/contracts.js';
+import { displayWidth } from './format.js';
 import { ASCII_GLYPHS, UNICODE_GLYPHS, detectUnicode, getGlyphs, roleIcon, statusGlyph } from './glyphs.js';
 
 describe('detectUnicode', () => {
@@ -31,6 +32,13 @@ describe('glyph sets', () => {
   it('keeps every ASCII status glyph distinct', () => {
     const values = Object.values(ASCII_GLYPHS.status);
     expect(new Set(values).size).toBe(values.length);
+  });
+  it('keeps every mission glyph one cell wide so the constellation canvas stays aligned', () => {
+    for (const set of [UNICODE_GLYPHS, ASCII_GLYPHS]) {
+      const { mission } = set;
+      const cells = [mission.agent, mission.dot, ...Object.values(mission.link), ...mission.spinner, ...Object.values(mission.bar), ...Object.values(mission.meter), ...Object.values(mission.box)];
+      for (const ch of cells) expect(displayWidth(ch)).toBe(1);
+    }
   });
   it('selects the set from the environment', () => {
     expect(getGlyphs({ EDU_ASCII: '1' })).toBe(ASCII_GLYPHS);

@@ -118,7 +118,7 @@ describe('watchCrew', () => {
     await writeJob({ id: JOB_B, cli: 'claude', task: 'review diff', status: 'done', createdAt: at(1), summary: 'lgtm' });
     const abort = new AbortController();
     const view = render(
-      <App events={watchCrew(fsCrewSource(root), { pollMs: 10, signal: abort.signal })} crew theme={createTheme(0)} glyphs={UNICODE_GLYPHS} columns={100} rows={30} />,
+      <App events={watchCrew(fsCrewSource(root), { pollMs: 10, signal: abort.signal })} crew theme={createTheme(0)} glyphs={UNICODE_GLYPHS} columns={100} rows={30} view="list" />,
     );
     // Poll instead of a fixed sleep: slower runners (Windows CI) need more than one poll cycle.
     const deadline = Date.now() + 5000;

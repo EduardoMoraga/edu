@@ -1,8 +1,10 @@
 /**
- * Edu live view: a fold of EduEvents rendered as header · agent tree · focus
- * pane · approval card · brain strip · composer. Responsive to width; long
- * text wraps instead of being cut; all styling flows through the theme so
- * NO_COLOR output is escape-free. Keyboard handling lives in `useAppInput`.
+ * Edu live view: a fold of EduEvents. Wide terminals get mission control
+ * (constellation · deck · message bus · status bar, see mission/layout.ts);
+ * narrower ones the list layout: header · agent tree · focus pane · approval
+ * card · brain strip · composer. Long text wraps instead of being cut; all
+ * styling flows through the theme so NO_COLOR output is escape-free.
+ * Keyboard handling lives in `useAppInput`.
  */
 import { Box, useWindowSize } from 'ink';
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -14,6 +16,10 @@ import { BrainStrip, brainLines, type ContextUsage } from './components/BrainStr
 import { Composer, composerHeight } from './components/Composer.js';
 import { FocusPane } from './components/FocusPane.js';
 import { Header, headerModel } from './components/Header.js';
+import { busLines } from './mission/bus.js';
+import { missionLayout } from './mission/layout.js';
+import { MissionView } from './mission/MissionView.js';
+import { PULSE_MS } from './mission.js';
 import { HelpOverlay } from './components/HelpOverlay.js';
 import { Palette } from './components/Palette.js';
 import { Line, Rule, UiContext } from './components/ui.js';
@@ -58,6 +64,8 @@ export interface AppProps {
   context?: ContextUsage;
   /** Pane focused on mount. Defaults to the composer when onSubmit is wired, so typing works immediately. */
   initialPane?: Pane;
+  /** `auto` (default) picks mission control on wide terminals; `list` forces the list layout. */
+  view?: 'auto' | 'list';
 }
 
 /** Wrapped task description lines under the focus title. */
@@ -99,7 +107,8 @@ export function App(props: AppProps) {
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
   const [cancelling, setCancelling] = useState(false);
   const [scroll, setScroll] = useState<ScrollState>(FOLLOW);
-  const now = useLiveClock(live && state.run.endedAt === undefined, state.now);
+  const pulseSeq = state.mission.pulses.at(-1)?.seq ?? 0;
+  const now = useLiveClock(live && state.run.endedAt === undefined, state.now, pulseSeq);
 
   // Consume a live stream.
   const lastEventWall = now.lastEventWall;
@@ -148,6 +157,13 @@ export function App(props: AppProps) {
     ? wrapSegments([{ text: `${glyphs.fail} `, tone: 'danger' }, { text: runError, tone: 'danger' }], layout.inner, { indent: 2, maxLines: NOTICE_LINES, ellipsis: glyphs.ellipsis })
     : [];
   const noticeLines = notice ? wrapPlain(notice, layout.inner, { maxLines: NOTICE_LINES, ellipsis: glyphs.ellipsis }) : [];
+  const columns = props.columns ?? window.columns;
+  const mission = props.view === 'list' ? undefined : missionLayout(columns, props.rows ?? window.rows, { composer: composerHeight(editor, columns - 2), notice: noticeLines.length });
+  const bus = useMemo(
+    () => (mission ? busLines(state.mission.bus, mission.columns - 4, state.run.startedAt, glyphs) : []),
+    [mission?.columns, state.mission.bus, state.run.startedAt, glyphs],
+  );
+  const busView = mission ? focusWindow(bus, mission.busHeight - 2, scroll) : undefined;
   const brainRows = brainLines(state.brain, props.context, layout.inner, glyphs, strings).length;
   const taskLines: DisplayLine[] = agent?.task
     ? wrapPlain(agent.task, layout.focusWidth, { maxLines: TASK_LINES, ellipsis: glyphs.ellipsis }).map((text) => [{ text }])
@@ -186,13 +202,35 @@ export function App(props: AppProps) {
     setDetail,
     cancelling,
     setCancelling,
-    scroll: { total: lines.length, height: logHeight, set: setScroll },
+    scroll: mission ? { total: bus.length, height: mission.busHeight - 2, set: setScroll } : { total: lines.length, height: logHeight, set: setScroll },
     setLang,
     strings,
   });
 
   const twoColumns = layout.mode !== 'narrow';
   const overlay = help ? <HelpOverlay width={layout.inner} /> : query !== undefined ? <Palette items={matches} selected={selected} width={layout.inner} /> : null;
+  if (mission && busView) {
+    return (
+      <UiContext value={ui}>
+        <MissionView
+          state={state}
+          layout={mission}
+          now={now.value}
+          name={props.name ?? 'Edu'}
+          animate={live}
+          focusId={agentId}
+          approval={approval}
+          queued={pending.length - 1}
+          showDetail={detail}
+          cancelling={cancelling}
+          bus={{ ...busView, total: bus.length }}
+          overlay={overlay ?? undefined}
+          notice={noticeLines.map((text) => [{ text: ` ${text}`, tone: 'accent' }])}
+          composer={<Composer editor={editor} active={pane === 'composer'} width={mission.columns - 2} />}
+        />
+      </UiContext>
+    );
+  }
   return (
     <UiContext value={ui}>
       <Box
@@ -246,12 +284,16 @@ export function App(props: AppProps) {
   );
 }
 
+/** Frame interval while a pulse travels (~8 fps; event renders add the rest). */
+const PULSE_FRAME_MS = 120;
+
 /**
  * Display clock. Event time drives elapsed counters; while a live run is
  * active it advances by wall time since the last event, so replays at their
- * original timestamps still tick naturally.
+ * original timestamps still tick naturally. A new pulse starts a short ~8 fps
+ * burst so the dot can travel its connector; between events it ticks at 1 Hz.
  */
-function useLiveClock(ticking: boolean, eventNow: number) {
+function useLiveClock(ticking: boolean, eventNow: number, pulseSeq: number) {
   const lastEventWall = useRef(Date.now());
   const [wall, setWall] = useState(() => Date.now());
   useEffect(() => {
@@ -259,6 +301,15 @@ function useLiveClock(ticking: boolean, eventNow: number) {
     const timer = setInterval(() => setWall(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [ticking]);
+  useEffect(() => {
+    if (!ticking || pulseSeq === 0) return;
+    const timer = setInterval(() => setWall(Date.now()), PULSE_FRAME_MS);
+    const stop = setTimeout(() => clearInterval(timer), PULSE_MS + PULSE_FRAME_MS);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(stop);
+    };
+  }, [ticking, pulseSeq]);
   const value = ticking && eventNow > 0 ? eventNow + Math.max(0, wall - lastEventWall.current) : eventNow;
   return { value, lastEventWall };
 }

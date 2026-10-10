@@ -37,6 +37,12 @@ export function agentTree(state: TuiState): TreeRow[] {
   return rows;
 }
 
+/** The orchestrating agent: the first lead spawned, else the first root agent. */
+export function leadId(state: TuiState): string | undefined {
+  const roots = state.order.filter((id) => !state.agents[id]?.parentId);
+  return roots.find((id) => state.agents[id]?.role === 'lead') ?? roots[0];
+}
+
 export function focusedAgent(state: TuiState): AgentView | undefined {
   const id = state.focus.agentId ?? state.order[0];
   return id ? state.agents[id] : undefined;

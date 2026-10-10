@@ -76,6 +76,12 @@ export function useAppInput(input: AppInput): void {
 
   const run = (name: CommandName, args: string) => {
     switch (name) {
+      case 'run':
+      case 'ask':
+        // The home router decides: /run forces a crew task, /ask forces a chat answer.
+        if (props.onSubmit) props.onSubmit(`/${name} ${args}`);
+        else say(strings.notice.noLead);
+        return;
       case 'help':
         return input.setHelp(true);
       case 'agents':

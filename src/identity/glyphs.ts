@@ -27,6 +27,25 @@ export interface Glyphs {
   readonly tree: Readonly<{ branch: string; last: string; pipe: string; space: string }>;
   /** Horizontal rule character. */
   readonly rule: string;
+  /** Mission control: constellation, deck bars and hand-drawn panels. */
+  readonly mission: MissionGlyphs;
+}
+
+export interface MissionGlyphs {
+  /** Agent card marker. */
+  readonly agent: string;
+  /** A message travelling along a connector. */
+  readonly dot: string;
+  /** Connector strokes: horizontal step, vertical step, diagonal step. */
+  readonly link: Readonly<{ h: string; v: string; d: string }>;
+  /** Spinner frames for running agents. */
+  readonly spinner: readonly string[];
+  /** Progress bar cells. */
+  readonly bar: Readonly<{ full: string; empty: string }>;
+  /** Context meter cells. */
+  readonly meter: Readonly<{ full: string; empty: string }>;
+  /** Panel frame: corners, horizontal and vertical edges. */
+  readonly box: Readonly<{ tl: string; tr: string; bl: string; br: string; h: string; v: string }>;
 }
 
 export const UNICODE_GLYPHS: Glyphs = {
@@ -54,6 +73,15 @@ export const UNICODE_GLYPHS: Glyphs = {
   approval: '⏸',
   tree: { branch: '├ ', last: '└ ', pipe: '│ ', space: '  ' },
   rule: '─',
+  mission: {
+    agent: '✱',
+    dot: '●',
+    link: { h: '┄', v: '┆', d: '·' },
+    spinner: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+    bar: { full: '━', empty: '─' },
+    meter: { full: '▰', empty: '▱' },
+    box: { tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─', v: '│' },
+  },
 };
 
 export const ASCII_GLYPHS: Glyphs = {
@@ -81,6 +109,15 @@ export const ASCII_GLYPHS: Glyphs = {
   approval: '!',
   tree: { branch: '|-', last: '`-', pipe: '| ', space: '  ' },
   rule: '-',
+  mission: {
+    agent: '*',
+    dot: 'o',
+    link: { h: '-', v: ':', d: '.' },
+    spinner: ['|', '/', '-', '\\'],
+    bar: { full: '=', empty: '-' },
+    meter: { full: '#', empty: '.' },
+    box: { tl: '+', tr: '+', bl: '+', br: '+', h: '-', v: '|' },
+  },
 };
 
 /**

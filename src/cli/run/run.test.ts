@@ -77,7 +77,7 @@ describe('edu demo', () => {
     expect(c.exitCode).toBeUndefined();
     const text = out(c);
     expect(text).toContain('non-interactive');
-    expect(text).toContain('learned lesson: Validate empty input at the boundary');
+    expect(text).toContain('learned lesson: Validate OAuth state before the token exchange');
     expect(text).toContain('run finished');
   });
 });

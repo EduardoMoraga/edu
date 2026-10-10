@@ -15,6 +15,8 @@ export interface Segment {
   bold?: boolean;
   dim?: boolean;
   italic?: boolean;
+  /** Filled background (alert banners). */
+  bg?: ToneToken;
 }
 
 export type DisplayLine = Segment[];

@@ -12,6 +12,8 @@ import type {
   TransitiveKind,
   Usage,
 } from '../core/contracts.js';
+import { initialMission, reduceMission, type MissionState } from './mission.js';
+import { leadId } from './selectors.js';
 
 export type LogEntry =
   | { kind: 'text'; text: string }
@@ -101,6 +103,8 @@ export interface TuiState {
   /** Timestamp (ms) of the newest event; the reducer's notion of "now". */
   now: number;
   focus: { agentId?: string; pinned: boolean };
+  /** Mission control: message bus, progress, gate, checks and flow pulses. */
+  mission: MissionState;
 }
 
 /** Per-agent log cap; older entries are dropped to keep memory bounded. */
@@ -115,11 +119,25 @@ export const initialState: TuiState = {
   errors: [],
   now: 0,
   focus: { pinned: false },
+  mission: initialMission,
 };
 
 const TERMINAL: ReadonlySet<AgentStatus> = new Set(['done', 'failed', 'cancelled']);
 
 export function reduce(state: TuiState, event: EduEvent): TuiState {
+  const next = reduceCore(state, event);
+  const approvalAgent = event.type === 'approval.resolve' ? state.approvals.find((p) => p.approvalId === event.approvalId)?.agentId : undefined;
+  const mission = reduceMission(next.mission, event, {
+    at: next.now,
+    leadId: leadId(next),
+    agentStatus: (id) => next.agents[id]?.status,
+    parentOf: (id) => next.agents[id]?.parentId,
+    ...(approvalAgent ? { approvalAgent } : {}),
+  });
+  return mission === next.mission ? next : { ...next, mission };
+}
+
+function reduceCore(state: TuiState, event: EduEvent): TuiState {
   const at = parseAt(event.at, state.now);
   const s: TuiState = at > state.now ? { ...state, now: at } : state;
 

@@ -47,6 +47,13 @@ describe('createTheme', () => {
     expect(createTheme(3).paint('accent', 'x')).toMatch(/\u001B\[38;2;\d+;\d+;\d+mx/);
     expect(createTheme(1).paint('danger', 'x')).toBe('\u001B[31mx\u001B[0m');
   });
+  it('has dark ink for filled banners and distinct peach/brain hues at every level', () => {
+    expect(createTheme(1).color('ink')).toBe('black');
+    expect(createTheme(1).paint('ink', 'x')).toBe('\u001B[30mx\u001B[0m');
+    expect(createTheme(2).color('brain')).toBe(`ansi256(${PALETTE.brain.ansi256})`);
+    const hues = new Set(Object.values(PALETTE).map((p) => p.truecolor));
+    expect(hues.size).toBe(Object.keys(PALETTE).length);
+  });
   it('reports whether styling is allowed', () => {
     expect(createTheme(0).styled).toBe(false);
     expect(createTheme(1).styled).toBe(true);
