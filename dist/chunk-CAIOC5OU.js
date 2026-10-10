@@ -5,7 +5,7 @@ import {
   applySetup,
   needsFirstRunSetup,
   planSetup
-} from "./chunk-FBHKOBDF.js";
+} from "./chunk-UOFOJCQU.js";
 import {
   t
 } from "./chunk-NQTHVZEM.js";
@@ -76,7 +76,7 @@ function processContext() {
       }
     },
     async detectClis() {
-      const { detectEngines } = await import("./engine-PBXT4ONA.js");
+      const { detectEngines } = await import("./engine-EA7LU35N.js");
       return detectEngines();
     },
     setExitCode: (code) => {
@@ -202,4 +202,4 @@ export {
   registerPluginSetup,
   shouldRunFirstSetup
 };
-//# sourceMappingURL=chunk-CVMEJUH7.js.map
+//# sourceMappingURL=chunk-CAIOC5OU.js.map
