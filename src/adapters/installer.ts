@@ -12,7 +12,7 @@ import { createOpenCodeIntegration } from './opencode.js';
 import { createAgyIntegration } from './agy.js';
 import { ensureParents, materialize, readTarget, sha256 } from './operations.js';
 import { removeManagedBlock } from './blocks.js';
-import { unmergeJson, unmergeToml } from './merge.js';
+import { containsPatch, parseJsonFile, unmergeJsonFile, unmergeToml } from './merge.js';
 import { CLI_IDS, type InstallPlan, type PlannedAction } from './types.js';
 
 interface StoredAction extends InstallAction { clis?: CliId[]; shared?: boolean; jsonPatch?: Record<string, unknown>; tomlBody?: string }
@@ -30,20 +30,9 @@ function sharedRegistryPath(home: string): string { return join(home, '.edu/shar
 function isIntact(action: StoredAction, current: Buffer | undefined): boolean {
   if (!current) return false;
   if (action.kind === 'json-merge' && action.jsonPatch) {
-    try { return containsPatch(JSON.parse(current.toString('utf8')), action.jsonPatch); } catch { return false; }
+    try { return containsPatch(parseJsonFile(action.path, current.toString('utf8')), action.jsonPatch); } catch { return false; }
   }
   return Boolean(action.sha256) && sha256(current) === action.sha256;
-}
-
-function containsPatch(target: unknown, patch: unknown): boolean {
-  if (Array.isArray(patch)) {
-    return Array.isArray(target) && patch.every(item => target.some(candidate => JSON.stringify(candidate) === JSON.stringify(item)));
-  }
-  if (patch && typeof patch === 'object') {
-    if (!target || typeof target !== 'object') return false;
-    return Object.entries(patch as Record<string, unknown>).every(([key, value]) => containsPatch((target as Record<string, unknown>)[key], value));
-  }
-  return JSON.stringify(target) === JSON.stringify(patch);
 }
 
 function isSharedTarget(path: string, home: string): boolean {
@@ -301,7 +290,7 @@ export async function uninstall(options: { manifestPath: string; force?: boolean
       if (!target.owners.length) {
         const current = await readTarget(action.path);
         if (current && action.kind === 'json-merge' && action.jsonPatch) {
-          const remaining = unmergeJson(current.toString('utf8'), action.jsonPatch);
+          const remaining = unmergeJsonFile(action.path, current.toString('utf8'), action.jsonPatch);
           if (!options.force && target.backup) await writeFile(action.path, await readFile(target.backup));
           else if (options.force && target.backup) await writeFile(action.path, remaining);
           else if (isEmptyJson(remaining)) await unlink(action.path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
@@ -341,7 +330,7 @@ export async function uninstall(options: { manifestPath: string; force?: boolean
       else if (!remaining.trim()) await unlink(action.path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
       else await writeFile(action.path, remaining);
     } else if (action.kind === 'json-merge' && current && action.jsonPatch) {
-      const remaining = unmergeJson(current.toString('utf8'), action.jsonPatch);
+      const remaining = unmergeJsonFile(action.path, current.toString('utf8'), action.jsonPatch);
       if (options.force && action.backup) await writeFile(action.path, remaining);
       else if (isEmptyJson(remaining)) await unlink(action.path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
       else await writeFile(action.path, remaining);

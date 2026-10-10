@@ -52,7 +52,7 @@ cerebro global (`~/.edu`) y registra cada cambio para que `edu uninstall` pueda 
 | **Claude Code** | `/plugin marketplace add EduardoMoraga/edu` y luego `/plugin install edu@edu` | skills, comandos, roles, MCP, hook de identidad, statusline | `/edu:brief`, `/edu:crew …` o en lenguaje natural |
 | **Codex** | `codex plugin marketplace add EduardoMoraga/edu` y luego `codex plugin add edu@edu` | skills, MCP, hook de identidad | en lenguaje natural o nombrando la skill: `edu-crew` |
 | **Pi** | `pi install git:github.com/EduardoMoraga/edu` | extensión (MCP + identidad + Edu Deck en vivo), tema `edu`, prompts, skills | `/edu-deck`, `/edu-brief`, `/edu-crew …` |
-| **OpenCode** | `edu setup` | comandos, agentes, plugin, MCP | `/edu-brief`, `/edu-crew …` |
+| **OpenCode** | `edu setup` | comandos, agentes, plugin, MCP, Edu Deck en vivo (logo + sidebar), tema `edu` | `/edu-deck`, `/edu-brief`, `/edu-crew …` |
 | **Antigravity** | `agy plugin install "$(npm root -g)/edu-agent/plugins/agy"` | skills, agentes, reglas (identidad), MCP | en lenguaje natural o nombrando la skill: `edu-review` |
 | **DeepSeek** | como proveedor de modelos en OpenCode o Pi | todo lo que obtiene la CLI anfitriona | igual que la CLI anfitriona |
 

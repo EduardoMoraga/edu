@@ -51,7 +51,7 @@ what is connected.
 | **Claude Code** | `/plugin marketplace add EduardoMoraga/edu` then `/plugin install edu@edu` | skills, slash commands, roles, MCP, identity hook, statusline | `/edu:brief`, `/edu:crew …`, or just ask |
 | **Codex** | `codex plugin marketplace add EduardoMoraga/edu` then `codex plugin add edu@edu` | skills, MCP, identity hook | ask, or name a skill: `edu-crew` |
 | **Pi** | `pi install git:github.com/EduardoMoraga/edu` | extension (MCP + identity + live Edu Deck), `edu` theme, prompts, skills | `/edu-deck`, `/edu-brief`, `/edu-crew …` |
-| **OpenCode** | `edu setup` | commands, agents, plugin, MCP | `/edu-brief`, `/edu-crew …` |
+| **OpenCode** | `edu setup` | commands, agents, plugin, MCP, live Edu Deck (logo + sidebar), `edu` theme | `/edu-deck`, `/edu-brief`, `/edu-crew …` |
 | **Antigravity** | `agy plugin install "$(npm root -g)/edu-agent/plugins/agy"` | skills, agents, rules (identity), MCP | ask, or name a skill: `edu-review` |
 | **DeepSeek** | use it as a model provider in OpenCode or Pi | everything the host CLI gets | same as the host CLI |
 

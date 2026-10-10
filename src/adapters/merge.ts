@@ -1,4 +1,16 @@
+import { applyEdits, modify, parse, type ParseError } from 'jsonc-parser';
+
 type JsonRecord = Record<string, unknown>;
+
+/**
+ * `{ key: { $union: [...] } }` in a patch adds items to an array Edu shares with the user (OpenCode
+ * `tui.json` `plugin`), keeping every other entry and never duplicating; unmerge removes only them.
+ */
+export const UNION = '$union';
+function unionItems(value: unknown): unknown[] | undefined {
+  return record(value) && Object.keys(value).length === 1 && Array.isArray(value[UNION]) ? value[UNION] as unknown[] : undefined;
+}
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 function record(value: unknown): value is JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -34,7 +46,11 @@ function withoutEduEntry(value: unknown): unknown | undefined {
 
 function applyPatch(target: JsonRecord, patch: JsonRecord): void {
   for (const [key, value] of Object.entries(patch)) {
-    if (Array.isArray(value)) {
+    const added = unionItems(value);
+    if (added) {
+      const prior = Array.isArray(target[key]) ? target[key] as unknown[] : [];
+      target[key] = [...prior, ...added.filter(item => !prior.some(existing => same(existing, item)))];
+    } else if (Array.isArray(value)) {
       if (value.every(isEduEntry)) {
         const prior = Array.isArray(target[key]) ? target[key] as unknown[] : [];
         target[key] = [...prior.map(withoutEduEntry).filter(entry => entry !== undefined), ...value];
@@ -54,7 +70,13 @@ function applyPatch(target: JsonRecord, patch: JsonRecord): void {
 function removePatch(target: JsonRecord, patch: JsonRecord): void {
   for (const [key, value] of Object.entries(patch)) {
     if (!(key in target)) continue;
-    if (Array.isArray(value) && Array.isArray(target[key])) {
+    const removed = unionItems(value);
+    if (removed) {
+      if (!Array.isArray(target[key])) continue;
+      const remaining = (target[key] as unknown[]).filter(item => !removed.some(owned => same(owned, item)));
+      if (remaining.length) target[key] = remaining;
+      else delete target[key];
+    } else if (Array.isArray(value) && Array.isArray(target[key])) {
       if (value.every(isEduEntry)) {
         const remaining = (target[key] as unknown[]).map(withoutEduEntry).filter(entry => entry !== undefined);
         if (remaining.length) target[key] = remaining;
@@ -83,6 +105,95 @@ export function unmergeJson(text: string, patch: JsonRecord): string {
   removePatch(target, patch);
   const result = serialize(target);
   return JSON.stringify(parseJson(text)) === JSON.stringify(target) ? text : result;
+}
+
+/** Whether `target` still holds everything `patch` wrote (union items only need to be present). */
+export function containsPatch(target: unknown, patch: unknown): boolean {
+  const union = unionItems(patch);
+  if (union) return Array.isArray(target) && union.every(item => target.some(candidate => same(candidate, item)));
+  if (Array.isArray(patch)) {
+    return Array.isArray(target) && patch.every(item => target.some(candidate => same(candidate, item)));
+  }
+  if (patch && typeof patch === 'object') {
+    if (!target || typeof target !== 'object') return false;
+    return Object.entries(patch as JsonRecord).every(([key, value]) => containsPatch((target as JsonRecord)[key], value));
+  }
+  return same(target, patch);
+}
+
+// ---- JSONC: edit in place with jsonc-parser so comments and layout survive. -------------------
+
+const isJsonc = (path: string) => path.toLowerCase().endsWith('.jsonc');
+const FORMAT = { formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' } };
+
+function parseJsonc(text: string): JsonRecord {
+  if (!text.trim()) return {};
+  const errors: ParseError[] = [];
+  const value: unknown = parse(text, errors, { allowTrailingComma: true });
+  if (errors.length || !record(value)) throw new Error('Expected a JSONC object');
+  return value;
+}
+
+function leaves(patch: JsonRecord, prefix: string[] = []): Array<{ path: string[]; union?: unknown[] }> {
+  return Object.entries(patch).flatMap(([key, value]) => {
+    const union = unionItems(value);
+    if (union) return [{ path: [...prefix, key], union }];
+    return record(value) ? leaves(value, [...prefix, key]) : [{ path: [...prefix, key] }];
+  });
+}
+
+function at(value: unknown, path: string[]): unknown {
+  return path.reduce<unknown>((node, key) => (record(node) ? node[key] : undefined), value);
+}
+
+function mergeJsonc(text: string, patch: JsonRecord): string {
+  const before = parseJsonc(text);
+  const after = parseJsonc(text);
+  applyPatch(after, patch);
+  if (same(before, after)) return text;
+  let out = text.trim() ? text : '{}\n';
+  for (const { path, union } of leaves(patch)) {
+    const current = at(before, path);
+    if (union && Array.isArray(current)) {
+      // Insert at the front: a trailing `// comment` stays on the user's own last entry.
+      for (const item of union.filter(item => !current.some(existing => same(existing, item))).reverse()) {
+        out = applyEdits(out, modify(out, [...path, 0], item, { ...FORMAT, isArrayInsertion: true }));
+      }
+    } else out = applyEdits(out, modify(out, path, at(after, path), FORMAT));
+  }
+  return out;
+}
+
+function unmergeJsonc(text: string, patch: JsonRecord): string {
+  const before = parseJsonc(text);
+  const after = parseJsonc(text);
+  removePatch(after, patch);
+  if (same(before, after)) return text;
+  let out = text;
+  for (const { path, union } of leaves(patch)) {
+    const current = at(before, path);
+    if (union && Array.isArray(current) && Array.isArray(at(after, path))) {
+      const owned = current.map((item, index) => union.some(mine => same(mine, item)) ? index : -1).filter(index => index >= 0);
+      for (const index of owned.reverse()) out = applyEdits(out, modify(out, [...path, index], undefined, FORMAT));
+      continue;
+    }
+    // Remove the outermost ancestor that the unmerge deleted, or rewrite the surviving leaf.
+    const cut = path.findIndex((_, i) => at(after, path.slice(0, i + 1)) === undefined);
+    if (cut >= 0) { if (at(before, path.slice(0, cut + 1)) !== undefined) out = applyEdits(out, modify(out, path.slice(0, cut + 1), undefined, FORMAT)); }
+    else out = applyEdits(out, modify(out, path, at(after, path), FORMAT));
+  }
+  return out;
+}
+
+/** JSON or JSONC by file extension. */
+export function mergeJsonFile(path: string, text: string, patch: JsonRecord): string {
+  return isJsonc(path) ? mergeJsonc(text, patch) : mergeJson(text, patch);
+}
+export function unmergeJsonFile(path: string, text: string, patch: JsonRecord): string {
+  return isJsonc(path) ? unmergeJsonc(text, patch) : unmergeJson(text, patch);
+}
+export function parseJsonFile(path: string, text: string): unknown {
+  return isJsonc(path) ? parseJsonc(text) : JSON.parse(text);
 }
 
 const TOML_START = '# edu:start';

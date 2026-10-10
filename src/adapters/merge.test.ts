@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeJson, unmergeJson, mergeToml, unmergeToml } from './merge.js';
+import { containsPatch, mergeJson, mergeJsonFile, parseJsonFile, unmergeJson, unmergeJsonFile, mergeToml, unmergeToml } from './merge.js';
 
 describe('configuration merges', () => {
   it('preserves unrelated JSON keys and hooks', () => {
@@ -51,5 +51,29 @@ describe('configuration merges', () => {
     const merged = mergeToml(source, 'notify = ["edu", "hook", "codex-notify"]\n\n[mcp_servers.edu]\ncommand = "edu"');
     expect(merged.match(/notify =/g)).toHaveLength(1);
     expect(unmergeToml(merged)).toBe(source);
+  });
+});
+
+describe('$union array patches', () => {
+  const patch = { plugin: { $union: ['/h/edu.tsx'] } };
+
+  it('adds once to a shared JSON array and removes only its own items', () => {
+    const original = '{"plugin":["a","/h/edu.tsx-not"],"theme":"x"}\n';
+    const merged = mergeJsonFile('/h/tui.json', original, patch);
+    expect(JSON.parse(merged)).toEqual({ plugin: ['a', '/h/edu.tsx-not', '/h/edu.tsx'], theme: 'x' });
+    expect(mergeJsonFile('/h/tui.json', merged, patch)).toBe(merged);
+    expect(JSON.parse(unmergeJsonFile('/h/tui.json', merged, patch))).toEqual({ plugin: ['a', '/h/edu.tsx-not'], theme: 'x' });
+    expect(containsPatch(JSON.parse(merged), patch)).toBe(true);
+    expect(containsPatch(JSON.parse(original), patch)).toBe(false);
+  });
+
+  it('edits JSONC in place and round-trips byte for byte, comments included', () => {
+    const original = '{\n  // plugins\n  "plugin": [\n    "./herdr.js", // keep me\n  ],\n}\n';
+    const merged = mergeJsonFile('/h/tui.jsonc', original, patch);
+    expect(merged).toContain('// plugins');
+    expect(merged).toContain('"./herdr.js", // keep me');
+    expect(parseJsonFile('/h/tui.jsonc', merged)).toEqual({ plugin: ['/h/edu.tsx', './herdr.js'] });
+    expect(mergeJsonFile('/h/tui.jsonc', merged, patch)).toBe(merged);
+    expect(unmergeJsonFile('/h/tui.jsonc', merged, patch)).toBe(original);
   });
 });

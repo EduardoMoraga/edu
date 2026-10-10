@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { InstallAction } from '../core/contracts.js';
 import type { PlannedAction } from './types.js';
 import { upsertManagedBlock } from './blocks.js';
-import { mergeJson, mergeToml } from './merge.js';
+import { mergeJsonFile, mergeToml } from './merge.js';
 
 export function sha256(content: Buffer | string): string { return createHash('sha256').update(content).digest('hex'); }
 
@@ -24,7 +24,7 @@ export function materialize(action: PlannedAction, before: Buffer | undefined): 
   switch (action.kind) {
     case 'managed-block': return Buffer.from(upsertManagedBlock(text, action.content ?? ''), 'utf8');
     case 'file': return Buffer.from(action.content ?? '', 'utf8');
-    case 'json-merge': return Buffer.from(mergeJson(text, action.jsonPatch ?? {}), 'utf8');
+    case 'json-merge': return Buffer.from(mergeJsonFile(action.path, text, action.jsonPatch ?? {}), 'utf8');
     case 'toml-merge': return Buffer.from(mergeToml(text, action.tomlBody ?? ''), 'utf8');
     default: throw new Error(`Unsupported action kind: ${action.kind}`);
   }

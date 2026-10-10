@@ -3,6 +3,7 @@ import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from 'nod
 import { dirname, join, resolve } from 'node:path';
 import type { CliId } from '../core/contracts.js';
 import { instructionActions } from '../adapters/common.js';
+import { UNION } from '../adapters/merge.js';
 import { applyInstall, getManifestPath, planInstall, uninstall } from '../adapters/installer.js';
 import type { InstallPlan, PlannedAction } from '../adapters/types.js';
 import { initBrain } from '../cli/setup.js';
@@ -120,6 +121,35 @@ async function appendOpenCodeAssets(plan: InstallPlan, packageRoot: string): Pro
       plan.actions.push(action);
     }
   }
+  await appendOpenCodeTui(plan, sourceRoot, destinationRoot);
+}
+
+async function exists(path: string): Promise<boolean> {
+  try { await access(path); return true; } catch { return false; }
+}
+
+/**
+ * The Edu Deck for OpenCode: TUI plugin, `edu` theme, and the plugin's absolute path in tui.json.
+ * The theme is installed but never selected; that stays the user's choice. Writes tui.jsonc in
+ * place (comments kept) only when the user has a tui.jsonc and no tui.json.
+ */
+async function appendOpenCodeTui(plan: InstallPlan, sourceRoot: string, destinationRoot: string): Promise<void> {
+  let tui: string;
+  try { tui = await readFile(join(sourceRoot, 'tui/edu.tsx'), 'utf8'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+  const pluginPath = join(destinationRoot, 'tui-plugins/edu.tsx');
+  plan.actions.push({ cli: 'opencode', kind: 'file', path: pluginPath, description: 'Install the Edu Deck OpenCode TUI plugin', content: tui });
+  try {
+    const theme = await readFile(join(sourceRoot, 'themes/edu.json'), 'utf8');
+    plan.actions.push({ cli: 'opencode', kind: 'file', path: join(destinationRoot, 'themes/edu.json'), description: 'Install the edu OpenCode theme', content: theme });
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  const json = join(destinationRoot, 'tui.json');
+  const jsonc = join(destinationRoot, 'tui.jsonc');
+  const config = !(await exists(json)) && await exists(jsonc) ? jsonc : json;
+  plan.actions.push({
+    cli: 'opencode', kind: 'json-merge', path: config, description: 'Load the Edu Deck TUI plugin',
+    jsonPatch: { plugin: { [UNION]: [pluginPath] } },
+  });
 }
 
 /** Read-only list checks first, so already-installed plugins do not receive duplicate native install commands. */
