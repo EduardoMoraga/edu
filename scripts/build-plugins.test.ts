@@ -48,6 +48,29 @@ describe('buildPlugins', () => {
     expect(await readFile(join(root, '.claude-plugin/marketplace.json'), 'utf8')).toContain('"version": "2.3.4"');
   });
 
+  it('ships the Pi and OpenCode Edu Deck sources and themes from templates when present', async () => {
+    const root = await fixture();
+    await mkdir(join(root, 'templates/pi'), { recursive: true });
+    await mkdir(join(root, 'templates/opencode'), { recursive: true });
+    await writeFile(join(root, 'templates/pi/edu.ts'), 'export default function () {}\n');
+    await writeFile(join(root, 'templates/pi/edu-theme.json'), '{ "name": "edu", "colors": {} }\n');
+    await writeFile(join(root, 'templates/opencode/edu-tui.tsx'), '/** @jsxImportSource @opentui/solid */\nexport default { id: "edu" }\n');
+    await writeFile(join(root, 'templates/opencode/edu-theme.json'), '{ "theme": {} }\n');
+    await buildPlugins(root);
+
+    expect(await readFile(join(root, 'plugins/pi/extensions/edu.ts'), 'utf8')).toBe('export default function () {}\n');
+    expect(JSON.parse(await readFile(join(root, 'plugins/pi/themes/edu.json'), 'utf8')).name).toBe('edu');
+    expect(await readFile(join(root, 'plugins/opencode/tui/edu.tsx'), 'utf8')).toContain('@jsxImportSource @opentui/solid');
+    expect(JSON.parse(await readFile(join(root, 'plugins/opencode/themes/edu.json'), 'utf8'))).toEqual({ theme: {} });
+  });
+
+  it('falls back to the minimal Pi extension when no Pi template exists', async () => {
+    const root = await fixture();
+    await buildPlugins(root);
+    expect(await readFile(join(root, 'plugins/pi/extensions/edu.ts'), 'utf8')).toContain("registerMcpServer('edu'");
+    await expect(readFile(join(root, 'plugins/pi/themes/edu.json'), 'utf8')).rejects.toThrow();
+  });
+
   it('supports check mode and detects generated-file drift without writing', async () => {
     const root = await fixture();
     await buildPlugins(root);

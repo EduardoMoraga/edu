@@ -26,6 +26,15 @@ Ask: **"what do you remember?"** Pi should call `edu_brief`. `pi list` shows the
 
 ## What you get
 
+- **Edu Deck, live in the TUI:** an EDU header with the project, brain
+  (canonical/proposed/episodic/transitive), crew (running/approvals) and latest spec; a
+  footer with model, a context bar, tokens, cost and git branch; and a crew widget above
+  the editor that appears only while jobs run or wait for approval. `/edu-deck` opens the
+  full deck (context, brain, spec, last 8 jobs, recent notes); `esc` closes it. It reads
+  `edu deck --json` every 3 seconds without blocking Pi; with an older `edu` it shows the
+  identity only.
+- **`edu` theme** (warm accent on dark): pick it in `/settings`, or set `"theme": "edu"` in
+  `~/.pi/agent/settings.json`. Edu never changes your theme for you.
 - Prompts: `/edu-brief`, `/edu-recall <topic>`, `/edu-remember <note>`, `/edu-reflect`,
   `/edu-crew <cli>: <task>`, `/edu-run <goal>`, `/edu-review [base]`, `/edu-status`.
 - Skills with the same names that trigger from plain English or Spanish.

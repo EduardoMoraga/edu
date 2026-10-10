@@ -22,6 +22,11 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   const deckModule = await readFile(join(templates, 'claude-mod', 'deck.tsx'), 'utf8').catch(() => undefined);
   const deckState = await readFile(join(templates, 'claude-mod', 'deck-state.d.ts'), 'utf8').catch(() => undefined);
   const deck = deckModule && deckState ? { deckModule, deckState } : undefined;
+  // Optional: the Edu Deck for Pi (extension + theme) and OpenCode (TUI plugin + theme).
+  const optional = (path: string) => readFile(join(templates, path), 'utf8').catch(() => undefined);
+  const [piSource, piTheme, openCodeTui, openCodeTheme] = await Promise.all([
+    optional('pi/edu.ts'), optional('pi/edu-theme.json'), optional('opencode/edu-tui.tsx'), optional('opencode/edu-theme.json'),
+  ]);
   const generated = new Map<string, string>();
   const add = (path: string, content: string) => generated.set(path, `${content.replace(/\r\n/g, '\n').replace(/\s*$/, '')}\n`);
   const mcp = { command: 'edu', args: ['mcp'] };
@@ -63,11 +68,15 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
 
   for (const skill of skills) add(`plugins/pi/skills/${skill.name}/SKILL.md`, skill.content);
   for (const command of commands) add(`plugins/pi/prompts/edu-${command.name}.md`, piPrompt(command));
-  add('plugins/pi/extensions/edu.ts', piExtension());
+  add('plugins/pi/extensions/edu.ts', piSource ?? piExtension());
+  if (piTheme) add('plugins/pi/themes/edu.json', piTheme);
 
   for (const command of commands) add(`plugins/opencode/commands/edu-${command.name}.md`, opencodeCommand(command));
   for (const agent of agents) add(`plugins/opencode/agents/${agent.name}.md`, agent.content);
   add('plugins/opencode/plugins/edu.ts', openCodePlugin());
+  // TUI plugins live outside plugins/: OpenCode loads them from tui.json, never as server plugins.
+  if (openCodeTui) add('plugins/opencode/tui/edu.tsx', openCodeTui);
+  if (openCodeTheme) add('plugins/opencode/themes/edu.json', openCodeTheme);
 
   add('plugins/agy/plugin.json', json({ name: 'edu', version: pkg.version, description: DESCRIPTION }));
   add('plugins/agy/mcp_config.json', json({ mcpServers: { edu: mcp } }));

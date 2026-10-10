@@ -54,6 +54,9 @@
     ],
     "skills": [
       "./plugins/pi/skills"
+    ],
+    "themes": [
+      "./plugins/pi/themes"
     ]
   },
   "author": "Eduardo Moraga",
