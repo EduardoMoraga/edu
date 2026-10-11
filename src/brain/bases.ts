@@ -93,6 +93,31 @@ export function staleBaseFiles(lang: BaseLang): string[] {
 
 const q = (value: string) => JSON.stringify(value);
 
+/** Readable labels for the raw values Edu stores in frontmatter (status, band, kind). */
+const VALUE_LABELS: Record<BaseLang, Record<'status' | 'band' | 'kind', Record<string, string>>> = {
+  es: {
+    status: { proposed: 'por aprobar', accepted: 'aceptada', superseded: 'reemplazada', active: 'activa', reverted: 'revertida', open: 'abierta', confirmed: 'confirmada', refuted: 'refutada', 'no-evidence': 'sin evidencia', pending: 'pendiente', delivered: 'entregado', overdue: 'atrasado', candidate: 'candidata', proven: 'probada', retired: 'retirada', closed: 'cerrada' },
+    band: { verified: 'verificado', inferred: 'inferido', hypothesis: 'hipótesis' },
+    kind: { decision: 'decisión', lesson: 'lección', hypothesis: 'hipótesis', commitment: 'compromiso', session: 'sesión', standard: 'estándar', person: 'persona', preference: 'preferencia', identity: 'identidad', domain: 'dominio', glossary: 'glosario', process: 'proceso', fact: 'hecho', client: 'cliente' },
+  },
+  en: {
+    status: { proposed: 'to approve', 'no-evidence': 'no evidence' },
+    band: {},
+    kind: {},
+  },
+};
+const DATE_FORMAT: Record<BaseLang, string> = { es: 'DD/MM/YYYY HH:mm', en: 'MMM D, YYYY HH:mm' };
+const VALUE_COLUMNS = ['status', 'band', 'kind'] as const;
+const DATE_COLUMNS = ['updated', 'created', 'due'] as const;
+
+/** Formula that shows a raw frontmatter value through a label map, falling back to the raw value. */
+export function labelFormula(property: string, labels: Record<string, string>): string {
+  return Object.entries(labels).reduceRight((rest, [raw, label]) => `if(note.${property} == ${q(raw)}, ${q(label)}, ${rest})`, `note.${property}`);
+}
+
+/** Formula that renders a stored ISO date readably, empty when the note has none. */
+export const dateFormula = (property: string, lang: BaseLang) => `if(note.${property}, date(note.${property}).format(${q(DATE_FORMAT[lang])}), "")`;
+
 /** Formula: the workspace a note belongs to, "global" for the orchestrator brain's own notes. */
 export function projectFormula(brainRel: string, tierDir: string): string {
   return `if(file.path.startsWith(${q(`${brainRel}/`)}), "global", file.path.split(${q(`/${tierDir}/`)})[0].split("/").reverse()[1])`;
@@ -114,9 +139,19 @@ function buildBase(spec: BaseSpec, lang: BaseLang, scope: BaseScope): string {
   if (spec.id === 'lessons') { formulas.wins = 'usage.wins'; formulas.losses = 'usage.losses'; }
 
   const columnKey = (column: string) => column.startsWith('formula.') ? column : `note.${column}`;
-  const order = [`formula.${keys.note}`, ...(scope.mode === 'orchestrator' ? [`formula.${keys.project}`] : []), ...spec.columns.map(columnKey)];
+  // Raw values and ISO dates are shown through localized formulas; sorting still uses the raw property.
+  const display = new Map<string, string>();
+  for (const column of spec.columns) {
+    const key = column.replace(/^(note|formula)\./, '');
+    const name = (labels[key] ?? key).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if ((VALUE_COLUMNS as readonly string[]).includes(key)) { formulas[name] = labelFormula(key, VALUE_LABELS[lang][key as typeof VALUE_COLUMNS[number]]); display.set(column, name); }
+    else if ((DATE_COLUMNS as readonly string[]).includes(key)) { formulas[name] = dateFormula(key, lang); display.set(column, name); }
+  }
+  const order = [`formula.${keys.note}`, ...(scope.mode === 'orchestrator' ? [`formula.${keys.project}`] : []), ...spec.columns.map(column => display.has(column) ? `formula.${display.get(column)}` : columnKey(column))];
   const properties: Record<string, { displayName: string }> = {};
+  for (const column of spec.columns) if (display.has(column)) properties[`formula.${display.get(column)}`] = { displayName: labels[column.replace(/^(note|formula)\./, '')]! };
   for (const key of order) {
+    if (properties[key]) continue;
     const bare = key.replace(/^(note|formula)\./, '');
     const label = bare === keys.note ? labels.note! : bare === keys.project ? labels.project! : labels[bare];
     if (label) properties[key] = { displayName: label };

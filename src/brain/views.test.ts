@@ -62,7 +62,7 @@ describe('Bases generator', () => {
     expect(es['Compromisos.base'].views.map((v: { name: string }) => v.name)).toEqual(['Pendientes', 'Atrasados', 'Todos']);
     expect(es['Compromisos.base'].views[1].filters).toEqual({ and: ['status == "overdue"'] });
     expect(es['Compromisos.base'].views[0].sort).toEqual([{ property: 'note.due', direction: 'ASC' }]);
-    expect(es['Compromisos.base'].properties['note.due']).toEqual({ displayName: 'Vence' });
+    expect(es['Compromisos.base'].properties['formula.vence']).toEqual({ displayName: 'Vence' });
     expect(es['Compromisos.base'].properties['formula.proyecto']).toEqual({ displayName: 'Proyecto' });
     expect(es['Lecciones.base'].formulas).toMatchObject({ wins: 'usage.wins', losses: 'usage.losses' });
     expect(es['Lecciones.base'].filters.and).toEqual(['file.path.contains("/3-transitive/")', 'kind == "lesson"']);
@@ -174,5 +174,19 @@ describe('dashboard note', () => {
     expect(isEduOwned('generated_by: edu\n')).toBe(false);
     expect(isEduOwned('---\ngenerated_by: me\n---\n')).toBe(false);
     expect(buildDashboard('en', '01-K/0-index', []).startsWith('---\ngenerated_by: edu\n---\n')).toBe(true);
+  });
+});
+
+describe('localized values', () => {
+  it('shows statuses, confidence, kinds and dates in the workspace language', () => {
+    const [knowledge] = buildBases('es', { mode: 'workspace', brainRel: '01-CONOCIMIENTO' }).filter(file => file.name === 'Conocimiento.base');
+    const base = parse(knowledge!.content) as { formulas: Record<string, string>; properties: Record<string, { displayName: string }>; views: Array<{ order: string[]; sort: Array<{ property: string }> }> };
+    expect(base.formulas.estado).toContain('"proposed", "por aprobar"');
+    expect(base.formulas.certeza).toContain('"verified", "verificado"');
+    expect(base.formulas.actualizado).toContain('date(note.updated).format(');
+    expect(base.views[0]!.order).toContain('formula.estado');
+    expect(base.views[0]!.order).not.toContain('note.status');
+    expect(base.properties['formula.estado']!.displayName).toBe('Estado');
+    expect(base.views[0]!.sort[0]!.property).toBe('note.updated');
   });
 });
