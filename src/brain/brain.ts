@@ -195,21 +195,26 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     },
     async maintain(now = new Date()) {
       const report: MaintenanceReport = { changed: [], promoted: [], retired: [], overdue: [], indexRebuilt: false };
-      for (const note of await all()) {
+      // Load once per run (the loop used to reload the whole brain twice per note, which was quadratic on large imports).
+      const notes = await all();
+      const proposedOrRejected = new Set<string>();
+      const acceptedStandards = new Map<string, Note>();
+      for (const candidate of notes) {
+        if ((candidate.meta.tier === 'canonical' && candidate.meta.source === 'edu:maintain') || candidate.meta.source === REJECT_SOURCE) for (const link of candidate.meta.links) proposedOrRejected.add(link);
+        if (candidate.meta.tier === 'canonical' && candidate.meta.kind === 'standard' && candidate.meta.status === 'accepted') acceptedStandards.set(candidate.meta.title, candidate);
+      }
+      for (const note of notes) {
         const next = applyLearning(note, now);
-        if (next.meta.status !== note.meta.status) {
-          await persist(next); report.changed.push(note.meta.id);
-          if (next.meta.status === 'proven') report.promoted.push(note.meta.id);
-          if (next.meta.status === 'retired') report.retired.push(note.meta.id);
-          if (next.meta.status === 'overdue') report.overdue.push(note.meta.id);
-        }
-        if (next.meta.kind === 'lesson' && next.meta.status === 'proven') {
-          const proposalExists = (await all()).some(candidate => ((candidate.meta.tier === 'canonical' && candidate.meta.source === 'edu:maintain') || candidate.meta.source === REJECT_SOURCE) && candidate.meta.links.includes(next.meta.id));
-          if (!proposalExists) {
-            const prior = (await all()).find(candidate => candidate.meta.tier === 'canonical' && candidate.meta.kind === 'standard' && candidate.meta.title === next.meta.title && candidate.meta.status === 'accepted');
-            await this.proposeCanonical({ tier: 'canonical', kind: 'standard', title: prior ? `${next.meta.title} (revision)` : next.meta.title, body: next.body, tags: next.meta.tags, links: [next.meta.id], source: 'edu:maintain', band: next.meta.band ?? 'inferred', ...(prior ? { supersedes: prior.meta.id } : {}) });
-          }
-        }
+        if (next.meta.status === note.meta.status) continue;
+        await persist(next); report.changed.push(note.meta.id);
+        if (next.meta.status === 'proven') report.promoted.push(note.meta.id);
+        if (next.meta.status === 'retired') report.retired.push(note.meta.id);
+        if (next.meta.status === 'overdue') report.overdue.push(note.meta.id);
+        // Only a lesson promoted by THIS run is proposed; lessons that arrive already proven (imports, earlier runs) are not.
+        if (next.meta.kind !== 'lesson' || next.meta.status !== 'proven' || proposedOrRejected.has(next.meta.id)) continue;
+        const prior = acceptedStandards.get(next.meta.title);
+        const proposal = await this.proposeCanonical({ tier: 'canonical', kind: 'standard', title: prior ? `${next.meta.title} (revision)` : next.meta.title, body: next.body, tags: next.meta.tags, links: [next.meta.id], source: 'edu:maintain', band: next.meta.band ?? 'inferred', ...(prior ? { supersedes: prior.meta.id } : {}) });
+        for (const link of proposal.meta.links) proposedOrRejected.add(link);
       }
       await this.rebuildIndex(); report.indexRebuilt = true; return report;
     },
