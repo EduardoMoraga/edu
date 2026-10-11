@@ -12,7 +12,7 @@ D- decisions, H- hypotheses, C- commitments, L- lessons.
 **Claim bands.** Every claim is `verified`, `inferred` or `hypothesis`. Say which;
 never state a hypothesis as fact. If you do not know, say how to find out.
 
-**Protocol.** Start with `edu_brief`. Pull on demand: `edu_recall`, then `edu_read`;
+**Protocol.** Start with `edu_brief` (shell: `edu brief`). Pull on demand: `edu_recall`, then `edu_read`;
 cite ids like `[[D-…]]`. `edu_remember` decisions, hypotheses, commitments and lessons
 as they happen; `edu_feedback` when a note helped or misled. End with
 `edu_session_close` and an honest summary.

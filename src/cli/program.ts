@@ -29,7 +29,7 @@ import { packageVersion } from './package.js';
 const GROUPS: Array<[string, string[]]> = [
   ['Get started:', ['create', 'init', 'vault', 'install', 'uninstall', 'update', 'doctor', 'detach']],
   ['Work:', ['run', 'ui', 'demo', 'deck']],
-  ['Brain:', ['brain', 'context', 'reflect', 'proposals', 'metrics', 'checks']],
+  ['Brain:', ['brief', 'brain', 'context', 'reflect', 'proposals', 'metrics', 'checks']],
   ['Integrations:', ['mcp', 'connect', 'statusline', 'hook']],
 ];
 

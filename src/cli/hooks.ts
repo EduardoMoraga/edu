@@ -31,13 +31,21 @@ async function initializedWorkspace(ctx: CliContext, cwd: string) {
   return (await exists(join(ws.primary.root, 'EDU.md'))) ? ws : undefined;
 }
 
+/** Session-start budget: the hook and `edu brief` print the same brief. */
+export const SESSION_BRIEF_TOKENS = 1500;
+
+/** The session brief for `cwd`, or undefined when no brain exists there (never creates one, never opens a session). */
+export async function workspaceBrief(ctx: CliContext, cwd: string): Promise<{ text: string; ws: NonNullable<Awaited<ReturnType<typeof initializedWorkspace>>> } | undefined> {
+  const ws = await initializedWorkspace(ctx, cwd);
+  if (!ws) return undefined;
+  const { brief } = await import('../context/index.js');
+  return { ws, text: await brief(ws.brain, SESSION_BRIEF_TOKENS, { eduMdPath: join(ws.primary.root, 'EDU.md') }) };
+}
+
 export async function sessionStart(ctx: CliContext, cwd: string): Promise<void> {
   const input = parseJsonObject(await ctx.readStdin(500));
-  const ws = await initializedWorkspace(ctx, str(input?.cwd) ?? cwd);
-  if (!ws) return;
-  const { brief } = await import('../context/index.js');
-  const text = await brief(ws.brain, 1500, { eduMdPath: join(ws.primary.root, 'EDU.md') });
-  if (text.trim()) ctx.out(text);
+  const result = await workspaceBrief(ctx, str(input?.cwd) ?? cwd);
+  if (result?.text.trim()) ctx.out(result.text);
 }
 
 export async function sessionEnd(ctx: CliContext, cwd: string): Promise<void> {
