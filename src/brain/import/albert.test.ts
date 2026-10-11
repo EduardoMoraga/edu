@@ -29,6 +29,29 @@ describe('read-only brain importers', () => {
     console.info(`LIVE_ALBERT_IMPORT_COUNTS ${JSON.stringify({ total: report.imported.length, errors: report.errors.length, tiers: counts(report.imported, 'tier'), kinds: counts(report.imported, 'kind'), statuses: counts(report.imported, 'status') })}`);
     expect(report.imported.length).toBeGreaterThan(0);
   });
+  it('accepts the vault folder, the _ALBERT folder itself, or a folder holding the layers directly', async () => {
+    const vault = await temp();
+    const file = join(vault, '_ALBERT', '3-TRANSITIVO', 'L-001_lesson.md');
+    await mkdir(join(file, '..'), { recursive: true });
+    await writeFile(file, '---\ntipo: aprendizaje\ntitulo: Same lesson\n---\n\nBody.\n');
+    for (const source of [vault, join(vault, '_ALBERT')]) {
+      const target = await temp();
+      const report = await importAlbert(source, openBrain([{ scope: 'project', root: target }]));
+      expect(report.errors).toEqual([]);
+      expect(report.imported.map(note => note.meta.title)).toEqual(['Same lesson']);
+    }
+    const bare = await temp();
+    await mkdir(join(bare, '1-CANONICO', 'negocio'), { recursive: true });
+    await writeFile(join(bare, '1-CANONICO', 'negocio', 'rule.md'), '---\ntitulo: Bare rule\n---\n\nBody.\n');
+    const report = await importAlbert(bare, openBrain([{ scope: 'project', root: await temp() }]));
+    expect(report.imported.map(note => [note.meta.title, note.meta.tier])).toEqual([['Bare rule', 'canonical']]);
+  });
+
+  it('explains both accepted layouts when the path is not an Albert vault', async () => {
+    const empty = await temp();
+    await expect(importAlbert(empty, openBrain([{ scope: 'project', root: await temp() }]))).rejects.toThrow(/_ALBERT.*1-CANONICO/s);
+  });
+
   it('imports Albert subfolder transitive notes and Spanish metadata with lifecycle mapping', async () => {
     const source = await temp(), target = await temp();
     const paths = [

@@ -1,7 +1,8 @@
-import { lstat, mkdir, readFile, readlink, realpath } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readlink, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/index.js';
+import { readProjects } from '../vault/registry.js';
 import { captureContext, out, runCli, type Captured } from './testkit.js';
 
 async function initialized(): Promise<Captured> {
@@ -152,5 +153,27 @@ describe('edu context / proposals / doctor', () => {
     await runCli(d, ['brain', 'approve', 'K-missing']);
     expect(d.exitCode).toBe(1);
     expect(d.stderr.join('\n')).toContain('Canonical note not found: K-missing');
+  });
+
+  it('registers the workspace brain from its current brainDir after init', async () => {
+    const c = await initialized();
+    const cwd = await realpath(c.dirs.cwd);
+    expect((await readProjects(c.dirs.eduHome)).projects[0]?.brain).toBe(join(cwd, '.edu', 'brain'));
+    const config = JSON.parse(await readFile(join(cwd, '.edu', 'config.json'), 'utf8'));
+    await writeFile(join(cwd, '.edu', 'config.json'), JSON.stringify({ ...config, brainDir: '01-CONOCIMIENTO' }));
+    expect((await readProjects(c.dirs.eduHome)).projects[0]?.brain).toBe(join(cwd, '01-CONOCIMIENTO'));
+  });
+
+  it('imports an Albert vault given the _ALBERT folder itself, relative to the working directory', async () => {
+    const c = await initialized();
+    const file = join(c.dirs.cwd, 'vault', '_ALBERT', '3-TRANSITIVO', 'D-001_decision.md');
+    await mkdir(join(file, '..'), { recursive: true });
+    await writeFile(file, '---\ntipo: decision\ntitulo: Imported decision\n---\n\nBody.\n');
+    await runCli(c, ['brain', 'import', 'albert', join('vault', '_ALBERT'), '--json']);
+    expect(JSON.parse(out(c)).imported).toEqual(['D-imported-decision']);
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'import', 'albert', 'nowhere']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('_ALBERT');
   });
 });

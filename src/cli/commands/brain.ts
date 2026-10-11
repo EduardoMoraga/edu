@@ -154,7 +154,7 @@ export function registerBrain(program: Command, ctx: CliContext): void {
         const kind = oneOf(source ?? '', ['albert', 'moragent'] as const, 'source');
         const ws = await writableWorkspace(ctx, g.cwd, g.lang);
         const { importAlbert, importMoragent } = await import('../../brain/index.js');
-        const report = await (kind === 'albert' ? importAlbert : importMoragent)(path ?? '', ws.brain);
+        const report = await (kind === 'albert' ? importAlbert : importMoragent)(resolve(g.cwd, path ?? ''), ws.brain);
         if (g.json || opts.json) return printJson(ctx, { imported: report.imported.map((n) => n.meta.id), skipped: report.skipped, errors: report.errors });
         ctx.out(t(g.lang, 'brain.imported', { imported: report.imported.length, skipped: report.skipped.length, errors: report.errors.length }));
         for (const error of report.errors) ctx.err(`  ${error}`);

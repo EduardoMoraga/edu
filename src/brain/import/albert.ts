@@ -1,4 +1,5 @@
-import { basename, join, relative as nodeRelative } from 'node:path';
+import { stat } from 'node:fs/promises';
+import { basename, join, relative as nodeRelative, resolve } from 'node:path';
 import type { ClaimBand } from '../../core/contracts.js';
 import type { Brain } from '../brain.js';
 import { markdownFiles, importFiles, asTransitiveKind, canonicalKind } from './shared.js';
@@ -8,8 +9,30 @@ export function albertPathSegments(root: string, file: string, relativePath = no
   return relativePath(root, file).split(/[\\/]/).filter(Boolean);
 }
 
+const ALBERT_LAYERS = ['1-CANONICO', '2-EPISODICO', '3-TRANSITIVO'] as const;
+
+async function isDir(path: string): Promise<boolean> {
+  try { return (await stat(path)).isDirectory(); } catch { return false; }
+}
+async function hasLayers(dir: string): Promise<boolean> {
+  for (const layer of ALBERT_LAYERS) if (await isDir(join(dir, layer))) return true;
+  return false;
+}
+
+/**
+ * The `_ALBERT` folder to import from. Accepts the vault folder that contains `_ALBERT`, the `_ALBERT`
+ * folder itself, or any folder holding the layer folders (`1-CANONICO`, `2-EPISODICO`, `3-TRANSITIVO`) directly.
+ */
+export async function resolveAlbertRoot(sourceRoot: string): Promise<string> {
+  const source = resolve(sourceRoot);
+  const nested = join(source, '_ALBERT');
+  if (await hasLayers(nested)) return nested;
+  if (await hasLayers(source)) return source;
+  throw new Error(`No Albert vault found at ${source}: expected ${nested} with ${ALBERT_LAYERS.join(', ')} inside, or those folders directly in ${source}. Pass the folder that contains _ALBERT, or _ALBERT itself.`);
+}
+
 export async function importAlbert(sourceRoot: string, brain: Brain): Promise<ImportReport> {
-  const root = join(sourceRoot, '_ALBERT');
+  const root = await resolveAlbertRoot(sourceRoot);
   const files = [
     ...(await markdownFiles(join(root, '1-CANONICO'))),
     ...(await markdownFiles(join(root, '2-EPISODICO'))),
