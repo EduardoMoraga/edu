@@ -59,11 +59,11 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         }
         const lines: DoctorLine[] = [nodeLine(process.version, lang)];
         const { diagnose } = await import('../../adapters/index.js');
-        const clis = await diagnose({ root: g.cwd, home: ctx.home });
+        const clis = await diagnose({ root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env });
         for (const d of clis) {
           if (!d.installed) lines.push({ level: 'warn', text: t(lang, 'doctor.cliMissing', { cli: d.cli }) });
           else if (d.drift) lines.push({ level: 'fail', text: t(lang, 'doctor.cliDrift', { cli: d.cli }) });
-          else if (d.integrated) lines.push({ level: 'ok', text: t(lang, 'doctor.cliReady', { cli: d.cli, scopes: d.scopes.join(', ') }) });
+          else if (d.integrated) lines.push({ level: 'ok', text: t(lang, 'doctor.cliReady', { cli: d.cli, scopes: [...d.scopes, ...d.native].join(', ') }) });
           else lines.push({ level: 'warn', text: t(lang, 'doctor.cliNotIntegrated', { cli: d.cli }) });
           for (const note of d.notes) lines.push({ level: 'warn', text: note });
           if (d.installed) lines.push({ level: 'ok', text: t(lang, 'doctor.auth', { hint: AUTH_HINTS[d.cli] }) });

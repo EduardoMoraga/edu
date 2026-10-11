@@ -7,6 +7,7 @@ import { getManifestPath } from './installer.js';
 import { hasTopLevelTomlKey } from './merge.js';
 import { readTarget, sha256 } from './operations.js';
 import { CLI_IDS } from './types.js';
+import { nativeIntegrations } from '../doctor/native.js';
 
 export interface CliDiagnosis {
   cli: CliId;
@@ -14,12 +15,15 @@ export interface CliDiagnosis {
   integrated: boolean;
   drift: boolean;
   scopes: InstallScope[];
+  /** Native installs found in the CLI's own config (plugin, package, plugin files), e.g. "Claude plugin edu@edu". */
+  native: string[];
   notes: string[];
 }
 
 export interface DiagnoseOptions {
   root: string;
   home?: string;
+  env?: NodeJS.ProcessEnv;
   detectBinary?: (binary: string) => Promise<boolean>;
 }
 
@@ -34,7 +38,10 @@ async function readManifest(path: string): Promise<InstallManifest | undefined> 
   }
 }
 
-/** Reports CLI binary availability separately from Edu integration health. */
+/**
+ * Reports CLI binary availability separately from Edu integration health. A CLI is integrated when Edu
+ * manages files for it (install manifest) or when Edu is installed natively (plugin / package; see doctor/native).
+ */
 export async function diagnose(options: DiagnoseOptions): Promise<CliDiagnosis[]> {
   const root = resolve(options.root);
   const home = resolve(options.home ?? homedir());
@@ -44,6 +51,7 @@ export async function diagnose(options: DiagnoseOptions): Promise<CliDiagnosis[]
   const codexConfig = await readTarget(join(home, '.codex/config.toml'));
   const userOwnsCodexNotify = codexConfig !== undefined && hasTopLevelTomlKey(codexConfig.toString('utf8'), 'notify');
   const detect = options.detectBinary ?? binaryOnPath;
+  const native = await nativeIntegrations(home, options.env ?? {});
   return Promise.all(CLI_IDS.map(async cli => {
     const notes: string[] = cli === 'agy' ? ['agy MCP: manual step'] : [];
     if (cli === 'codex' && userOwnsCodexNotify) notes.push('A user-owned top-level Codex notify command is preserved; Edu did not add its notify hook.');
@@ -59,6 +67,7 @@ export async function diagnose(options: DiagnoseOptions): Promise<CliDiagnosis[]
       }
     }
     if (drift) notes.push('Edu-managed files differ from the manifest');
-    return { cli, installed: await detect(cli), integrated: scopes.length > 0, drift, scopes, notes };
+    notes.push(...native[cli].notes);
+    return { cli, installed: await detect(cli), integrated: scopes.length > 0 || native[cli].found.length > 0, drift, scopes, native: native[cli].found, notes };
   }));
 }
