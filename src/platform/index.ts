@@ -31,7 +31,7 @@ export function whichSync(name: string, env: NodeJS.ProcessEnv = process.env, pl
 /** Extracts the Node script an npm `.cmd` shim runs, e.g. `"%dp0%\node_modules\pkg\cli.js" %*`. */
 export function nodeScriptFromCmdShim(shimPath: string, content?: string): string | undefined {
   const text = content ?? readFileSync(shimPath, 'utf8');
-  const match = /"%(?:~?dp0)%?\\([^"]+?\.(?:js|mjs|cjs))"/i.exec(text) ?? /%~dp0\\([^\s"]+?\.(?:js|mjs|cjs))/i.exec(text);
+  const match = /"%(?:~?dp0)%?\\?([^"]+?\.(?:js|mjs|cjs))"/i.exec(text) ?? /%~dp0\\?([^\s"]+?\.(?:js|mjs|cjs))/i.exec(text);
   if (!match?.[1]) return undefined;
   return resolve(dirname(shimPath), match[1].replace(/\\/g, '/'));
 }
@@ -39,7 +39,7 @@ export function nodeScriptFromCmdShim(shimPath: string, content?: string): strin
 /** Some shims wrap a native binary instead of a script: `"%dp0%\node_modules\pkg\bin\tool.exe" %*`. */
 export function exeFromCmdShim(shimPath: string, content?: string): string | undefined {
   const text = content ?? readFileSync(shimPath, 'utf8');
-  const match = /"%(?:~?dp0)%?\\([^"]+?\.exe)"/i.exec(text);
+  const match = /"%(?:~?dp0)%?\\?([^"]+?\.exe)"/i.exec(text);
   return match?.[1] ? resolve(dirname(shimPath), match[1].replace(/\\/g, '/')) : undefined;
 }
 

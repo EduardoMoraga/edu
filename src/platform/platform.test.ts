@@ -44,6 +44,12 @@ describe('Windows shim resolution', () => {
     expect(script?.replace(/\\/g, '/')).toMatch(/node_modules\/@anthropic-ai\/claude-code\/cli\.js$/);
   });
 
+  it('reads the Node script out of a shim without a trailing backslash after %~dp0', () => {
+    const shim = '@ECHO off\r\nnode "%~dp0pi-launcher.js" %*\r\n';
+    const script = nodeScriptFromCmdShim(join(tmpdir(), '.pi', 'agent', 'bin', 'pi.cmd'), shim);
+    expect(script?.replace(/\\/g, '/')).toMatch(/\.pi\/agent\/bin\/pi-launcher\.js$/);
+  });
+
   it('starts a .cmd-wrapped Node CLI without cmd.exe so pipes in prompts stay literal', async () => {
     if (process.platform !== 'win32') return;
     const dir = await mkdtemp(join(tmpdir(), 'edu-shim-node-'));
