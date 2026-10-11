@@ -177,6 +177,22 @@ describe('edu context / proposals / doctor', () => {
     expect(c.stderr.join('\n')).toContain('_ALBERT');
   });
 
+  it('reads a note by legacy id, title or prefix and lists candidates when ambiguous', async () => {
+    const c = await initialized();
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    await brain.write({ tier: 'transitive', kind: 'decision', title: 'Usar colas', body: 'Queue body.', provenance: { legacy_id: 'D-010', aliases: ['D-010'] } });
+    await brain.write({ tier: 'transitive', kind: 'decision', title: 'Usar caché', body: 'Cache body.', provenance: { legacy_id: 'D-011', aliases: ['D-011'] } });
+    await runCli(c, ['brain', 'read', 'D-010']);
+    expect(out(c)).toContain('Queue body.');
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'read', 'usar', 'cache', '--json']);
+    expect(JSON.parse(out(c))).toMatchObject({ via: 'title', id: 'D-011-usar-cache' });
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'read', 'D-01']);
+    expect(c.exitCode).toBe(1);
+    expect(out(c)).toMatch(/ambiguous \(prefix\)[\s\S]*D-010-usar-colas[\s\S]*D-011-usar-cache/);
+  });
+
   it('warns about an Albert note whose frontmatter is invalid, listing the file', async () => {
     const c = await initialized();
     const file = join(c.dirs.cwd, 'vault', '_ALBERT', '3-TRANSITIVO', 'L-007_broken.md');

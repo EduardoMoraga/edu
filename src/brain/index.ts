@@ -7,6 +7,8 @@ export type { MarkdownDocument } from './frontmatter.js';
 export { allowedStatuses, validateStatus, validateTransition } from './lifecycle.js';
 export { learnedWeight, lessonStatus, overdueStatus, feedbackUsage, recordUsage } from './learning.js';
 export { rankNotes, tokenize } from './search.js';
+export { resolveReference } from './resolve.js';
+export type { ResolveResult, ResolveVia } from './resolve.js';
 export { AUTO_MAINTAIN_INTERVAL_MS, autoMaintain, maintainStatePath, readMaintainState } from './auto-maintain.js';
 export type { AutoMaintainResult, MaintainState } from './auto-maintain.js';
 export { atomicWrite, createId, notePath, slugify } from './store.js';

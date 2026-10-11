@@ -101,6 +101,38 @@ export function registerBrain(program: Command, ctx: CliContext): void {
     );
 
   brain
+    .command('read')
+    .description('print a note: id, legacy id or alias (D-010), unique id prefix, filename or exact title')
+    .argument('<reference...>', 'what the note is called')
+    .option('--json', 'machine-readable output')
+    .action(
+      action<{ json?: boolean }>(ctx, async ({ g, opts, cmd }) => {
+        const reference = (cmd.args as string[]).join(' ').trim();
+        const ws = await openWorkspace(ctx, g.cwd);
+        const result = await ws.brain.resolve(reference);
+        const json = g.json || opts.json;
+        if (!result) {
+          ctx.setExitCode(1);
+          return json ? printJson(ctx, { reference, found: false }) : ctx.err(t(g.lang, 'brain.readMissing', { reference }));
+        }
+        if ('candidates' in result) {
+          ctx.setExitCode(1);
+          if (json) return printJson(ctx, { reference, ambiguous: true, via: result.via, candidates: result.candidates.map((n) => ({ id: n.meta.id, title: n.meta.title, legacy_id: n.meta.legacy_id })) });
+          ctx.out(t(g.lang, 'brain.readAmbiguous', { reference, via: result.via, count: result.candidates.length }));
+          for (const n of result.candidates) ctx.out(`  ${n.meta.id}  ${n.meta.title}`);
+          return;
+        }
+        const { note, via } = result;
+        if (json) return printJson(ctx, { via, id: note.meta.id, path: note.path, meta: note.meta, body: note.body });
+        const { glyphs } = look(ctx);
+        ctx.out(`${note.meta.id} ${glyphs.sep} ${note.meta.title}${note.meta.status ? ` ${glyphs.sep} ${note.meta.status}` : ''}${note.meta.band ? ` [${note.meta.band}]` : ''}`);
+        ctx.out(note.path);
+        ctx.out('');
+        ctx.out(note.body);
+      }),
+    );
+
+  brain
     .command('remember')
     .description('write a decision, hypothesis, commitment or lesson')
     .argument('<title...>', 'one-line title')

@@ -7,6 +7,7 @@ import { INDEX_DIR, atomicWrite, createId, encodeNote, notePath, overlayNotes } 
 import { assertDecisionReversion, isClosedEpisode, validateTransition, validateStatus } from './lifecycle.js';
 import { feedbackUsage, applyLearning, recordUsage } from './learning.js';
 import { rankNotes } from './search.js';
+import { resolveReference, type ResolveResult } from './resolve.js';
 
 export interface NewNote {
   title: string;
@@ -40,7 +41,10 @@ export interface BrainStats { total: number; byTier: Record<Tier, number>; byKin
 export interface Brain {
   init(loc: BrainLocation, opts?: { identityName?: string }): Promise<void>;
   list(filter?: Partial<Pick<NoteMeta, 'tier' | 'kind' | 'status'>>): Promise<Note[]>;
+  /** Exact id only (internal lookups). For what a human or agent types, use `resolve`. */
   read(id: string): Promise<Note | undefined>;
+  /** Resolves an id, legacy id/alias, id prefix, filename stem or exact title; ambiguity returns candidates. */
+  resolve(reference: string): Promise<ResolveResult | undefined>;
   write(input: NewNote): Promise<Note>;
   update(id: string, patch: Partial<NoteMeta>, body?: string): Promise<Note>;
   recall(query: string, opts?: { limit?: number; tiers?: Tier[] }): Promise<RecallHit[]>;
@@ -141,6 +145,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     },
     async list(filter = {}) { return (await all()).filter(n => Object.entries(filter).every(([key, value]) => value === undefined || n.meta[key as keyof NoteMeta] === value)); },
     read: find,
+    async resolve(reference) { return resolveReference(await all(), reference); },
     async write(input) {
       if (input.tier === 'canonical' && input.kind && !(['identity', 'standard', 'lexicon', 'domain', 'person', 'preference'] as CanonicalKind[]).includes(input.kind as CanonicalKind)) {
         throw new Error(`Invalid canonical kind: ${input.kind}`);
