@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { INDEX_DIR, TRANSITIVE_PREFIX, TIER_DIRS, type BrainLocation, type Note, type NoteMeta, type TransitiveKind } from '../core/contracts.js';
@@ -39,12 +39,48 @@ export function notePath(brain: string, meta: NoteMeta, now = new Date()): strin
   return resolved;
 }
 
+/**
+ * File operations behind `atomicWrite`, as an object so tests can simulate a locked target with vi.spyOn.
+ * Not part of the public API.
+ */
+export const atomicFs = {
+  mkdir, writeFile, rename, copyFile, rm,
+  sleep: (ms: number) => new Promise<void>(done => setTimeout(done, ms)),
+};
+
+/** Windows reports a target held open by another process (Obsidian, antivirus, an indexer) with these codes. */
+const LOCKED = new Set(['EPERM', 'EBUSY', 'EACCES']);
+/** Backoff between rename attempts, ~1.8 s in total (graceful-fs style). */
+export const RENAME_BACKOFF_MS = [10, 20, 40, 80, 160, 320, 400, 400, 400];
+
+const isLocked = (error: unknown) => LOCKED.has(String((error as NodeJS.ErrnoException | undefined)?.code));
+
+/**
+ * Writes through a temp file renamed over the target. When the rename keeps failing because another process
+ * holds the target (common on Windows), it retries with backoff and finally copies the temp file over the
+ * target in place. The temp file never survives, and a write that cannot land at all throws.
+ */
 export async function atomicWrite(path: string, content: string): Promise<void> {
   noteCache.delete(resolve(path));
-  await mkdir(dirname(path), { recursive: true });
+  await atomicFs.mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;
-  try { await writeFile(temp, content, 'utf8'); await rename(temp, path); }
-  catch (error) { await rm(temp, { force: true }); throw error; }
+  try {
+    await atomicFs.writeFile(temp, content, 'utf8');
+    for (let attempt = 0; ; attempt++) {
+      try { await atomicFs.rename(temp, path); return; }
+      catch (error) {
+        if (!isLocked(error)) throw error;
+        const delay = RENAME_BACKOFF_MS[attempt];
+        if (delay === undefined) {
+          // Still locked: a direct copy only needs write access to the target, not delete/replace rights.
+          try { await atomicFs.copyFile(temp, path); return; } catch { throw error; }
+        }
+        await atomicFs.sleep(delay);
+      }
+    }
+  } finally {
+    await atomicFs.rm(temp, { force: true }).catch(() => { /* best effort: nothing else to clean */ });
+  }
 }
 
 /**

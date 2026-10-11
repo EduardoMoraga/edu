@@ -57,6 +57,16 @@ const iso = (d = new Date()) => d.toISOString();
 const defaultStatus = (tier: Tier, kind: NoteMeta['kind']): NoteMeta['status'] => tier === 'canonical' ? 'proposed' : ({ decision: 'active', hypothesis: 'open', commitment: 'pending', lesson: 'candidate', session: 'open-session' } as const)[kind as 'decision' | 'hypothesis' | 'commitment' | 'lesson' | 'session'];
 /** Source of the episodic record a rejected canonical proposal leaves behind. */
 export const REJECT_SOURCE = 'edu:reject';
+/**
+ * Usage is a learning signal, not a log: a note already used in the same minute is not rewritten again
+ * (chat turns and recalls would otherwise rewrite the same files on every query, racing Obsidian and
+ * antivirus handles on Windows). Ranking and promotion depend on wins, losses and lastUsed recency, none
+ * of which a same-minute repeat changes meaningfully.
+ */
+const usedThisMinute = (meta: NoteMeta, now: Date) => {
+  const last = meta.usage?.lastUsed ? Date.parse(meta.usage.lastUsed) : NaN;
+  return Number.isFinite(last) && Math.floor(last / 60_000) === Math.floor(now.getTime() / 60_000);
+};
 const immutableCanonical = (meta: NoteMeta) => meta.tier === 'canonical' && (meta.status === 'accepted' || meta.status === 'superseded');
 
 export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions = {}): Brain {
@@ -150,7 +160,8 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     async recall(query, opts = {}) {
       const notes = (await all()).filter(n => !opts.tiers || opts.tiers.includes(n.meta.tier));
       const hits = rankNotes(query, notes, new Date(), opts.limit);
-      for (const hit of hits) if (!isClosedEpisode(hit.note.meta)) await persist({ ...hit.note, meta: { ...hit.note.meta, usage: recordUsage(hit.note.meta.usage), updated: iso() } });
+      const now = new Date();
+      for (const hit of hits) if (!isClosedEpisode(hit.note.meta) && !usedThisMinute(hit.note.meta, now)) await persist({ ...hit.note, meta: { ...hit.note.meta, usage: recordUsage(hit.note.meta.usage, now), updated: iso() } });
       return hits;
     },
     async recordUse(ids, now = new Date()) {
@@ -158,7 +169,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       const byId = new Map((await all()).map(note => [note.meta.id, note]));
       for (const id of new Set(ids)) {
         const note = byId.get(id);
-        if (!note || isClosedEpisode(note.meta)) continue;
+        if (!note || isClosedEpisode(note.meta) || usedThisMinute(note.meta, now)) continue;
         await persist({ ...note, meta: { ...note.meta, usage: recordUsage(note.meta.usage, now), updated: iso() } });
       }
     },
