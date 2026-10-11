@@ -28,7 +28,7 @@ export interface ImportMetadata {
 }
 
 export async function importFiles(files: string[], brain: Brain, source: ImportReport['source'], classify: (path: string) => Partial<NewNote>, normalize?: (metadata: Record<string, unknown>, body: string, path: string) => ImportMetadata): Promise<ImportReport> {
-  const report: ImportReport = { source, imported: [], skipped: [], errors: [] };
+  const report: ImportReport = { source, imported: [], skipped: [], errors: [], warnings: [] };
   for (const path of files) {
     try {
       const raw = await readFile(path, 'utf8');
@@ -36,8 +36,12 @@ export async function importFiles(files: string[], brain: Brain, source: ImportR
       const mapping = classify(path);
       const extra = normalize?.(parsed.meta as unknown as Record<string, unknown>, parsed.body, path) ?? {};
       const title = String(extra.title ?? parsed.meta.title ?? basename(path, '.md').replace(/^[DHCAL]-/, '').replace(/[-_]/g, ' '));
-      const noteBody = (extra.body ?? parsed.body) || raw;
-      const input: NewNote = { title, body: noteBody, tier: mapping.tier ?? 'transitive', kind: mapping.kind ?? 'lesson', tags: extra.tags ?? (Array.isArray(parsed.meta.tags) ? parsed.meta.tags : []), links: Array.isArray(parsed.meta.links) ? parsed.meta.links : [], status: (extra.acceptedCanonical ? 'proposed' : extra.status ?? mapStatus(parsed.meta.status) ?? mapping.status) as NoteMeta['status'], band: extra.band ?? parsed.meta.band, owner: extra.owner ?? parsed.meta.owner, due: extra.due ?? parsed.meta.due, supersedes: parsed.meta.supersedes, created: extra.created, updated: extra.updated, source: extra.source ?? source };
+      // Invalid YAML: the lenient parser salvages keys for classification, but nothing it could not read may be
+      // lost, so the whole source text becomes the body and the note is marked for review.
+      const invalid = parsed.recovered;
+      if (invalid) report.warnings.push(`${path}: invalid-frontmatter (YAML could not be parsed; the raw text was kept as the body)`);
+      const noteBody = invalid ? raw.replace(/\r\n/g, '\n').trim() : (extra.body ?? parsed.body).trim() || raw.trim();
+      const input: NewNote = { title, body: noteBody, tier: mapping.tier ?? 'transitive', kind: mapping.kind ?? 'lesson', tags: extra.tags ?? (Array.isArray(parsed.meta.tags) ? parsed.meta.tags : []), links: Array.isArray(parsed.meta.links) ? parsed.meta.links : [], status: (extra.acceptedCanonical ? 'proposed' : extra.status ?? mapStatus(parsed.meta.status) ?? mapping.status) as NoteMeta['status'], band: extra.band ?? parsed.meta.band, owner: extra.owner ?? parsed.meta.owner, due: extra.due ?? parsed.meta.due, supersedes: parsed.meta.supersedes, created: extra.created, updated: extra.updated, source: extra.source ?? source, ...(invalid ? { provenance: { import_warning: 'invalid-frontmatter' as const } } : {}) };
       if (!input.status) delete input.status;
       if (!input.owner) delete input.owner;
       if (!input.due) delete input.due;

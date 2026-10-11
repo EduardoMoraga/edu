@@ -23,7 +23,11 @@ export interface NewNote {
   supersedes?: string;
   created?: string;
   updated?: string;
+  /** Provenance kept verbatim on the note (importers only); never overrides the identity fields above. */
+  provenance?: NoteProvenance;
 }
+/** Optional frontmatter an importer may attach to a note it writes. */
+export type NoteProvenance = Pick<NoteMeta, 'import_warning'>;
 export interface MaintenanceReport { changed: string[]; promoted: string[]; retired: string[]; overdue: string[]; indexRebuilt: boolean }
 export interface BrainStats { total: number; byTier: Record<Tier, number>; byKind: Record<string, number>; byStatus: Record<string, number> }
 
@@ -67,6 +71,8 @@ const usedThisMinute = (meta: NoteMeta, now: Date) => {
   const last = meta.usage?.lastUsed ? Date.parse(meta.usage.lastUsed) : NaN;
   return Number.isFinite(last) && Math.floor(last / 60_000) === Math.floor(now.getTime() / 60_000);
 };
+const provenanceOf = (provenance: NoteProvenance | undefined): Partial<NoteMeta> =>
+  Object.fromEntries(Object.entries(provenance ?? {}).filter(([, value]) => value !== undefined && (value as unknown) !== '' && !(Array.isArray(value) && !value.length)));
 const immutableCanonical = (meta: NoteMeta) => meta.tier === 'canonical' && (meta.status === 'accepted' || meta.status === 'superseded');
 
 export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions = {}): Brain {
@@ -140,6 +146,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         ...(input.kind ? { kind: input.kind } : {}), ...(input.tier === 'canonical' ? { status: 'proposed' as const } : input.status || defaultStatus(input.tier, input.kind) ? { status: input.status ?? defaultStatus(input.tier, input.kind) } : {}), ...(input.band ? { band: input.band } : {}),
         tags: [...new Set([...(input.tags ?? []), ...(input.kind ? [input.kind] : [])])], links: input.links ?? [], created: iso(now), updated: input.updated ? iso(new Date(input.updated)) : iso(now), source: input.source ?? 'user',
         ...(input.owner ? { owner: input.owner } : {}), ...(input.due ? { due: input.due } : {}), ...(input.supersedes ? { supersedes: input.supersedes } : {}),
+        ...provenanceOf(input.provenance),
       };
       if (meta.status && meta.kind) validateStatus(meta.tier === 'canonical' ? 'canonical' : meta.kind, meta.status);
       const path = notePath(brainPath(primary), meta, now);

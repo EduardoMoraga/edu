@@ -176,4 +176,14 @@ describe('edu context / proposals / doctor', () => {
     expect(c.exitCode).toBe(1);
     expect(c.stderr.join('\n')).toContain('_ALBERT');
   });
+
+  it('warns about an Albert note whose frontmatter is invalid, listing the file', async () => {
+    const c = await initialized();
+    const file = join(c.dirs.cwd, 'vault', '_ALBERT', '3-TRANSITIVO', 'L-007_broken.md');
+    await mkdir(join(file, '..'), { recursive: true });
+    await writeFile(file, '---\ntitulo: a: b: c\n---\n\nKept body.\n');
+    await runCli(c, ['brain', 'import', 'albert', 'vault']);
+    expect(out(c)).toContain('warnings 1');
+    expect(c.stderr.join('\n')).toMatch(/warning: .*L-007_broken\.md: invalid-frontmatter/);
+  });
 });

@@ -83,6 +83,8 @@ export interface NoteMeta {
   due?: string;          // commitments, ISO date
   supersedes?: string;   // decision reverting another, canonical replacing another
   usage?: UsageStats;
+  /** Set by an importer when the source frontmatter could not be parsed; the raw source text is the body. */
+  import_warning?: 'invalid-frontmatter';
 }
 
 export interface Note {
