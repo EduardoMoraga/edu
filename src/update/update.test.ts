@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -185,5 +185,18 @@ describe('migrateWorkspaces', () => {
     expect(results.map(r => [r.name, r.status])).toEqual([['albert', 'migrated'], ['gone', 'missing'], ['plain', 'no-brain']]);
     expect(await readFile(join(eduRoot, 'brain', '0-index', 'INDEX.md'), 'utf8')).toContain('Visit stores on Monday');
     expect(JSON.parse(await readFile(join(eduRoot, 'state', 'maintain.json'), 'utf8')).lastRun).toBeGreaterThan(0);
+  });
+  it('refreshes a stale registered brain path to the configured brainDir', async () => {
+    const base = await realpath(await temp());
+    const eduHome = join(base, 'edu-home');
+    const ws = join(base, 'albert');
+    const eduRoot = join(ws, '.edu');
+    await mkdir(eduRoot, { recursive: true });
+    await openBrain([{ scope: 'project', root: eduRoot }]).init({ scope: 'project', root: eduRoot }, { identityName: 'Albert' });
+    await registerProject(eduHome, ws);
+    await writeFile(join(eduRoot, 'config.json'), JSON.stringify({ brainDir: '01-CONOCIMIENTO' }));
+    await migrateWorkspaces(eduHome);
+    const stored = JSON.parse(await readFile(join(eduHome, 'projects.json'), 'utf8')) as { projects: { brain: string }[] };
+    expect(stored.projects[0]?.brain).toBe(join(ws, '01-CONOCIMIENTO'));
   });
 });

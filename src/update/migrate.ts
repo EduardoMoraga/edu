@@ -1,6 +1,7 @@
 /**
  * Post-update migration hook (`edu internal migrate-workspaces`): for every registered workspace,
  * run maintenance with the new code, which also rebuilds the index and the Obsidian `.base` files.
+ * Stale registered brain paths are rewritten from each workspace's current `brainDir` first.
  * Missing folders are skipped (the registry never prunes them); one broken workspace never stops the rest.
  */
 import { access } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import { join } from 'node:path';
 import { autoMaintain } from '../brain/auto-maintain.js';
 import { openBrain } from '../brain/brain.js';
 import { withBrainDir } from '../brain/location.js';
-import { readProjects } from '../vault/registry.js';
+import { readProjects, refreshProjects } from '../vault/registry.js';
 
 export type MigrationStatus = 'migrated' | 'missing' | 'no-brain' | 'failed';
 export interface WorkspaceMigration { name: string; root: string; status: MigrationStatus; detail?: string }
@@ -18,6 +19,8 @@ async function exists(path: string): Promise<boolean> {
 }
 
 export async function migrateWorkspaces(eduHome: string, now = new Date()): Promise<WorkspaceMigration[]> {
+  // A broken registry write must not block maintenance; readProjects resolves live paths either way.
+  await refreshProjects(eduHome).catch(() => undefined);
   const { projects } = await readProjects(eduHome);
   const results: WorkspaceMigration[] = [];
   for (const project of projects) {
