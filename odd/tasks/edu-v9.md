@@ -24,3 +24,4 @@
   - For the lead: `~/.edu/config.json` has `lang: "en"`, so the real global brain will get the English set and `00-START/Dashboard.md`; set `lang: "es"` there for `00-INICIO/Panel.md`. Not verified: rendering inside the Obsidian UI (T3).
 - T3: 03-LAB brains moved to visible git-excluded 01-CONOCIMIENTO (backup ~/Backups/pre-edu-2026-10-10/lab-brains); global + LAB workspaces set to lang es; all indexes rebuilt; Panel.md generated. Visual check in Obsidian pending (no screen-capture permission; Obsidian CLI disabled by user setting).
 - T4: v0.9.0 released (CI green 3 OS after Windows test fix), installed via edu update.
+- v0.9.1: localized status/band/kind and dates verified via Obsidian CLI base:query; sort newest-first confirmed visually by the user (CLI query ignores view sort).
