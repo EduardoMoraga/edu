@@ -3,7 +3,7 @@ import {
 } from "./chunk-NTU4RUMO.js";
 import {
   lessonCount
-} from "./chunk-YZLHP2GJ.js";
+} from "./chunk-7Z67EAVU.js";
 
 // src/cli/run/commands.ts
 import { execFile } from "child_process";
@@ -62,4 +62,4 @@ export {
   selfRunner,
   cliDispatch
 };
-//# sourceMappingURL=chunk-7NPK4FO3.js.map
+//# sourceMappingURL=chunk-T5VBTMRB.js.map

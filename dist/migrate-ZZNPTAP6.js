@@ -2,7 +2,7 @@ import {
   autoMaintain,
   openBrain,
   readProjects
-} from "./chunk-4NUA3TNO.js";
+} from "./chunk-DUVIFR5X.js";
 import {
   withBrainDir
 } from "./chunk-MWM3NETH.js";
@@ -46,4 +46,4 @@ async function migrateWorkspaces(eduHome, now = /* @__PURE__ */ new Date()) {
 export {
   migrateWorkspaces
 };
-//# sourceMappingURL=migrate-7PCX3X7D.js.map
+//# sourceMappingURL=migrate-ZZNPTAP6.js.map

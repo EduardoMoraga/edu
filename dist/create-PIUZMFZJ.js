@@ -4,7 +4,7 @@ import {
 } from "./chunk-MRXNEYBJ.js";
 import {
   initBrain
-} from "./chunk-SFBPBDH7.js";
+} from "./chunk-SWCSOI5I.js";
 import {
   upsertManagedBlock
 } from "./chunk-DGIFDAPF.js";
@@ -13,7 +13,7 @@ import {
 } from "./chunk-5U2RISJO.js";
 import {
   identityName
-} from "./chunk-YZLHP2GJ.js";
+} from "./chunk-7Z67EAVU.js";
 import {
   resolveBrainLocations
 } from "./chunk-3S2XBVXW.js";
@@ -22,7 +22,7 @@ import {
   openBrain,
   readProjects,
   registerProject
-} from "./chunk-4NUA3TNO.js";
+} from "./chunk-DUVIFR5X.js";
 import {
   atomicWrite,
   brainPath,
@@ -760,7 +760,7 @@ async function addDocuments(opts, deps) {
   if (project?.scope !== "project") throw new Error("No Edu workspace here: run `edu create <docs> --name <Agent>` first, or cd into a workspace");
   const workspace = resolve(project.root, "..");
   const settings = await readWorkspaceSettings(project.root);
-  const { effectiveConfig } = await import("./workspace-VMT2GLJX.js");
+  const { effectiveConfig } = await import("./workspace-CIK4DZR7.js");
   const config = await effectiveConfig(project.root, deps.detected);
   const lang = config.lang;
   const sourcesDir = resolve(workspace, settings.sourcesDir ?? relative(workspace, join4(brainPath(project), "sources")));
@@ -778,4 +778,4 @@ export {
   extractKnowledge,
   readDocuments
 };
-//# sourceMappingURL=create-3UK63FOV.js.map
+//# sourceMappingURL=create-PIUZMFZJ.js.map

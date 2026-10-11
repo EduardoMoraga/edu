@@ -4,10 +4,10 @@ import {
 import {
   brief,
   truncateToTokens
-} from "./chunk-3FUNP7O6.js";
+} from "./chunk-FGW3UIBN.js";
 import {
   executeRun
-} from "./chunk-XN5HBRON.js";
+} from "./chunk-6XMKXRZC.js";
 import {
   createEngine,
   detectEngines
@@ -17,7 +17,7 @@ import {
 } from "./chunk-ROTDA577.js";
 import {
   openBrain
-} from "./chunk-4NUA3TNO.js";
+} from "./chunk-DUVIFR5X.js";
 
 // src/crew/index.ts
 import { execFile as execFileCallback2 } from "child_process";
@@ -590,4 +590,4 @@ export {
   result,
   review
 };
-//# sourceMappingURL=chunk-GHQCPYDF.js.map
+//# sourceMappingURL=chunk-AJU3GAIM.js.map

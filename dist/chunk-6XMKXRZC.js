@@ -6,12 +6,12 @@ import {
 } from "./chunk-NTU4RUMO.js";
 import {
   initBrain
-} from "./chunk-SFBPBDH7.js";
+} from "./chunk-SWCSOI5I.js";
 import {
   effectiveConfig,
   exists,
   openWorkspace
-} from "./chunk-YZLHP2GJ.js";
+} from "./chunk-7Z67EAVU.js";
 
 // src/cli/run/session.ts
 import { join } from "path";
@@ -26,8 +26,8 @@ async function executeRun(ctx, setup) {
   const base = await effectiveConfig(ws.primary.root, available);
   const config = { ...base, mode: setup.mode ?? base.mode, defaultCli: setup.cli ?? base.defaultCli, approvals: setup.autoApprove ? "auto" : base.approvals };
   const [{ orchestrate }, { buildContext }, engineModule] = await Promise.all([
-    import("./orchestrator-MADHOTM5.js"),
-    import("./context-37UALPLY.js"),
+    import("./orchestrator-AIOA3TUI.js"),
+    import("./context-MQIPELQ6.js"),
     import("./engine-GM3MJPFZ.js")
   ]);
   const eduMdPath = join(ws.primary.root, "EDU.md");
@@ -51,4 +51,4 @@ async function executeRun(ctx, setup) {
 export {
   executeRun
 };
-//# sourceMappingURL=chunk-XN5HBRON.js.map
+//# sourceMappingURL=chunk-6XMKXRZC.js.map

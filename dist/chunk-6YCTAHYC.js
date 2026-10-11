@@ -6,7 +6,7 @@ import {
   printJson,
   registerPluginSetup,
   statusLine
-} from "./chunk-YB2CXBGM.js";
+} from "./chunk-AI7ZKOI7.js";
 import {
   fsCrewSource
 } from "./chunk-CVB7YSGO.js";
@@ -28,7 +28,7 @@ import {
 import {
   createCrew,
   runWorker
-} from "./chunk-GHQCPYDF.js";
+} from "./chunk-AJU3GAIM.js";
 import {
   globalHome,
   processContext,
@@ -49,10 +49,10 @@ import {
   editContent,
   editInstructions,
   ownerOf
-} from "./chunk-PAOJ6XOJ.js";
+} from "./chunk-J7V2T52F.js";
 import {
   initBrain
-} from "./chunk-SFBPBDH7.js";
+} from "./chunk-SWCSOI5I.js";
 import {
   eduServiceMcpLaunch,
   spawnCli,
@@ -64,7 +64,7 @@ import {
   identityName,
   lessonCount,
   openWorkspace
-} from "./chunk-YZLHP2GJ.js";
+} from "./chunk-7Z67EAVU.js";
 import {
   listCanonicalProposals,
   reviewCanonicalProposals
@@ -75,7 +75,7 @@ import {
   readMaintainState,
   readProjects,
   registerProject
-} from "./chunk-4NUA3TNO.js";
+} from "./chunk-DUVIFR5X.js";
 import {
   TIER_DIRS,
   atomicWrite,
@@ -230,7 +230,7 @@ function registerBrain(program, ctx) {
     action(ctx, async ({ g, opts }, source, path) => {
       const kind = oneOf(source ?? "", ["albert", "moragent"], "source");
       const ws = await writableWorkspace(ctx, g.cwd, g.lang);
-      const { importAlbert, importMoragent } = await import("./brain-OE5BAIKP.js");
+      const { importAlbert, importMoragent } = await import("./brain-H66QDPH7.js");
       const report = await (kind === "albert" ? importAlbert : importMoragent)(path ?? "", ws.brain);
       if (g.json || opts.json) return printJson(ctx, { imported: report.imported.map((n) => n.meta.id), skipped: report.skipped, errors: report.errors });
       ctx.out(t(g.lang, "brain.imported", { imported: report.imported.length, skipped: report.skipped.length, errors: report.errors.length }));
@@ -387,7 +387,7 @@ function registerSetup(program, ctx) {
       const scope = parseScope(opts.scope);
       const { uninstall, getManifestPath } = await import("./adapters-SRTHQPX7.js");
       if (scope === "global") {
-        const { setupManifestPath, uninstallSetup } = await import("./setup-PL5JN3ZH.js");
+        const { setupManifestPath, uninstallSetup } = await import("./setup-VURE6WOI.js");
         if (await exists(await setupManifestPath(ctx.home))) {
           await uninstallSetup({ home: ctx.home, force: Boolean(opts.force) });
           ctx.out(t(g.lang, "uninstall.done", { scope }));
@@ -447,7 +447,7 @@ function modeLine(lang, mode) {
 }
 function registerCreate(program, ctx, deps = {}) {
   program.command("create").description("turn documents (.md .txt .docx .pdf) into a self-contained, Obsidian-ready workspace with a named agent").argument("[docs...]", "documents to learn from (never modified)").option("--name <agent>", "the agent's name, e.g. Albert (also the folder name)").option("--dir <parent>", "folder that will hold the workspace (default ~/Edu)").option("--lang <lang>", "folder and README language: es | en (default EDU_LANG, then locale, then es)").option("--cli <cli>", "CLI that extracts the knowledge: claude, codex, pi or opencode (default: first installed)").option("--no-llm", "deterministic extraction by headings, no LLM").option("--add", "add the documents to the workspace you are in").option("-y, --yes", "use the target folder even if it is not empty").option("--json", "machine-readable result").action(action(ctx, async ({ g, opts, cmd }) => {
-    const { addDocuments, createWorkspace } = await import("./create-3UK63FOV.js");
+    const { addDocuments, createWorkspace } = await import("./create-PIUZMFZJ.js");
     const { workspaceLang } = await import("./layout-MQUVI4CG.js");
     const docs = cmd.args.map((path) => resolve3(g.cwd, path));
     const lang = workspaceLang(opts.lang ?? cmd.optsWithGlobals().lang, ctx.env);
@@ -790,7 +790,7 @@ function registerConnect(program, ctx, deps = {}) {
     }
     if (!existsSync2(path)) throw new Error(es ? `No encontr\xE9 la configuraci\xF3n de Hermes en ${path}. Instala Hermes o usa --config.` : `Hermes config not found at ${path}. Install Hermes or pass --config.`);
     if (opts.project) {
-      const { selectWorkspace } = await import("./projects-MJV76PJI.js");
+      const { selectWorkspace } = await import("./projects-V6H3O4FE.js");
       await selectWorkspace(opts.project, { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home }, g.cwd);
     }
     const entry = hermesEntry(eduServiceMcpLaunch({ env: ctx.env }), opts.project);
@@ -1837,7 +1837,7 @@ async function sessionStart(ctx, cwd) {
   const input = parseJsonObject(await ctx.readStdin(500));
   const ws = await initializedWorkspace(ctx, str(input?.cwd) ?? cwd);
   if (!ws) return;
-  const { brief } = await import("./context-37UALPLY.js");
+  const { brief } = await import("./context-MQIPELQ6.js");
   const text = await brief(ws.brain, 1500, { eduMdPath: join12(ws.primary.root, "EDU.md") });
   if (text.trim()) ctx.out(text);
 }
@@ -1880,7 +1880,7 @@ async function codexNotify(ctx, cwd, payload) {
 function registerIntegrations(program, ctx) {
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-74HNIN3C.js");
+      const { runStdioServer } = await import("./stdio-S6UWO3ZO.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -1927,7 +1927,7 @@ function registerLearn(program, ctx) {
       const ws = await openWorkspace(ctx, g.cwd);
       const config = await effectiveConfig(ws.primary.root, []);
       const budgetTokens = opts.budget ? parseIntOption(opts.budget, "--budget") : config.context.budgetTokens;
-      const { buildContext } = await import("./context-37UALPLY.js");
+      const { buildContext } = await import("./context-MQIPELQ6.js");
       const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join13(ws.primary.root, "EDU.md"), trackUsage: false });
       if (g.json || opts.json) return printJson(ctx, pack);
       const { glyphs } = look(ctx);
@@ -2000,7 +2000,7 @@ function registerMcpProject(program, ctx) {
   if (!mcp) throw new Error("The mcp command must be registered before its --project option");
   mcp.option("--project <name|path>", 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)').action(
     action(ctx, async ({ g, opts }) => {
-      const { runStdioServer } = await import("./stdio-74HNIN3C.js");
+      const { runStdioServer } = await import("./stdio-S6UWO3ZO.js");
       await runStdioServer({ cwd: g.cwd, project: opts.project, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -2030,9 +2030,9 @@ function registerWatch(program, ctx) {
         }))
       };
       const id = jobId?.trim() || void 0;
-      const { watchInTui, watchPlain } = await import("./watch-4Q7MMS6C.js");
+      const { watchInTui, watchPlain } = await import("./watch-ROCTOUE4.js");
       if (!ctx.isTTY) return watchPlain(ctx, { source, jobId: id, lang: g.lang });
-      const { cliDispatch, selfRunner } = await import("./commands-RX64MPOO.js");
+      const { cliDispatch, selfRunner } = await import("./commands-FQJOTEA6.js");
       const explicitLang = cmd.optsWithGlobals().lang !== void 0;
       await watchInTui({
         source,
@@ -2058,7 +2058,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-YFJZAJ2I.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-NCB3H2UO.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -2071,7 +2071,7 @@ async function openHome(ctx, g) {
   ctx.out(t(g.lang, "home.brain", { total: stats.total, lessons: lessonCount(stats.byStatus) }));
   ctx.out(clis.length ? t(g.lang, "home.clis", { clis: clis.join(", ") }) : t(g.lang, "home.noClis"));
   ctx.out(t(g.lang, "home.hint"));
-  const { runHome } = await import("./live-53W43RMU.js");
+  const { runHome } = await import("./live-J7AS62MM.js");
   await runHome(ctx, { cwd: g.cwd, lang: g.lang, name });
 }
 function modeFrom(opts) {
@@ -2093,7 +2093,7 @@ function registerLive(program, ctx) {
       const text = (goal ?? "").trim();
       if (!text) throw new Error("a goal is required");
       if (opts.detach) {
-        const { createCrew: createCrew2 } = await import("./crew-LC3PG4DG.js");
+        const { createCrew: createCrew2 } = await import("./crew-UZ2IUBKA.js");
         const ws = await openWorkspace(ctx, g.cwd);
         const job = await createCrew2({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
           goal: text,
@@ -2109,7 +2109,7 @@ function registerLive(program, ctx) {
       }
       if (ctx.isTTY) {
         const ws = await openWorkspace(ctx, g.cwd);
-        const { runInTui } = await import("./live-53W43RMU.js");
+        const { runInTui } = await import("./live-J7AS62MM.js");
         const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, playbook: opts.playbook, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
         if (result) ctx.out(t(g.lang, "run.done", { status: t(g.lang, result.ok ? "run.ok" : "run.failed"), summary: result.summary }));
         if (!result?.ok) ctx.setExitCode(1);
@@ -2130,7 +2130,7 @@ function registerLive(program, ctx) {
       const run = await loadRun(opts.replay);
       for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
       if (!ctx.isTTY) return printPlain(ctx, run.events);
-      const { playInTui } = await import("./live-53W43RMU.js");
+      const { playInTui } = await import("./live-J7AS62MM.js");
       await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2e3 }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -2145,7 +2145,7 @@ function registerLive(program, ctx) {
         ctx.out(t(g.lang, "demo.plain"));
         return printPlain(ctx, events);
       }
-      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-MTGKHMKG.js"), import("./live-53W43RMU.js")]);
+      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-MTGKHMKG.js"), import("./live-J7AS62MM.js")]);
       await playInTui(timedEvents(events, { speed }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -2154,7 +2154,7 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes) {
   const available = ctx.availableClis ?? await ctx.detectClis();
   if (!available.length) throw new Error(t(g.lang, "run.noCli"));
   if (!yes && !ctx.stdinIsTTY) throw new Error("Plain runs require --yes when stdin is not a TTY");
-  const { executeRun } = await import("./session-4B557OQU.js");
+  const { executeRun } = await import("./session-S3TWZOIK.js");
   const format = createPlainFormatter(getGlyphs(ctx.env));
   const abort = new AbortController();
   const onSigint = () => {
@@ -2479,7 +2479,7 @@ function registerUpdate(program, ctx, overrides = {}) {
   const internal = program.command("internal", { hidden: true }).description("internal hooks used by edu update");
   internal.command("migrate-workspaces").description("maintain and re-index every registered workspace (run by edu update with the new code)").option("--json", "machine-readable output").action(
     action(ctx, async ({ g, opts }) => {
-      const { migrateWorkspaces } = await import("./migrate-7PCX3X7D.js");
+      const { migrateWorkspaces } = await import("./migrate-ZZNPTAP6.js");
       const results = await migrateWorkspaces(globalHome(ctx));
       if (g.json || opts.json) return printJson(ctx, results);
       if (!results.length) return ctx.out(M2[g.lang].migrateNone);
@@ -2798,4 +2798,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-EVIAXDJO.js.map
+//# sourceMappingURL=chunk-6YCTAHYC.js.map

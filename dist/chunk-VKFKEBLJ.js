@@ -4,7 +4,7 @@ import {
 import {
   openBrain,
   readProjects
-} from "./chunk-4NUA3TNO.js";
+} from "./chunk-DUVIFR5X.js";
 import {
   readWorkspaceSettings,
   withBrainDir
@@ -66,4 +66,4 @@ export {
   listWorkspaces,
   selectWorkspace
 };
-//# sourceMappingURL=chunk-RMMF22JK.js.map
+//# sourceMappingURL=chunk-VKFKEBLJ.js.map

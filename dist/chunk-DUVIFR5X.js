@@ -247,6 +247,25 @@ function staleBaseFiles(lang) {
   return [.../* @__PURE__ */ new Set([...LEGACY_BASE_FILES, ...baseFileNames(lang === "es" ? "en" : "es")])].filter((name) => !current.has(name));
 }
 var q = (value) => JSON.stringify(value);
+var VALUE_LABELS = {
+  es: {
+    status: { proposed: "por aprobar", accepted: "aceptada", superseded: "reemplazada", active: "activa", reverted: "revertida", open: "abierta", confirmed: "confirmada", refuted: "refutada", "no-evidence": "sin evidencia", pending: "pendiente", delivered: "entregado", overdue: "atrasado", candidate: "candidata", proven: "probada", retired: "retirada", closed: "cerrada" },
+    band: { verified: "verificado", inferred: "inferido", hypothesis: "hip\xF3tesis" },
+    kind: { decision: "decisi\xF3n", lesson: "lecci\xF3n", hypothesis: "hip\xF3tesis", commitment: "compromiso", session: "sesi\xF3n", standard: "est\xE1ndar", person: "persona", preference: "preferencia", identity: "identidad", domain: "dominio", glossary: "glosario", process: "proceso", fact: "hecho", client: "cliente" }
+  },
+  en: {
+    status: { proposed: "to approve", "no-evidence": "no evidence" },
+    band: {},
+    kind: {}
+  }
+};
+var DATE_FORMAT = { es: "DD/MM/YYYY HH:mm", en: "MMM D, YYYY HH:mm" };
+var VALUE_COLUMNS = ["status", "band", "kind"];
+var DATE_COLUMNS = ["updated", "created", "due"];
+function labelFormula(property, labels) {
+  return Object.entries(labels).reduceRight((rest, [raw, label]) => `if(note.${property} == ${q(raw)}, ${q(label)}, ${rest})`, `note.${property}`);
+}
+var dateFormula = (property, lang) => `if(note.${property}, date(note.${property}).format(${q(DATE_FORMAT[lang])}), "")`;
 function projectFormula(brainRel, tierDir) {
   return `if(file.path.startsWith(${q(`${brainRel}/`)}), "global", file.path.split(${q(`/${tierDir}/`)})[0].split("/").reverse()[1])`;
 }
@@ -265,9 +284,23 @@ function buildBase(spec, lang, scope) {
     formulas.losses = "usage.losses";
   }
   const columnKey = (column) => column.startsWith("formula.") ? column : `note.${column}`;
-  const order = [`formula.${keys.note}`, ...scope.mode === "orchestrator" ? [`formula.${keys.project}`] : [], ...spec.columns.map(columnKey)];
+  const display = /* @__PURE__ */ new Map();
+  for (const column of spec.columns) {
+    const key = column.replace(/^(note|formula)\./, "");
+    const name = (labels[key] ?? key).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    if (VALUE_COLUMNS.includes(key)) {
+      formulas[name] = labelFormula(key, VALUE_LABELS[lang][key]);
+      display.set(column, name);
+    } else if (DATE_COLUMNS.includes(key)) {
+      formulas[name] = dateFormula(key, lang);
+      display.set(column, name);
+    }
+  }
+  const order = [`formula.${keys.note}`, ...scope.mode === "orchestrator" ? [`formula.${keys.project}`] : [], ...spec.columns.map((column) => display.has(column) ? `formula.${display.get(column)}` : columnKey(column))];
   const properties = {};
+  for (const column of spec.columns) if (display.has(column)) properties[`formula.${display.get(column)}`] = { displayName: labels[column.replace(/^(note|formula)\./, "")] };
   for (const key of order) {
+    if (properties[key]) continue;
     const bare = key.replace(/^(note|formula)\./, "");
     const label = bare === keys.note ? labels.note : bare === keys.project ? labels.project : labels[bare];
     if (label) properties[key] = { displayName: label };
@@ -655,4 +688,4 @@ export {
   rankNotes,
   openBrain
 };
-//# sourceMappingURL=chunk-4NUA3TNO.js.map
+//# sourceMappingURL=chunk-DUVIFR5X.js.map

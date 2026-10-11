@@ -16,7 +16,7 @@ import {
   applySetup,
   needsFirstRunSetup,
   planSetup
-} from "./chunk-PAOJ6XOJ.js";
+} from "./chunk-J7V2T52F.js";
 
 // src/cli/commands/plugins.ts
 import { dirname } from "path";
@@ -135,4 +135,4 @@ export {
   registerPluginSetup,
   shouldRunFirstSetup
 };
-//# sourceMappingURL=chunk-YB2CXBGM.js.map
+//# sourceMappingURL=chunk-AI7ZKOI7.js.map
