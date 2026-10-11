@@ -173,7 +173,23 @@ Obsidian (`edu brain link <vault>`), versionable with git. No database.
 
 Every note has a **claim band** — `verified`, `inferred` or `hypothesis` — and Edu never
 states a hypothesis as fact. Sessions start with a small brief; everything else is pulled on
-demand (`edu_recall`, `edu_read`), so context stays lean.
+demand (`edu_recall`, `edu_read`), so context stays lean. In a shell, `edu brief [goal]` prints
+the same session brief and `edu brain read <ref>` prints one note.
+
+**Reading a note.** `edu_read` and `edu brain read` accept what you would call the note, tried
+in order: exact id → legacy id or alias (`D-010`) → unique id prefix → filename → exact title
+(ignoring case and accents). When several notes match, you get the candidates, never a guess.
+
+**Importing an Albert vault.** `edu brain import albert <path>` reads `_ALBERT` without changing
+it. Correlatives survive: `D-010_x.md` becomes `D-010-<title>` with `legacy_id: D-010` and
+`aliases: [D-010, D-010_x]`, so `[[D-010]]` still resolves in Obsidian. `produjo`, `cerro`,
+`revierte` and `revertida_por` become `links`, `supersedes` and `superseded_by`; body wikilinks
+to imported notes are rewritten to the new filename, keeping the old text as the label.
+Commitments keep `dueno` → `owner`, `para` → `stakeholder`, `plazo` → `due`. Every key without
+an Edu field (`kpi`, `evidencia`, `decidido_por`, …) is kept verbatim under `albert:` and listed
+in an "Origen Albert" section. A note with invalid YAML is imported with its raw text as the
+body, marked `import_warning: invalid-frontmatter`, and listed as a warning. Running the import
+again skips notes already imported.
 
 **It learns.** Notes that help rise, notes that mislead decay (`edu_feedback`).
 `edu reflect` proposes lessons and skill changes from recent work; nothing becomes truth
