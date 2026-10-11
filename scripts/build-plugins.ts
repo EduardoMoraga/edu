@@ -30,7 +30,7 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   const generated = new Map<string, string>();
   const add = (path: string, content: string) => generated.set(path, `${content.replace(/\r\n/g, '\n').replace(/\s*$/, '')}\n`);
   const mcp = { command: 'edu', args: ['mcp'] };
-  const hook = { hooks: { SessionStart: [{ matcher: 'startup|resume|clear|fork', hooks: [{ type: 'command', command: 'edu hook session-start', timeout: 10 }] }] } };
+  const hook = { hooks: { SessionStart: [{ matcher: 'startup|resume|clear|fork', hooks: [{ type: 'command', command: 'edu hook session-start', timeout: 30 }] }] } };
 
   add('.claude-plugin/marketplace.json', json({
     name: 'edu', description: DESCRIPTION, owner: AUTHOR,
@@ -209,12 +209,20 @@ const windows = process.platform === 'win32';
 
 export default function (pi: any): void {
   pi.registerMcpServer('edu', windows ? { command: 'cmd', args: ['/c', 'edu', 'mcp'] } : { command: 'edu', args: ['mcp'] });
-  pi.on('before_agent_start', async (event: any) => {
+  let warned = false;
+  const unavailable = (ctx: any, reason: string) => {
+    if (warned) return;
+    warned = true;
+    try { ctx?.ui?.notify?.(\`Edu brief unavailable: ${'$'}{reason}\`, 'warning'); } catch { /* No UI. */ }
+  };
+  pi.on('before_agent_start', async (event: any, ctx: any) => {
     try {
-      const result = spawnSync('edu', ['hook', 'session-start'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], shell: windows });
-      if (result.error || result.status !== 0 || !result.stdout?.trim()) return;
+      const result = spawnSync('edu', ['hook', 'session-start'], { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'ignore'], shell: windows });
+      if (result.error) return unavailable(ctx, result.error.message);
+      if (result.status !== 0) return unavailable(ctx, \`edu hook session-start exited with ${'$'}{result.status ?? result.signal}\`);
+      if (!result.stdout?.trim()) return;
       return { systemPrompt: \`${'$'}{event.systemPrompt ?? ''}\\n\\n${'$'}{result.stdout.trim()}\` };
-    } catch { return; }
+    } catch (error) { return unavailable(ctx, error instanceof Error ? error.message : String(error)); }
   });
 }
 `;

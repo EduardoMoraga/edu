@@ -43,6 +43,9 @@ describe('buildPlugins', () => {
     expect(codexMcp.mcpServers.edu).toEqual({ command: 'edu', args: ['mcp'] });
     expect(claudeHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start');
     expect(codexHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start');
+    // Large imported brains on slow Windows disks need headroom: the hook timeout is in seconds.
+    expect(claudeHooks.hooks.SessionStart[0].hooks[0].timeout).toBeGreaterThanOrEqual(30);
+    expect(codexHooks.hooks.SessionStart[0].hooks[0].timeout).toBeGreaterThanOrEqual(30);
     expect(await readFile(join(root, 'plugins/claude-code/skills/brief/SKILL.md'), 'utf8')).toContain('Brief skill.');
     expect(await readFile(join(root, 'plugins/opencode/commands/edu-brief.md'), 'utf8')).toContain('$ARGUMENTS');
     expect(await readFile(join(root, 'plugins/pi/prompts/edu-brief.md'), 'utf8')).toContain('$ARGUMENTS');
@@ -85,6 +88,9 @@ describe('buildPlugins', () => {
     const root = await fixture();
     await buildPlugins(root);
     expect(await readFile(join(root, 'plugins/pi/extensions/edu.ts'), 'utf8')).toContain("registerMcpServer('edu'");
+    const fallback = await readFile(join(root, 'plugins/pi/extensions/edu.ts'), 'utf8');
+    expect(fallback).toContain('timeout: 15000');
+    expect(fallback).toContain('Edu brief unavailable: ');
     await expect(readFile(join(root, 'plugins/pi/themes/edu.json'), 'utf8')).rejects.toThrow();
   });
 

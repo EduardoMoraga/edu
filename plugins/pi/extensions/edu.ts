@@ -18,6 +18,8 @@ const windows = process.platform === 'win32';
 const EDU = process.env.EDU_BIN || 'edu';
 const REFRESH_MS = 3000;
 const DECK_TIMEOUT_MS = 1500;
+/** Safety margin for `edu hook session-start`: large imported brains on slow Windows disks. */
+const BRIEF_TIMEOUT_MS = 15000;
 
 /** `edu deck --json` contract, version 1. Everything is optional here: an older edu degrades to identity only. */
 interface DeckJob { id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number }
@@ -149,12 +151,21 @@ function jobLine(job: DeckJob, t: Theme, width: number, now: number): string {
 
 export default function (pi: ExtensionAPI): void {
   pi.registerMcpServer('edu', windows ? { command: 'cmd', args: ['/c', 'edu', 'mcp'] } : { command: 'edu', args: ['mcp'] });
-  pi.on('before_agent_start', async (event: any) => {
+  // A failed brief is reported once per Pi process instead of silently starting without it.
+  let briefWarned = false;
+  const briefUnavailable = (ctx: ExtensionContext | undefined, reason: string) => {
+    if (briefWarned) return;
+    briefWarned = true;
+    try { ctx?.ui?.notify?.(`Edu brief unavailable: ${reason}`, 'warning'); } catch { /* No UI (print mode). */ }
+  };
+  pi.on('before_agent_start', async (event: any, ctx?: ExtensionContext) => {
     try {
-      const result = spawnSync(EDU, ['hook', 'session-start'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], shell: windows });
-      if (result.error || result.status !== 0 || !result.stdout?.trim()) return;
+      const result = spawnSync(EDU, ['hook', 'session-start'], { encoding: 'utf8', timeout: BRIEF_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'], shell: windows });
+      if (result.error) return briefUnavailable(ctx, (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' ? `edu hook session-start timed out after ${BRIEF_TIMEOUT_MS / 1000} s` : result.error.message);
+      if (result.status !== 0) return briefUnavailable(ctx, `edu hook session-start exited with ${result.status ?? result.signal}`);
+      if (!result.stdout?.trim()) return; // No brain in this folder: nothing to inject.
       return { systemPrompt: `${event.systemPrompt ?? ''}\n\n${result.stdout.trim()}` };
-    } catch { return; }
+    } catch (error) { return briefUnavailable(ctx, error instanceof Error ? error.message : String(error)); }
   });
 
   let deck: Deck | undefined;
