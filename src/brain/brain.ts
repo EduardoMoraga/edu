@@ -154,8 +154,10 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       return hits;
     },
     async recordUse(ids, now = new Date()) {
+      // One load for the whole batch: a find() per id reloaded the brain each time (quadratic on large imports).
+      const byId = new Map((await all()).map(note => [note.meta.id, note]));
       for (const id of new Set(ids)) {
-        const note = await find(id);
+        const note = byId.get(id);
         if (!note || isClosedEpisode(note.meta)) continue;
         await persist({ ...note, meta: { ...note.meta, usage: recordUsage(note.meta.usage, now), updated: iso() } });
       }

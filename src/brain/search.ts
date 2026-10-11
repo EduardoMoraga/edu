@@ -9,6 +9,8 @@ export function rankNotes(query: string, notes: Note[], now = new Date(), limit 
   const terms = [...new Set(tokenize(query))];
   if (!terms.length) return [];
   const docs = notes.map(note => ({ note, fields: [tokenize(note.meta.title), tokenize(note.meta.tags.join(' ')), tokenize(note.body)] }));
+  // Document frequency once per term (it was recomputed for every document: quadratic in the brain size).
+  const df = new Map(terms.map(term => [term, docs.filter(doc => doc.fields.some(field => field.includes(term))).length]));
   const avgdl = docs.reduce((sum, doc) => sum + doc.fields[0]!.length * 2 + doc.fields[1]!.length + doc.fields[2]!.length, 0) / Math.max(docs.length, 1);
   const scored = docs.map(({ note, fields }) => {
     const weighted = [...fields[0]!, ...fields[0]!, ...fields[1]!, ...fields[2]!];
@@ -16,8 +18,8 @@ export function rankNotes(query: string, notes: Note[], now = new Date(), limit 
     let bm25 = 0;
     const matched: string[] = [];
     for (const term of terms) {
-      const df = docs.filter(doc => doc.fields.some(field => field.includes(term))).length;
-      const idf = Math.log(1 + (docs.length - df + 0.5) / (df + 0.5));
+      const termDf = df.get(term)!;
+      const idf = Math.log(1 + (docs.length - termDf + 0.5) / (termDf + 0.5));
       const tf = weighted.filter(token => token === term).length;
       if (!tf) continue;
       matched.push(term);

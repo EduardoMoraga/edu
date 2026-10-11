@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { INDEX_DIR, TRANSITIVE_PREFIX, TIER_DIRS, type BrainLocation, type Note, type NoteMeta, type TransitiveKind } from '../core/contracts.js';
@@ -40,18 +40,41 @@ export function notePath(brain: string, meta: NoteMeta, now = new Date()): strin
 }
 
 export async function atomicWrite(path: string, content: string): Promise<void> {
+  noteCache.delete(resolve(path));
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;
   try { await writeFile(temp, content, 'utf8'); await rename(temp, path); }
   catch (error) { await rm(temp, { force: true }); throw error; }
 }
 
+/**
+ * Per-process cache of parsed notes keyed by absolute path and validated by mtime, size and inode, so a
+ * process that lists the brain several times (brief + usage tracking, maintenance) reads and parses each
+ * file once. `atomicWrite` evicts the path it writes; an external edit changes the stat and is re-read.
+ */
+interface CachedNote { mtimeMs: number; size: number; ino: number; note: Note | undefined }
+const noteCache = new Map<string, CachedNote>();
+let noteParses = 0;
+
+/** Test hooks: clear the cache and count how many note files were actually read and parsed. */
+export function resetNoteCache(): void { noteCache.clear(); noteParses = 0; }
+export function noteCacheStats(): { entries: number; parses: number } { return { entries: noteCache.size, parses: noteParses }; }
+
+// Callers spread and patch notes freely, so every hit hands out its own meta (including tags/links/usage).
+const fresh = (note: Note | undefined): Note | undefined => note && { meta: structuredClone(note.meta), body: note.body, path: note.path };
+
 export async function readNote(path: string): Promise<Note | undefined> {
+  const key = resolve(path);
   try {
+    const info = await stat(path);
+    const cached = noteCache.get(key);
+    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size && cached.ino === info.ino) return fresh(cached.note);
+    noteParses++;
     const parsed = parseMarkdown<NoteMeta>(await readFile(path, 'utf8'));
-    if (!parsed.meta.id || !parsed.meta.tier || !parsed.meta.title) return undefined;
-    return { meta: parsed.meta, body: parsed.body, path };
-  } catch { return undefined; }
+    const note = parsed.meta.id && parsed.meta.tier && parsed.meta.title ? { meta: parsed.meta, body: parsed.body, path } : undefined;
+    noteCache.set(key, { mtimeMs: info.mtimeMs, size: info.size, ino: info.ino, note });
+    return fresh(note);
+  } catch { noteCache.delete(key); return undefined; }
 }
 
 async function markdownFiles(dir: string): Promise<string[]> {

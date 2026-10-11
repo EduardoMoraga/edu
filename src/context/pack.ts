@@ -45,6 +45,7 @@ async function assembleContext(brain: Brain, req: ContextRequest, opts: ContextO
   const notes = await brain.list();
   const sections: ContextSection[] = [];
   const deferred: string[] = [];
+  const deferredIds = new Set<string>();
   const included = new Set<string>();
   const fullText = () => sections.map(section => section.text).join('\n\n');
   const add = (title: string, line: string, note?: Note): boolean => {
@@ -53,7 +54,7 @@ async function assembleContext(brain: Brain, req: ContextRequest, opts: ContextO
     const prospective = sections.map(section => section === existing ? body : section.text);
     if (!existing) prospective.push(body);
     if (estimateTokens(prospective.join('\n\n')) > budget) {
-      if (note && !deferred.includes(note.meta.id)) deferred.push(note.meta.id);
+      if (note && !deferredIds.has(note.meta.id)) { deferredIds.add(note.meta.id); deferred.push(note.meta.id); }
       return false;
     }
     if (existing) {
