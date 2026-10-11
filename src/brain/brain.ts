@@ -25,9 +25,14 @@ export interface NewNote {
   updated?: string;
   /** Provenance kept verbatim on the note (importers only); never overrides the identity fields above. */
   provenance?: NoteProvenance;
+  /**
+   * Imported history (importers only): the status and `supersedes` are written as the source states them,
+   * without requiring the superseded decision to be active and without reverting it (the source already did).
+   */
+  historical?: boolean;
 }
 /** Optional frontmatter an importer may attach to a note it writes. */
-export type NoteProvenance = Pick<NoteMeta, 'import_warning'>;
+export type NoteProvenance = Pick<NoteMeta, 'import_warning' | 'aliases' | 'legacy_id' | 'origin' | 'albert' | 'superseded_by'>;
 export interface MaintenanceReport { changed: string[]; promoted: string[]; retired: string[]; overdue: string[]; indexRebuilt: boolean }
 export interface BrainStats { total: number; byTier: Record<Tier, number>; byKind: Record<string, number>; byStatus: Record<string, number> }
 
@@ -142,7 +147,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       if (input.tier === 'canonical' && input.status && input.status !== 'proposed') throw new Error('Canonical notes must be written as proposed; use acceptCanonical for human confirmation');
       const now = new Date(input.created ?? Date.now());
       const meta: NoteMeta = {
-        id: createId({ tier: input.tier, kind: input.kind, title: input.title }, now), tier: input.tier, title: input.title,
+        id: createId({ tier: input.tier, kind: input.kind, title: input.title, legacy_id: input.provenance?.legacy_id }, now), tier: input.tier, title: input.title,
         ...(input.kind ? { kind: input.kind } : {}), ...(input.tier === 'canonical' ? { status: 'proposed' as const } : input.status || defaultStatus(input.tier, input.kind) ? { status: input.status ?? defaultStatus(input.tier, input.kind) } : {}), ...(input.band ? { band: input.band } : {}),
         tags: [...new Set([...(input.tags ?? []), ...(input.kind ? [input.kind] : [])])], links: input.links ?? [], created: iso(now), updated: input.updated ? iso(new Date(input.updated)) : iso(now), source: input.source ?? 'user',
         ...(input.owner ? { owner: input.owner } : {}), ...(input.due ? { due: input.due } : {}), ...(input.supersedes ? { supersedes: input.supersedes } : {}),
@@ -152,7 +157,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       const path = notePath(brainPath(primary), meta, now);
       const note = { meta, body: input.body, path };
       let priorDecision: Note | undefined;
-      if (meta.kind === 'decision' && meta.supersedes) {
+      if (meta.kind === 'decision' && meta.supersedes && !input.historical) {
         priorDecision = await find(meta.supersedes);
         if (!priorDecision || priorDecision.meta.kind !== 'decision' || priorDecision.meta.status !== 'active') throw new Error('A decision can supersede only an existing active decision');
       }

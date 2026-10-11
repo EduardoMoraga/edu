@@ -170,7 +170,7 @@ describe('edu context / proposals / doctor', () => {
     await mkdir(join(file, '..'), { recursive: true });
     await writeFile(file, '---\ntipo: decision\ntitulo: Imported decision\n---\n\nBody.\n');
     await runCli(c, ['brain', 'import', 'albert', join('vault', '_ALBERT'), '--json']);
-    expect(JSON.parse(out(c)).imported).toEqual(['D-imported-decision']);
+    expect(JSON.parse(out(c)).imported).toEqual(['D-001-imported-decision']);
     c.stdout.length = 0;
     await runCli(c, ['brain', 'import', 'albert', 'nowhere']);
     expect(c.exitCode).toBe(1);

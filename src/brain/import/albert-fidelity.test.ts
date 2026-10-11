@@ -45,4 +45,72 @@ describe('Albert import: invalid frontmatter', () => {
   });
 });
 
-export { vault, note, temp };
+describe('Albert import: correlative ids and relations', () => {
+  const files = {
+    '3-TRANSITIVO/decisiones/D-014_usar-colas.md': note('tipo: decision\ntitulo: Usar colas\nestado: revertida\nrevierte: ninguna\nrevertida_por: D-016\nconfianza: media'),
+    '3-TRANSITIVO/decisiones/D-016_usar-eventos.md': note('tipo: decision\ntitulo: Usar eventos\nestado: vigente\nrevierte: D-014\nconfianza: alta', 'Reemplaza [[D-014]] y ver [[L-025_medir-antes|la lección]].'),
+    '3-TRANSITIVO/aprendizajes/L-025_medir-antes.md': note('tipo: aprendizaje\ntitulo: Medir antes de optimizar\nestado: vigente'),
+    '3-TRANSITIVO/compromisos/C-017_entregar.md': note('tipo: compromiso\ntitulo: Entregar tablero\nestado: cerrado\nplazo: 2026-01-10'),
+    '3-TRANSITIVO/A-003_recordatorio.md': note('titulo: Recordatorio'),
+    '2-EPISODICO/2026-01-05_sesion-uno.md': note('tipo: episodico\ntitulo: Sesión uno\nfecha: 2026-01-05\nestado: cerrada\nprodujo: [D-016, L-025, D-999]\ncerro: [C-017]', 'Se decidió [[D-016]].'),
+  };
+
+  it('embeds the correlative in the Edu id and keeps it as legacy_id and alias', async () => {
+    const report = await importAlbert(await vault(files), openBrain([{ scope: 'project', root: await temp() }]));
+    expect(report.errors).toEqual([]);
+    const byLegacy = new Map(report.imported.map(n => [n.meta.legacy_id, n]));
+    const decision = byLegacy.get('D-016')!;
+    expect(decision.meta.id).toBe('D-016-usar-eventos');
+    expect(decision.path.endsWith('D-016-usar-eventos.md')).toBe(true);
+    expect(decision.meta.aliases).toEqual(['D-016', 'D-016_usar-eventos']);
+    expect(byLegacy.get('L-025')!.meta.id).toBe('L-025-medir-antes-de-optimizar');
+    // A- items become lessons: the Edu prefix differs, so the id is not embedded but the alias is kept.
+    const reminder = byLegacy.get('A-003')!;
+    expect(reminder.meta.id).toBe('L-recordatorio');
+    expect(reminder.meta.aliases).toContain('A-003');
+  });
+
+  it('translates revierte/revertida_por, produjo/cerro and body wikilinks to Edu ids', async () => {
+    const report = await importAlbert(await vault(files), openBrain([{ scope: 'project', root: await temp() }]));
+    const byLegacy = new Map(report.imported.map(n => [n.meta.legacy_id, n]));
+    const old = byLegacy.get('D-014')!, current = byLegacy.get('D-016')!;
+    expect(old.meta.status).toBe('reverted');
+    expect(old.meta.superseded_by).toBe(current.meta.id);
+    expect(current.meta.status).toBe('active');
+    expect(current.meta.supersedes).toBe(old.meta.id);
+    expect(current.meta.links).toEqual(expect.arrayContaining([old.meta.id, 'L-025-medir-antes-de-optimizar']));
+    expect(current.body).toContain(`[[${old.meta.id}|D-014]]`);
+    expect(current.body).toContain('[[L-025-medir-antes-de-optimizar|la lección]]');
+    const session = report.imported.find(n => n.meta.kind === 'session')!;
+    expect(session.meta.links).toEqual(expect.arrayContaining([current.meta.id, 'L-025-medir-antes-de-optimizar', byLegacy.get('C-017')!.meta.id]));
+    expect(session.body).toContain(`[[${current.meta.id}|D-016]]`);
+    // A reference to a note that is not in the vault is not dropped: it stays in the albert map.
+    expect(session.meta.albert?.produjo).toEqual(['D-016', 'L-025', 'D-999']);
+  });
+
+  it('re-importing the same vault writes nothing new', async () => {
+    const source = await vault(files);
+    const brain = openBrain([{ scope: 'project', root: await temp() }]);
+    const first = await importAlbert(source, brain);
+    const total = (await brain.list()).length;
+    const second = await importAlbert(source, brain);
+    expect(first.imported).toHaveLength(Object.keys(files).length);
+    expect(second.imported).toEqual([]);
+    expect(second.errors).toEqual([]);
+    expect(second.skipped).toHaveLength(Object.keys(files).length);
+    expect((await brain.list()).length).toBe(total);
+  });
+
+  it('backfills legacy ids on notes imported before ids were preserved, without duplicating them', async () => {
+    const source = await vault({ '3-TRANSITIVO/aprendizajes/L-025_medir-antes.md': files['3-TRANSITIVO/aprendizajes/L-025_medir-antes.md'] });
+    const brain = openBrain([{ scope: 'project', root: await temp() }]);
+    const legacy = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Medir antes de optimizar', body: 'Old import.', source: 'import:albert', status: 'proven' });
+    const report = await importAlbert(source, brain);
+    expect(report.imported).toEqual([]);
+    expect(report.skipped).toHaveLength(1);
+    const after = await brain.read(legacy.meta.id);
+    expect(after?.meta.legacy_id).toBe('L-025');
+    expect(after?.meta.aliases).toContain('L-025');
+    expect((await brain.list()).length).toBe(1);
+  });
+});

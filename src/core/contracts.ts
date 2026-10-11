@@ -83,6 +83,16 @@ export interface NoteMeta {
   due?: string;          // commitments, ISO date
   supersedes?: string;   // decision reverting another, canonical replacing another
   usage?: UsageStats;
+  /** Decision reverted by a later one: the id of the decision that replaced it (set by importers). */
+  superseded_by?: string;
+  /** Other names the note answers to (Obsidian resolves `[[alias]]`; `edu_read` resolves them too). */
+  aliases?: string[];
+  /** The note's id in the system it was imported from (e.g. Albert `D-010`). */
+  legacy_id?: string;
+  /** Where an imported note came from, e.g. `albert:3-TRANSITIVO/decisiones/D-010_x.md`; makes re-import idempotent. */
+  origin?: string;
+  /** Source frontmatter kept verbatim when Edu has no field for it (Albert import). */
+  albert?: Record<string, unknown>;
   /** Set by an importer when the source frontmatter could not be parsed; the raw source text is the body. */
   import_warning?: 'invalid-frontmatter';
 }
