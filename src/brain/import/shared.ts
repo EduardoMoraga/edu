@@ -18,7 +18,7 @@ export async function markdownFiles(path: string): Promise<string[]> {
 }
 
 export function mapStatus(status: unknown): string | undefined {
-  const map: Record<string, string> = { confirmada: 'confirmed', refutada: 'refuted', sin_evidencia: 'no-evidence', vencido: 'overdue', entregado: 'delivered', pendiente: 'pending', abierta: 'open', vigente: 'active', revertida: 'reverted', aceptada: 'accepted', aceptado: 'accepted', borrador: 'open-session' };
+  const map: Record<string, string> = { confirmada: 'confirmed', refutada: 'refuted', sin_evidencia: 'no-evidence', vencido: 'overdue', entregado: 'delivered', cerrado: 'delivered', pendiente: 'pending', abierta: 'open', vigente: 'active', revertida: 'reverted', aceptada: 'accepted', aceptado: 'accepted', borrador: 'open-session' };
   return typeof status === 'string' ? map[status.toLowerCase()] ?? status : undefined;
 }
 

@@ -19,6 +19,7 @@ export interface NewNote {
   links?: string[];
   source?: string;
   owner?: string;
+  stakeholder?: string;
   due?: string;
   supersedes?: string;
   created?: string;
@@ -150,7 +151,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         id: createId({ tier: input.tier, kind: input.kind, title: input.title, legacy_id: input.provenance?.legacy_id }, now), tier: input.tier, title: input.title,
         ...(input.kind ? { kind: input.kind } : {}), ...(input.tier === 'canonical' ? { status: 'proposed' as const } : input.status || defaultStatus(input.tier, input.kind) ? { status: input.status ?? defaultStatus(input.tier, input.kind) } : {}), ...(input.band ? { band: input.band } : {}),
         tags: [...new Set([...(input.tags ?? []), ...(input.kind ? [input.kind] : [])])], links: input.links ?? [], created: iso(now), updated: input.updated ? iso(new Date(input.updated)) : iso(now), source: input.source ?? 'user',
-        ...(input.owner ? { owner: input.owner } : {}), ...(input.due ? { due: input.due } : {}), ...(input.supersedes ? { supersedes: input.supersedes } : {}),
+        ...(input.owner ? { owner: input.owner } : {}), ...(input.stakeholder ? { stakeholder: input.stakeholder } : {}), ...(input.due ? { due: input.due } : {}), ...(input.supersedes ? { supersedes: input.supersedes } : {}),
         ...provenanceOf(input.provenance),
       };
       if (meta.status && meta.kind) validateStatus(meta.tier === 'canonical' ? 'canonical' : meta.kind, meta.status);

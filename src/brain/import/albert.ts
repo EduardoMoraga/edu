@@ -15,6 +15,15 @@ const ALBERT_LAYERS = ['1-CANONICO', '2-EPISODICO', '3-TRANSITIVO'] as const;
 const SOURCE = 'import:albert';
 /** Albert relation keys: preserved verbatim under `albert:` and translated to Edu ids in links / supersedes. */
 const RELATION_KEYS = ['produjo', 'cerro', 'revierte', 'revertida_por'] as const;
+/**
+ * Albert keys whose value lands unchanged in a native Edu field (title, created, updated, tags, owner,
+ * stakeholder, due, source, body summary). Every other key is kept verbatim under `albert:`.
+ */
+const NATIVE_KEYS = new Set(['titulo', 'title', 'fecha', 'actualizado', 'tags', 'dueno', 'dueño', 'owner', 'para', 'plazo', 'due', 'fuente', 'resumen']);
+/** Bookkeeping keys kept under `albert:` but not repeated in the body's "Origen Albert" section. */
+const BOOKKEEPING_KEYS = new Set<string>(['tipo', 'estado', 'confianza', 'capa', 'dominio', 'sesion', 'banda', 'links', 'status', ...RELATION_KEYS]);
+/** Albert content keys rendered first, in this order, in the "Origen Albert" section. */
+const SECTION_ORDER = ['kpi', 'alcance', 'resultado', 'decidido_por', 'evidencia', 'cierra_con', 'acerto', 'confianza_nota', 'costo'];
 
 async function isDir(path: string): Promise<boolean> {
   try { return (await stat(path)).isDirectory(); } catch { return false; }
@@ -54,7 +63,7 @@ interface Planned {
   body: string;
   invalid: boolean;
   mapping: Pick<NewNote, 'tier' | 'kind' | 'status'>;
-  extra: ImportMetadata;
+  extra: ImportMetadata & { stakeholder?: string };
   title: string;
   legacyId?: string;
   /** The Edu note this source note is (or will be) written as. */
@@ -71,7 +80,7 @@ function classify(segments: string[]): Pick<NewNote, 'tier' | 'kind' | 'status'>
   return { tier: 'transitive', kind: asTransitiveKind(prefix) };
 }
 
-function normalize(meta: Record<string, unknown>, body: string, segments: string[]): ImportMetadata {
+function normalize(meta: Record<string, unknown>, body: string, segments: string[]): ImportMetadata & { stakeholder?: string } {
   const rawType = String(meta.tipo ?? '').toLowerCase();
   const status = String(meta.estado ?? '').toLowerCase();
   const confidence: Record<string, ClaimBand> = { alta: 'verified', media: 'inferred', baja: 'hypothesis' };
@@ -79,15 +88,18 @@ function normalize(meta: Record<string, unknown>, body: string, segments: string
   const episodic = segments[0] === '2-EPISODICO';
   const prefix = /^([DHCAL])-/i.exec(segments.at(-1) ?? '')?.[1]?.toUpperCase();
   const kind = rawType || ({ D: 'decision', H: 'hipotesis', C: 'compromiso', A: 'aprendizaje', L: 'aprendizaje' } as Record<string, string>)[prefix ?? ''];
-  const statusMap: Record<string, string> = canonical ? { '': 'accepted', aceptada: 'accepted', aceptado: 'accepted' } : kind === 'hipotesis' || kind === 'hypothesis' ? { '': 'open', abierta: 'open', confirmada: 'confirmed', refutada: 'refuted', sin_evidencia: 'no-evidence' } : kind === 'compromiso' || kind === 'commitment' ? { '': 'pending', pendiente: 'pending', entregado: 'delivered', vencido: 'overdue' } : kind === 'decision' ? { '': 'active', vigente: 'active', revertida: 'reverted' } : kind === 'aprendizaje' || kind === 'lesson' ? { '': 'proven', proven: 'proven', permanente: 'proven' } : {};
+  const statusMap: Record<string, string> = canonical ? { '': 'accepted', aceptada: 'accepted', aceptado: 'accepted' } : kind === 'hipotesis' || kind === 'hypothesis' ? { '': 'open', abierta: 'open', confirmada: 'confirmed', refutada: 'refuted', sin_evidencia: 'no-evidence' } : kind === 'compromiso' || kind === 'commitment' ? { '': 'pending', pendiente: 'pending', entregado: 'delivered', cerrado: 'delivered', vencido: 'overdue' } : kind === 'decision' ? { '': 'active', vigente: 'active', revertida: 'reverted' } : kind === 'aprendizaje' || kind === 'lesson' ? { '': 'proven', proven: 'proven', permanente: 'proven' } : {};
   const summary = typeof meta.resumen === 'string' ? meta.resumen.trim() : '';
   const noteBody = summary && !body.includes(summary) ? `> ${summary.replaceAll('\n', '\n> ')}\n\n${body}` : undefined;
   const sourceDetail = typeof meta.fuente === 'string' && meta.fuente ? `${SOURCE} · ${meta.fuente}` : SOURCE;
+  // Hypotheses record when they were opened in `abierta_en`; it is the creation date unless `fecha` is set.
+  const created = [meta.fecha, meta.abierta_en].find((value): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value)));
+  const owner = [meta.dueno, meta.dueño, meta.owner].find((value): value is string => typeof value === 'string' && value.trim() !== '')?.trim();
   const band = typeof meta.banda === 'string' && ['verified', 'inferred', 'hypothesis'].includes(meta.banda) ? meta.banda as ClaimBand : confidence[String(meta.confianza ?? '').toLowerCase()];
   return {
     ...(typeof meta.titulo === 'string' ? { title: meta.titulo } : {}), ...(noteBody ? { body: noteBody } : {}), source: sourceDetail,
-    ...(band ? { band } : {}), ...(typeof meta.fecha === 'string' ? { created: meta.fecha } : {}), ...(typeof meta.actualizado === 'string' ? { updated: meta.actualizado } : {}),
-    ...(typeof meta.dueño === 'string' ? { owner: meta.dueño } : typeof meta.owner === 'string' ? { owner: meta.owner } : {}),
+    ...(band ? { band } : {}), ...(created ? { created } : {}), ...(typeof meta.actualizado === 'string' ? { updated: meta.actualizado } : {}),
+    ...(owner ? { owner } : {}), ...(typeof meta.para === 'string' && meta.para.trim() ? { stakeholder: meta.para.trim() } : {}),
     ...(typeof meta.plazo === 'string' ? { due: meta.plazo } : typeof meta.due === 'string' ? { due: meta.due } : {}),
     ...(Array.isArray(meta.tags) ? { tags: meta.tags.filter((tag): tag is string => typeof tag === 'string') } : {}),
     status: episodic ? (status === 'borrador' ? 'open-session' : 'closed') : kind === 'aprendizaje' || kind === 'lesson' ? 'proven' : statusMap[status] ?? (canonical ? 'accepted' : undefined), acceptedCanonical: canonical,
@@ -179,7 +191,7 @@ export async function importAlbert(sourceRoot: string, brain: Brain): Promise<Im
         report.skipped.push(path);
         continue;
       }
-      const relations = Object.fromEntries(RELATION_KEYS.filter(key => meta[key] !== undefined && meta[key] !== null && meta[key] !== '').map(key => [key, meta[key]]));
+      const preserved = albertMap(meta, extra);
       const revierte = asList(meta.revierte).filter(value => value.toLowerCase() !== 'ninguna');
       const supersedes = translate(revierte)[0];
       const supersededBy = translate(meta.revertida_por)[0];
@@ -187,27 +199,52 @@ export async function importAlbert(sourceRoot: string, brain: Brain): Promise<Im
       // lost, so the whole source text becomes the body and the note is marked for review.
       if (plan.invalid) report.warnings.push(`${path}: invalid-frontmatter (YAML could not be parsed; the raw text was kept as the body)`);
       const sourceBody = plan.invalid ? plan.raw.replace(/\r\n/g, '\n').trim() : (extra.body ?? plan.body).trim() || plan.raw.trim();
-      const { body, targets } = plan.invalid ? { body: sourceBody, targets: [] } : rewriteWikilinks(sourceBody, lookup);
+      const rewritten = plan.invalid ? { body: sourceBody, targets: [] } : rewriteWikilinks(sourceBody, lookup);
+      const { targets } = rewritten;
+      const body = plan.invalid ? rewritten.body : [rewritten.body, originSection(preserved)].filter(Boolean).join('\n\n');
       const links = [...new Set([...translate(meta.produjo), ...translate(meta.cerro), ...(supersedes ? [supersedes] : []), ...(supersededBy ? [supersededBy] : []), ...targets])].filter(id => id !== plan.eduId);
       const aliases = plan.legacyId ? [...new Set([plan.legacyId, basename(plan.rel, '.md')])] : [];
       const input: NewNote = {
         title: plan.title, body, tier: mapping.tier ?? 'transitive', kind: mapping.kind ?? 'lesson',
         tags: extra.tags ?? (Array.isArray(meta.tags) ? meta.tags.filter((tag): tag is string => typeof tag === 'string') : []), links,
         status: (extra.acceptedCanonical ? 'proposed' : extra.status ?? mapStatus(meta.status) ?? mapping.status) as NoteMeta['status'],
-        band: extra.band, owner: extra.owner, due: extra.due, supersedes, created: extra.created, updated: extra.updated, source: extra.source ?? SOURCE,
+        band: extra.band, owner: extra.owner, stakeholder: extra.stakeholder, due: extra.due, supersedes, created: extra.created, updated: extra.updated, source: extra.source ?? SOURCE,
         historical: true,
         provenance: {
           origin: `albert:${plan.rel}`, aliases, legacy_id: plan.legacyId, superseded_by: supersededBy,
-          ...(Object.keys(relations).length ? { albert: relations } : {}),
+          ...(Object.keys(preserved).length ? { albert: preserved } : {}),
           ...(plan.invalid ? { import_warning: 'invalid-frontmatter' as const } : {}),
         },
       };
-      for (const key of ['status', 'owner', 'due', 'band', 'supersedes', 'created', 'updated'] as const) if (!input[key]) delete input[key];
+      for (const key of ['status', 'owner', 'stakeholder', 'due', 'band', 'supersedes', 'created', 'updated'] as const) if (!input[key]) delete input[key];
       const note = await brain.write(input);
       report.imported.push(extra.acceptedCanonical && note.meta.tier === 'canonical' ? await brain.acceptCanonical(note.meta.id) : note);
     } catch (error) { report.errors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`); }
   }
   return report;
+}
+
+const present = (value: unknown) => value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && !value.length);
+
+/**
+ * Every source key that did not land unchanged in a native field, verbatim. `abierta_en` is native only
+ * when it became the creation date (no `fecha`); `banda` only when it was a valid Edu claim band.
+ */
+function albertMap(meta: Record<string, unknown>, extra: ImportMetadata): Record<string, unknown> {
+  const native = new Set(NATIVE_KEYS);
+  if (typeof meta.fecha !== 'string' && extra.created === meta.abierta_en) native.add('abierta_en');
+  if (extra.band && meta.banda === extra.band) native.add('banda');
+  return Object.fromEntries(Object.entries(meta).filter(([key, value]) => !native.has(key) && present(value)));
+}
+
+const show = (value: unknown): string => Array.isArray(value) ? value.map(show).join(', ') : value && typeof value === 'object' ? JSON.stringify(value) : String(value);
+
+/** Human-readable trailing section with the Albert fields Edu has no native field for (searchable by recall). */
+function originSection(preserved: Record<string, unknown>): string {
+  const keys = Object.keys(preserved).filter(key => !BOOKKEEPING_KEYS.has(key));
+  if (!keys.length) return '';
+  const ordered = [...SECTION_ORDER.filter(key => keys.includes(key)), ...keys.filter(key => !SECTION_ORDER.includes(key))];
+  return ['## Origen Albert', '', ...ordered.map(key => `- **${key}**: ${show(preserved[key]).replaceAll('\n', ' ')}`)].join('\n');
 }
 
 /** Notes imported before ids were preserved get their correlative, aliases and origin (only when still mutable). */

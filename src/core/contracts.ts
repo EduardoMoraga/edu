@@ -80,6 +80,7 @@ export interface NoteMeta {
   updated?: string;      // ISO
   source?: string;       // who/what wrote it: "user", "edu:reflect", "claude", "import:albert"…
   owner?: string;        // commitments
+  stakeholder?: string;  // commitments: who the commitment is for (Albert `para`)
   due?: string;          // commitments, ISO date
   supersedes?: string;   // decision reverting another, canonical replacing another
   usage?: UsageStats;

@@ -114,3 +114,51 @@ describe('Albert import: correlative ids and relations', () => {
     expect((await brain.list()).length).toBe(1);
   });
 });
+
+describe('Albert import: field fidelity', () => {
+  const files = {
+    '3-TRANSITIVO/compromisos/C-001_tablero.md': note('tipo: compromiso\ntitulo: Tablero semanal\nestado: vencido\ndueno: Ana\npara: Equipo comercial\nplazo: 2026-02-01\nkpi: 95% de cobertura\nalcance: Tres regiones\nresultado: Pendiente de datos\nconfianza: alta\nfuente: reunión\nresumen: Entregar el tablero\nactualizado: 2026-02-02\ntags: [bi]'),
+    '3-TRANSITIVO/compromisos/C-002_cierre.md': note('tipo: compromiso\ntitulo: Cierre mensual\nestado: cerrado\ndueno: Luis\npara: Finanzas\nplazo: 2026-03-01'),
+    '3-TRANSITIVO/compromisos/C-003_entregado.md': note('tipo: compromiso\ntitulo: Informe\nestado: entregado'),
+    '3-TRANSITIVO/compromisos/C-004_pendiente.md': note('tipo: compromiso\ntitulo: Revisión\nestado: pendiente'),
+    '3-TRANSITIVO/hipotesis/H-001_estacional.md': note('tipo: hipotesis\ntitulo: Demanda estacional\nabierta_en: 2026-01-15\nestado: abierta\nconfianza: media\nconfianza_nota: pocos datos\nbanda: 40-60\nevidencia: Ventas Q1\ncierra_con: Datos Q2\nacerto: pendiente'),
+    '3-TRANSITIVO/decisiones/D-001_motor.md': note('tipo: decision\ntitulo: Elegir motor\nfecha: 2026-01-02\nestado: vigente\ndecidido_por: Comité\nrevierte: ninguna\ncampo_nuevo: valor raro'),
+    '3-TRANSITIVO/aprendizajes/L-001_costo.md': note('tipo: aprendizaje\ntitulo: Validar antes\nestado: vigente\ncosto: dos días'),
+  };
+
+  it('maps commitment owner, stakeholder, due date and lifecycle states', async () => {
+    const report = await importAlbert(await vault(files), openBrain([{ scope: 'project', root: await temp() }]));
+    expect(report.errors).toEqual([]);
+    const byLegacy = new Map(report.imported.map(n => [n.meta.legacy_id, n.meta]));
+    const c1 = byLegacy.get('C-001')!;
+    expect([c1.owner, c1.stakeholder, c1.due, c1.status]).toEqual(['Ana', 'Equipo comercial', '2026-02-01', 'overdue']);
+    expect([byLegacy.get('C-002')!.status, byLegacy.get('C-003')!.status, byLegacy.get('C-004')!.status]).toEqual(['delivered', 'delivered', 'pending']);
+    expect(byLegacy.get('C-002')!.stakeholder).toBe('Finanzas');
+    expect(c1.albert).toMatchObject({ kpi: '95% de cobertura', alcance: 'Tres regiones', resultado: 'Pendiente de datos' });
+    const body = report.imported.find(n => n.meta.legacy_id === 'C-001')!.body;
+    expect(body).toMatch(/## Origen Albert[\s\S]*kpi[\s\S]*95% de cobertura[\s\S]*alcance[\s\S]*resultado/);
+  });
+
+  it('maps hypothesis, decision and lesson fields and keeps unknown keys', async () => {
+    const report = await importAlbert(await vault(files), openBrain([{ scope: 'project', root: await temp() }]));
+    const byLegacy = new Map(report.imported.map(n => [n.meta.legacy_id, n]));
+    const hypothesis = byLegacy.get('H-001')!;
+    expect(hypothesis.meta.created.slice(0, 10)).toBe('2026-01-15');
+    expect(hypothesis.meta.albert).toMatchObject({ evidencia: 'Ventas Q1', cierra_con: 'Datos Q2', acerto: 'pendiente', confianza_nota: 'pocos datos', banda: '40-60' });
+    expect(hypothesis.body).toContain('Ventas Q1');
+    const decision = byLegacy.get('D-001')!;
+    expect(decision.meta.albert).toMatchObject({ decidido_por: 'Comité', campo_nuevo: 'valor raro' });
+    expect(decision.body).toContain('Comité');
+    expect(byLegacy.get('L-001')!.meta.albert).toMatchObject({ costo: 'dos días' });
+  });
+
+  it('drops no source key: each one is a native field or sits under albert:', async () => {
+    const report = await importAlbert(await vault(files), openBrain([{ scope: 'project', root: await temp() }]));
+    const native = new Set(['titulo', 'fecha', 'actualizado', 'tags', 'dueno', 'para', 'plazo', 'fuente', 'resumen', 'abierta_en']);
+    for (const [relative, content] of Object.entries(files)) {
+      const imported = report.imported.find(n => n.meta.origin === `albert:${relative}`)!;
+      const keys = [...content.matchAll(/^([a-z_ñ]+):/gm)].map(match => match[1]!);
+      for (const key of keys) expect(native.has(key) || imported.meta.albert?.[key] !== undefined, `${relative} ${key}`).toBe(true);
+    }
+  });
+});
