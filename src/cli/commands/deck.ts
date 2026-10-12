@@ -3,7 +3,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { readMaintainState } from '../../brain/auto-maintain.js';
-import { brainPath, withBrainDir } from '../../brain/location.js';
+import { brainPath, stopsAtCeiling, withBrainDir } from '../../brain/location.js';
 import { parseMarkdownLenient } from '../../brain/frontmatter.js';
 import { TIER_DIRS, type Tier } from '../../core/contracts.js';
 import { getGlyphs } from '../../identity/index.js';
@@ -102,14 +102,14 @@ async function crewJobs(root: string): Promise<DeckSnapshot['jobs']> {
 }
 
 /** Reads only the project's `.edu` directory; absent or unreadable data degrades to empty fields. */
-export async function deckSnapshot(root: string): Promise<DeckSnapshot> {
+export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = process.env): Promise<DeckSnapshot> {
   let projectRoot = resolve(root);
   while (true) {
     try {
       if ((await stat(join(projectRoot, '.edu'))).isDirectory()) break;
     } catch { /* Keep looking for the nearest project brain. */ }
     const parent = dirname(projectRoot);
-    if (parent === projectRoot) { projectRoot = resolve(root); break; }
+    if (parent === projectRoot || stopsAtCeiling(parent, env)) { projectRoot = resolve(root); break; }
     projectRoot = parent;
   }
   const eduRoot = join(projectRoot, '.edu');
@@ -174,7 +174,7 @@ export function registerDeck(program: Command, ctx: CliContext): void {
     .option('--json', 'print the versioned snapshot for host renderers')
     .action(async (_opts: unknown, cmd: Command) => {
       const g = resolveGlobals(ctx, cmd.optsWithGlobals());
-      const deck = await deckSnapshot(g.cwd);
+      const deck = await deckSnapshot(g.cwd, ctx.env);
       if (g.json) { ctx.out(JSON.stringify(deck)); return; }
       const glyphs = getGlyphs(ctx.env);
       ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}`);

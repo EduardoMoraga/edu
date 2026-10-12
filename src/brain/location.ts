@@ -9,8 +9,22 @@
  */
 import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { BrainLocation, WorkspaceIdentity } from '../core/contracts.js';
+
+/**
+ * True when the upward search for a project `.edu/` must not climb from `dir` into `parent`.
+ * `EDU_CEILING_DIRECTORIES` (a `path.delimiter`-separated list, like Git's GIT_CEILING_DIRECTORIES)
+ * bounds the search; unset, the search climbs to the filesystem root as before. On Windows the
+ * temp dir lives under the user's home, so tests set it to keep a real `~/.edu` out of reach.
+ */
+export function stopsAtCeiling(parent: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const list = env.EDU_CEILING_DIRECTORIES;
+  if (!list) return false;
+  const norm = (path: string) => (process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path));
+  const target = norm(parent);
+  return list.split(delimiter).filter(Boolean).some(entry => norm(entry) === target);
+}
 
 export interface WorkspaceSettings { brainDir?: string; sourcesDir?: string; identity?: WorkspaceIdentity; lang?: 'en' | 'es' }
 

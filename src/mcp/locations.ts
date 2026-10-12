@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { BrainLocation } from '../core/contracts.js';
-import { withBrainDir } from '../brain/location.js';
+import { stopsAtCeiling, withBrainDir } from '../brain/location.js';
 
 /** The nearest .edu directory overlays a global home, if one exists. */
 export async function resolveBrainLocations(cwd = process.cwd(), env: NodeJS.ProcessEnv = process.env): Promise<BrainLocation[]> {
@@ -19,7 +19,7 @@ export async function resolveBrainLocations(cwd = process.cwd(), env: NodeJS.Pro
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
     const parent = dirname(current);
-    if (parent === current) break;
+    if (parent === current || stopsAtCeiling(parent, env)) break;
     current = parent;
   }
   const globalRoot = resolve(env.EDU_HOME || join(env.HOME || homedir(), '.edu'));
