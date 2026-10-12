@@ -19,6 +19,17 @@ npm run smoke
 
 CI runs the same checks on Ubuntu and macOS with Node 22.
 
+### Windows workstations
+
+The suite runs on Windows without Git Bash on `PATH`, without the symlink privilege and with a real
+`~/.edu` next to the temp folder: test check commands go through `node -e`, directory links use
+junctions and `EDU_CEILING_DIRECTORIES` keeps the brain search inside each test sandbox.
+
+One check depends on the machine: `maintains a brain of about 1000 notes in under 2 seconds` measures
+wall-clock time. On managed workstations where antivirus or filter drivers inspect every file open,
+reading 1000 small files alone can take more than 2 s (measured 2.6 s for `stat` + `readFile` on a
+Cheil laptop, Node 24.19), so that test fails there while it passes on CI runners.
+
 ## Module ownership
 
 Respect the module ownership table in `docs/ARCHITECTURE.md` §3. Keep changes inside the module or path family owned by your role, and coordinate with the lead before changing shared contracts.
