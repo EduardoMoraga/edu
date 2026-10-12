@@ -72,7 +72,7 @@ var TOOL_ANNOTATIONS = {
   edu_crew_approve: STARTS_AGENTS
 };
 function createEduMcpServer(opts) {
-  const server = new McpServer({ name: "edu", version: "0.10.1" });
+  const server = new McpServer({ name: "edu", version: "0.10.2" });
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0].root, "EDU.md");
@@ -374,4 +374,4 @@ export {
   resolveReboundLocations,
   runStdioServer
 };
-//# sourceMappingURL=stdio-SG726QXZ.js.map
+//# sourceMappingURL=stdio-EA5QUC5A.js.map

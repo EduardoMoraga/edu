@@ -1929,7 +1929,7 @@ function registerIntegrations(program, ctx) {
   );
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-SG726QXZ.js");
+      const { runStdioServer } = await import("./stdio-EA5QUC5A.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -2049,7 +2049,7 @@ function registerMcpProject(program, ctx) {
   if (!mcp) throw new Error("The mcp command must be registered before its --project option");
   mcp.option("--project <name|path>", 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)').action(
     action(ctx, async ({ g, opts }) => {
-      const { runStdioServer } = await import("./stdio-SG726QXZ.js");
+      const { runStdioServer } = await import("./stdio-EA5QUC5A.js");
       await runStdioServer({ cwd: g.cwd, project: opts.project, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -2847,4 +2847,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-RUPYT3UD.js.map
+//# sourceMappingURL=chunk-3HCZSQ5R.js.map
