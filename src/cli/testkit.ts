@@ -34,7 +34,8 @@ export async function captureContext(opts: CaptureOptions = {}): Promise<Capture
   const captured: Captured = { stdout: [], stderr: [], exitCode: undefined, dirs, ctx: undefined as never };
   captured.ctx = {
     cwd: dirs.cwd,
-    env: { HOME: dirs.home, EDU_HOME: dirs.eduHome, NO_COLOR: '1', PATH: '', ...opts.env },
+    // The ceiling keeps the brain search inside `base`: on Windows tmpdir() sits under the real home, whose ~/.edu would leak in.
+    env: { HOME: dirs.home, EDU_HOME: dirs.eduHome, EDU_CEILING_DIRECTORIES: base, NO_COLOR: '1', PATH: '', ...opts.env },
     home: dirs.home,
     out: (text) => void captured.stdout.push(text),
     err: (text) => void captured.stderr.push(text),

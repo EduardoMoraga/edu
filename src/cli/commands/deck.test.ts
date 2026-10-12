@@ -14,7 +14,7 @@ async function fixture(root: string, path: string, content: string, at: number):
 describe('edu deck', () => {
   it('returns a versioned empty snapshot without a brain', async () => {
     const c = await captureContext();
-    const snapshot = await deckSnapshot(c.dirs.cwd);
+    const snapshot = await deckSnapshot(c.dirs.cwd, c.ctx.env);
     expect(snapshot).toMatchObject({
       version: 1,
       project: { name: 'project', root: c.dirs.cwd },

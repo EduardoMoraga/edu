@@ -35,7 +35,8 @@ it('initializes a rebound workspace brain after a transient roots/list failure',
   const root = await mkdtemp(join(tmpdir(), 'edu-rebound-'));
   roots.push(root);
   let attempts = 0;
-  const locations = await resolveReboundLocations('/plugin/edu', { EDU_HOME: join(root, 'global') }, async () => {
+  // The ceiling keeps the search out of the real home: on Windows tmpdir() sits under it, next to a real ~/.edu.
+  const locations = await resolveReboundLocations('/plugin/edu', { EDU_HOME: join(root, 'global'), EDU_CEILING_DIRECTORIES: tmpdir() }, async () => {
     attempts++;
     if (attempts === 1) throw new Error('roots not ready');
     return [`file://${root}`];
