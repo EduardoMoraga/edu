@@ -12,7 +12,7 @@ function fakeEngine(): Engine {
   return { cli: 'claude', available: async () => true, async *run(request, agentId) {
     const text = request.prompt.includes('Create a safe') ? JSON.stringify({
       requirements: [{ id: 'R-1', text: 'Command passes' }],
-      checks: [{ id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 1000 }],
+      checks: [{ id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 10000 }],
       steps: [],
     }) : '{"verdict":"pass","issues":[]}';
     yield { type: 'agent.text', agentId, text, at: new Date().toISOString() } satisfies EduEvent;
@@ -31,7 +31,9 @@ async function setup() {
 }
 
 async function awaiting(crew: Awaited<ReturnType<typeof setup>>['crew'], id: string) {
-  for (let i = 0; i < 200; i++) {
+  // A deadline, not an iteration count: Windows timers tick at ~15 ms and a loaded runner plans slower.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
     const job = await crew.status(id);
     if (!Array.isArray(job) && job.status === 'awaiting-approval') return job;
     await new Promise(resolve => setTimeout(resolve, 5));

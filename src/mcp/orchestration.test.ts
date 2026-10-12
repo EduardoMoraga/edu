@@ -12,7 +12,7 @@ import { createEduMcpServer, TOOL_ANNOTATIONS } from './server.js';
 const fake: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
   const text = request.prompt.includes('Create a safe') ? JSON.stringify({
     requirements: [{ id: 'R-1', text: 'Check passes' }],
-    checks: [{ id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 1000 }],
+    checks: [{ id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 10000 }],
     steps: [],
   }) : '{"verdict":"pass","issues":[]}';
   yield { type: 'agent.text', agentId, text, at: new Date().toISOString() } satisfies EduEvent;
