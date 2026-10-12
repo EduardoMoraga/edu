@@ -46,7 +46,7 @@ describe('Windows shim resolution', () => {
 
   it('reads the Node script out of a shim without a trailing backslash after %~dp0', () => {
     const shim = '@ECHO off\r\nnode "%~dp0pi-launcher.js" %*\r\n';
-    const script = nodeScriptFromCmdShim(join(tmpdir(), ".pi", "agent", "bin", "pi.cmd"), shim);
+    const script = nodeScriptFromCmdShim(join(tmpdir(), '.pi', 'agent', 'bin', 'pi.cmd'), shim);
     expect(script?.replace(/\\/g, '/')).toMatch(/\.pi\/agent\/bin\/pi-launcher\.js$/);
   });
 

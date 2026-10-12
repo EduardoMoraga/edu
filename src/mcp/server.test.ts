@@ -49,6 +49,13 @@ describe('Edu MCP tools', () => {
         const args = name === 'edu_recall' ? { query: 'release', maxTokens: 12 } : name === 'edu_read' ? { id: note.meta.id, maxTokens: 12 } : { maxTokens: 12 };
         expect(estimateTokens((await call(name, args)).text)).toBeLessThanOrEqual(12);
       }
+      await brain.write({ tier: 'transitive', kind: 'decision', title: 'Usar colas', body: 'Queue body.', provenance: { legacy_id: 'D-010', aliases: ['D-010'] } });
+      await brain.write({ tier: 'transitive', kind: 'decision', title: 'Usar caché', body: 'Cache body.', provenance: { legacy_id: 'D-011', aliases: ['D-011'] } });
+      expect((await call('edu_read', { id: 'D-010' })).text).toContain('Queue body.');
+      expect((await call('edu_read', { id: 'usar CACHE' })).text).toContain('Cache body.');
+      const ambiguous = await call('edu_read', { id: 'D-01' });
+      expect(ambiguous.result.isError).not.toBe(true);
+      expect(ambiguous.text).toMatch(/Ambiguous reference "D-01" \(prefix\)[\s\S]*D-010-usar-colas[\s\S]*D-011-usar-cache/);
       const missing = await call('edu_read', { id: 'missing' });
       expect(missing.result.isError).toBe(true);
       expect(missing.text).toContain('Note not found');

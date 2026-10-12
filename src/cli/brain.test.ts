@@ -170,10 +170,36 @@ describe('edu context / proposals / doctor', () => {
     await mkdir(join(file, '..'), { recursive: true });
     await writeFile(file, '---\ntipo: decision\ntitulo: Imported decision\n---\n\nBody.\n');
     await runCli(c, ['brain', 'import', 'albert', join('vault', '_ALBERT'), '--json']);
-    expect(JSON.parse(out(c)).imported).toEqual(['D-imported-decision']);
+    expect(JSON.parse(out(c)).imported).toEqual(['D-001-imported-decision']);
     c.stdout.length = 0;
     await runCli(c, ['brain', 'import', 'albert', 'nowhere']);
     expect(c.exitCode).toBe(1);
     expect(c.stderr.join('\n')).toContain('_ALBERT');
+  });
+
+  it('reads a note by legacy id, title or prefix and lists candidates when ambiguous', async () => {
+    const c = await initialized();
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    await brain.write({ tier: 'transitive', kind: 'decision', title: 'Usar colas', body: 'Queue body.', provenance: { legacy_id: 'D-010', aliases: ['D-010'] } });
+    await brain.write({ tier: 'transitive', kind: 'decision', title: 'Usar caché', body: 'Cache body.', provenance: { legacy_id: 'D-011', aliases: ['D-011'] } });
+    await runCli(c, ['brain', 'read', 'D-010']);
+    expect(out(c)).toContain('Queue body.');
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'read', 'usar', 'cache', '--json']);
+    expect(JSON.parse(out(c))).toMatchObject({ via: 'title', id: 'D-011-usar-cache' });
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'read', 'D-01']);
+    expect(c.exitCode).toBe(1);
+    expect(out(c)).toMatch(/ambiguous \(prefix\)[\s\S]*D-010-usar-colas[\s\S]*D-011-usar-cache/);
+  });
+
+  it('warns about an Albert note whose frontmatter is invalid, listing the file', async () => {
+    const c = await initialized();
+    const file = join(c.dirs.cwd, 'vault', '_ALBERT', '3-TRANSITIVO', 'L-007_broken.md');
+    await mkdir(join(file, '..'), { recursive: true });
+    await writeFile(file, '---\ntitulo: a: b: c\n---\n\nKept body.\n');
+    await runCli(c, ['brain', 'import', 'albert', 'vault']);
+    expect(out(c)).toContain('warnings 1');
+    expect(c.stderr.join('\n')).toMatch(/warning: .*L-007_broken\.md: invalid-frontmatter/);
   });
 });

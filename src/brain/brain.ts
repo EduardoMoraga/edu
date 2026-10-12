@@ -7,6 +7,7 @@ import { INDEX_DIR, atomicWrite, createId, encodeNote, notePath, overlayNotes } 
 import { assertDecisionReversion, isClosedEpisode, validateTransition, validateStatus } from './lifecycle.js';
 import { feedbackUsage, applyLearning, recordUsage } from './learning.js';
 import { rankNotes } from './search.js';
+import { resolveReference, type ResolveResult } from './resolve.js';
 
 export interface NewNote {
   title: string;
@@ -19,18 +20,31 @@ export interface NewNote {
   links?: string[];
   source?: string;
   owner?: string;
+  stakeholder?: string;
   due?: string;
   supersedes?: string;
   created?: string;
   updated?: string;
+  /** Provenance kept verbatim on the note (importers only); never overrides the identity fields above. */
+  provenance?: NoteProvenance;
+  /**
+   * Imported history (importers only): the status and `supersedes` are written as the source states them,
+   * without requiring the superseded decision to be active and without reverting it (the source already did).
+   */
+  historical?: boolean;
 }
+/** Optional frontmatter an importer may attach to a note it writes. */
+export type NoteProvenance = Pick<NoteMeta, 'import_warning' | 'aliases' | 'legacy_id' | 'origin' | 'albert' | 'superseded_by'>;
 export interface MaintenanceReport { changed: string[]; promoted: string[]; retired: string[]; overdue: string[]; indexRebuilt: boolean }
 export interface BrainStats { total: number; byTier: Record<Tier, number>; byKind: Record<string, number>; byStatus: Record<string, number> }
 
 export interface Brain {
   init(loc: BrainLocation, opts?: { identityName?: string }): Promise<void>;
   list(filter?: Partial<Pick<NoteMeta, 'tier' | 'kind' | 'status'>>): Promise<Note[]>;
+  /** Exact id only (internal lookups). For what a human or agent types, use `resolve`. */
   read(id: string): Promise<Note | undefined>;
+  /** Resolves an id, legacy id/alias, id prefix, filename stem or exact title; ambiguity returns candidates. */
+  resolve(reference: string): Promise<ResolveResult | undefined>;
   write(input: NewNote): Promise<Note>;
   update(id: string, patch: Partial<NoteMeta>, body?: string): Promise<Note>;
   recall(query: string, opts?: { limit?: number; tiers?: Tier[] }): Promise<RecallHit[]>;
@@ -67,6 +81,8 @@ const usedThisMinute = (meta: NoteMeta, now: Date) => {
   const last = meta.usage?.lastUsed ? Date.parse(meta.usage.lastUsed) : NaN;
   return Number.isFinite(last) && Math.floor(last / 60_000) === Math.floor(now.getTime() / 60_000);
 };
+const provenanceOf = (provenance: NoteProvenance | undefined): Partial<NoteMeta> =>
+  Object.fromEntries(Object.entries(provenance ?? {}).filter(([, value]) => value !== undefined && (value as unknown) !== '' && !(Array.isArray(value) && !value.length)));
 const immutableCanonical = (meta: NoteMeta) => meta.tier === 'canonical' && (meta.status === 'accepted' || meta.status === 'superseded');
 
 export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions = {}): Brain {
@@ -129,6 +145,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     },
     async list(filter = {}) { return (await all()).filter(n => Object.entries(filter).every(([key, value]) => value === undefined || n.meta[key as keyof NoteMeta] === value)); },
     read: find,
+    async resolve(reference) { return resolveReference(await all(), reference); },
     async write(input) {
       if (input.tier === 'canonical' && input.kind && !(['identity', 'standard', 'lexicon', 'domain', 'person', 'preference'] as CanonicalKind[]).includes(input.kind as CanonicalKind)) {
         throw new Error(`Invalid canonical kind: ${input.kind}`);
@@ -136,16 +153,17 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       if (input.tier === 'canonical' && input.status && input.status !== 'proposed') throw new Error('Canonical notes must be written as proposed; use acceptCanonical for human confirmation');
       const now = new Date(input.created ?? Date.now());
       const meta: NoteMeta = {
-        id: createId({ tier: input.tier, kind: input.kind, title: input.title }, now), tier: input.tier, title: input.title,
+        id: createId({ tier: input.tier, kind: input.kind, title: input.title, legacy_id: input.provenance?.legacy_id }, now), tier: input.tier, title: input.title,
         ...(input.kind ? { kind: input.kind } : {}), ...(input.tier === 'canonical' ? { status: 'proposed' as const } : input.status || defaultStatus(input.tier, input.kind) ? { status: input.status ?? defaultStatus(input.tier, input.kind) } : {}), ...(input.band ? { band: input.band } : {}),
         tags: [...new Set([...(input.tags ?? []), ...(input.kind ? [input.kind] : [])])], links: input.links ?? [], created: iso(now), updated: input.updated ? iso(new Date(input.updated)) : iso(now), source: input.source ?? 'user',
-        ...(input.owner ? { owner: input.owner } : {}), ...(input.due ? { due: input.due } : {}), ...(input.supersedes ? { supersedes: input.supersedes } : {}),
+        ...(input.owner ? { owner: input.owner } : {}), ...(input.stakeholder ? { stakeholder: input.stakeholder } : {}), ...(input.due ? { due: input.due } : {}), ...(input.supersedes ? { supersedes: input.supersedes } : {}),
+        ...provenanceOf(input.provenance),
       };
       if (meta.status && meta.kind) validateStatus(meta.tier === 'canonical' ? 'canonical' : meta.kind, meta.status);
       const path = notePath(brainPath(primary), meta, now);
       const note = { meta, body: input.body, path };
       let priorDecision: Note | undefined;
-      if (meta.kind === 'decision' && meta.supersedes) {
+      if (meta.kind === 'decision' && meta.supersedes && !input.historical) {
         priorDecision = await find(meta.supersedes);
         if (!priorDecision || priorDecision.meta.kind !== 'decision' || priorDecision.meta.status !== 'active') throw new Error('A decision can supersede only an existing active decision');
       }

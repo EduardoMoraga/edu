@@ -170,6 +170,19 @@ en Obsidian (`edu brain link <vault>`) y versionable con git. Sin base de datos.
 Cada nota tiene una **banda de certeza** —`verified`, `inferred` o `hypothesis`— y Edu nunca
 presenta una hipótesis como un hecho. Cada sesión empieza con un brief breve; el resto se
 consulta bajo demanda (`edu_recall`, `edu_read`), de modo que el contexto se mantiene ligero.
+En una terminal, `edu brief [objetivo]` imprime el mismo brief y `edu brain read <ref>` una nota.
+
+**Leer una nota.** `edu_read` y `edu brain read` aceptan cómo llama usted a la nota, en este
+orden: id exacto → id heredado o alias (`D-010`) → prefijo de id único → nombre de archivo →
+título exacto (sin distinguir mayúsculas ni tildes). Si coinciden varias, devuelve las candidatas.
+
+**Importar una bóveda Albert.** `edu brain import albert <ruta>` lee `_ALBERT` sin modificarla.
+Los correlativos se conservan (`D-010_x.md` → `D-010-<título>`, con `legacy_id` y `aliases`);
+`produjo`, `cerro`, `revierte` y `revertida_por` pasan a `links`, `supersedes` y `superseded_by`;
+los compromisos mapean `dueno` → `owner`, `para` → `stakeholder`, `plazo` → `due`; toda clave sin
+campo Edu queda tal cual bajo `albert:` y en una sección "Origen Albert". Una nota con YAML
+inválido se importa con su texto completo, marcada `import_warning: invalid-frontmatter`, y se
+lista como advertencia. Reimportar omite lo ya importado.
 
 **Aprende.** Las notas útiles suben y las que confunden decaen (`edu_feedback`).
 `edu reflect` propone lecciones y cambios de skills a partir del trabajo reciente; nada se

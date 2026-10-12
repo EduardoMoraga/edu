@@ -24,6 +24,7 @@ description: "Load the compact Edu session brief: identity, open commitments and
 
 ## Failure handling
 
-- `edu_brief` is not available: tell the user to run `edu setup`, then restart this CLI.
+- `edu_brief` is not available: run `edu brief` in a shell (the same brief; `edu brief <goal>` adds
+  matching notes), then tell the user to run `edu setup` and restart this CLI to get the MCP tool.
 - The tool errors with no brain found: suggest `edu init --global` (or `edu init` for a
   project brain) and continue without memory.

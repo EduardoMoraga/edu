@@ -52,7 +52,7 @@ export const TOOL_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructi
 };
 
 export function createEduMcpServer(opts: EduMcpOptions): McpServer {
-  const server = new McpServer({ name: 'edu', version: '0.9.3' });
+  const server = new McpServer({ name: 'edu', version: '0.10.1' });
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
@@ -126,11 +126,12 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     return hits.length ? hits.map(hit => `${line(hit.note)} · ${hit.why}`).join('\n') : 'No matching notes.';
   });
 
-  register('edu_read', 'Read a brain note by id', { id: z.string().min(1), maxTokens: tokenLimit },
+  register('edu_read', 'Read a brain note by id, legacy id or alias (e.g. D-010), unique id prefix, filename or exact title; returns the candidates when ambiguous', { id: z.string().min(1), maxTokens: tokenLimit },
     async ({ id }) => {
-      const note = await brain.read(id);
-      if (!note) throw new Error(`Note not found: ${id}`);
-      return `${line(note)}\n\n${note.body}`;
+      const result = await brain.resolve(id);
+      if (!result) throw new Error(`Note not found: ${id}`);
+      if ('candidates' in result) return [`Ambiguous reference "${id}" (${result.via}): ${result.candidates.length} notes match. Read one by id:`, ...result.candidates.slice(0, 20).map(note => `- ${line(note)}`)].join('\n');
+      return `${line(result.note)}\n\n${result.note.body}`;
     });
 
   register('edu_remember', 'Create an episodic or transitive note', {

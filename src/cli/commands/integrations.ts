@@ -1,11 +1,35 @@
-/** `edu mcp`, `edu statusline`, `edu hook session-start|session-end|codex-notify`. */
+/** `edu brief`, `edu mcp`, `edu statusline`, `edu hook session-start|session-end|codex-notify`. */
 import type { Command } from 'commander';
 import { resolveGlobals, type CliContext } from '../context.js';
-import { codexNotify, safeHook, sessionEnd, sessionStart } from '../hooks.js';
-import { action } from '../kit.js';
+import { codexNotify, safeHook, sessionEnd, sessionStart, workspaceBrief } from '../hooks.js';
+import { t } from '../i18n.js';
+import { action, printJson } from '../kit.js';
 import { statuslineText } from '../statusline.js';
 
 export function registerIntegrations(program: Command, ctx: CliContext): void {
+  program
+    .command('brief')
+    .description('print the session brief (same as the session-start hook and the edu_brief MCP tool); with a query, add the notes that match it')
+    .argument('[query...]', 'optional goal to recall notes for')
+    .option('--json', 'machine-readable output')
+    .action(
+      action<{ json?: boolean }>(ctx, async ({ g, opts, cmd }) => {
+        const query = (cmd.args as string[]).join(' ').trim();
+        const result = await workspaceBrief(ctx, g.cwd);
+        if (!result) throw new Error(t(g.lang, 'brief.noBrain'));
+        const hits = query ? await result.ws.brain.recall(query, { limit: 5 }) : [];
+        if (g.json || opts.json) {
+          return printJson(ctx, { text: result.text, ...(query ? { query, hits: hits.map((h) => ({ id: h.note.meta.id, title: h.note.meta.title, band: h.note.meta.band, status: h.note.meta.status, why: h.why })) } : {}) });
+        }
+        ctx.out(result.text);
+        if (!query) return;
+        ctx.out('');
+        ctx.out(t(g.lang, 'brief.relevant', { query }));
+        if (!hits.length) ctx.out(`- ${t(g.lang, 'brain.empty')}`);
+        for (const h of hits) ctx.out(`- [[${h.note.meta.id}]] ${h.note.meta.title}${h.note.meta.band ? ` (${h.note.meta.band})` : ''}`);
+      }),
+    );
+
   program
     .command('mcp')
     .description('serve the brain over MCP (stdio) for any MCP-capable CLI')

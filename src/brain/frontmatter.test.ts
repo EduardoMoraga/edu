@@ -25,3 +25,12 @@ describe('parseMarkdownLenient', () => {
     expect(parseMarkdownLenient('---\na: 1\n---\nx').recovered).toBe(false);
   });
 });
+
+describe('UTF-8 BOM', () => {
+  it('reads frontmatter written by Windows PowerShell 5.1 with a leading BOM', () => {
+    const doc = parseMarkdown<{ title: string }>('﻿---\r\ntitle: Nada se publica\r\n---\r\n\r\nBody.\r\n');
+    expect(doc.meta.title).toBe('Nada se publica');
+    expect(doc.body).toBe('Body.');
+    expect(parseMarkdownLenient<{ title: string }>('﻿---\ntitle: X\n---\nB\n').meta.title).toBe('X');
+  });
+});

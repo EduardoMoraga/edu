@@ -219,7 +219,7 @@ Ink app. Layout (≥ 100 cols; degrades to a single column under 80):
 
 `edu` (TUI) · `edu init [--global] [--name Edu]` · `edu install` · `edu uninstall` · `edu doctor` ·
 `edu run "<goal>" [--solo|--crew] [--cli X]` · `edu ui [--replay f]` · `edu demo` ·
-`edu brain status|recall <q>|remember|link <vault>|import albert|moragent <path>|maintain` ·
+`edu brief [--json] [query]` · `edu brain status|recall <q>|read <ref>|remember|link <vault>|import albert|moragent <path>|maintain` ·
 `edu context [--query q] [--budget n]` · `edu reflect` · `edu proposals list|accept|reject` ·
 `edu mcp` · `edu statusline`.
 

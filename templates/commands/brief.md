@@ -10,4 +10,5 @@ Follow the `edu-brief` skill.
 3. Show two to five bullets (open commitments with due dates, open hypotheses, lessons that
    apply, last session) with note ids and claim bands.
 
-If the `edu_*` tools are missing, tell the user to run `edu setup` and restart this CLI.
+If the `edu_*` tools are missing, run `edu brief $ARGUMENTS` in a shell for the same brief, and tell
+the user to run `edu setup` and restart this CLI.

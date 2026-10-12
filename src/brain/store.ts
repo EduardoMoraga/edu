@@ -9,8 +9,23 @@ export function slugify(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'note';
 }
 
-export function createId(meta: Pick<NoteMeta, 'tier' | 'kind' | 'title'>, date = new Date()): string {
+/**
+ * `D-010-slug` when a transitive note carries a legacy correlative with the same letter as its Edu prefix
+ * (Albert `D-010` → Edu decision): the correlative stays visible in the id and the filename, ids stay unique
+ * where titles repeat, and the id is deterministic so re-imports find the same note.
+ */
+export function legacyStem(meta: Pick<NoteMeta, 'tier' | 'kind' | 'title' | 'legacy_id'>): string | undefined {
+  if (meta.tier !== 'transitive' || !meta.legacy_id) return undefined;
+  const prefix = TRANSITIVE_PREFIX[(meta.kind as TransitiveKind) ?? 'lesson'];
+  const match = /^([A-Z])-(\d+)$/.exec(meta.legacy_id);
+  if (!prefix || !match || `${match[1]}-` !== prefix) return undefined;
+  return `${prefix}${match[2]}-${slugify(meta.title)}`;
+}
+
+export function createId(meta: Pick<NoteMeta, 'tier' | 'kind' | 'title'> & Partial<Pick<NoteMeta, 'legacy_id'>>, date = new Date()): string {
   if (meta.tier === 'episodic') return `${date.toISOString().slice(0, 10)}-${slugify(meta.title)}-${randomUUID().slice(0, 8)}`;
+  const legacy = legacyStem(meta);
+  if (legacy) return legacy;
   const prefix = meta.tier === 'canonical' ? 'K-' : TRANSITIVE_PREFIX[(meta.kind as TransitiveKind) ?? 'lesson'];
   return `${prefix}${slugify(meta.title)}`;
 }
@@ -30,7 +45,7 @@ export function notePath(brain: string, meta: NoteMeta, now = new Date()): strin
   } else {
     const prefix = TRANSITIVE_PREFIX[meta.kind as TransitiveKind];
     if (!prefix) throw new Error(`Invalid transitive kind: ${String(meta.kind)}`);
-    path = join(brain, TIER_DIRS.transitive, `${prefix}${slugify(meta.title)}.md`);
+    path = join(brain, TIER_DIRS.transitive, `${legacyStem(meta) === meta.id ? meta.id : `${prefix}${slugify(meta.title)}`}.md`);
   }
   const base = resolve(brain);
   const resolved = resolve(path);

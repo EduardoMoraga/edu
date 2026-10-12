@@ -48,6 +48,41 @@ describe('statusline', () => {
   });
 });
 
+describe('edu brief', () => {
+  it('prints the same brief as the session-start hook, without opening a session', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'remember', 'Prefer small PRs', '--kind', 'lesson']);
+    c.stdout.length = 0;
+    await runCli(c, ['hook', 'session-start']);
+    const hook = out(c);
+    c.stdout.length = 0;
+    await runCli(c, ['brief']);
+    expect(c.exitCode ?? 0).toBe(0);
+    expect(out(c)).toBe(hook);
+    expect(await episodes(c)).toEqual([]);
+  });
+
+  it('adds the notes relevant to a query and supports --json and --cwd', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'remember', 'Prefer small PRs', '--kind', 'lesson']);
+    const other = await captureContext();
+    await runCli(other, ['brief', '--cwd', c.dirs.cwd, '--json', 'small', 'PRs']);
+    const parsed = JSON.parse(out(other));
+    expect(parsed.text).toContain('the contract');
+    expect(parsed.hits.map((h: { id: string }) => h.id)).toContain('L-prefer-small-prs');
+    const plain = await captureContext();
+    await runCli(plain, ['--cwd', c.dirs.cwd, 'brief', 'small PRs']);
+    expect(out(plain)).toMatch(/## Relevant to "small PRs"\n- \[\[L-prefer-small-prs\]\]/);
+  });
+
+  it('explains how to create a brain when there is none', async () => {
+    const c = await captureContext();
+    await runCli(c, ['brief']);
+    expect(c.exitCode).toBe(1);
+    expect(err(c)).toContain('edu init');
+  });
+});
+
 describe('hooks', () => {
   it('session-start prints the brief when a brain exists', async () => {
     const c = await initialized('{"session_id":"abc","source":"startup"}');
