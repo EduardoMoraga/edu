@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { EduEvent, Engine, EngineRunRequest } from '../core/contracts.js';
 import { openBrain } from '../brain/index.js';
 import { FakeEngine } from '../engine/fake.js';
+import { nodeCommand, printCommand } from '../test-support/shell.js';
 import { defaultConfig } from './config.js';
 import { extractPlan } from './plan.js';
 import { loadPlaybook } from './playbook.js';
@@ -62,7 +63,7 @@ describe('v3 orchestration', () => {
     const requests: EngineRunRequest[] = [];
     const events: EduEvent[] = [];
     const order: string[] = [];
-    const plan = { requirements: [{ id: 'R-1', text: 'marker exists' }], checks: [{ id: 'marker', requirementIds: ['R-1'], command: 'test -f marker', expect: { exitCode: 0 }, timeoutMs: 1000 }], steps: [{ id: 'build', role: 'builder', task: 'Build marker', dependsOn: [], parallelSafe: false }] };
+    const plan = { requirements: [{ id: 'R-1', text: 'marker exists' }], checks: [{ id: 'marker', requirementIds: ['R-1'], command: nodeCommand("require('fs').accessSync('marker')"), expect: { exitCode: 0 }, timeoutMs: 10000 }], steps: [{ id: 'build', role: 'builder', task: 'Build marker', dependsOn: [], parallelSafe: false }] };
     let builderCalls = 0;
     try {
       await mkdir(join(root, 'playbooks'), { recursive: true });
@@ -75,7 +76,7 @@ describe('v3 orchestration', () => {
         else { builderCalls++; order.push(`builder-${builderCalls}`); if (builderCalls === 2) await writeFile(join(dir, 'marker'), 'ok'); output = 'done'; }
         yield* new FakeEngine([{ type: 'agent.text', agentId: id, text: output, at }, { type: 'agent.end', agentId: id, ok: true, summary: 'done', at }]).run(request, id);
       } };
-      const result = await orchestrate('Create marker', { config: { ...defaultConfig('claude'), approvals: 'auto' }, brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(root, 'runs'), onEvent: event => { events.push(event); if (event.type === 'verify.result' && event.kind === 'deterministic') order.push(event.ok ? 'verify-pass' : 'verify-fail'); }, approve: async request => { order.push('approve-spec'); expect(request.title).toBe('Approve spec'); expect(request.detail).toContain('test -f marker'); return true; }, now: () => new Date(at) });
+      const result = await orchestrate('Create marker', { config: { ...defaultConfig('claude'), approvals: 'auto' }, brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(root, 'runs'), onEvent: event => { events.push(event); if (event.type === 'verify.result' && event.kind === 'deterministic') order.push(event.ok ? 'verify-pass' : 'verify-fail'); }, approve: async request => { order.push('approve-spec'); expect(request.title).toBe('Approve spec'); expect(request.detail).toContain("accessSync('marker')"); return true; }, now: () => new Date(at) });
       expect(result.ok, result.summary).toBe(true);
       expect(order).toEqual(['plan', 'approve-spec', 'builder-1', 'verify-fail', 'builder-2', 'verify-pass', 'review']);
       expect(requests[0]?.prompt).toContain('Use this custom sequence.');
@@ -111,7 +112,7 @@ describe('v3 orchestration', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-plan-check-repair-'));
     const root = join(dir, '.edu');
     const unsafe = { requirements: [{ id: 'R-1', text: 'safe' }], checks: [{ id: 'check', requirementIds: ['R-1'], command: 'rm -rf .', expect: { exitCode: 0 }, timeoutMs: 1000 }], steps: [] };
-    const repaired = { ...unsafe, checks: [{ ...unsafe.checks[0], command: 'printf safe' }] };
+    const repaired = { ...unsafe, checks: [{ ...unsafe.checks[0], command: printCommand('safe') }] };
     let leadCalls = 0;
     const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, id) {
       const output = request.prompt.includes('Create a safe') ? JSON.stringify(unsafe) : request.prompt.includes('Your previous response was rejected') ? (leadCalls++, JSON.stringify(repaired)) : '{"verdict":"pass","issues":[]}';
@@ -124,7 +125,7 @@ describe('v3 orchestration', () => {
       expect(result.ok, result.summary).toBe(true);
       expect(leadCalls).toBe(1);
       const spec = result.events.find((event): event is Extract<EduEvent, { type: 'spec.ready' }> => event.type === 'spec.ready');
-      expect(await readFile(spec!.path, 'utf8')).toContain('printf safe');
+      expect(await readFile(spec!.path, 'utf8')).toContain("write('safe')");
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });

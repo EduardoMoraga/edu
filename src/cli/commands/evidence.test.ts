@@ -3,16 +3,17 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FakeEngine } from '../../engine/fake.js';
 import { defaultConfig } from '../../orchestrator/config.js';
+import { printCommand } from '../../test-support/shell.js';
 import { captureContext, out, runCli } from '../testkit.js';
 
 describe('evidence CLI', () => {
   it('adds, lists, runs, and summarizes deterministic checks', async () => {
     const c = await captureContext();
     await mkdir(join(c.dirs.cwd, '.edu'), { recursive: true });
-    await runCli(c, ['checks', 'add', '--id', 'hello', '--req', 'R1', '--cmd', 'printf ready', '--expect-stdout', 'ready', '--timeout', '1000']);
+    await runCli(c, ['checks', 'add', '--id', 'hello', '--req', 'R1', '--cmd', printCommand('ready'), '--expect-stdout', 'ready', '--timeout', '10000']);
     expect(c.exitCode).toBeUndefined();
     const saved = JSON.parse(await readFile(join(c.dirs.cwd, '.edu/harness/checks.json'), 'utf8'));
-    expect(saved).toMatchObject([{ id: 'hello', requirementIds: ['R1'], expect: { exitCode: 0, stdoutIncludes: 'ready' }, timeoutMs: 1000 }]);
+    expect(saved).toMatchObject([{ id: 'hello', requirementIds: ['R1'], expect: { exitCode: 0, stdoutIncludes: 'ready' }, timeoutMs: 10000 }]);
     c.stdout.length = 0;
     await runCli(c, ['checks', 'list', '--json']);
     expect(JSON.parse(out(c))).toEqual(saved);
@@ -29,7 +30,7 @@ describe('evidence CLI', () => {
     const brainRoot = join(c.dirs.cwd, '.edu');
     const harness = join(brainRoot, 'harness');
     await mkdir(harness, { recursive: true });
-    const check = { id: 'deterministic-1', requirementIds: ['R1'], command: 'printf evidence-ok', expect: { exitCode: 0, stdoutIncludes: 'evidence-ok' }, timeoutMs: 1000 };
+    const check = { id: 'deterministic-1', requirementIds: ['R1'], command: printCommand('evidence-ok'), expect: { exitCode: 0, stdoutIncludes: 'evidence-ok' }, timeoutMs: 10000 };
     await writeFile(join(harness, 'checks.json'), JSON.stringify([check]));
     await writeFile(join(brainRoot, 'config.json'), JSON.stringify({ ...defaultConfig('claude'), approvals: 'auto' }));
     const plan = { requirements: [{ id: 'R1', text: 'produce verifiable evidence' }], checks: [check], steps: [{ id: 'build', role: 'builder', task: 'Implement the requested work', dependsOn: [], parallelSafe: false }] };

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ContextPack, EduEvent, Engine, EngineRunRequest } from '../core/contracts.js';
 import { FakeEngine } from '../engine/fake.js';
+import { nodeCommand, printCommand } from '../test-support/shell.js';
 import { defaultConfig, loadConfig, saveConfig } from './config.js';
 import { assignCli } from './assign.js';
 import { extractPlan, PlanSchema } from './plan.js';
@@ -293,7 +294,7 @@ describe('orchestrator contracts', () => {
 
   it('runs H3 deterministic checks, exposes the workflow, emits evidence, and writes the episode package', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-h3-'));
-    const plan = { requirements: [{ id: 'r1', text: 'prints passing' }], checks: [{ id: 'check-r1', requirementIds: ['r1'], command: 'test -f .marker && printf passing', expect: { stdoutIncludes: 'passing' }, timeoutMs: 1000 }], steps: [{ id: 'build', role: 'builder', task: 'Implement it', dependsOn: [], parallelSafe: false }] };
+    const plan = { requirements: [{ id: 'r1', text: 'prints passing' }], checks: [{ id: 'check-r1', requirementIds: ['r1'], command: nodeCommand("require('fs').accessSync('.marker'); process.stdout.write('passing')"), expect: { stdoutIncludes: 'passing' }, timeoutMs: 10000 }], steps: [{ id: 'build', role: 'builder', task: 'Implement it', dependsOn: [], parallelSafe: false }] };
     const requests: EngineRunRequest[] = [];
     const observed: EduEvent[] = [];
     const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
@@ -353,9 +354,9 @@ describe('orchestrator contracts', () => {
   it('marks an applicable registered H3 check omitted by the plan as bypassed', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-h3-check-omission-'));
     const checks = [
-      { id: 'required-check', requirementIds: ['r1'], command: 'printf required', expect: { stdoutIncludes: 'required' }, timeoutMs: 1000 },
-      { id: 'other-check', requirementIds: ['r1'], command: 'printf other', expect: { stdoutIncludes: 'other' }, timeoutMs: 1000 },
-      { id: 'unrelated-check', requirementIds: ['r2'], command: 'printf unrelated', expect: { stdoutIncludes: 'unrelated' }, timeoutMs: 1000 },
+      { id: 'required-check', requirementIds: ['r1'], command: printCommand('required'), expect: { stdoutIncludes: 'required' }, timeoutMs: 10000 },
+      { id: 'other-check', requirementIds: ['r1'], command: printCommand('other'), expect: { stdoutIncludes: 'other' }, timeoutMs: 10000 },
+      { id: 'unrelated-check', requirementIds: ['r2'], command: printCommand('unrelated'), expect: { stdoutIncludes: 'unrelated' }, timeoutMs: 10000 },
     ];
     const plan = { requirements: [{ id: 'r1', text: 'complete task' }], checks: [checks[1]], steps: [] };
     const observed: EduEvent[] = [];

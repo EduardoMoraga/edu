@@ -2,6 +2,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { nodeCommand, printCommand } from '../test-support/shell.js';
 import { checkSpawnOptions, loadChecks, saveChecks, runCheck } from './registry.js';
 
 const roots: string[] = [];
@@ -27,15 +28,15 @@ describe('evidence registry', () => {
   });
 
   it('records passing and failing command results', async () => {
-    const pass = await runCheck({ id: 'pass', requirementIds: [], command: 'printf green', expect: { stdoutIncludes: 'green' }, timeoutMs: 1000 }, process.cwd());
-    const fail = await runCheck({ id: 'fail', requirementIds: [], command: 'printf red', expect: { stdoutIncludes: 'green' }, timeoutMs: 1000 }, process.cwd());
+    const pass = await runCheck({ id: 'pass', requirementIds: [], command: printCommand('green'), expect: { stdoutIncludes: 'green' }, timeoutMs: 10000 }, process.cwd());
+    const fail = await runCheck({ id: 'fail', requirementIds: [], command: printCommand('red'), expect: { stdoutIncludes: 'green' }, timeoutMs: 10000 }, process.cwd());
     expect(pass).toMatchObject({ checkId: 'pass', ok: true, exitCode: 0, timedOut: false });
     expect(fail).toMatchObject({ checkId: 'fail', ok: false, exitCode: 0, timedOut: false });
     expect(fail.output).toContain('red');
   });
 
   it('matches stdoutIncludes against stdout rather than stderr', async () => {
-    const result = await runCheck({ id: 'stderr', requirementIds: [], command: "printf green >&2", expect: { stdoutIncludes: 'green' }, timeoutMs: 1000 }, process.cwd());
+    const result = await runCheck({ id: 'stderr', requirementIds: [], command: nodeCommand("process.stderr.write('green')"), expect: { stdoutIncludes: 'green' }, timeoutMs: 10000 }, process.cwd());
     expect(result.ok).toBe(false);
     expect(result.output).toContain('green');
     expect(result.stdout).toBe('');
