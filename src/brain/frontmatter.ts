@@ -6,7 +6,8 @@ export interface MarkdownDocument<T extends object = Record<string, unknown>> {
 }
 
 export function parseMarkdown<T extends object = Record<string, unknown>>(source: string): MarkdownDocument<T> {
-  const normalized = source.replace(/\r\n/g, '\n');
+  // Windows PowerShell 5.1 writes UTF-8 with a BOM; without stripping it the frontmatter is not recognized.
+  const normalized = source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
   const match = normalized.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/);
   if (!match) return { meta: {} as T, body: normalized.trimEnd() };
   const meta = (parse(match[1] ?? '') ?? {}) as T;
@@ -27,7 +28,7 @@ export function parseMarkdownLenient<T extends object = Record<string, unknown>>
   try {
     return { ...parseMarkdown<T>(source), recovered: false };
   } catch {
-    const normalized = source.replace(/\r\n/g, '\n');
+    const normalized = source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
     const match = normalized.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/);
     if (!match) throw new Error('Unparseable frontmatter');
     const meta: Record<string, unknown> = {};

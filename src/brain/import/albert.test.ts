@@ -100,6 +100,15 @@ describe('read-only brain importers', () => {
     expect(report.imported.find(note => note.meta.kind === 'hypothesis')?.meta.status).toBe('confirmed');
     expect(report.imported.find(note => note.meta.kind === 'commitment')?.meta.status).toBe('delivered');
   });
+  it('maps an "abierto" commitment to pending', async () => {
+    const source = await temp(), target = await temp();
+    await mkdir(join(source, '_ALBERT/3-TRANSITIVO/compromisos'), { recursive: true });
+    await writeFile(join(source, '_ALBERT/3-TRANSITIVO/compromisos/C-052_entregar.md'), '---\ntipo: compromiso\ntitulo: Entregar\nestado: abierto\ndueno: Eduardo\n---\n\nBody.\n');
+    const brain = openBrain([{ scope: 'project', root: target }]);
+    const report = await importAlbert(source, brain);
+    expect(report.errors).toEqual([]);
+    expect(report.imported[0]?.meta.status).toBe('pending');
+  });
   it('maps Albert A-items to lessons and Spanish statuses without changing source', async () => {
     const source = await temp(), target = await temp();
     const file = join(source, '_ALBERT/3-TRANSITIVO/A-recordatorio.md');

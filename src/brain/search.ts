@@ -8,6 +8,10 @@ export function tokenize(text: string): string[] {
 export function rankNotes(query: string, notes: Note[], now = new Date(), limit = 10): RecallHit[] {
   const terms = [...new Set(tokenize(query))];
   if (!terms.length) return [];
+  // A query that is exactly a note's id, alias or legacy id (e.g. an imported "D-010") names that note: it ranks first.
+  const key = query.trim().toLocaleLowerCase('en');
+  const named = (note: Note) => [note.meta.id, note.meta.legacy_id, ...(Array.isArray(note.meta.aliases) ? note.meta.aliases : [])]
+    .some(name => typeof name === 'string' && name.toLocaleLowerCase('en') === key);
   const docs = notes.map(note => ({ note, fields: [tokenize(note.meta.title), tokenize(note.meta.tags.join(' ')), tokenize(note.body)] }));
   // Document frequency once per term (it was recomputed for every document: quadratic in the brain size).
   const df = new Map(terms.map(term => [term, docs.filter(doc => doc.fields.some(field => field.includes(term))).length]));
@@ -26,6 +30,7 @@ export function rankNotes(query: string, notes: Note[], now = new Date(), limit 
       bm25 += idf * (tf * 2.2) / (tf + 1.2 * (1 - 0.75 + 0.75 * dl / Math.max(avgdl, 1)));
     }
     const w = learnedWeight(note.meta.usage, now);
+    if (named(note)) return { note, score: 1_000_000, why: `Named by id or alias "${query.trim()}"; learned weight ${w.toFixed(2)}.`, matches: 1 };
     return { note, score: bm25 * (0.5 + w), why: `Matched ${matched.length ? matched.join(', ') : 'no terms'}; learned weight ${w.toFixed(2)}.`, matches: matched.length };
   }).filter(hit => hit.matches > 0);
   return scored.sort((a, b) => b.score - a.score || a.note.meta.id.localeCompare(b.note.meta.id)).slice(0, Math.max(0, limit)).map(({ matches: _matches, ...hit }) => hit);
