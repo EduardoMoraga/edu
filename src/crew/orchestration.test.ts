@@ -1,12 +1,12 @@
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EduEvent, Engine } from '../core/contracts.js';
 import { createCrew } from './index.js';
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
 function fakeEngine(): Engine {
   return { cli: 'claude', available: async () => true, async *run(request, agentId) {
@@ -63,6 +63,19 @@ describe('detached orchestration', () => {
     expect(result.outcome).toBe('assisted_verified_success');
     expect(result.verificationSummary).toContain('passed');
     expect((await crew.store.events(job.id)).some(event => event.type === 'spec.ready')).toBe(true);
+  });
+
+  it('publishes the spec path together with the awaiting-approval status', async () => {
+    const { crew, cwd } = await setup();
+    const patches: Array<Record<string, unknown>> = [];
+    const update = crew.store.update.bind(crew.store);
+    vi.spyOn(crew.store, 'update').mockImplementation(async (id, patch) => { patches.push({ ...patch }); return update(id, patch); });
+    const job = await crew.orchestrate({ goal: 'Check the command', cwd });
+    const worker = crew.runWorker(job.id);
+    await awaiting(crew, job.id);
+    expect(patches.find(patch => 'specPath' in patch)).toMatchObject({ status: 'awaiting-approval' });
+    await crew.approve(job.id, true);
+    expect((await worker).status).toBe('done');
   });
 
   it('stops without running checks when the spec is rejected', async () => {

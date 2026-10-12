@@ -135,13 +135,27 @@ async function runOrchestration(job, options) {
   const now = options.now ?? (() => /* @__PURE__ */ new Date());
   const sleep = options.sleep ?? ((ms) => new Promise((resolve3) => setTimeout(resolve3, ms)));
   const latestChecks = /* @__PURE__ */ new Map();
+  let pendingSpec;
+  const specPatch = () => {
+    const patch = pendingSpec ? { specPath: pendingSpec, note: pendingSpec } : {};
+    pendingSpec = void 0;
+    return patch;
+  };
+  const flushSpec = async () => {
+    if (pendingSpec) await store.update(job.id, specPatch());
+  };
   const onEvent = async (event) => {
     await store.appendEvent(job.id, event);
-    if (event.type === "spec.ready") await store.update(job.id, { specPath: event.path, note: event.path });
+    if (event.type === "spec.ready") {
+      await flushSpec();
+      pendingSpec = event.path;
+      return;
+    }
     if (event.type === "approval.request" && !job.autoApprove) {
-      await store.update(job.id, { status: "awaiting-approval" });
+      await store.update(job.id, { ...specPatch(), status: "awaiting-approval" });
       await store.appendEvent(job.id, { type: "agent.status", agentId: job.id, status: "awaiting-approval", at: event.at });
     }
+    await flushSpec();
     if (event.type === "approval.resolve") await store.update(job.id, { status: "running" });
     if (event.type === "verify.result" && event.kind !== "reproduction") {
       latestChecks.set(event.checkId ?? event.method ?? "unknown", event.ok);
@@ -181,11 +195,11 @@ async function runOrchestration(job, options) {
         }
       }
     });
-    return store.update(job.id, { status: result2.ok ? "done" : "failed", endedAt: now().toISOString(), summary: result2.summary });
+    return store.update(job.id, { ...specPatch(), status: result2.ok ? "done" : "failed", endedAt: now().toISOString(), summary: result2.summary });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await store.appendEvent(job.id, { type: "error", message, at: now().toISOString() }).catch(() => void 0);
-    return store.update(job.id, { status: "failed", endedAt: now().toISOString(), summary: message });
+    return store.update(job.id, { ...specPatch(), status: "failed", endedAt: now().toISOString(), summary: message });
   }
 }
 
@@ -585,4 +599,4 @@ export {
   result,
   review
 };
-//# sourceMappingURL=chunk-GPMXNFUW.js.map
+//# sourceMappingURL=chunk-H2NUAYY5.js.map

@@ -20,13 +20,24 @@ export async function runOrchestration(job: CrewJob, options: OrchestrationWorke
   const now = options.now ?? (() => new Date());
   const sleep = options.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
   const latestChecks = new Map<string, boolean>();
+  // The spec path is persisted with the next update so that a spec awaiting approval becomes visible
+  // together with `awaiting-approval`: readers that wait for `specPath` (edu_orchestrate) never see the
+  // spec while the job still says `running`.
+  let pendingSpec: string | undefined;
+  const specPatch = () => {
+    const patch = pendingSpec ? { specPath: pendingSpec, note: pendingSpec } : {};
+    pendingSpec = undefined;
+    return patch;
+  };
+  const flushSpec = async () => { if (pendingSpec) await store.update(job.id, specPatch()); };
   const onEvent = async (event: EduEvent) => {
     await store.appendEvent(job.id, event);
-    if (event.type === 'spec.ready') await store.update(job.id, { specPath: event.path, note: event.path });
+    if (event.type === 'spec.ready') { await flushSpec(); pendingSpec = event.path; return; }
     if (event.type === 'approval.request' && !job.autoApprove) {
-      await store.update(job.id, { status: 'awaiting-approval' });
+      await store.update(job.id, { ...specPatch(), status: 'awaiting-approval' });
       await store.appendEvent(job.id, { type: 'agent.status', agentId: job.id, status: 'awaiting-approval', at: event.at });
     }
+    await flushSpec();
     if (event.type === 'approval.resolve') await store.update(job.id, { status: 'running' });
     if (event.type === 'verify.result' && event.kind !== 'reproduction') {
       latestChecks.set(event.checkId ?? event.method ?? 'unknown', event.ok);
@@ -59,10 +70,10 @@ export async function runOrchestration(job: CrewJob, options: OrchestrationWorke
         }
       },
     });
-    return store.update(job.id, { status: result.ok ? 'done' : 'failed', endedAt: now().toISOString(), summary: result.summary });
+    return store.update(job.id, { ...specPatch(), status: result.ok ? 'done' : 'failed', endedAt: now().toISOString(), summary: result.summary });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await store.appendEvent(job.id, { type: 'error', message, at: now().toISOString() }).catch(() => undefined);
-    return store.update(job.id, { status: 'failed', endedAt: now().toISOString(), summary: message });
+    return store.update(job.id, { ...specPatch(), status: 'failed', endedAt: now().toISOString(), summary: message });
   }
 }
