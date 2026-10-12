@@ -1,0 +1,11 @@
+# Keep LF everywhere so tests, snapshots and generated plugins match on Windows checkouts too.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.tgz binary
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
