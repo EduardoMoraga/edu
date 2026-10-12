@@ -72,7 +72,7 @@ describe('project registry and vault', () => {
     const check = await checkVault({ path: vault, home: f.home, eduHome: f.eduHome });
     expect(check.links.find(link => link.name === 'project')?.notes).toBe(1);
     await rm(join(vault, 'Edu', 'project'));
-    await symlink(join(f.root, 'different'), join(vault, 'Edu', 'project'));
+    await symlink(join(f.root, 'different'), join(vault, 'Edu', 'project'), process.platform === 'win32' ? 'junction' : 'dir');
     const third = await createVault({ path: vault, home: f.home, eduHome: f.eduHome, register: false });
     expect(third.conflicts).toHaveLength(1);
     await rm(project, { recursive: true });
@@ -94,7 +94,7 @@ describe('project registry and vault', () => {
     const f = await fixture();
     const library = join(f.home, 'Library');
     await mkdir(library);
-    await symlink(library, join(f.home, 'safe-looking'));
+    await symlink(library, join(f.home, 'safe-looking'), process.platform === 'win32' ? 'junction' : 'dir');
     await expect(createVault({ path: join(f.home, 'safe-looking', 'EduVault'), home: f.home, eduHome: f.eduHome, register: false }))
       .rejects.toThrow('Unsafe vault path');
   });

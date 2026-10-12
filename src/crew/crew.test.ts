@@ -87,7 +87,7 @@ describe('crew jobs', () => {
     const outside = join(f.root, 'outside');
     await mkdir(workspace);
     await mkdir(outside);
-    await symlink(outside, join(workspace, 'escape'));
+    await symlink(outside, join(workspace, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
     const crew = createCrew({ brainRoot: f.root, workspaceRoot: workspace, store: f.store,
       startHeadless: async job => job });
     await expect(crew.dispatch({ cli: 'pi', task: 'Escape', cwd: outside })).rejects.toThrow('outside the workspace');
