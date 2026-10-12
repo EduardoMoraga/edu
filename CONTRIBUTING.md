@@ -25,10 +25,12 @@ The suite runs on Windows without Git Bash on `PATH`, without the symlink privil
 `~/.edu` next to the temp folder: test check commands go through `node -e`, directory links use
 junctions and `EDU_CEILING_DIRECTORIES` keeps the brain search inside each test sandbox.
 
-One check depends on the machine: `maintains a brain of about 1000 notes in under 2 seconds` measures
-wall-clock time. On managed workstations where antivirus or filter drivers inspect every file open,
-reading 1000 small files alone can take more than 2 s (measured 2.6 s for `stat` + `readFile` on a
-Cheil laptop, Node 24.19), so that test fails there while it passes on CI runners.
+Two checks depend on the machine because they measure wall-clock time: `maintains a brain of about
+1000 notes in under 2 seconds` and, occasionally, the session-start budget in
+`src/context/session-start.perf.test.ts`. On managed workstations where antivirus or filter drivers
+inspect every file open, reading 1000 small files alone can take more than 2 s (measured 2.6 s for
+`stat` + `readFile` on a Cheil laptop, Node 24.19), so those tests can fail there while they pass on
+CI runners.
 
 ## Module ownership
 
