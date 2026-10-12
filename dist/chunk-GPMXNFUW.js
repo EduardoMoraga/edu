@@ -18,6 +18,9 @@ import {
 import {
   openBrain
 } from "./chunk-XCK7PFLA.js";
+import {
+  atomicWrite
+} from "./chunk-7UTDQFLV.js";
 
 // src/crew/index.ts
 import { execFile as execFileCallback2 } from "child_process";
@@ -33,7 +36,7 @@ import { join as join2, resolve } from "path";
 import { spawn } from "child_process";
 
 // src/crew/store.ts
-import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from "fs/promises";
+import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { join } from "path";
 var statuses = /* @__PURE__ */ new Set(["queued", "running", "awaiting-approval", "done", "failed", "cancelled"]);
@@ -49,16 +52,8 @@ function createCrewStore(brainRoot) {
   const ensure = () => mkdir(root, { recursive: true });
   async function atomicJson(path, value) {
     await ensure();
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporary, `${JSON.stringify(value, null, 2)}
-`, { flag: "wx" });
-      await rename(temporary, path);
-    } catch (error) {
-      const { unlink: unlink2 } = await import("fs/promises");
-      await unlink2(temporary).catch(() => void 0);
-      throw error;
-    }
+    await atomicWrite(path, `${JSON.stringify(value, null, 2)}
+`);
   }
   return {
     async create(input) {
@@ -590,4 +585,4 @@ export {
   result,
   review
 };
-//# sourceMappingURL=chunk-T4IBTT2V.js.map
+//# sourceMappingURL=chunk-GPMXNFUW.js.map

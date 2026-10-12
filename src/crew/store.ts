@@ -1,6 +1,7 @@
-import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { atomicWrite } from '../brain/store.js';
 import type { Autonomy, CliId, CrewJob, CrewJobMode, CrewJobStatus, EduEvent } from '../core/contracts.js';
 
 export interface NewCrewJob extends Pick<CrewJob, 'cli' | 'task' | 'mode' | 'cwd' | 'autonomy'> {
@@ -32,17 +33,11 @@ export function createCrewStore(brainRoot: string): CrewStore {
   const eventPath = (id: string) => join(root, `${safeId(id)}.jsonl`);
   const decisionPath = (id: string) => join(root, `${safeId(id)}.decision`);
   const ensure = () => mkdir(root, { recursive: true });
+  // The brain's atomic write retries the rename while Windows reports the target as held open (a status
+  // poller reading the job), instead of failing the job with EPERM.
   async function atomicJson(path: string, value: unknown): Promise<void> {
     await ensure();
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx' });
-      await rename(temporary, path);
-    } catch (error) {
-      const { unlink } = await import('node:fs/promises');
-      await unlink(temporary).catch(() => undefined);
-      throw error;
-    }
+    await atomicWrite(path, `${JSON.stringify(value, null, 2)}\n`);
   }
   return {
     async create(input) {

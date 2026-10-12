@@ -28,7 +28,7 @@ import {
 import {
   createCrew,
   runWorker
-} from "./chunk-T4IBTT2V.js";
+} from "./chunk-GPMXNFUW.js";
 import {
   globalHome,
   processContext,
@@ -1929,7 +1929,7 @@ function registerIntegrations(program, ctx) {
   );
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-JKWB3XRK.js");
+      const { runStdioServer } = await import("./stdio-DVRXRKZB.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -2049,7 +2049,7 @@ function registerMcpProject(program, ctx) {
   if (!mcp) throw new Error("The mcp command must be registered before its --project option");
   mcp.option("--project <name|path>", 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)').action(
     action(ctx, async ({ g, opts }) => {
-      const { runStdioServer } = await import("./stdio-JKWB3XRK.js");
+      const { runStdioServer } = await import("./stdio-DVRXRKZB.js");
       await runStdioServer({ cwd: g.cwd, project: opts.project, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -2142,7 +2142,7 @@ function registerLive(program, ctx) {
       const text = (goal ?? "").trim();
       if (!text) throw new Error("a goal is required");
       if (opts.detach) {
-        const { createCrew: createCrew2 } = await import("./crew-SPGHI3DF.js");
+        const { createCrew: createCrew2 } = await import("./crew-NHJCVCKI.js");
         const ws = await openWorkspace(ctx, g.cwd);
         const job = await createCrew2({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
           goal: text,
@@ -2847,4 +2847,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-QPZ3NB6R.js.map
+//# sourceMappingURL=chunk-7FJCNREY.js.map

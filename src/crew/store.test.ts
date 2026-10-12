@@ -1,7 +1,8 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { atomicFs } from '../brain/store.js';
 import { createCrewStore } from './store.js';
 
 const roots: string[] = [];
@@ -18,6 +19,23 @@ describe('crew store', () => {
     expect((await store.get(job.id))?.pid).toBe(123);
     expect((await store.list()).map(item => item.id)).toContain(job.id);
     expect(await readFile(join(root, 'crew', `${job.id}.jsonl`), 'utf8')).toContain('"working"');
+  });
+
+  it('retries a job update while Windows holds the job file open', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'edu-crew-store-'));
+    roots.push(root);
+    const store = createCrewStore(root);
+    const job = await store.create({ cli: 'codex', task: 'Build it', mode: 'headless', cwd: root, autonomy: 'ask' });
+    const realRename = atomicFs.rename;
+    vi.spyOn(atomicFs, 'sleep').mockResolvedValue(undefined);
+    const rename = vi.spyOn(atomicFs, 'rename')
+      .mockRejectedValueOnce(Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' }))
+      .mockImplementation(realRename);
+    try {
+      await store.update(job.id, { status: 'awaiting-approval' });
+      expect(rename).toHaveBeenCalledTimes(2);
+      expect((await store.get(job.id))?.status).toBe('awaiting-approval');
+    } finally { vi.restoreAllMocks(); }
   });
 });
 
