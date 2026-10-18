@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, link, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { INDEX_DIR, TRANSITIVE_PREFIX, TIER_DIRS, type BrainLocation, type Note, type NoteMeta, type TransitiveKind } from '../core/contracts.js';
@@ -59,7 +59,7 @@ export function notePath(brain: string, meta: NoteMeta, now = new Date()): strin
  * Not part of the public API.
  */
 export const atomicFs = {
-  mkdir, writeFile, rename, copyFile, rm,
+  mkdir, writeFile, rename, copyFile, link, rm,
   sleep: (ms: number) => new Promise<void>(done => setTimeout(done, ms)),
 };
 
@@ -98,6 +98,34 @@ export async function atomicWrite(path: string, content: string): Promise<void> 
   }
 }
 
+/** Publish a complete file atomically, without replacing even an unreadable/malformed destination.
+ * The temp is a sibling so the hard link stays on the same volume. Unsupported filesystems fail closed.
+ */
+export async function exclusiveWrite(path: string, content: string): Promise<void> {
+  await atomicFs.mkdir(dirname(path), { recursive: true });
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    await atomicFs.writeFile(temp, content, { encoding: 'utf8', flag: 'wx' });
+    for (let attempt = 0; ; attempt++) {
+      try { await atomicFs.link(temp, path); break; }
+      catch (error) {
+        const delay = RENAME_BACKOFF_MS[attempt];
+        if (!isLocked(error) || delay === undefined) throw error;
+        await atomicFs.sleep(delay);
+      }
+    }
+    noteCache.delete(resolve(path));
+  } finally {
+    await atomicFs.rm(temp, { force: true }).catch(() => { /* Publication is already complete or failed closed. */ });
+  }
+}
+
+/** Usage updates must not serialize the normalized read model over the original frontmatter. */
+export async function persistNoteUsage(note: Note): Promise<void> {
+  const raw = parseMarkdown(await readFile(note.path, 'utf8'));
+  await atomicWrite(note.path, serializeMarkdown({ ...raw.meta, usage: note.meta.usage, updated: note.meta.updated }, raw.body));
+}
+
 /**
  * Per-process cache of parsed notes keyed by absolute path and validated by mtime, size and inode, so a
  * process that lists the brain several times (brief + usage tracking, maintenance) reads and parses each
@@ -121,11 +149,33 @@ export async function readNote(path: string): Promise<Note | undefined> {
     const cached = noteCache.get(key);
     if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size && cached.ino === info.ino) return fresh(cached.note);
     noteParses++;
-    const parsed = parseMarkdown<NoteMeta>(await readFile(path, 'utf8'));
-    const note = parsed.meta.id && parsed.meta.tier && parsed.meta.title ? { meta: parsed.meta, body: parsed.body, path } : undefined;
+    const parsed = parseMarkdown(await readFile(path, 'utf8'));
+    const raw = parsed.meta;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || typeof raw.id !== 'string' || !raw.id.trim() || typeof raw.title !== 'string' || !raw.title.trim() || typeof raw.tier !== 'string' || !['canonical', 'episodic', 'transitive'].includes(raw.tier)) throw new Error('Invalid note identity');
+    const strings = (value: unknown): string[] => typeof value === 'string' ? [value] : Array.isArray(value) ? value.flatMap(strings) : [];
+    const date = (value: unknown, fallback: string) => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : fallback;
+    const meta = { ...raw, tags: strings(raw.tags), links: strings(raw.links), created: date(raw.created, info.mtime.toISOString()) } as unknown as NoteMeta;
+    for (const field of ['source', 'owner', 'stakeholder', 'due', 'supersedes', 'legacy_id', 'origin', 'superseded_by', 'kind', 'status', 'band'] as const) {
+      if (typeof raw[field] !== 'string' || !raw[field].trim()) delete meta[field];
+    }
+    if (meta.band && !['verified', 'inferred', 'hypothesis'].includes(meta.band)) delete meta.band;
+    if (raw.aliases !== undefined) meta.aliases = strings(raw.aliases);
+    if (raw.updated !== undefined) meta.updated = date(raw.updated, meta.created);
+    if (raw.usage !== undefined) {
+      const usage = raw.usage && typeof raw.usage === 'object' ? raw.usage as Record<string, unknown> : {};
+      const count = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+      meta.usage = { ...usage, uses: count(usage.uses), wins: count(usage.wins), losses: count(usage.losses), ...(typeof usage.lastUsed === 'string' && Number.isFinite(Date.parse(usage.lastUsed)) ? { lastUsed: usage.lastUsed } : {}) };
+      if (!Number.isFinite(Date.parse(meta.usage.lastUsed ?? ''))) delete meta.usage.lastUsed;
+    }
+    const note = { meta, body: parsed.body, path };
     noteCache.set(key, { mtimeMs: info.mtimeMs, size: info.size, ino: info.ino, note });
     return fresh(note);
-  } catch { noteCache.delete(key); return undefined; }
+  } catch (error) {
+    noteCache.delete(key);
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') console.warn(`Edu: cannot read note ${key} (${code ?? 'INVALID_NOTE'}); file left unchanged.`);
+    return undefined;
+  }
 }
 
 async function markdownFiles(dir: string): Promise<string[]> {
@@ -143,8 +193,12 @@ async function markdownFiles(dir: string): Promise<string[]> {
 export async function listLocation(location: BrainLocation): Promise<Note[]> {
   const notes: Note[] = [];
   for (const dir of [TIER_DIRS.canonical, TIER_DIRS.episodic, TIER_DIRS.transitive]) {
-    for (const path of await markdownFiles(join(brainPath(location), dir))) {
-      const note = await readNote(path); if (note) notes.push(note);
+    const paths = await markdownFiles(join(brainPath(location), dir));
+    // Bound concurrent filesystem reads while preserving discovery/overlay order.
+    // Serial stat/read pairs dominated cold maintenance on Windows large brains.
+    for (let offset = 0; offset < paths.length; offset += 16) {
+      const batch = await Promise.all(paths.slice(offset, offset + 16).map(path => readNote(path)));
+      for (const note of batch) if (note) notes.push(note);
     }
   }
   return notes;

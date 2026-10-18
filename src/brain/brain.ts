@@ -3,7 +3,8 @@ import { basename, join } from 'node:path';
 import type { BrainLocation, CanonicalKind, ClaimBand, Note, NoteMeta, RecallHit, Tier } from '../core/contracts.js';
 import { brainPath } from './location.js';
 import { writeObsidianViews, type ViewOptions } from './views.js';
-import { INDEX_DIR, atomicWrite, createId, encodeNote, notePath, overlayNotes } from './store.js';
+import { INDEX_DIR, atomicWrite, exclusiveWrite, createId, encodeNote, notePath, overlayNotes, persistNoteUsage } from './store.js';
+import { BrainLockUnavailableError, withBrainLocks } from './lock.js';
 import { assertDecisionReversion, isClosedEpisode, validateTransition, validateStatus } from './lifecycle.js';
 import { feedbackUsage, applyLearning, recordUsage } from './learning.js';
 import { rankNotes } from './search.js';
@@ -48,7 +49,8 @@ export interface Brain {
   write(input: NewNote): Promise<Note>;
   update(id: string, patch: Partial<NoteMeta>, body?: string): Promise<Note>;
   recall(query: string, opts?: { limit?: number; tiers?: Tier[] }): Promise<RecallHit[]>;
-  feedback(id: string, helpful: boolean): Promise<Note>;
+  /** eventId optionally makes retried automated feedback idempotent. */
+  feedback(id: string, helpful: boolean, eventId?: string): Promise<Note>;
   /** Records that notes were used (injected into context). Usage stats are learning signal, not content, so they are allowed on accepted canonical notes; closed episodes are skipped. */
   recordUse(ids: string[], now?: Date): Promise<void>;
   openSession(title: string, source: string): Promise<Note>;
@@ -71,6 +73,9 @@ const iso = (d = new Date()) => d.toISOString();
 const defaultStatus = (tier: Tier, kind: NoteMeta['kind']): NoteMeta['status'] => tier === 'canonical' ? 'proposed' : ({ decision: 'active', hypothesis: 'open', commitment: 'pending', lesson: 'candidate', session: 'open-session' } as const)[kind as 'decision' | 'hypothesis' | 'commitment' | 'lesson' | 'session'];
 /** Source of the episodic record a rejected canonical proposal leaves behind. */
 export const REJECT_SOURCE = 'edu:reject';
+export class AutomaticProposalSuppressedError extends Error {
+  constructor() { super('Automatic canonical proposal already exists or was rejected'); }
+}
 /**
  * Usage is a learning signal, not a log: a note already used in the same minute is not rewritten again
  * (chat turns and recalls would otherwise rewrite the same files on every query, racing Obsidian and
@@ -116,7 +121,9 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     return persist({ ...current, meta, body: body ?? current.body });
   };
 
-  return {
+  // Internal calls use this unlocked object. Only the public facade acquires locks,
+  // so nested lifecycle operations never try to acquire a lock they already own.
+  const operations: Brain = {
     async init(loc, opts = {}) {
       for (const folder of ['0-index', '1-canonical', '2-episodic', '3-transitive']) await mkdir(join(brainPath(loc), folder), { recursive: true });
       for (const folder of ['skills', 'agents', 'playbooks', 'proposals', 'runs']) await mkdir(join(loc.root, folder), { recursive: true });
@@ -168,7 +175,12 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         if (!priorDecision || priorDecision.meta.kind !== 'decision' || priorDecision.meta.status !== 'active') throw new Error('A decision can supersede only an existing active decision');
       }
       if (await find(meta.id)) throw new Error(`Note id already exists: ${meta.id}`);
-      const created = await persist(note);
+      try { await exclusiveWrite(note.path, encodeNote(note)); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`Note id already exists: ${meta.id}; destination file was not changed`);
+        throw error;
+      }
+      const created = note;
       if (priorDecision) await updateNote(priorDecision.meta.id, { status: 'reverted', supersedes: created.meta.id }, undefined, 'revert-decision');
       return created;
     },
@@ -177,10 +189,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     },
     async recall(query, opts = {}) {
       const notes = (await all()).filter(n => !opts.tiers || opts.tiers.includes(n.meta.tier));
-      const hits = rankNotes(query, notes, new Date(), opts.limit);
-      const now = new Date();
-      for (const hit of hits) if (!isClosedEpisode(hit.note.meta) && !usedThisMinute(hit.note.meta, now)) await persist({ ...hit.note, meta: { ...hit.note.meta, usage: recordUsage(hit.note.meta.usage, now), updated: iso() } });
-      return hits;
+      return rankNotes(query, notes, new Date(), opts.limit);
     },
     async recordUse(ids, now = new Date()) {
       // One load for the whole batch: a find() per id reloaded the brain each time (quadratic on large imports).
@@ -188,18 +197,32 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       for (const id of new Set(ids)) {
         const note = byId.get(id);
         if (!note || isClosedEpisode(note.meta) || usedThisMinute(note.meta, now)) continue;
-        await persist({ ...note, meta: { ...note.meta, usage: recordUsage(note.meta.usage, now), updated: iso() } });
+        await persistNoteUsage({ ...note, meta: { ...note.meta, usage: recordUsage(note.meta.usage, now), updated: iso() } });
       }
     },
-    async feedback(id, helpful) {
+    async feedback(id, helpful, eventId) {
       const note = await find(id); if (!note) throw new Error(`Note not found: ${id}`);
       if (isClosedEpisode(note.meta)) throw new Error('Closed episodic notes are immutable');
-      return persist({ ...note, meta: { ...note.meta, usage: feedbackUsage(note.meta.usage, helpful), updated: iso() } });
+      const raw = (note.meta.usage as (NonNullable<NoteMeta['usage']> & { feedbackEvents?: unknown }) | undefined)?.feedbackEvents;
+      const events = Array.isArray(raw) ? raw.filter((value): value is string => typeof value === 'string') : [];
+      if (eventId && events.includes(eventId)) return note;
+      const usage = { ...feedbackUsage(note.meta.usage, helpful), ...(eventId ? { feedbackEvents: [...events, eventId] } : {}) };
+      const updated = { ...note, meta: { ...note.meta, usage, updated: iso() } };
+      await persistNoteUsage(updated);
+      return updated;
     },
     async openSession(title, source) { return this.write({ title, body: '', tier: 'episodic', kind: 'session', status: 'open-session', source }); },
     async closeSession(id, summary) { return this.update(id, { status: 'closed' }, summary); },
     async proposeCanonical(input) {
       if (input.tier !== 'canonical') throw new Error('Canonical proposals must use tier canonical');
+      if (input.source === 'edu:reflect' || input.source === 'edu:maintain') {
+        const id = createId(input);
+        const notes = await all();
+        if (notes.some(note =>
+          (note.meta.tier === 'canonical' && (note.meta.id === id || note.meta.links.some(link => link.startsWith('L-') && input.links?.includes(link)))) ||
+          (note.meta.source === REJECT_SOURCE && (note.meta.links.includes(id) || note.meta.links.some(link => link.startsWith('L-') && input.links?.includes(link))))
+        )) throw new AutomaticProposalSuppressedError();
+      }
       return this.write({ ...input, status: 'proposed' });
     },
     async acceptCanonical(id) {
@@ -215,13 +238,14 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     async rejectCanonical(id, reason) {
       const note = await find(id); if (!note || note.meta.tier !== 'canonical') throw new Error(`Canonical note not found: ${id}`);
       if (note.meta.status !== 'proposed') throw new Error('Only proposed canonical notes can be rejected');
-      await rm(note.path, { force: true });
       const record = await this.write({
         tier: 'episodic', kind: 'session', status: 'open-session', source: REJECT_SOURCE, links: [id, ...note.meta.links],
         title: `Rejected canonical proposal: ${note.meta.title}`, body: '',
       });
       const quoted = note.body.trim().split('\n').slice(0, 12).map(line => `> ${line}`);
       await this.closeSession(record.meta.id, [`Rejected ${id} (${note.meta.band ?? 'inferred'}, source ${note.meta.source ?? 'unknown'}).`, ...(reason ? [`Reason: ${reason}`] : []), '', ...quoted].join('\n'));
+      // Preserve rejection evidence before deleting the proposal, including on an I/O failure.
+      await rm(note.path, { force: true });
       return note;
     },
     async maintain(now = new Date()) {
@@ -231,7 +255,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       const proposedOrRejected = new Set<string>();
       const acceptedStandards = new Map<string, Note>();
       for (const candidate of notes) {
-        if ((candidate.meta.tier === 'canonical' && candidate.meta.source === 'edu:maintain') || candidate.meta.source === REJECT_SOURCE) for (const link of candidate.meta.links) proposedOrRejected.add(link);
+        if (candidate.meta.tier === 'canonical' || candidate.meta.source === REJECT_SOURCE) for (const link of candidate.meta.links) proposedOrRejected.add(link);
         if (candidate.meta.tier === 'canonical' && candidate.meta.kind === 'standard' && candidate.meta.status === 'accepted') acceptedStandards.set(candidate.meta.title, candidate);
       }
       for (const note of notes) {
@@ -244,8 +268,10 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         // Only a lesson promoted by THIS run is proposed; lessons that arrive already proven (imports, earlier runs) are not.
         if (next.meta.kind !== 'lesson' || next.meta.status !== 'proven' || proposedOrRejected.has(next.meta.id)) continue;
         const prior = acceptedStandards.get(next.meta.title);
-        const proposal = await this.proposeCanonical({ tier: 'canonical', kind: 'standard', title: prior ? `${next.meta.title} (revision)` : next.meta.title, body: next.body, tags: next.meta.tags, links: [next.meta.id], source: 'edu:maintain', band: next.meta.band ?? 'inferred', ...(prior ? { supersedes: prior.meta.id } : {}) });
-        for (const link of proposal.meta.links) proposedOrRejected.add(link);
+        try {
+          const proposal = await this.proposeCanonical({ tier: 'canonical', kind: 'standard', title: prior ? `${next.meta.title} (revision)` : next.meta.title, body: next.body, tags: next.meta.tags, links: [next.meta.id], source: 'edu:maintain', band: next.meta.band ?? 'inferred', ...(prior ? { supersedes: prior.meta.id } : {}) });
+          for (const link of proposal.meta.links) proposedOrRejected.add(link);
+        } catch (error) { if (!(error instanceof AutomaticProposalSuppressedError)) throw error; }
       }
       await this.rebuildIndex(); report.indexRebuilt = true; return report;
     },
@@ -268,5 +294,32 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       for (const note of notes) { result.byTier[note.meta.tier]++; if (note.meta.kind) result.byKind[note.meta.kind] = (result.byKind[note.meta.kind] ?? 0) + 1; if (note.meta.status) result.byStatus[note.meta.status] = (result.byStatus[note.meta.status] ?? 0) + 1; }
       return result;
     },
+  };
+  const locked = <T>(action: () => Promise<T>) => withBrainLocks(locations, action);
+  // Context retrieval stays available on orphaned locks and read-only brains. Only acquisition
+  // errors are optional; errors inside an acquired mutation still propagate.
+  const optionalUsage = async <T>(action: () => Promise<T>, fallback: () => Promise<T>): Promise<T> => {
+    try { return await withBrainLocks(locations, action, 0); }
+    catch (error) { if (!(error instanceof BrainLockUnavailableError)) throw error; return fallback(); }
+  };
+  return {
+    ...operations,
+    init: (loc, opts) => withBrainLocks([loc], () => operations.init(loc, opts)),
+    write: input => locked(() => operations.write(input)),
+    update: (id, patch, body) => locked(() => operations.update(id, patch, body)),
+    recall: (query, opts) => optionalUsage(async () => {
+      const hits = await operations.recall(query, opts);
+      await operations.recordUse(hits.map(hit => hit.note.meta.id));
+      return hits;
+    }, () => operations.recall(query, opts)),
+    recordUse: (ids, now) => optionalUsage(() => operations.recordUse(ids, now), async () => {}),
+    feedback: (id, helpful, eventId) => locked(() => operations.feedback(id, helpful, eventId)),
+    openSession: (title, source) => locked(() => operations.openSession(title, source)),
+    closeSession: (id, summary) => locked(() => operations.closeSession(id, summary)),
+    proposeCanonical: input => locked(() => operations.proposeCanonical(input)),
+    acceptCanonical: id => locked(() => operations.acceptCanonical(id)),
+    rejectCanonical: (id, reason) => locked(() => operations.rejectCanonical(id, reason)),
+    maintain: now => locked(() => operations.maintain(now)),
+    rebuildIndex: () => locked(() => operations.rebuildIndex()),
   };
 }
