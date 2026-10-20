@@ -59,12 +59,31 @@ export type CanonicalStatus = 'proposed' | 'accepted' | 'superseded';
 export interface UsageStats {
   /** Times the note was injected into context or recalled. */
   uses: number;
-  /** Times feedback said it helped. */
+  /** Times feedback said it helped (advisory and verified; ranking signal only, never promotion proof). */
   wins: number;
   /** Times feedback said it misled or was irrelevant. */
   losses: number;
-  /** ISO timestamp of last recall. */
+  /** ISO timestamp of last exposure (recall or context injection). Exposure is not confirmation. */
   lastUsed?: string;
+  /** Distinct externally verified successful outcomes. Only these can promote a lesson. */
+  verifiedWins?: number;
+  /** Distinct externally verified failed outcomes. */
+  verifiedLosses?: number;
+  /** ISO timestamp of the last verified success; the recency of confirmation. */
+  lastVerified?: string;
+  /** Recent feedback event keys (`a:<eventId>` advisory, `v:<eventId>` verified), kept in full; makes feedback idempotent per event. */
+  events?: string[];
+}
+
+/**
+ * Context for `Brain.feedback`. Only trusted runtime callers (the orchestrator) may set `verified: true`,
+ * and only for an outcome checked externally (e.g. deterministic verification). `eventId` identifies the
+ * outcome (non-empty, at most 200 characters; `verified` must be the boolean `true`) so repeated feedback for the same event counts once. MCP callers are advisory and never verified.
+ */
+export interface FeedbackContext {
+  eventId: string;
+  verified: boolean;
+  evidence?: string[];
 }
 
 export interface NoteMeta {

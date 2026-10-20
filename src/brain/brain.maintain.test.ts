@@ -42,7 +42,7 @@ describe('brain.maintain canonical proposals', () => {
   it('proposes exactly once for a candidate lesson promoted by this run, and not on the next run', async () => {
     const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
     const lesson = await brain.write({ title: 'Pin dependency versions', body: 'Lockfiles matter.', tier: 'transitive', kind: 'lesson' });
-    await brain.update(lesson.meta.id, { usage: { uses: 3, wins: 3, losses: 0, lastUsed: new Date().toISOString() } });
+    await brain.update(lesson.meta.id, { usage: { uses: 3, wins: 3, losses: 0, verifiedWins: 3, lastUsed: new Date().toISOString() } });
     const first = await brain.maintain();
     expect(first.promoted).toEqual([lesson.meta.id]);
     expect(await proposals(root)).toHaveLength(1);

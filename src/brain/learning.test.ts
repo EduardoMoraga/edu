@@ -14,8 +14,8 @@ describe('brain learning', () => {
     expect(learnedWeight({ uses: 0, wins: 0, losses: 0, lastUsed: date.toISOString() }, new Date(date.getTime() + 800 * 86400000))).toBe(0.25);
   });
   it('promotes proven lessons and retires stale ones', () => {
-    expect(lessonStatus({ ...note('L-a', '').meta, usage: { uses: 4, wins: 3, losses: 0 } }, date)).toBe('proven');
-    expect(lessonStatus({ ...note('L-b', '').meta, usage: { uses: 1, wins: 0, losses: 0, lastUsed: '2025-01-01T00:00:00Z' } }, date)).toBe('retired');
+    expect(lessonStatus({ ...note('L-a', '').meta, usage: { uses: 4, wins: 3, losses: 0, verifiedWins: 3 } }, date)).toBe('proven');
+    expect(lessonStatus({ ...note('L-b', '').meta, created: '2025-01-01T00:00:00Z', usage: { uses: 1, wins: 0, losses: 0, lastUsed: '2025-12-31T00:00:00Z' } }, date)).toBe('retired');
     expect(lessonStatus({ ...note('L-c', '').meta, status: 'retired', usage: { uses: 10, wins: 10, losses: 0 } }, date)).toBe('retired');
   });
   it('marks pending commitments overdue after the due date', () => {

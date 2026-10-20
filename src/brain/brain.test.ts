@@ -94,7 +94,7 @@ describe('brain API', () => {
     const previous = await brain.proposeCanonical({ title: 'Use repeatable tests', body: 'Existing confirmed standard.', tier: 'canonical', kind: 'standard' });
     await brain.acceptCanonical(previous.meta.id);
     const lesson = await brain.write({ title: 'Use repeatable tests', body: 'Prefer deterministic tests.', tier: 'transitive', kind: 'lesson' });
-    await brain.update(lesson.meta.id, { usage: { uses: 3, wins: 3, losses: 0, lastUsed: new Date().toISOString() } });
+    await brain.update(lesson.meta.id, { usage: { uses: 3, wins: 3, losses: 0, verifiedWins: 3, lastUsed: new Date().toISOString() } });
     const first = await brain.maintain();
     const second = await brain.maintain();
     const proposals = (await brain.list({ tier: 'canonical' })).filter(note => note.meta.links.includes(lesson.meta.id));
@@ -110,7 +110,7 @@ describe('brain API', () => {
   it('rejects a proposed canonical note by deleting it, keeps a record and never re-proposes the lesson', async () => {
     const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
     const lesson = await brain.write({ title: 'Ship on Fridays', body: 'Worked twice.', tier: 'transitive', kind: 'lesson' });
-    await brain.update(lesson.meta.id, { usage: { uses: 3, wins: 3, losses: 0, lastUsed: new Date().toISOString() } });
+    await brain.update(lesson.meta.id, { usage: { uses: 3, wins: 3, losses: 0, verifiedWins: 3, lastUsed: new Date().toISOString() } });
     await brain.maintain();
     const proposal = (await brain.list({ tier: 'canonical', status: 'proposed' }))[0]!;
     const rejected = await brain.rejectCanonical(proposal.meta.id, 'too risky');
