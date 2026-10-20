@@ -223,7 +223,7 @@ describe('orchestrator contracts', () => {
     }
   });
 
-  it('allows at most one builder fix round after reviewer requests changes', async () => {
+  it('rejects an unresolved review after at most one builder fix round', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-fix-'));
     const plan = { steps: [{ id: 'build', role: 'builder', task: 'Build', dependsOn: [], parallelSafe: false }] };
     let fixes = 0; let reviews = 0;
@@ -238,8 +238,9 @@ describe('orchestrator contracts', () => {
     const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
     try {
       const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true });
-      expect(result.ok, result.summary).toBe(true);
-      expect(reviews).toBe(1);
+      expect(result.ok).toBe(false);
+      expect(result.summary).toContain('global budget of 1 fix round(s) was exhausted');
+      expect(reviews).toBe(2);
       expect(fixes).toBe(1);
     } finally { await rm(dir, { recursive: true, force: true }); }
   });

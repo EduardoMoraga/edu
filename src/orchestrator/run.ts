@@ -7,8 +7,9 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import type { Brain } from '../brain/index.js';
-import type { ApprovalPolicy, CliId, ContextPack, EduConfig, EduEvent, Engine, EngineRunRequest, HarnessLevel, OutcomeLabel, RoleId } from '../core/contracts.js';
+import type { ApprovalPolicy, CliId, ContextPack, EduConfig, EduEvent, Engine, EngineRunRequest, FeedbackContext, HarnessLevel, OutcomeLabel, RoleId } from '../core/contracts.js';
 import { buildEpisodePackage } from '../evidence/package.js';
+import { diagnosePackage } from '../evidence/classify.js';
 import { loadChecks, loadTools, runCheck } from '../evidence/registry.js';
 import { auditGitDiff } from '../evidence/entropy.js';
 import { assignCli } from './assign.js';
@@ -30,6 +31,7 @@ export interface OrchestrateDeps {
 }
 export interface StepResult { id: string; ok: boolean; summary: string; skipped?: boolean }
 export interface RunResult { runId: string; ok: boolean; summary: string; events: EduEvent[]; steps: StepResult[]; episodeDir?: string }
+const ApplicationSchema = z.object({ noteId: z.string().min(1), requirementIds: z.array(z.string().min(1)).min(1), application: z.string().min(1) }).strict();
 const VerdictSchema = z.object({ verdict: z.enum(['pass', 'fix']), issues: z.array(z.string()) }).strict();
 const exec = promisify(execFile);
 const iso = (deps: OrchestrateDeps) => (deps.now?.() ?? new Date()).toISOString();
@@ -93,7 +95,8 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
   let workflowEvidence = '';
   let summary = 'Run failed.';
   const limitations: string[] = [];
-  let ok = false;
+  const applications = new Map<string, { requirementIds: string[]; application: string }>();
+  const suppliedNotes = new Set<string>();
   try {
     if (deps.signal?.aborted) throw new Error('Run cancelled before start.');
     const playbook = await loadPlaybook(deps.playbookName ?? deps.config.playbook ?? 'default', dirname(deps.runsDir));
@@ -103,6 +106,8 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     if (harnessLevel === 'H2' || harnessLevel === 'H3') {
       pack = await deps.context.build({ query: goal, budgetTokens: deps.config.context.budgetTokens });
       for (const section of pack.sections) for (const noteId of section.noteIds) {
+        // Only IDs actually visible in the delivered pack can receive credit.
+        if (pack.text.includes(`[[${noteId}]]`)) suppliedNotes.add(noteId);
         await emitEvidence({ type: 'context.trace', noteId, contribution: section.title, influenced: false, at: at() });
       }
     }
@@ -121,12 +126,13 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     }
     const leadId = `${runId}-lead`;
     const leadCli = assignCli('lead', activeDeps.config, deps.available);
-    const prompt = planningPrompt(goal, pack.text, { harnessLevel, registryInfo, taskState, playbook: playbook.body });
+    const planningMethod = `Playbook: ${playbook.name}\n${playbook.description}\n\n${playbook.body}`;
+    const prompt = planningPrompt(goal, '', { harnessLevel, playbook: planningMethod });
     const planText = await runText(activeDeps, emit, leadCli, leadId, 'lead', prompt, 'readonly', supportContext(), methodSummary);
     let plan;
     try { plan = extractPlan(planText.text); }
     catch (first) {
-      const repaired = await runText(activeDeps, emit, leadCli, leadId, 'lead', repairPrompt(planText.text, String(first)), 'readonly', supportContext(), methodSummary);
+      const repaired = await runText(activeDeps, emit, leadCli, leadId, 'lead', `${repairPrompt(planText.text, String(first))}\n\nFollow this playbook method when planning:\n${planningMethod}`, 'readonly', supportContext(), methodSummary);
       try { plan = extractPlan(repaired.text); }
       catch (second) { throw new Error(`Unable to produce a valid plan after one repair: ${String(second)}`); }
     }
@@ -179,8 +185,8 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       try { approved = await awaitApproval(deps.approve({ agentId, stepId: step.id, title: `Approve ${step.role} step`, detail: step.task }), deps.signal); }
       catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
       if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting approval.');
-      await emit({ type: 'approval.resolve', approvalId, approved, by: 'user', at: at() });
-      await recordApprovalIntervention(approved, step.task);
+      await emit({ type: 'approval.resolve', approvalId, approved, by: deps.autoApprove ? 'policy' : 'user', at: at() });
+      if (!deps.autoApprove) await recordApprovalIntervention(approved, step.task);
       if (!approved) {
         for (const candidate of plan.steps) steps.push({ id: candidate.id, ok: false, summary: candidate.id === step.id ? 'Approval rejected.' : 'Not run because approval was rejected.', skipped: true });
         summary = `Run stopped: approval rejected for step '${step.id}'.`;
@@ -227,47 +233,55 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     }
 
     const builder = activeDeps.config.roles.find(role => role.id === 'builder');
-    if (effectiveChecks.length) {
-      let results = await verifyChecks(effectiveChecks);
-      for (let round = 1; results.some(result => !result.ok) && builder && round <= playbook.maxFixRounds; round++) {
-        const details = results.filter(result => !result.ok).map(result => {
-          const check = effectiveChecks.find(candidate => candidate.id === result.checkId)!;
-          return `${check.id}: observed exit=${result.exitCode}, stdout=${JSON.stringify(result.stdout)}, stderr=${JSON.stringify(result.stderr)}, timeout=${result.timedOut}; expected exit=${check.expect.exitCode ?? 0}${check.expect.stdoutIncludes === undefined ? '' : `, stdout includes ${JSON.stringify(check.expect.stdoutIncludes)}`}`;
-        }).join('\n');
-        if (needsApproval(activeDeps.config.approvals, builder.autonomy)) {
-          const agentId = `${runId}-verification-fix-${round}`;
-          const approvalId = `${runId}-approval-verification-fix-${round}`;
-          const title = 'Approve deterministic-verification correction';
-          const detail = `A deterministic check failed; authorize bounded builder correction ${round}/${playbook.maxFixRounds}.\n${details}`;
-          await emit({ type: 'approval.request', agentId, approvalId, title, detail, at: at() });
-          let approved = false;
-          try { approved = await awaitApproval(deps.approve({ agentId, stepId: `verification-fix-${round}`, title, detail }), deps.signal); }
-          catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
-          if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting verification correction approval.');
-          await emit({ type: 'approval.resolve', approvalId, approved, by: deps.autoApprove ? 'policy' : 'user', at: at() });
-          if (!deps.autoApprove) await recordApprovalIntervention(approved, detail);
-          if (!approved) throw new Error('Run stopped: deterministic-verification correction was rejected.');
+    let fixRounds = 0;
+    let reviewRounds = 0;
+    let verdict: z.infer<typeof VerdictSchema>;
+    // Each correction consumes the same budget, regardless of who requested it.
+    while (true) {
+      if (effectiveChecks.length) {
+        let results = await verifyChecks(effectiveChecks);
+        while (results.some(result => !result.ok) && builder && fixRounds < playbook.maxFixRounds) {
+          const round = ++fixRounds;
+          const details = results.filter(result => !result.ok).map(result => {
+            const check = effectiveChecks.find(candidate => candidate.id === result.checkId)!;
+            return `${check.id}: observed exit=${result.exitCode}, stdout=${JSON.stringify(result.stdout)}, stderr=${JSON.stringify(result.stderr)}, timeout=${result.timedOut}; expected exit=${check.expect.exitCode ?? 0}${check.expect.stdoutIncludes === undefined ? '' : `, stdout includes ${JSON.stringify(check.expect.stdoutIncludes)}`}`;
+          }).join('\n');
+          if (needsApproval(activeDeps.config.approvals, builder.autonomy)) {
+            const agentId = `${runId}-verification-fix-${round}`;
+            const approvalId = `${runId}-approval-verification-fix-${round}`;
+            const title = 'Approve deterministic-verification correction';
+            const detail = `A deterministic check failed; authorize bounded builder correction ${round}/${playbook.maxFixRounds}.\n${details}`;
+            await emit({ type: 'approval.request', agentId, approvalId, title, detail, at: at() });
+            let approved = false;
+            try { approved = await awaitApproval(deps.approve({ agentId, stepId: `verification-fix-${round}`, title, detail }), deps.signal); }
+            catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
+            if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting verification correction approval.');
+            await emit({ type: 'approval.resolve', approvalId, approved, by: deps.autoApprove ? 'policy' : 'user', at: at() });
+            if (!deps.autoApprove) await recordApprovalIntervention(approved, detail);
+            if (!approved) throw new Error('Run stopped: deterministic-verification correction was rejected.');
+          }
+          const fix = await runText(activeDeps, emit, assignCli('builder', activeDeps.config, deps.available), `${runId}-verification-fix-${round}`, 'builder',
+            `${builderPrompt('Correct the failed deterministic verification.', goal, `Observed vs expected:\n${details}`, harnessLevel)}\nReproduce, attribute, fix, verify, then report. If verification disproves attribution, return to attribution before changing code.`, builder.autonomy, supportContext(), methodSummary);
+          await recordApplications(fix.text);
+          steps.push({ id: `verification-fix-${round}`, ok: true, summary: fix.summary });
+          results = await verifyChecks(effectiveChecks);
         }
-        const fix = await runText(activeDeps, emit, assignCli('builder', activeDeps.config, deps.available), `${runId}-verification-fix-${round}`, 'builder',
-          `${builderPrompt('Correct the failed deterministic verification.', goal, supportContext(), `Observed vs expected:\n${details}`, harnessLevel)}\nReproduce, attribute, fix, verify, then report. If verification disproves attribution, return to attribution before changing code.`, builder.autonomy, supportContext(), methodSummary);
-        steps.push({ id: `verification-fix-${round}`, ok: true, summary: fix.summary });
-        results = await verifyChecks(effectiveChecks);
+        if (results.some(result => !result.ok)) throw new Error(`Deterministic verification failed after ${playbook.maxFixRounds} fix round(s).`);
       }
-      if (results.some(result => !result.ok)) throw new Error(`Deterministic verification failed after ${playbook.maxFixRounds} fix round(s).`);
-    }
-    const reviewerId = `${runId}-reviewer`;
-    const reviewerCli = assignCli('reviewer', activeDeps.config, deps.available);
-    const review = await runText(activeDeps, emit, reviewerCli, reviewerId, 'reviewer',
-      `Review the completed work. Return strict JSON {"verdict":"pass"|"fix","issues":[string]}.\nGoal: ${goal}\nRequirements: ${JSON.stringify(requirements)}\nSteps: ${JSON.stringify(steps)}`,
-      'readonly', supportContext(), methodSummary);
-    let verdict;
-    try { verdict = VerdictSchema.parse(parseJson(review.text)); }
-    catch (error) { throw new Error(`Reviewer returned invalid JSON: ${String(error)}`); }
-    if (verdict.verdict === 'fix') {
+      const reviewerId = `${runId}-reviewer${reviewRounds++ ? `-${reviewRounds}` : ''}`;
+      const reviewerCli = assignCli('reviewer', activeDeps.config, deps.available);
+      const review = await runText(activeDeps, emit, reviewerCli, reviewerId, 'reviewer',
+        `Review the completed work. Return strict JSON {"verdict":"pass"|"fix","issues":[string]}.\nGoal: ${goal}\nRequirements: ${JSON.stringify(requirements)}\nSteps: ${JSON.stringify(steps)}`,
+        'readonly', supportContext(), methodSummary);
+      try { verdict = VerdictSchema.parse(parseJson(review.text)); }
+      catch (error) { throw new Error(`Reviewer returned invalid JSON: ${String(error)}`); }
+      if (verdict.verdict === 'pass') break;
+      if (fixRounds >= playbook.maxFixRounds) throw new Error(`Review requested a fix after the global budget of ${playbook.maxFixRounds} fix round(s) was exhausted.`);
+      fixRounds++;
       if (!builder) throw new Error('Review requested a fix but no builder role is configured.');
       if (needsApproval(activeDeps.config.approvals, builder.autonomy)) {
-        const approvalId = `${runId}-approval-review-fix`;
-        const agentId = `${runId}-fix`;
+        const approvalId = `${runId}-approval-review-fix-${fixRounds}`;
+        const agentId = `${runId}-fix-${fixRounds}`;
         const title = 'Approve review-fix builder step';
         const detail = verdict.issues.join('; ') || 'Apply the review-requested correction.';
         await emit({ type: 'approval.request', agentId, approvalId, title, detail, at: at() });
@@ -275,8 +289,8 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
         try { approved = await awaitApproval(deps.approve({ agentId, stepId: 'review-fix', title, detail }), deps.signal); }
         catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
         if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting review-fix approval.');
-        await emit({ type: 'approval.resolve', approvalId, approved, by: 'user', at: at() });
-        await recordApprovalIntervention(approved, detail);
+        await emit({ type: 'approval.resolve', approvalId, approved, by: deps.autoApprove ? 'policy' : 'user', at: at() });
+        if (!deps.autoApprove) await recordApprovalIntervention(approved, detail);
         if (!approved) {
           summary = 'Run stopped: approval rejected for review-requested builder fix.';
           await closeEpisode(sessionId, summary);
@@ -284,16 +298,14 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
           return await finish(false);
         }
       }
-      const fixId = `${runId}-fix`;
+      const fixId = `${runId}-fix-${fixRounds}`;
       const fix = await runText(activeDeps, emit, builder.cli && activeDeps.config.mode === 'crew' ? builder.cli : assignCli('builder', activeDeps.config, deps.available), fixId, 'builder',
-        `${builderPrompt(`Address these review issues in one fix round only: ${JSON.stringify(verdict.issues)}`, goal, supportContext(), workflowEvidence, harnessLevel)}\nCompleted steps: ${JSON.stringify([...completed])}`, builder.autonomy, supportContext(), methodSummary);
-      steps.push({ id: 'review-fix', ok: true, summary: fix.summary });
-      if (effectiveChecks.length && (await verifyChecks(effectiveChecks)).some(result => !result.ok)) {
-        throw new Error('Deterministic verification failed after the review correction.');
-      }
+        `${builderPrompt(`Address these review issues in one fix round only: ${JSON.stringify(verdict.issues)}`, goal, workflowEvidence, harnessLevel)}\nCompleted steps: ${JSON.stringify([...completed])}`, builder.autonomy, supportContext(), methodSummary);
+      await recordApplications(fix.text);
+      steps.push({ id: reviewRounds === 1 ? 'review-fix' : `review-fix-${fixRounds}`, ok: true, summary: fix.summary });
+      // Return through deterministic verification before the next independent review.
     }
     summary = `Completed ${steps.length} step(s); review ${verdict.verdict}${verdict.issues.length ? `: ${verdict.issues.join('; ')}` : ''}.`;
-    ok = true;
     await closeEpisode(sessionId, summary);
     return await finish(true);
   } catch (error) {
@@ -309,9 +321,10 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     const agentId = `${runId}-${step.id}`;
     const dependencyContext = step.dependsOn.map(id => `${id}: ${steps.find(item => item.id === id)?.summary ?? ''}`).join('\n');
     const prompt = step.role === 'builder'
-      ? builderPrompt(step.task, goal, supportContext(), workflowEvidence, harnessLevel)
-      : `${step.task}\n\nGoal: ${goal}\n\nContext:\n${supportContext()}\n\nDependencies:\n${dependencyContext}`;
+      ? `${builderPrompt(step.task, goal, workflowEvidence, harnessLevel)}\n\nDependencies:\n${dependencyContext}`
+      : `${step.task}\n\nGoal: ${goal}\n\nDependencies:\n${dependencyContext}`;
     const response = await runText(activeDeps, emit, cli, agentId, step.role, prompt, role?.autonomy ?? 'readonly', supportContext(), methodSummary, signal);
+    if (step.role === 'builder') await recordApplications(response.text);
     return { id: step.id, ok: true, summary: response.summary || response.text };
   }
   async function closeEpisode(id: string | undefined, text: string) {
@@ -329,7 +342,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     if (startCommit) {
       try {
         const audit = await auditGitDiff(deps.cwd, startCommit, requirements.map(requirement => requirement.id));
-        entropyUnsafe = audit.findings.some(finding => finding.category === 'weakened-tests' || finding.category === 'checks-bypassed');
+        entropyUnsafe = audit.findings.some(finding => ['weakened-tests', 'checks-bypassed', 'unsafe-invalid'].includes(finding.category));
         for (const finding of audit.findings) {
           await emitEvidence({ type: 'entropy.finding', ...finding, at: at() });
         }
@@ -339,20 +352,48 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     } else {
       limitations.push('Git start commit unavailable; entropy audit was not run.');
     }
-    entropyUnsafe ||= evidenceEvents.some(event => event.type === 'entropy.finding' && event.category === 'checks-bypassed');
-    const verified = requirements.length > 0 && requirements.every((requirement) => {
-      const latest = evidenceEvents.filter((event) => event.type === 'verify.result' && event.kind !== 'reproduction' && event.requirementIds.includes(requirement.id)).at(-1);
-      return latest?.type === 'verify.result' && latest.ok;
-    });
-    const hasIntervention = evidenceEvents.some((event) => event.type === 'intervention');
-    const label: OutcomeLabel = entropyUnsafe ? 'unsafe_invalid' : !success ? 'failed' : !verified ? 'unverified_success' : hasIntervention ? 'assisted_verified_success' : 'autonomous_verified_success';
-    await emitEvidence({ type: 'outcome', label, metrics: { harnessLevel, cli: activeDeps.config.defaultCli, role: 'builder', verifiedRequirements: requirements.filter((requirement) => {
-      const latest = evidenceEvents.filter((event) => event.type === 'verify.result' && event.kind !== 'reproduction' && event.requirementIds.includes(requirement.id)).at(-1);
-      return latest?.type === 'verify.result' && latest.ok;
-    }).map((requirement) => requirement.id), entropySeverity: evidenceEvents.filter(event => event.type === 'entropy.finding').reduce((severity, event) => Math.max(severity, event.severity), 0), elapsedMs: Date.parse(at()) - Date.parse(events[0]?.at ?? at()) }, at: at() });
-    const end: EduEvent = { type: 'run.end', runId, ok: success, summary, at: at() };
+    entropyUnsafe ||= allEvents.some(event => event.type === 'entropy.finding' && ['weakened-tests', 'checks-bypassed', 'unsafe-invalid'].includes(event.category));
+    const latestChecks = new Map<string, Extract<EduEvent, { type: 'verify.result' }>>();
+    for (const event of evidenceEvents) if (event.type === 'verify.result' && event.kind === 'deterministic' && event.checkId) latestChecks.set(event.checkId, event);
+    const verifiedRequirements = requirements.filter(requirement => {
+      const checks = effectiveChecks.filter(check => check.requirementIds.includes(requirement.id));
+      return checks.length > 0 && checks.every(check => latestChecks.get(check.id)?.ok && !latestChecks.get(check.id)?.timedOut);
+    }).map(requirement => requirement.id);
+    const verified = requirements.length > 0 && verifiedRequirements.length === requirements.length;
+    // A later review or a different check on the same requirement cannot erase a failure.
+    success &&= [...latestChecks.values()].every(result => result.ok && !result.timedOut);
+    const hasIntervention = evidenceEvents.some(event => event.type === 'intervention' || (event.type === 'approval.resolve' && event.by !== 'policy'));
+    let label: OutcomeLabel = entropyUnsafe ? 'unsafe_invalid' : !success ? 'failed' : !verified ? 'unverified_success' : hasIntervention ? 'assisted_verified_success' : 'autonomous_verified_success';
+    const outcome: Extract<EduEvent, { type: 'outcome' }> = { type: 'outcome', label, metrics: { harnessLevel, cli: activeDeps.config.defaultCli, role: 'builder', verifiedRequirements, entropySeverity: evidenceEvents.filter(event => event.type === 'entropy.finding').reduce((severity, event) => Math.max(severity, event.severity), 0), elapsedMs: Date.parse(at()) - Date.parse(events[0]?.at ?? at()) }, at: at() };
+    const end: Extract<EduEvent, { type: 'run.end' }> = { type: 'run.end', runId, ok: success, summary, at: at() };
+    // API8 reads complete packages. Validate a terminal candidate before emitting
+    // the single terminal pair or awarding credit; publish the final snapshot below.
+    const episodeDir = await buildEpisodePackage(dirname(deps.runsDir), runId, [...allEvents, outcome, end], { limitations: [...limitations, ...(success ? [] : [summary])] });
+    const classification = await diagnosePackage(episodeDir);
+    outcome.label = label = classification.label;
+    if (label === 'failed' && success) {
+      success = false;
+      end.ok = false;
+      end.summary = summary = `Episode verification failed: ${classification.reasons.join('; ')}`;
+    }
+    await emitEvidence(outcome);
+    // Exposure and model self-report alone are insufficient: require final, relevant
+    // external checks and a successful, non-unsafe run. Never infer causal benefit.
+    if (success && label !== 'unsafe_invalid' && !deps.signal?.aborted) for (const [noteId, application] of applications) {
+      const relevant = effectiveChecks.filter(check => check.requirementIds.some(id => application.requirementIds.includes(id)));
+      const covered = application.requirementIds.every(id => relevant.some(check => check.requirementIds.includes(id)));
+      const passed = relevant.length > 0 && relevant.every(check => latestChecks.get(check.id)?.ok && !latestChecks.get(check.id)?.timedOut);
+      if (!covered || !passed) continue;
+      const feedback: FeedbackContext = {
+        // The persistent ledger is per note; keep its event key bounded regardless of note ID length.
+        eventId: `${runId}:${label}`, verified: true,
+        evidence: [`application:${application.application}`, ...relevant.map(check => `deterministic-check:${check.id}`)],
+      };
+      try { await deps.brain.feedback(noteId, true, feedback); }
+      catch (error) { limitations.push(`Feedback for ${noteId} unavailable: ${error instanceof Error ? error.message : String(error)}`); }
+    }
     await emit(end);
-    const episodeDir = await buildEpisodePackage(dirname(deps.runsDir), runId, allEvents, { limitations: [...limitations, ...(success ? [] : [summary])] });
+    await buildEpisodePackage(dirname(deps.runsDir), runId, allEvents, { limitations: [...limitations, ...(success ? [] : [summary])] });
     // Best-effort, throttled brain upkeep after the episode is learned; never affects the run outcome.
     await autoMaintain(deps.brain, dirname(deps.runsDir), { now: deps.now?.() ?? new Date() });
     return { runId, ok: success, summary, events, steps, episodeDir };
@@ -402,6 +443,23 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     });
   }
 
+  async function recordApplications(text: string): Promise<void> {
+    for (const line of text.split('\n')) {
+      if (!line.startsWith('EDU_APPLIED ')) continue;
+      let value: unknown;
+      try { value = JSON.parse(line.slice('EDU_APPLIED '.length)); }
+      catch { continue; }
+      const parsed = ApplicationSchema.safeParse(value);
+      if (!parsed.success) continue;
+      const entry = parsed.data;
+      if (!suppliedNotes.has(entry.noteId) || !entry.application.includes(`[[${entry.noteId}]]`) ||
+          !entry.requirementIds.every(id => requirements.some(requirement => requirement.id === id))) continue;
+      const previous = applications.get(entry.noteId);
+      applications.set(entry.noteId, { requirementIds: [...new Set([...(previous?.requirementIds ?? []), ...entry.requirementIds])], application: previous ? `${previous.application}\n${entry.application}` : entry.application });
+      if (!previous) await emitEvidence({ type: 'context.trace', noteId: entry.noteId, contribution: entry.application, influenced: true, at: at() });
+    }
+  }
+
   function supportContext(): string {
     const sections: string[] = [];
     if (harnessLevel !== 'H0') sections.push(`Tool and check registry:\n${registryInfo || 'No registered tools or checks.'}`);
@@ -435,7 +493,7 @@ async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise
   const role = deps.config.roles.find(candidate => candidate.id === roleId);
   await emit({ type: 'agent.spawn', agentId, role: roleId, cli, task: prompt.slice(0, 160), at: (deps.now?.() ?? new Date()).toISOString() });
   await emit({ type: 'agent.status', agentId, status: 'running', at: (deps.now?.() ?? new Date()).toISOString() });
-  const request: EngineRunRequest = { cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, systemPrompt: [role?.mission, methodSummary].filter(Boolean).join('\n\n'), ...(role?.model ? { model: role.model } : {}), signal };
+  const request: EngineRunRequest = { cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, systemPrompt: [role?.mission, roleId === 'lead' ? '' : methodSummary, roleId === 'builder' && context.includes('Brain context pack:') ? 'If you actually apply a supplied note, cite it explicitly on a separate line: EDU_APPLIED {"noteId":"L-id","requirementIds":["R-1"],"application":"Applied [[L-id]] by ..."}. Report only concrete application, never mere exposure or presumed benefit.' : ''].filter(Boolean).join('\n\n'), ...(role?.model ? { model: role.model } : {}), signal };
   let text = ''; let summary = ''; let sessionId: string | undefined;
   try {
     for await (const event of deps.engines(cli).run(request, agentId)) {
@@ -472,11 +530,11 @@ function sameCheck(left: Awaited<ReturnType<typeof loadChecks>>[number], right: 
     left.expect.exitCode === right.expect.exitCode && left.expect.stdoutIncludes === right.expect.stdoutIncludes;
 }
 
-function builderPrompt(task: string, goal: string, support: string, priorEvidence: string, level: HarnessLevel): string {
+function builderPrompt(task: string, goal: string, priorEvidence: string, level: HarnessLevel): string {
   const workflow = level === 'H3'
     ? 'Use the H3 workflow: reproduce → attribute → fix → verify → report. Edu runs deterministic checks; if verification disproves the diagnosis, use the back-edge to attribution before the bounded correction.'
     : '';
-  return [task, `Goal:\n${goal}`, support, priorEvidence ? `Prior reproduction evidence:\n${priorEvidence}` : '', workflow].filter(Boolean).join('\n\n');
+  return [task, `Goal:\n${goal}`, priorEvidence ? `Prior reproduction evidence:\n${priorEvidence}` : '', workflow].filter(Boolean).join('\n\n');
 }
 
 function isAvoidableComposerMessage(message: string): boolean {
