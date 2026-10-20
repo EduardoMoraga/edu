@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, realpath, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, realpath, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -20,6 +20,15 @@ async function fixture() {
   await writeFile(join(home, '.claude/skills/my-skill/SKILL.md'), 'CUSTOM SKILL');
   await writeFile(join(home, '.claude/CLAUDE.md'), 'CUSTOM BEFORE\n<!-- edu:core:start -->\nOLD PROTOCOL\n<!-- edu:core:end -->\nCUSTOM AFTER\n');
   return { home, brainRoot };
+}
+async function installedPackage(home: string) {
+  // Native upgrades localize owned package files on Windows; never use the development checkout.
+  const packageRoot = join(home, 'node_modules/edu-agent');
+  await mkdir(packageRoot, { recursive: true });
+  for (const path of ['plugins', 'templates', 'package.json']) {
+    await cp(join(process.cwd(), path), join(packageRoot, path), { recursive: true });
+  }
+  return realpath(packageRoot);
 }
 it('new setup invoked by old updater backs up before refresh, preserves custom files, and repeated migrate is unchanged', async () => {
   const { home, brainRoot } = await fixture();
@@ -207,19 +216,24 @@ it('refreshes only unchanged manifest-owned fallback skills, keeps untracked cus
   expect(await readFile(target, 'utf8')).toBe('CUSTOM EDIT');
   expect(await readFile(join(home, '.claude/skills/my-skill/SKILL.md'), 'utf8')).toBe('CUSTOM SKILL');
 });
-it.each(['claude', 'codex'] as const)('does not report success for %s native installation without verifiable cache ownership', async cli => {
+it.each([
+  ['claude', 'linux'], ['claude', 'win32'], ['codex', 'linux'], ['codex', 'win32'],
+] as const)('does not report success for %s native installation without verifiable cache ownership on %s', async (cli, platform) => {
   const { home, brainRoot } = await fixture();
+  const packageRoot = await installedPackage(home);
   await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot: '/old', native: [cli], fallback: [] }));
   const calls: string[] = [];
   const runner: SetupRunner = async c => { calls.push(c.args.join(' ')); return { exitCode: 0, stdout: 'edu@edu' }; };
-  const plan = await planSetup({ home, packageRoot: process.cwd(), clis: [cli], runner });
-  await expect(applySetup(plan, { runner, brainRoot })).rejects.toThrow(/manual conflict.*cache/i);
+  const plan = await planSetup({ home, packageRoot, clis: [cli], runner });
+  await expect(applySetup(plan, { runner, brainRoot, platform })).rejects.toThrow(/manual conflict.*cache/i);
   expect(calls.every(c => c.startsWith('plugin list'))).toBe(true);
 });
 
-it.each(['claude', 'pi'] as const)('accepts verified %s loading the installed package in place, without a mutating command', async cli => {
+it.each([
+  ['claude', 'linux'], ['claude', 'win32'], ['pi', 'linux'], ['pi', 'win32'],
+] as const)('accepts verified %s loading the installed package in place on %s, without a mutating command', async (cli, platform) => {
   const { home, brainRoot } = await fixture();
-  const packageRoot = process.cwd();
+  const packageRoot = await installedPackage(home);
   await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot, native: [cli], fallback: [] }));
   const calls: string[] = [];
   const runner: SetupRunner = async c => {
@@ -227,6 +241,6 @@ it.each(['claude', 'pi'] as const)('accepts verified %s loading the installed pa
     return { exitCode: 0, stdout: cli === 'pi' ? packageRoot : JSON.stringify([{ id: 'edu@edu', scope: 'user', readFromFolder: join(packageRoot, 'plugins/claude-code'), installPath: '', version: '0.10.2', enabled: true }]) };
   };
   const plan = await planSetup({ home, packageRoot, clis: [cli], runner });
-  await applySetup(plan, { runner, brainRoot });
+  await applySetup(plan, { runner, brainRoot, platform });
   expect(calls.every(c => c === 'list' || c.startsWith('plugin list'))).toBe(true);
 });

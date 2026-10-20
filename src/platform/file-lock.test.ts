@@ -2,10 +2,9 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const lockModule = fileURLToPath(new URL('./file-lock.ts', import.meta.url));
+const lockModule = new URL('./file-lock.ts', import.meta.url).href;
 
 /** Worker: increments a shared counter file inside the lock (read, pause, write) so any overlap loses updates. */
 const worker = (lock: string, root: string, counter: string, rounds: number) => `
@@ -28,12 +27,16 @@ describe('withHostLock across real processes', () => {
       await writeFile(counter, '0');
       const script = join(dir, 'worker.mts');
       await writeFile(script, worker(lockModule, join(dir, 'brain'), counter, 8));
-      const children = Array.from({ length: 4 }, () => new Promise<number>((resolve, reject) => {
-        const child = spawn(process.execPath, ['--experimental-strip-types', '--no-warnings', script], { stdio: 'ignore' });
+      const children = Array.from({ length: 4 }, () => new Promise<{ code: number; stderr: string }>((resolve, reject) => {
+        const child = spawn(process.execPath, ['--experimental-strip-types', '--no-warnings', script], { stdio: ['ignore', 'ignore', 'pipe'] });
+        let stderr = '';
+        child.stderr.setEncoding('utf8');
+        child.stderr.on('data', chunk => { stderr += chunk; });
         child.on('error', reject);
-        child.on('exit', code => resolve(code ?? -1));
+        child.on('close', code => resolve({ code: code ?? -1, stderr }));
       }));
-      expect(await Promise.all(children)).toEqual([0, 0, 0, 0]);
+      const results = await Promise.all(children);
+      expect(results.map(result => result.code), results.map(result => result.stderr).join('\n')).toEqual([0, 0, 0, 0]);
       expect(Number(await readFile(counter, 'utf8'))).toBe(32);
       expect(await readdir(join(dir, 'brain', 'state', 'locks'))).toEqual([]);
     } finally { await rm(dir, { recursive: true, force: true }); }
