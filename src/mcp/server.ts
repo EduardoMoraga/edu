@@ -2,9 +2,12 @@ import { dirname, join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { autoMaintain, openBrain } from '../brain/index.js';
-import { brief, truncateToTokens } from '../context/index.js';
+import { brief, estimateTokens, truncateToTokens } from '../context/index.js';
 import type { BrainLocation, ClaimBand, Note, Tier } from '../core/contracts.js';
 import { createCrew, type CrewOptions } from '../crew/index.js';
+import { packageVersion } from '../cli/package.js';
+import { closeWithLessons, lessonsInput } from './session-learning.js';
+import { withHostLock } from '../platform/file-lock.js';
 import { eduHomeOf, listWorkspaces, selectWorkspace } from './projects.js';
 
 export interface EduMcpOptions {
@@ -21,6 +24,15 @@ export interface EduMcpOptions {
   env?: NodeJS.ProcessEnv;
   /** Label of the workspace the server starts on (e.g. from `--project`); shown by edu_projects. */
   workspace?: string;
+  /** Host-owned workspace: tools cannot select a different brain than the host's injected brief. */
+  workspaceLocked?: boolean;
+  /** Memory-only omits orchestration/crew schemas; full remains the compatibility default. */
+  toolProfile?: 'full' | 'memory';
+  /**
+   * Text for edu_capabilities (e.g. `() => JSON.stringify(getCapabilities())`, wired in stdio). It takes no caller input,
+   * so a model cannot claim another version; without it the tool answers with a minimal built-in description.
+   */
+  capabilities?: () => string | Promise<string>;
 }
 
 const tokenLimit = z.number().int().positive().optional().describe('Maximum response tokens (default 800)');
@@ -41,7 +53,7 @@ const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 const BRAIN_WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const STARTS_AGENTS = { readOnlyHint: false, destructiveHint: true, openWorldHint: true } as const;
 export const TOOL_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean }> = {
-  edu_brief: READ, edu_recall: READ, edu_read: READ, edu_commitments: READ, edu_crew_status: READ, edu_crew_result: READ,
+  edu_brief: READ, edu_recall: READ, edu_read: READ, edu_capabilities: READ, edu_commitments: READ, edu_crew_status: READ, edu_crew_result: READ,
   edu_projects: READ,
   // Switching only changes which local brain this server process uses; nothing is written or deleted.
   edu_project_use: BRAIN_WRITE,
@@ -52,7 +64,10 @@ export const TOOL_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructi
 };
 
 export function createEduMcpServer(opts: EduMcpOptions): McpServer {
-  const server = new McpServer({ name: 'edu', version: '0.10.2' });
+  const profile = opts.toolProfile ?? 'full';
+  if (profile !== 'full' && profile !== 'memory') throw new Error('Unknown MCP tool profile; use full or memory');
+  const SERVER_VERSION = packageVersion();
+  const server = new McpServer({ name: 'edu', version: SERVER_VERSION });
   let brain = openBrain(opts.locations);
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
@@ -99,11 +114,12 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     shape: Shape,
     operation: (input: z.output<z.ZodObject<Shape>>) => Promise<string>,
   ) => {
+    if (profile === 'memory' && (name.startsWith('edu_crew_') || name === 'edu_orchestrate')) return;
     const strict = z.object(shape);
     // The SDK validates before invoking a tool. Catch invalid field values at its
     // boundary, then validate with the original schema inside our bounded reply.
     const sdkShape = Object.fromEntries(Object.entries(shape).map(([key, schema]) => [
-      key, (schema as z.ZodType<unknown>).catch(null),
+      key, (schema as z.ZodType<unknown>).catch(null).meta({ default: undefined }),
     ])) as z.ZodRawShape;
     server.registerTool(name, { description, inputSchema: z.object(sdkShape), annotations: TOOL_ANNOTATIONS[name] }, async (args) => {
       const requested = (args as Record<string, unknown>).maxTokens;
@@ -126,12 +142,22 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     return hits.length ? hits.map(hit => `${line(hit.note)} · ${hit.why}`).join('\n') : 'No matching notes.';
   });
 
-  register('edu_read', 'Read a brain note by id, legacy id or alias (e.g. D-010), unique id prefix, filename or exact title; returns the candidates when ambiguous', { id: z.string().min(1), maxTokens: tokenLimit },
-    async ({ id }) => {
+  register('edu_read', 'Read a brain note by id, legacy id or alias (e.g. D-010), unique id prefix, filename or exact title; returns the candidates when ambiguous. Long notes are paged: pass offset (characters) from the continuation hint, and optionally limit (characters per page)', {
+    id: z.string().min(1), offset: z.number().int().nonnegative().optional(), limit: z.number().int().positive().optional(), maxTokens: tokenLimit,
+  }, async ({ id, offset, limit, maxTokens }) => {
       const result = await brain.resolve(id);
       if (!result) throw new Error(`Note not found: ${id}`);
       if ('candidates' in result) return [`Ambiguous reference "${id}" (${result.via}): ${result.candidates.length} notes match. Read one by id:`, ...result.candidates.slice(0, 20).map(note => `- ${line(note)}`)].join('\n');
-      return `${line(result.note)}\n\n${result.note.body}`;
+      const header = `${line(result.note)}\n\n`;
+      const body = result.note.body;
+      const start = Math.min(offset ?? 0, body.length);
+      const budget = maxTokens ?? 800;
+      // Fit the page (header + text + continuation hint) in the token budget so the hint is never cut off.
+      const render = (end: number) => `${header}${body.slice(start, end)}${end < body.length ? `\n\n[chars ${start}-${end} of ${body.length}; continue with edu_read id=${result.note.meta.id} offset=${end}]` : start > 0 ? `\n\n[chars ${start}-${end} of ${body.length}; end of note]` : ''}`;
+      let end = Math.min(body.length, start + (limit ?? body.length));
+      if (end >= body.length && start === 0 && estimateTokens(render(end)) <= budget) return render(end);
+      while (end > start && estimateTokens(render(end)) > budget) end = start + Math.floor((end - start) * 0.9) - (end - start < 10 ? 1 : 0);
+      return render(Math.max(start, end));
     });
 
   register('edu_remember', 'Create an episodic or transitive note', {
@@ -143,7 +169,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     return `Created ${line(note)}`;
   });
 
-  register('edu_feedback', 'Record whether a note was useful', {
+  register('edu_feedback', 'Record whether a note was useful (advisory; cannot mark a result as externally verified)', {
     id: z.string().min(1), helpful: z.boolean(), maxTokens: tokenLimit,
   }, async ({ id, helpful }) => {
     const note = await brain.feedback(id, helpful);
@@ -164,32 +190,54 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     return notes.length ? notes.sort((a, b) => (a.meta.due ?? '9999').localeCompare(b.meta.due ?? '9999')).map(note => `${line(note)} · due ${note.meta.due ?? 'unspecified'}`).join('\n') : 'No commitments.';
   });
 
-  register('edu_session_open', 'Open a work session', {
+  register('edu_session_open', 'Open a work session (reuses the open session with the same source and title)', {
     title: z.string().min(1), source: z.string().optional(), maxTokens: tokenLimit,
   }, async ({ title, source }) => {
-    const note = await brain.openSession(title, source ?? 'mcp');
-    return `Session id: ${note.meta.id}\nOpened ${line(note)}`;
+    const origin = source ?? 'mcp';
+    // Find-or-open is not atomic; serialize it per source+title across processes so concurrent opens share one session.
+    return withHostLock(brainRoot, origin, `open:${title}`, async () => {
+      const existing = (await brain.list({ kind: 'session', status: 'open-session' })).find(note => note.meta.source === origin && note.meta.title === title);
+      if (existing) return `Session id: ${existing.meta.id}\nReused ${line(existing)}`;
+      const note = await brain.openSession(title, origin);
+      return `Session id: ${note.meta.id}\nOpened ${line(note)}`;
+    });
   });
 
-  register('edu_session_close', 'Close a work session with a summary', {
-    id: z.string().min(1), summary: z.string(), source: z.string().optional(), maxTokens: tokenLimit,
-  }, async ({ id, summary, source }) => {
-    const current = await brain.read(id);
-    if (current && current.meta.kind === 'session') {
+  register('edu_session_close', 'Close a work session by its exact id with a summary. Repeating the same close is a no-op; an unknown id is never replaced by another session', {
+    id: z.string().min(1), summary: z.string(), source: z.string().optional(),
+    lessons: lessonsInput.optional().describe('Up to 3 observations YOU (the calling model) noted in this session: {title, body, evidence?: existing note ids}. Recorded as unverified candidates; Edu infers nothing from the summary'),
+    maxTokens: tokenLimit,
+  }, async ({ id, summary, source, lessons }) => {
+    // Read, compare and close under one lock per session id: concurrent identical closes write once.
+    return withHostLock(brainRoot, 'mcp-close', id, async () => {
+      const current = await brain.read(id);
+      if (!current || current.meta.kind !== 'session') {
+        const open = await brain.list({ kind: 'session', status: 'open-session' });
+        throw new Error(`Session not found: ${id}. Close needs the exact id returned by edu_session_open. Open session ids: ${open.map(note => note.meta.id).join(', ') || 'none'}`);
+      }
+      if (source && current.meta.source !== source) throw new Error(`Session ${id} belongs to source ${current.meta.source ?? 'unknown'}, not ${source}; not closed`);
+      if (lessons?.length) {
+        const result = await closeWithLessons(brain, brainRoot, current, summary, lessons);
+        if (result.closedNow) await autoMaintain(brain, brainRoot);
+        return result.text;
+      }
+      if (current.meta.status === 'closed') {
+        if (current.body.trim() === summary.trim()) return `Already closed ${line(current)}`;
+        throw new Error(`Session ${id} is already closed with a different summary; it was not changed`);
+      }
       const note = await brain.closeSession(id, summary);
       await autoMaintain(brain, brainRoot);
       return `Closed ${line(note)}`;
-    }
-    const open = await brain.list({ kind: 'session', status: 'open-session' });
-    const matching = source ? open.filter(note => note.meta.source === source) : open;
-    const fallback = source && matching.length === 1 ? matching[0]
-      : !source && matching.length ? [...matching].sort((a, b) => b.meta.created.localeCompare(a.meta.created))[0]
-        : undefined;
-    if (!fallback) throw new Error(`Session not found: ${id}. Open session ids: ${open.map(note => note.meta.id).join(', ') || 'none'}`);
-    const note = await brain.closeSession(fallback.meta.id, summary);
-    await autoMaintain(brain, brainRoot);
-    return `Closed ${line(note)} instead of ${id} (unknown id; selected ${source ? `the only open session from ${source}` : 'the most recent open session'}).`;
+    });
   });
+
+  register('edu_capabilities', 'Describe what the installed Edu version can and cannot do, without claiming self-improvement or efficiency. Takes no version: it always reports the running binary', {
+    maxTokens: tokenLimit,
+  }, async () => opts.capabilities ? opts.capabilities() : [
+    `Edu ${SERVER_VERSION} (MCP, ${profile} profile). Persistent notes, recall, sessions and feedback are available${profile === 'full' ? ', plus crew dispatch' : '; crew/orchestration tools are omitted'}.`,
+    'Memory is stored notes, not model training; Edu does not guarantee better answers or lower cost.',
+    'Feedback from edu_feedback is advisory and is never treated as externally verified.',
+  ].join('\n'));
 
   register('edu_projects', 'List the registered Edu workspaces and their agent names, marking the active one', { maxTokens: tokenLimit },
     async () => {
@@ -202,6 +250,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   register('edu_project_use', 'Switch the active Edu workspace for this session by workspace name, agent name (e.g. "albert"), path, or "global"', {
     workspace: z.string().min(1), maxTokens: tokenLimit,
   }, async ({ workspace: selector }) => {
+    if (opts.workspaceLocked) throw new Error('The host owns this workspace. Change the host working directory and restart its Edu MCP server before switching brains.');
     const selection = await selectWorkspace(selector, env);
     use(selection.locations);
     switched = true;

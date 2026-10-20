@@ -14,10 +14,12 @@ export function registerMcpProject(program: Command, ctx: CliContext): void {
   if (!mcp) throw new Error('The mcp command must be registered before its --project option');
   mcp
     .option('--project <name|path>', 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)')
+    .option('--profile <full|memory>', 'tool surface: full (default) or memory only (env EDU_MCP_PROFILE)')
     .action(
-      action<{ project?: string }>(ctx, async ({ g, opts }) => {
+      action<{ project?: string; profile?: string }>(ctx, async ({ g, opts }) => {
+        if (opts.profile && opts.profile !== 'full' && opts.profile !== 'memory') throw new Error('Unknown MCP tool profile; use full or memory');
         const { runStdioServer } = await import('../../mcp/stdio.js');
-        await runStdioServer({ cwd: g.cwd, project: opts.project, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
+        await runStdioServer({ cwd: g.cwd, project: opts.project, toolProfile: opts.profile as 'full' | 'memory' | undefined, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
       }),
     );
 }
