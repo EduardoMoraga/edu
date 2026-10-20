@@ -21,7 +21,7 @@ const M = {
     runIt: 'Run: edu update',
     checkout: 'Note: this edu runs from {root} (not an npm global install); the release goes to npm\'s global prefix.',
     steps: { install: 'Installing {asset}…', verify: 'Checking the new version…', setup: 'Running the new `edu setup --yes`…', migrate: 'Migrating registered workspaces…' },
-    installFailed: 'Install failed; Edu {current} is still installed and untouched.',
+    installFailed: 'Install failed; verify the installed binary before retrying. npm may have changed files.',
     verifyFailed: 'npm finished, but the new version could not be verified.',
     installed: 'Edu {version} installed.',
     setupOk: 'Setup refreshed for your CLIs.',
@@ -44,7 +44,7 @@ const M = {
     runIt: 'Ejecuta: edu update',
     checkout: 'Nota: este edu corre desde {root} (no es una instalación global de npm); la versión se instala en el prefijo global de npm.',
     steps: { install: 'Instalando {asset}…', verify: 'Verificando la nueva versión…', setup: 'Ejecutando el nuevo `edu setup --yes`…', migrate: 'Migrando los espacios registrados…' },
-    installFailed: 'La instalación falló; Edu {current} sigue instalado y sin cambios.',
+    installFailed: 'La instalación falló; verifica el binario antes de reintentar. npm puede haber cambiado archivos.',
     verifyFailed: 'npm terminó, pero no se pudo verificar la nueva versión.',
     installed: 'Edu {version} instalado.',
     setupOk: 'Setup actualizado para tus CLIs.',
@@ -115,7 +115,7 @@ export function registerUpdate(program: Command, ctx: CliContext, overrides: Par
         if (!json && !installPrefix(deps.packageRoot, deps.platform)) ctx.out(fill(m.checkout, vars));
         const outcome = await performUpdate(deps, release, (step: StepName) => { if (!json) ctx.out(fill(m.steps[step], vars)); });
         if (!outcome.ok) ctx.setExitCode(1);
-        if (json) return printJson(ctx, { current, version: release.version, tag: release.tag, ...outcome, whatsNew: news });
+        if (json) return printJson(ctx, { current, version: release.version, tag: release.tag, ...outcome, restartRequired: outcome.installed, whatsNew: news });
         const byStep = new Map(outcome.steps.map(s => [s.step, s]));
         const install_ = byStep.get('install');
         if (install_?.status === 'failed') {
@@ -132,7 +132,7 @@ export function registerUpdate(program: Command, ctx: CliContext, overrides: Par
         ctx.out(statusLine(lk, 'ok', fill(m.installed, vars)));
         const setup = byStep.get('setup');
         if (setup?.status === 'ok') ctx.out(statusLine(lk, 'ok', m.setupOk));
-        else { ctx.err(statusLine(lk, 'warn', m.setupFailed)); if (setup?.detail) ctx.err(setup.detail.split('\n').map(l => `  ${l}`).join('\n')); }
+        else if (setup) { ctx.err(statusLine(lk, 'warn', m.setupFailed)); if (setup.detail) ctx.err(setup.detail.split('\n').map(l => `  ${l}`).join('\n')); }
         const migrate = byStep.get('migrate');
         if (migrate?.status === 'skipped') ctx.out(statusLine(lk, 'warn', fill(m.migrateSkipped, { detail: migrate.detail ?? '' })));
         else if (outcome.migrations) {
@@ -140,20 +140,23 @@ export function registerUpdate(program: Command, ctx: CliContext, overrides: Par
           ctx.out(statusLine(lk, migrate?.status === 'ok' ? 'ok' : 'warn', fill(m.migrated, { migrated: count('migrated'), missing: count('missing'), failed: count('failed') })));
           if (migrate?.status === 'failed' && migrate.detail) ctx.err(`  ${migrate.detail}`);
         } else if (migrate?.status === 'failed') ctx.err(statusLine(lk, 'warn', fill(m.migrateFailed, { detail: migrate.detail ?? '' })));
+        if (migrate?.status !== 'ok') ctx.err(g.lang === 'es' ? 'Actualización incompleta. Reintenta: edu internal migrate-workspaces --json' : 'Upgrade incomplete. Retry: edu internal migrate-workspaces --json');
         if (news.length) { ctx.out(''); ctx.out(fill(m.news, vars)); for (const line of news) ctx.out(`  ${line}`); }
         ctx.out(fill(m.more, vars));
+        ctx.out(g.lang === 'es' ? 'Reinicia tus CLIs y servidores MCP para cargar la versión e instrucciones nuevas.' : 'Restart your CLIs and MCP servers to load the new version and instructions.');
       }),
     );
 
   const internal = program.command('internal', { hidden: true }).description('internal hooks used by edu update');
   internal
     .command('migrate-workspaces')
-    .description('maintain and re-index every registered workspace (run by edu update with the new code)')
+    .description('back up and migrate managed contracts in global and registered project brains; preserves memory')
     .option('--json', 'machine-readable output')
     .action(
       action<{ json?: boolean }>(ctx, async ({ g, opts }) => {
         const { migrateWorkspaces } = await import('../../update/migrate.js');
         const results = await migrateWorkspaces(globalHome(ctx));
+        if (results.some(r => r.status !== 'migrated')) ctx.setExitCode(1);
         if (g.json || opts.json) return printJson(ctx, results);
         if (!results.length) return ctx.out(M[g.lang].migrateNone);
         const lk = look(ctx);

@@ -10,7 +10,7 @@ import { checkForUpdate, installPrefix, performUpdate, resolveNpm, type RunResul
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
-async function temp() { const path = await mkdtemp(join(tmpdir(), 'edu-update-')); dirs.push(path); return path; }
+async function temp() { const path = await realpath(await mkdtemp(join(tmpdir(), 'edu-update-'))); dirs.push(path); return path; }
 
 const githubRelease = (tag = 'v0.8.0', body = '## Highlights\n- **Workspaces** from documents\n- `edu update`\n') => ({
   tag_name: tag, name: `${tag} — workspaces`, body, html_url: `https://github.com/EduardoMoraga/edu/releases/tag/${tag}`,
@@ -51,7 +51,7 @@ const happy = (call: Call): Partial<RunResult> | undefined => {
   if (call.args[0] === 'root') return { stdout: '/opt/node/lib/node_modules\n' };
   if (call.args[1] === '--version') return { stdout: '0.8.0\n' };
   if (call.args[1] === 'setup') return { stdout: 'claude: plugin installed\n' };
-  if (call.args[1] === 'internal') return { stdout: JSON.stringify([{ name: 'albert', root: '/w/albert', status: 'migrated' }, { name: 'gone', root: '/w/gone', status: 'missing' }]) };
+  if (call.args[1] === 'internal') return { stdout: JSON.stringify([{ name: 'albert', root: '/w/albert', status: 'migrated' }]) };
   return undefined;
 };
 
@@ -130,7 +130,7 @@ describe('performUpdate', () => {
       { command: '/opt/node/bin/node', args: [cli, 'setup', '--yes'] },
       { command: '/opt/node/bin/node', args: [cli, 'internal', 'migrate-workspaces', '--json'] },
     ]);
-    expect(outcome.migrations?.map(m => m.status)).toEqual(['migrated', 'missing']);
+    expect(outcome.migrations?.map(m => m.status)).toEqual(['migrated']);
   });
 
   it('stops after a failed install, before setup, keeping the current version', async () => {
@@ -163,7 +163,7 @@ describe('performUpdate', () => {
 });
 
 describe('migrateWorkspaces', () => {
-  it('maintains and re-indexes every registered workspace and skips missing folders', async () => {
+  it('preserves notes and reports every registered workspace including unavailable brains', async () => {
     const base = await temp();
     const eduHome = join(base, 'edu-home');
     const ws = join(base, 'albert');
@@ -182,9 +182,10 @@ describe('migrateWorkspaces', () => {
     await registerProject(eduHome, plain);
 
     const results = await migrateWorkspaces(eduHome);
-    expect(results.map(r => [r.name, r.status])).toEqual([['albert', 'migrated'], ['gone', 'missing'], ['plain', 'no-brain']]);
-    expect(await readFile(join(eduRoot, 'brain', '0-index', 'INDEX.md'), 'utf8')).toContain('Visit stores on Monday');
-    expect(JSON.parse(await readFile(join(eduRoot, 'state', 'maintain.json'), 'utf8')).lastRun).toBeGreaterThan(0);
+    expect(results.map(r => [r.name, r.status])).toEqual([['global', 'no-brain'], ['albert', 'migrated'], ['gone', 'missing'], ['plain', 'no-brain']]);
+    expect((await brain.list({ kind: 'lesson' }))[0]?.body.trim()).toBe('x');
+    expect(await readFile(join(eduRoot, 'EDU.md'), 'utf8')).toContain('edu:capabilities:start');
+    await expect(readFile(join(eduRoot, 'state', 'maintain.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
   it('refreshes a stale registered brain path to the configured brainDir', async () => {
     const base = await realpath(await temp());
@@ -199,4 +200,66 @@ describe('migrateWorkspaces', () => {
     const stored = JSON.parse(await readFile(join(eduHome, 'projects.json'), 'utf8')) as { projects: { brain: string }[] };
     expect(stored.projects[0]?.brain).toBe(join(ws, '01-CONOCIMIENTO'));
   });
+});
+
+describe('upgrade safety gates', () => {
+  it('does not call a missing essential migration successful', async () => {
+    const deps = fakeDeps(call => call.args[1] === 'internal' ? { code: 1, stderr: "unknown command 'internal'" } : happy(call));
+    expect((await performUpdate(deps, release)).ok).toBe(false);
+  });
+  it('does not call a partially skipped migration successful', async () => {
+    const deps = fakeDeps(call => call.args[1] === 'internal' ? { stdout: JSON.stringify([{ name: 'global', root: '/w', status: 'migrated' }, { name: 'gone', root: '/missing', status: 'missing' }]) } : happy(call));
+    expect((await performUpdate(deps, release)).ok).toBe(false);
+  });
+});
+
+it('simulates 0.10.2 -> 2.0 with the NEW binary migrating real temporary global and project brains', async () => {
+  const dir = await temp(); const home = join(dir, 'global'); const project = join(dir, 'project');
+  for (const root of [home, join(project, '.edu')]) await openBrain([{ scope: 'project', root }]).init({ scope: 'project', root });
+  await registerProject(home, project);
+  const target = { ...release, version: '2.0.0', tag: 'v2.0.0' };
+  const cli = '/opt/node/lib/node_modules/edu-agent/dist/cli.js';
+  const deps = fakeDeps(call => call.args[1] === '--version' ? { stdout: '2.0.0\n' } : happy(call), { currentVersion: '0.10.2' });
+  const original = deps.run;
+  deps.run = async (command, args, opts) => {
+    if (args[1] !== 'internal') return original(command, args, opts);
+    expect(command).toBe(deps.execPath); expect(args[0]).toBe(cli);
+    const rows = await migrateWorkspaces(home, new Date(), { version: '2.0.0' });
+    return { code: rows.every(r => r.status === 'migrated') ? 0 : 1, stdout: JSON.stringify(rows), stderr: '' };
+  };
+  const outcome = await performUpdate(deps, target);
+  expect(outcome.ok).toBe(true);
+  expect(outcome.migrations?.map(m => m.name)).toEqual(['global', 'project']);
+  expect(JSON.parse(await readFile(join(home, 'state/upgrade.json'), 'utf8')).version).toBe('2.0.0');
+});
+it('keeps Windows paths with spaces as separate arguments through install and new-binary migration', async () => {
+  const prefix = 'C:\\Users\\Private User\\npm';
+  const modules = `${prefix}\\node_modules`;
+  const cli = `${modules}\\edu-agent\\dist\\cli.js`;
+  const deps = fakeDeps(call => {
+    if (call.args[0] === 'root') return { stdout: modules + '\r\n' };
+    if (call.args[1] === '--version') return { stdout: '2.0.0\r\n' };
+    if (call.args[1] === 'internal') return { stdout: JSON.stringify([{ name: 'global', root: 'C:\\Users\\Private User\\.edu', status: 'migrated' }]) };
+    return {};
+  }, { platform: 'win32', execPath: 'C:\\Program Files\\nodejs\\node.exe', packageRoot: `${modules}\\edu-agent`, currentVersion: '0.10.2', exists: async () => true });
+  const result = await performUpdate(deps, { ...release, version: '2.0.0' });
+  expect(result.ok).toBe(true);
+  expect(deps.calls[0]?.command).toBe('C:\\Program Files\\nodejs\\npm.cmd');
+  expect(deps.calls[0]?.args.slice(-2)).toEqual(['--prefix', prefix]);
+  expect(deps.calls.find(c => c.args[1] === 'internal')?.args).toEqual([cli, 'internal', 'migrate-workspaces', '--json']);
+});
+it('stops before setup on a 2.0 migration failure and retains the partial report', async () => {
+  const rows = [{ name: 'global', root: '/private', status: 'migrated' }, { name: 'work', root: '/work', status: 'missing' }];
+  const deps = fakeDeps(call => {
+    if (call.args[1] === '--version') return { stdout: '2.0.0' };
+    if (call.args[1] === 'internal') return { code: 1, stdout: JSON.stringify(rows) };
+    return happy(call);
+  });
+  const outcome = await performUpdate(deps, { ...release, version: '2.0.0' });
+  expect(outcome.ok).toBe(false); expect(outcome.migrations).toEqual(rows);
+  expect(deps.calls.some(c => c.args[1] === 'setup')).toBe(false);
+});
+it.each(['[]', '{}', '[{"name":"global","root":"/p","status":"invented"}]'])('rejects an invalid essential migration report: %s', async stdout => {
+  const deps = fakeDeps(call => call.args[1] === 'internal' ? { stdout } : happy(call));
+  expect((await performUpdate(deps, release)).ok).toBe(false);
 });

@@ -1,4 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createEduMcpServer } from '../mcp/server.js';
+import { withHostLock } from './hooks.js';
 import { openBrain } from '../brain/index.js';
 import { ctxPercentFromClaude, parseJsonObject } from './statusline.js';
 import { captureContext, err, out, runCli, type Captured } from './testkit.js';
@@ -160,5 +167,141 @@ describe('hooks', () => {
     expect(c.exitCode ?? 0).toBe(0);
     expect(err(c)).toContain('edu hook codex-notify');
     expect(await episodes(c)).toHaveLength(1);
+  });
+});
+
+describe('hook idempotency and session ownership', () => {
+  const feed = (c: Captured, input: unknown) => { c.ctx.readStdin = async () => JSON.stringify(input); c.stdout.length = 0; };
+  const sessions = async (c: Captured) =>
+    openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]).list({ kind: 'session' });
+
+  it('session-start opens once for a host session id + source and prints the id; start/end/retries share one episode', async () => {
+    const c = await initialized();
+    feed(c, { session_id: 'host-session-1', source: 'startup' });
+    await runCli(c, ['hook', 'session-start']);
+    const [opened] = await sessions(c);
+    expect(opened?.meta.status).toBe('open-session');
+    expect(out(c)).toContain(`Edu session id: ${opened!.meta.id}`);
+    await runCli(c, ['hook', 'session-start']);
+    expect(await sessions(c)).toHaveLength(1);
+
+    const end = { session_id: 'host-session-1', reason: 'exit', transcript_path: '/tmp/t.jsonl' };
+    feed(c, end);
+    await runCli(c, ['hook', 'session-end']);
+    await runCli(c, ['hook', 'session-end']);
+    feed(c, { ...end, reason: 'logout' });
+    await runCli(c, ['hook', 'session-end']);
+    const all = await sessions(c);
+    expect(all).toHaveLength(1);
+    expect(all[0]!.meta.id).toBe(opened!.meta.id);
+    expect(all[0]!.meta.status).toBe('closed');
+    expect(all[0]!.body).toContain('(exit)');
+    expect(all[0]!.body).toContain('content was not read');
+  });
+
+  it('session-start attributes source pi to Pi (closable by exact MCP source) while Claude triggers stay Claude', async () => {
+    const c = await initialized();
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    feed(c, { session_id: 'pi-session-1', source: 'pi' });
+    await runCli(c, ['hook', 'session-start']);
+    feed(c, { session_id: 'claude-session-1', source: 'startup' });
+    await runCli(c, ['hook', 'session-start']);
+    const all = await sessions(c);
+    const pi = all.find(n => n.meta.source === 'pi')!;
+    expect(pi.meta.title).toBe('Pi session pi-sessi');
+    const claude = all.find(n => n.meta.source === 'claude')!;
+    expect(claude.meta.title).toBe('Claude Code session claude-s');
+    expect(all).toHaveLength(2);
+
+    const server = createEduMcpServer({ locations: [{ scope: 'project', root: join(c.dirs.cwd, '.edu') }] });
+    const client = new Client({ name: 'edu-test', version: '1.0.0' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(b); await client.connect(a);
+    try {
+      const wrong = await client.callTool({ name: 'edu_session_close', arguments: { id: pi.meta.id, source: 'claude', summary: 'x' } });
+      expect(wrong.isError).toBe(true);
+      const ok = await client.callTool({ name: 'edu_session_close', arguments: { id: pi.meta.id, source: 'pi', summary: 'Pi done' } });
+      expect(ok.isError).not.toBe(true);
+    } finally { await client.close(); await server.close(); }
+    expect((await brain.read(pi.meta.id))?.meta.status).toBe('closed');
+    expect((await brain.read(claude.meta.id))?.meta.status).toBe('open-session');
+  });
+
+  it('session-start without a host id and source stays read-only', async () => {
+    const c = await initialized();
+    feed(c, { session_id: 'only-id' });
+    await runCli(c, ['hook', 'session-start']);
+    c.ctx.readStdin = async () => '';
+    await runCli(c, ['hook', 'session-start']);
+    expect(await sessions(c)).toHaveLength(0);
+    expect(out(c)).not.toMatch(/^Edu session id: /m);
+  });
+
+  it('session-end leaves explicit sessions of other agents and other host ids alone', async () => {
+    const c = await initialized();
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    const explicit = await brain.openSession('Claude Code session host-a', 'claude');
+    feed(c, { session_id: 'host-a-other-id' });
+    await runCli(c, ['hook', 'session-end']);
+    expect((await brain.read(explicit.meta.id))?.meta.status).toBe('open-session');
+    expect(await sessions(c)).toHaveLength(2);
+  });
+
+  it('codex-notify dedupes retries per turn but records distinct turns', async () => {
+    const c = await initialized();
+    const turn = (id: string, answer: string) => JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 'th-7', 'turn-id': id, 'input-messages': ['q'], 'last-assistant-message': answer });
+    await runCli(c, ['hook', 'codex-notify', turn('t1', 'one')]);
+    await runCli(c, ['hook', 'codex-notify', turn('t1', 'one')]);
+    expect(await sessions(c)).toHaveLength(1);
+    await runCli(c, ['hook', 'codex-notify', turn('t2', 'two')]);
+    expect(await sessions(c)).toHaveLength(2);
+    const noId = JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 'th-8', 'input-messages': ['q'], 'last-assistant-message': 'same' });
+    await runCli(c, ['hook', 'codex-notify', noId]);
+    await runCli(c, ['hook', 'codex-notify', noId]);
+    expect(await sessions(c)).toHaveLength(3);
+    const body = (await sessions(c)).map(n => n.body).join('\n');
+    expect(body).toContain('clipped question/answer only');
+  });
+
+  it('concurrent identical hook calls neither duplicate nor change a closed session', async () => {
+    const c = await initialized();
+    const end = JSON.stringify({ session_id: 'race-1', reason: 'exit' });
+    const turn = JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 'th-r', 'turn-id': 'tr1', 'last-assistant-message': 'a' });
+    c.ctx.readStdin = async () => end;
+    await Promise.all([1, 2, 3, 4, 5, 6].flatMap(() => [runCli(c, ['hook', 'session-end']), runCli(c, ['hook', 'codex-notify', turn])]));
+    const all = await sessions(c);
+    expect(all).toHaveLength(2);
+    expect(all.every(n => n.meta.status === 'closed')).toBe(true);
+    expect(err(c)).toBe('');
+    await expect(readdir(join(c.dirs.cwd, '.edu', 'state', 'locks'))).resolves.toEqual([]);
+  });
+
+  it('waits for a live lock owner and reclaims a stale lock of a dead owner', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'edu-lock-'));
+    try {
+      let inside = 0; let overlap = false;
+      const run = () => withHostLock(root, 'claude', 'same', async () => { inside++; overlap ||= inside > 1; await new Promise(r => setTimeout(r, 30)); inside--; });
+      await Promise.all([run(), run(), run()]);
+      expect(overlap).toBe(false);
+
+      const name = (await readdir(join(root, 'state', 'locks')))[0];
+      expect(name).toBeUndefined();
+      // A dead owner's old lock is reclaimed.
+      const key = createHash('sha256').update('claude\0dead').digest('hex').slice(0, 32);
+      const dir = join(root, 'state', 'locks', `${key}.lock`);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'owner'), '2147483646');
+      const old = new Date(Date.now() - 120_000);
+      await utimes(dir, old, old);
+      await expect(withHostLock(root, 'claude', 'dead', async () => 'ok')).resolves.toBe('ok');
+      // A live owner's lock is not removed even when old: the waiter times out and the lock survives.
+      const liveKey = createHash('sha256').update('claude\0live').digest('hex').slice(0, 32);
+      const live = join(root, 'state', 'locks', `${liveKey}.lock`);
+      await mkdir(live, { recursive: true });
+      await writeFile(join(live, 'owner'), String(process.pid));
+      await utimes(live, old, old);
+      await expect(withHostLock(root, 'claude', 'live', async () => 'no', 150)).rejects.toThrow(/timed out/);
+      await expect(stat(live)).resolves.toBeTruthy();
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 });

@@ -83,7 +83,7 @@ describe('edu update', () => {
     const d = deps({ script: (args) => (args[0] === 'install' ? { code: 1, stderr: 'npm ERR! 404' } : undefined) });
     await run(c, ['update', '--to', 'v0.8.0'], d);
     expect(c.exitCode).toBe(1);
-    expect(c.stderr.join('\n')).toContain('Install failed; Edu 0.7.0 is still installed and untouched.');
+    expect(c.stderr.join('\n')).toContain('Install failed; verify the installed binary before retrying.');
     expect(c.stderr.join('\n')).toContain('npm ERR! 404');
     expect(d.calls).toHaveLength(1);
   });
@@ -91,7 +91,8 @@ describe('edu update', () => {
   it('is registered on the real program with a hidden migration hook', async () => {
     const c = await captureContext();
     await runCli(c, ['internal', 'migrate-workspaces', '--json']);
-    expect(JSON.parse(out(c))).toEqual([]);
+    expect(JSON.parse(out(c))).toEqual([{ name: 'global', root: expect.any(String), status: 'missing' }]);
+    expect(c.exitCode).toBe(1);
     const h = await captureContext();
     await runCli(h, ['--help']);
     expect(out(h)).toMatch(/update \[options\] \[tag\]/);

@@ -2,7 +2,7 @@
  * `edu update`: compare the running version with a GitHub release and, when asked, install it with the
  * npm that belongs to the running Node, verify it, run the NEW binary's `setup --yes` and its workspace
  * migration hook. Network and processes are injected (`UpdateDeps`) so tests use fakes.
- * Never leaves the user broken: a failed install stops before setup and keeps the current version.
+ * A failed install stops before setup; npm failures may leave a partially changed installation.
  */
 import { access } from 'node:fs/promises';
 import { posix, win32 } from 'node:path';
@@ -99,30 +99,40 @@ export async function performUpdate(deps: UpdateDeps, release: Release, onStep: 
   }
   steps.push({ step: 'verify', status: 'ok', detail: cli });
 
-  // From here the new code runs: setup and migration are child processes of the NEW binary.
+  // New releases migrate before setup so backup failures stop further workspace changes.
+  // The 0.10.2 caller itself has the old order; its setup boundary needs the release gate too.
+  let migrations: WorkspaceMigration[] | undefined;
+  async function migrateWorkspaces(): Promise<boolean> {
+    onStep('migrate');
+    const result = await deps.run(deps.execPath, [cli, 'internal', 'migrate-workspaces', '--json'], { env: deps.env, timeoutMs: 10 * 60_000 });
+    if (result.code !== 0 && /unknown command|too many arguments/i.test(result.stderr)) {
+      steps.push({ step: 'migrate', status: 'skipped', detail: `edu ${release.version} has no workspace migration hook` });
+      return false;
+    }
+    try {
+      const parsed: unknown = JSON.parse(result.stdout);
+      if (!Array.isArray(parsed) || !parsed.length || !parsed.every(m => m && typeof m === 'object' && typeof m.name === 'string' && typeof m.root === 'string' && ['migrated', 'missing', 'no-brain', 'failed'].includes(m.status))) throw new Error('invalid migration report');
+      migrations = parsed;
+      const failed = migrations.filter(m => m.status !== 'migrated');
+      if (Number(release.version.split('.')[0]) >= 2 && !migrations.some(m => m.name === 'global' && m.status === 'migrated')) throw new Error('global migration absent or unsuccessful');
+      const ok = result.code === 0 && !failed.length;
+      steps.push({ step: 'migrate', status: ok ? 'ok' : 'failed', ...(!ok ? { detail: failed.map(m => `${m.name}: ${m.detail ?? m.status}`).join('; ') || tail(result.stderr) || `exit ${result.code}` } : {}) });
+      return ok;
+    } catch (error) {
+      steps.push({ step: 'migrate', status: 'failed', detail: `invalid or incomplete migration report: ${error instanceof Error ? error.message : String(error)}${result.stderr ? `; ${tail(result.stderr)}` : ''}` });
+      return false;
+    }
+  }
+  const migrateFirst = Number(release.version.split('.')[0]) >= 2;
+  if (migrateFirst && !await migrateWorkspaces()) return done({ ok: false, installed: true, ...(migrations ? { migrations } : {}) });
   onStep('setup');
   const setup = await deps.run(deps.execPath, [cli, 'setup', '--yes'], { env: deps.env, timeoutMs: 5 * 60_000 });
   steps.push(setup.code === 0
     ? { step: 'setup', status: 'ok', detail: tail(setup.stdout, 12) }
     : { step: 'setup', status: 'failed', detail: tail(setup.stderr || setup.stdout) || `exit ${setup.code}` });
+  if (!migrateFirst) await migrateWorkspaces();
 
-  onStep('migrate');
-  const migrate = await deps.run(deps.execPath, [cli, 'internal', 'migrate-workspaces', '--json'], { env: deps.env, timeoutMs: 10 * 60_000 });
-  let migrations: WorkspaceMigration[] | undefined;
-  if (migrate.code === 0) {
-    try {
-      migrations = JSON.parse(migrate.stdout) as WorkspaceMigration[];
-      const failed = migrations.filter(m => m.status === 'failed');
-      steps.push({ step: 'migrate', status: failed.length ? 'failed' : 'ok', ...(failed.length ? { detail: failed.map(m => `${m.name}: ${m.detail ?? 'failed'}`).join('; ') } : {}) });
-    } catch {
-      steps.push({ step: 'migrate', status: 'failed', detail: 'the migration hook did not return JSON' });
-    }
-  } else if (/unknown command|too many arguments/i.test(migrate.stderr)) {
-    steps.push({ step: 'migrate', status: 'skipped', detail: `edu ${release.version} has no workspace migration hook` });
-  } else {
-    steps.push({ step: 'migrate', status: 'failed', detail: tail(migrate.stderr || migrate.stdout) || `exit ${migrate.code}` });
-  }
-  return done({ ok: steps.every(s => s.status !== 'failed'), installed: true, ...(migrations ? { migrations } : {}) });
+  return done({ ok: steps.every(s => s.status === 'ok'), installed: true, ...(migrations ? { migrations } : {}) });
 }
 
 export async function fileExists(path: string): Promise<boolean> {
