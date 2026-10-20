@@ -26,7 +26,7 @@ export async function buildEpisodePackage(root: string, runId: string, events: E
   };
   const outcome = outcomeEvent?.type === 'outcome'
     ? outcomeEvent
-    : events.find((event) => event.type === 'run.end') ?? { label: 'unverified_success', metrics: {} };
+    : events.findLast((event) => event.type === 'run.end') ?? { metrics: {} };
   const entropyEvents = types(events, 'entropy.finding');
   const entropy = { findings: [...entropyEvents, ...(options.entropyFindings ?? []).map((finding) => ({ type: 'entropy.finding', ...finding }))] };
   const content: Record<string, string> = {
@@ -50,7 +50,9 @@ function makeReport(requirements: Requirement[], verification: EduEvent[], limit
   for (const requirement of requirements) {
     const evidence = verification.filter((event) => event.type === 'verify.result' && event.kind !== 'reproduction' && event.requirementIds.includes(requirement.id));
     const latest = evidence.at(-1);
-    const status = latest?.type === 'verify.result' ? latest.ok ? 'verified' : 'failed' : 'unverified';
+    const deterministic = evidence.filter(event => event.type === 'verify.result' && event.kind === 'deterministic').at(-1);
+    const status = deterministic?.type === 'verify.result' && !deterministic.ok ? 'failed'
+      : latest?.type === 'verify.result' ? latest.ok ? 'verified' : 'failed' : 'unverified';
     const descriptions = evidence.map((event) => event.type === 'verify.result' ? `${event.kind}: ${event.output.replaceAll('|', '\\|').replaceAll('\n', ' ')}` : '').join('<br>') || 'No evidence recorded';
     lines.push(`| ${requirement.id}: ${requirement.text.replaceAll('|', '\\|')} | ${descriptions} | ${status} |`);
   }

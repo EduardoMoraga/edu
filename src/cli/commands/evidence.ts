@@ -2,8 +2,9 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import type { HarnessLevel, OutcomeLabel } from '../../core/contracts.js';
-import { aggregateMetrics, type EpisodeSummary } from '../../evidence/metrics.js';
+import type { HarnessLevel } from '../../core/contracts.js';
+import { aggregateMetrics, sumResources, type ResourceMetrics, type EpisodeSummary } from '../../evidence/metrics.js';
+import { classifyPackage } from '../../evidence/classify.js';
 import { loadChecks, runCheck, saveChecks } from '../../evidence/registry.js';
 import type { CliContext } from '../context.js';
 import { action, printJson } from '../kit.js';
@@ -28,9 +29,12 @@ export function registerEvidence(program: Command, ctx: CliContext): void {
         group: group.group[by], avsr: group.avsr, mhir: group.mhir, verificationAutonomy: group.verificationAutonomy,
         toolRecoveryRate: group.toolRecoveryRate, attributionCompleteness: group.attributionCompleteness,
         entropyDelta: group.entropyDelta, n: group.count,
+        deterministicVerificationShare: group.deterministicVerificationShare,
+        avoidableInterventionEpisodeRate: group.avoidableInterventionEpisodeRate,
+        meanMaxEntropySeverity: group.meanMaxEntropySeverity, resources: group.resources,
       }));
       if (opts.json || g.json) return printJson(ctx, rows);
-      ctx.out(`${by.padEnd(8)} AVSR   M-HIR  verify-auto  tool-recovery  attribution  entropy  n`);
+      ctx.out(`${by.padEnd(8)} AVSR   avoidable-episodes  deterministic-share  recovery/calls  attribution-fields  mean-max-severity  n`);
       for (const row of rows) ctx.out(`${String(row.group ?? 'unknown').padEnd(8)} ${pct(row.avsr)} ${pct(row.mhir)} ${pct(row.verificationAutonomy)} ${pct(row.toolRecoveryRate)} ${pct(row.attributionCompleteness)} ${row.entropyDelta.toFixed(2).padStart(7)} ${row.n}`);
       if (!rows.length) ctx.out('No episode packages in this window.');
     }));
@@ -93,10 +97,10 @@ async function readEpisodes(root: string): Promise<EpisodeSummary[]> {
       jsonl(join(dir, 'verification.jsonl')), jsonl(join(dir, 'attribution.jsonl')), jsonl(join(dir, 'tool.jsonl')), json(join(dir, 'entropy.json')),
     ]);
     const metrics = object(outcome.metrics);
-    const start = (await jsonl(join(dir, 'action.jsonl'))).find(event => event.type === 'run.start');
+    const actions = await jsonl(join(dir, 'action.jsonl'));
+    const start = actions.find(event => event.type === 'run.start');
     if (!start) continue;
-    const label = outcome.label as OutcomeLabel;
-    if (!['autonomous_verified_success', 'assisted_verified_success', 'unverified_success', 'failed', 'unsafe_invalid'].includes(label)) continue;
+    const label = await classifyPackage(dir);
     const level = metrics.harnessLevel as HarnessLevel | undefined;
     const toolCalls = tools.filter(event => event.type === 'tool.call');
     const recoveredTools = countRecoveredTools(tools);
@@ -109,9 +113,26 @@ async function readEpisodes(root: string): Promise<EpisodeSummary[]> {
       verifications: verifications as EpisodeSummary['verifications'], toolCalls: toolCalls.length, recoveredTools,
       attributions: attributions as EpisodeSummary['attributions'],
       entropySeverity: findings.reduce((max, finding) => Math.max(max, Number(object(finding).severity) || 0), 0),
+      resources: readResources(actions, metrics),
     });
   }
   return summaries;
+}
+
+function readResources(events: Array<Record<string, unknown>>, metrics: Record<string, unknown>): ResourceMetrics {
+  const usage = events.filter(event => event.type === 'usage').map(event => object(event.usage));
+  const numeric = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+  const totals = sumResources(usage.map(value => ({
+    inputTokens: numeric(value.inputTokens), outputTokens: numeric(value.outputTokens),
+    cacheReadTokens: numeric(value.cacheReadTokens), cacheWriteTokens: numeric(value.cacheWriteTokens),
+    costUsd: numeric(value.costUsd), elapsedMs: null, models: [],
+  })));
+  const start = events.find(event => event.type === 'run.start');
+  const end = events.findLast(event => event.type === 'run.end');
+  const elapsed = Date.parse(String(end?.at)) - Date.parse(String(start?.at));
+  return { ...totals, elapsedMs: (start && end ? numeric(elapsed) : null) ?? numeric(metrics.elapsedMs),
+    models: [...new Set(events.filter(event => event.type === 'agent.spawn' && typeof event.model === 'string' && event.model.trim()).map(event => String(event.model)))],
+  };
 }
 
 function countRecoveredTools(events: Array<Record<string, unknown>>): number {
@@ -137,11 +158,13 @@ function countRecoveredTools(events: Array<Record<string, unknown>>): number {
 
 async function json(path: string): Promise<Record<string, unknown>> {
   try { return object(JSON.parse(await readFile(path, 'utf8'))); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}; throw error; }
+  catch (error) { if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === 'ENOENT') return {}; throw error; }
 }
 async function jsonl(path: string): Promise<Array<Record<string, unknown>>> {
   try {
-    return (await readFile(path, 'utf8')).split(/\r?\n/).filter(Boolean).map(line => object(JSON.parse(line)));
+    return (await readFile(path, 'utf8')).split(/\r?\n/).filter(line => line.trim()).map(line => {
+      try { return object(JSON.parse(line)); } catch { return {}; }
+    });
   } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
 }
 function object(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }

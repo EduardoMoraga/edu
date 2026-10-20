@@ -4,11 +4,21 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { EduEvent } from '../core/contracts.js';
 import { buildEpisodePackage } from './package.js';
+import { classifyPackage } from './classify.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 describe('episode package', () => {
+  it('does not manufacture a terminal success for unfinished event streams', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'edu-evidence-unfinished-'));
+    roots.push(root);
+    const dir = await buildEpisodePackage(root, 'unfinished', [
+      { type: 'task.define', requirements: [{ id: 'r1', text: 'works' }], at: '2026-01-01' },
+      { type: 'verify.result', requirementIds: ['r1'], ok: true, output: 'pass', kind: 'deterministic', at: '2026-01-01' },
+    ]);
+    expect(await classifyPackage(dir)).toBe('failed');
+  });
   it('writes the complete event package and requirement report', async () => {
     const root = await mkdtemp(join(tmpdir(), 'edu-evidence-package-'));
     roots.push(root);
