@@ -20,9 +20,11 @@ description: "Review recent Edu sessions and runs to propose lessons, hypotheses
 3. Propose, linking every item to the episodes or runs that support it:
    - new **L-** lessons as `candidate`;
    - **H-** hypotheses for patterns that are suggestive but unproven;
-   - `edu_feedback` on existing lessons that outcomes proved helpful or misleading;
+   - advisory `edu_feedback` on existing lessons that appeared helpful or misleading;
+     opinion is not externally verified outcome evidence and cannot prove a lesson;
    - skill diffs or new skills for repeated procedures;
-   - canonical proposals from lessons that are already `proven`.
+   - canonical proposals with supporting external evidence, not merely a stored
+     `proven` status or agreement among agents.
 4. Present the proposals with their claim bands and wait. Write them only after the
    human agrees (`edu_remember`, `edu_propose_canonical`). For the full schema-validated
    pass over runs, suggest `edu reflect --since 7d`, then `edu proposals accept <id>`.

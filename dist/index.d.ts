@@ -34,12 +34,30 @@ type CanonicalStatus = 'proposed' | 'accepted' | 'superseded';
 interface UsageStats {
     /** Times the note was injected into context or recalled. */
     uses: number;
-    /** Times feedback said it helped. */
+    /** Times feedback said it helped (advisory and verified; ranking signal only, never promotion proof). */
     wins: number;
     /** Times feedback said it misled or was irrelevant. */
     losses: number;
-    /** ISO timestamp of last recall. */
+    /** ISO timestamp of last exposure (recall or context injection). Exposure is not confirmation. */
     lastUsed?: string;
+    /** Distinct externally verified successful outcomes. Only these can promote a lesson. */
+    verifiedWins?: number;
+    /** Distinct externally verified failed outcomes. */
+    verifiedLosses?: number;
+    /** ISO timestamp of the last verified success; the recency of confirmation. */
+    lastVerified?: string;
+    /** Recent feedback event keys (`a:<eventId>` advisory, `v:<eventId>` verified), kept in full; makes feedback idempotent per event. */
+    events?: string[];
+}
+/**
+ * Context for `Brain.feedback`. Only trusted runtime callers (the orchestrator) may set `verified: true`,
+ * and only for an outcome checked externally (e.g. deterministic verification). `eventId` identifies the
+ * outcome (non-empty, at most 200 characters; `verified` must be the boolean `true`) so repeated feedback for the same event counts once. MCP callers are advisory and never verified.
+ */
+interface FeedbackContext {
+    eventId: string;
+    verified: boolean;
+    evidence?: string[];
 }
 interface NoteMeta {
     id: string;
@@ -479,4 +497,4 @@ interface ProgramOptions {
 }
 declare function createProgram(overrides?: Partial<CliContext>, options?: ProgramOptions): Command;
 
-export { type AgentStatus, type ApprovalPolicy, type Autonomy, type BrainLocation, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewJob, type CrewJobMode, type CrewJobStatus, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineRunRequest, type FailureType, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type Note, type NoteMeta, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageStats, type WorkspaceIdentity, createProgram };
+export { type AgentStatus, type ApprovalPolicy, type Autonomy, type BrainLocation, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewJob, type CrewJobMode, type CrewJobStatus, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineRunRequest, type FailureType, type FeedbackContext, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type Note, type NoteMeta, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageStats, type WorkspaceIdentity, createProgram };

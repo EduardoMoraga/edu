@@ -6,6 +6,9 @@ subtask: false
 
 Follow the `edu-review` skill. Arguments: $ARGUMENTS
 
+Review substantial changes or an explicit user request; do not auto-spawn reviews
+for every trivial task. Findings are advisory until independently checked.
+
 1. Confirm there is a diff to review (`git status`, `git diff`). If the tree is clean, use
    the base ref from the arguments or ask for one.
 2. Call `edu_crew_review` with `base` and, only if one was named, `cli`. Edu picks a

@@ -1,13 +1,14 @@
 ---
 name: edu-review
-description: "Get an independent, cross-vendor review of the current diff through Edu before calling a change done. Triggers: 'review this', 'second opinion', 'is this ready', 'cross review', before a commit or PR; 'revisa esto', 'segunda opinión', 'está listo', 'revisión cruzada', antes de un commit o PR."
+description: "Get an independent, cross-vendor review of substantial changes or an explicitly requested review through Edu. Triggers: 'review this', 'second opinion', 'is this ready', 'cross review', before a substantial commit or PR; 'revisa esto', 'segunda opinión', 'está listo', 'revisión cruzada', antes de un commit o PR sustancial."
 ---
 
 # Edu review
 
 ## When
 
-- A change is about to be called done, committed, or opened as a PR.
+- Review substantial changes before calling them done, committing, or opening a PR.
+- Do not auto-spawn for every trivial task; verify small understood changes locally.
 - The user asks for a second opinion on the work in progress.
 
 ## Steps

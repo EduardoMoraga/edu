@@ -16,11 +16,13 @@ description: "Search the Edu second brain for past decisions, lessons, conventio
    or `["canonical"]` to narrow it; `limit` defaults to 10).
 2. Pick at most three relevant hits and open them with `edu_read` by id.
 3. Answer from those notes. If a note clearly helped or misled, call `edu_feedback`
-   with its `id` and `helpful: true|false`.
+   with its `id` and `helpful: true|false`. Feedback is advisory opinion, not externally
+   verified evidence; do not label a lesson proven from it.
 
 ## Show the user
 
-- The answer first, then the sources: id, title and claim band for each note used.
+- The answer first, then the sources: id, title, workspace/global scope, source and
+  claim band for each note used. Stored metadata is provenance, not a new verification.
 - Separate `verified` facts from `inferred` or `hypothesis` notes.
 - If nothing matched, say so plainly and suggest what to record once it is known.
 

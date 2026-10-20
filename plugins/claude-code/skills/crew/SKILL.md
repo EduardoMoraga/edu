@@ -9,6 +9,9 @@ description: "Delegate a task to another coding CLI (Claude Code, Codex, Pi, Ope
 
 - The user names another CLI for a task ("codex: write tests for src/auth").
 - Work is independent and benefits from a fresh context or a different vendor.
+- Do not auto-spawn for trivial tasks or to summarize a session. Keep small,
+  understood work in the current session; independent review fits substantial
+  changes or an explicit user request.
 
 ## Steps
 
@@ -27,7 +30,8 @@ description: "Delegate a task to another coding CLI (Claude Code, Codex, Pi, Ope
 - Job id, CLI, status, elapsed time, tokens/cost.
 - A short summary of what the job did, the files it touched, and the checks it ran.
   Mark anything not verified as `inferred`.
-- Suggest `edu-review` before treating the change as done.
+- Suggest `edu-review` for substantial changes or a requested second opinion;
+  do not require another agent for every trivial task.
 
 ## Failure handling
 

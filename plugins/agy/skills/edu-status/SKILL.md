@@ -9,7 +9,8 @@ description: "Show where things stand in Edu: open commitments, crew jobs in fli
 
 1. Call `edu_crew_status` with no `jobId` to list crew jobs.
 2. Call `edu_commitments` (optionally `status: "overdue"` or `"pending"`).
-3. If the user wants more context, call `edu_brief`.
+3. Reuse the injected brief for context. Call `edu_brief` only if absent or the user
+   explicitly requests a refresh. Check `edu_capabilities` for actual installed support.
 
 ## Show the user
 
@@ -21,5 +22,6 @@ description: "Show where things stand in Edu: open commitments, crew jobs in fli
 ## Failure handling
 
 - The `edu_*` tools are missing: tell the user to run `edu setup`, then restart this CLI.
-- Only `edu_crew_status` is missing: Edu is older than 0.2; suggest updating Edu, then
-  `edu setup`, and show commitments alone.
+- Only `edu_crew_status` is missing: support is unknown (the tool may be deferred or
+  unavailable). In Pi discover `mcp__edu__edu_crew_status` via codemode/tool_search;
+  consult `edu_capabilities` if available and show commitments alone if needed.

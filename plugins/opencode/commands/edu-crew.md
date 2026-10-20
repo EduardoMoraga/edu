@@ -15,6 +15,10 @@ Example: `/edu:crew codex: write tests for src/auth`
 3. Tell the user the job id and that `edu watch` shows it live.
 4. Poll `edu_crew_status` with the `jobId` until it is `done`, `failed` or `cancelled`;
    then call `edu_crew_result`.
-5. Summarize: status, elapsed, tokens/cost, what changed, checks run. Suggest a review.
+5. Summarize: status, elapsed, tokens/cost, what changed, checks run. Suggest review
+   for substantial changes or when requested, not automatically for every trivial task.
+
+Delegate independent work or an explicit user request; do not spawn another model
+just to summarize a session or handle a small understood task.
 
 If the `edu_crew_*` tools are missing, tell the user to run `edu setup` and restart this CLI.
