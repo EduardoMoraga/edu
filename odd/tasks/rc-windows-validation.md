@@ -15,6 +15,7 @@ GitHub CI run 39416775153 passes Linux but reports four Windows failures in setu
 ## Tasks
 - [ ] W1: Diagnose Windows CI failures, correct supported test fixtures or report any required production fix, run focused checks, commit the coherent correction, and rerun the cross-platform matrix.
 - [ ] W2: Investigate the macOS concurrency-test failure in corrected CI 39417671185 and remove any timing dependency while preserving concurrency and dependency-order assertions. Production changes require separate diagnosis.
+- [ ] W3: Correct the Windows ESM preload specifier in scripts/smoke-upgrade.mjs and preserve the complete legacy-upgrade smoke contract.
 
 ## Route and authorization
 W1 uses delegated direct execution because diagnosis prepares edits in two non-trivial test files. The user authorized RC publication and the preceding multi-agent implementation. Initial allowed surfaces: src/platform/file-lock.test.ts and src/setup/upgrade.test.ts. Forecast: approximately 100 authored changed lines; delivery strategy ask-on-risk, below the current task budget.
@@ -37,3 +38,7 @@ Writer verification: focused tests 24 passed; typecheck exit 0; diff check exit 
 W1 correction commit: 7c184d4b5c1bbb0a82ac0f8518aaa4fbf8414c81. Independent verifier observed 24 passing focused tests and no severe issue; production safeguards unchanged. Corrected matrix 39417671185 reported a macOS failure in the pre-existing orchestrator DAG concurrency test (expected peak 2, observed 1); W2 is delegated direct because test diagnosis prepares the edit. Additional forecast approximately 50 lines, still below the per-task delivery budget. Log: /tmp/edu-v2-public-release/macos-job.log.
 
 W2 diagnosis: a fixed 20 ms sleep assumed both reader engines entered within that window, despite awaited persisted events before engine entry. A controlled callback delay reproduced the exact failed assertion while orchestration succeeded. The test now requires both readers to enter a Promise barrier before either can finish. All existing concurrency and dependency-order assertions remain. Writer checks: 26 focused tests passed, typecheck exit 0, diff check exit 0. No production changes. Independent verification and native macOS confirmation pending.
+
+W2 commit: 91d84ab3bd02c0beb727ba8d610712a58fcd4f63. Independent verification passed 26 tests and found no severe issue. W3 native RED evidence: Windows in run 39417671185 passed the full test suite, build and fresh install, then the smoke script passed an absolute drive path to node --import and failed ERR_UNSUPPORTED_ESM_URL_SCHEME before the legacy updater ran. Log: /tmp/edu-v2-public-release/corrected-failed.log. W3 uses delegated direct preparation/edit of one smoke script, forecast under 20 lines. The release package remains unchanged.
+
+W3 writer changed only the preload specifier to pathToFileURL(fixture).href. Full Linux upgrade smoke passed against published 0.10.2 and the audited RC tarball; node --check and git diff --check passed. Five preserved files, custom pointer, repeatable migration, and one native fixture refresh were verified. Independent readback and final native matrix pending.

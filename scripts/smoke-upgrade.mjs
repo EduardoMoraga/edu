@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { access, copyFile, cp, mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import spawn from 'cross-spawn';
 
@@ -99,7 +100,7 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
   const fixture = join(temp, 'release-fixture.mjs');
   const nextVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
   await writeFile(fixture, `const original=globalThis.fetch; globalThis.fetch=async(url,opts)=>String(url).startsWith('https://api.github.com/repos/EduardoMoraga/edu/releases') ? new Response(JSON.stringify({tag_name:${JSON.stringify(`v${nextVersion}`)},name:'Local candidate fixture',body:'Local smoke only; not a published release.',assets:[{name:${JSON.stringify(`edu-agent-${nextVersion}.tgz`)},browser_download_url:${JSON.stringify(nextPackage)}}]}),{status:200,headers:{'content-type':'application/json'}}) : original(url,opts);`);
-  const updateOutput = run(process.execPath, ['--import', fixture, entry, 'update', `v${nextVersion}`]);
+  const updateOutput = run(process.execPath, ['--import', pathToFileURL(fixture).href, entry, 'update', `v${nextVersion}`]);
   assert.equal(run(process.execPath, [entry, '--version']), nextVersion);
   for (const [path, text] of before) assert.equal(await readFile(path, 'utf8'), text, `custom content changed: ${path}`);
   const instructions = await readFile(globalInstructions, 'utf8');
