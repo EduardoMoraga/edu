@@ -1,7 +1,8 @@
-import { readdir, readFile, mkdir, writeFile, rm } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { parse, stringify } from 'yaml';
-import type { Brain } from '../brain/index.js';
+import { atomicWrite, type Brain } from '../brain/index.js';
+import { locked } from './persistence.js';
 
 export interface SkillProposal { id: string; name: string; rationale: string; content: string; diff?: string; created: string; status: 'proposed' | 'accepted' | 'rejected'; path: string }
 
@@ -26,31 +27,49 @@ export async function listProposals(brain: Brain, brainRoot?: string): Promise<S
 
 export async function acceptProposal(brain: Brain, id: string, brainRoot?: string): Promise<SkillProposal> {
   const root = await resolveRoot(brain, brainRoot);
-  const proposal = (await listProposals(brain, root)).find(item => item.id === id);
-  if (!proposal || proposal.status !== 'proposed') throw new Error(`Proposed skill not found: ${id}`);
-  if (!proposal.content.trim()) {
-    if (proposal.diff) throw new Error(`Cannot accept diff-only skill proposal '${id}': a reviewed full skill document is required.`);
-    throw new Error(`Cannot accept empty skill proposal '${id}'.`);
+  const result = await locked(root, async () => {
+    const proposal = (await listProposals(brain, root)).find(item => item.id === id);
+    if (proposal?.status === 'accepted') return proposal;
+    if (!proposal || proposal.status !== 'proposed') throw new Error(`Proposed skill not found: ${id}`);
+    if (!proposal.content.trim()) {
+      if (proposal.diff) throw new Error(`Cannot accept diff-only skill proposal '${id}': a reviewed full skill document is required.`);
+      throw new Error(`Cannot accept empty skill proposal '${id}'.`);
+    }
+    validateSkill(proposal);
+    const skillPath = join(root, 'skills', proposal.name, 'SKILL.md');
+    await atomicWrite(skillPath, proposal.content);
+    await saveStatus(proposal.path, proposal, 'accepted');
+    const episode = await brain.openSession(`Accepted skill proposal: ${proposal.name}`, 'edu:reflect');
+    await brain.closeSession(episode.meta.id, `Accepted skill proposal ${proposal.id}; wrote skills/${proposal.name}/SKILL.md.`);
+    return { ...proposal, status: 'accepted' as const };
+  });
+  if (!result) throw new Error('Reflection is already running.');
+  return result;
+}
+
+function validateSkill(proposal: SkillProposal): void {
+  const match = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$/.exec(proposal.content);
+  if (!match) throw new Error('Invalid skill: YAML frontmatter and body are required.');
+  const metadata = parse(match[1]!) as Record<string, unknown> | null;
+  if (!metadata || metadata.name !== proposal.name || typeof metadata.description !== 'string' || !metadata.description.trim() || !match[2]!.trim()) {
+    throw new Error('Invalid skill: matching name, description and nonempty body are required.');
   }
-  const skillPath = join(root, 'skills', proposal.name, 'SKILL.md');
-  await mkdir(dirname(skillPath), { recursive: true });
-  await writeFile(skillPath, proposal.content, 'utf8');
-  await saveStatus(proposal.path, proposal, 'accepted');
-  const episode = await brain.openSession(`Accepted skill proposal: ${proposal.name}`, 'edu:reflect');
-  await brain.closeSession(episode.meta.id, `Accepted skill proposal ${proposal.id}; wrote skills/${proposal.name}/SKILL.md.`);
-  return { ...proposal, status: 'accepted' };
 }
 
 export async function rejectProposal(brain: Brain, id: string, brainRoot?: string): Promise<void> {
   const root = await resolveRoot(brain, brainRoot);
-  const proposal = (await listProposals(brain, root)).find(item => item.id === id);
-  if (!proposal || proposal.status !== 'proposed') throw new Error(`Proposed skill not found: ${id}`);
-  await saveStatus(proposal.path, proposal, 'rejected');
+  const result = await locked(root, async () => {
+    const proposal = (await listProposals(brain, root)).find(item => item.id === id);
+    if (!proposal || proposal.status !== 'proposed') throw new Error(`Proposed skill not found: ${id}`);
+    await saveStatus(proposal.path, proposal, 'rejected');
+    return true;
+  });
+  if (!result) throw new Error('Reflection is already running.');
 }
 
 async function saveStatus(path: string, proposal: SkillProposal, status: SkillProposal['status']) {
   const metadata = { id: proposal.id, kind: 'skill', name: proposal.name, rationale: proposal.rationale, content: proposal.content, ...(proposal.diff ? { diff: proposal.diff } : {}), created: proposal.created, status };
-  await writeFile(path, `---\n${stringify(metadata)}---\n`, 'utf8');
+  await atomicWrite(path, `---\n${stringify(metadata)}---\n`);
 }
 async function resolveRoot(brain: Brain, explicit?: string): Promise<string> {
   if (explicit) return explicit;

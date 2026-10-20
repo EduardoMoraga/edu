@@ -41,7 +41,7 @@ describe('reflect', () => {
       const proposalFiles = await readFile(report.skillProposals[0]!.path, 'utf8');
       expect(proposalFiles).toContain('Check risks.');
       await expect(readFile(join(root, 'skills/review-helper/SKILL.md'), 'utf8')).rejects.toThrow();
-      await expect(readFile(join(root, 'reflect-queue/queued.json'), 'utf8')).rejects.toThrow();
+      expect(await readFile(join(root, 'reflect-queue/queued.json'), 'utf8')).toBe('{"runId":"queued"}');
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
@@ -94,7 +94,10 @@ describe('reflect', () => {
     const engine: Engine = { ...fake, async *run(request, agentId) { prompts.push(request.prompt); yield { type: 'agent.text', agentId, text: JSON.stringify({ ...response, lessons: [] }), at: new Date().toISOString() }; } };
     try {
       await brain.init({ scope: 'project', root });
-      await brain.openSession('Recent run', 'edu:orchestrator').then(note => brain.closeSession(note.meta.id, 'A completed run.'));
+      const session = await brain.openSession('Recent run', 'edu:orchestrator');
+      await brain.closeSession(session.meta.id, 'A completed run.');
+      await mkdir(join(root, 'reflect-queue'), { recursive: true });
+      await writeFile(join(root, 'reflect-queue/run-one.json'), JSON.stringify({ runId: 'run-one', sessionId: session.meta.id }));
       const episodeDir = join(runs, 'run-one');
       await mkdir(episodeDir, { recursive: true });
       await writeFile(join(episodeDir, 'task.json'), JSON.stringify({ runId: 'run-one' }));
