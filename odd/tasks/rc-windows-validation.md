@@ -14,6 +14,7 @@ GitHub CI run 39416775153 passes Linux but reports four Windows failures in setu
 
 ## Tasks
 - [ ] W1: Diagnose Windows CI failures, correct supported test fixtures or report any required production fix, run focused checks, commit the coherent correction, and rerun the cross-platform matrix.
+- [ ] W2: Investigate the macOS concurrency-test failure in corrected CI 39417671185 and remove any timing dependency while preserving concurrency and dependency-order assertions. Production changes require separate diagnosis.
 
 ## Route and authorization
 W1 uses delegated direct execution because diagnosis prepares edits in two non-trivial test files. The user authorized RC publication and the preceding multi-agent implementation. Initial allowed surfaces: src/platform/file-lock.test.ts and src/setup/upgrade.test.ts. Forecast: approximately 100 authored changed lines; delivery strategy ask-on-risk, below the current task budget.
@@ -32,3 +33,7 @@ Original candidate commit: 859eac16557307a78824158d6c73aac1035cdd7b. Windows fai
 The lock test passed an absolute Windows drive path to an ESM import instead of a file URL. Three upgrade tests used a development checkout that correctly failed the Windows installed-package guard before reaching their intended assertions. The correction uses a file URL and temporary installed-package fixtures, exercises both platform branches, and retains all assertions. No production or packaged files changed.
 
 Writer verification: focused tests 24 passed; typecheck exit 0; diff check exit 0. Parent structural readback and repeated diff check passed. Independent verification and corrected cross-platform CI pending. Original CI passed Linux and macOS completely and failed Windows (four tests).
+
+W1 correction commit: 7c184d4b5c1bbb0a82ac0f8518aaa4fbf8414c81. Independent verifier observed 24 passing focused tests and no severe issue; production safeguards unchanged. Corrected matrix 39417671185 reported a macOS failure in the pre-existing orchestrator DAG concurrency test (expected peak 2, observed 1); W2 is delegated direct because test diagnosis prepares the edit. Additional forecast approximately 50 lines, still below the per-task delivery budget. Log: /tmp/edu-v2-public-release/macos-job.log.
+
+W2 diagnosis: a fixed 20 ms sleep assumed both reader engines entered within that window, despite awaited persisted events before engine entry. A controlled callback delay reproduced the exact failed assertion while orchestration succeeded. The test now requires both readers to enter a Promise barrier before either can finish. All existing concurrency and dependency-order assertions remain. Writer checks: 26 focused tests passed, typecheck exit 0, diff check exit 0. No production changes. Independent verification and native macOS confirmation pending.

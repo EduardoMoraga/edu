@@ -150,9 +150,17 @@ describe('orchestrator contracts', () => {
     let active = 0; let maximum = 0;
     const done = new Set<string>();
     const observed: EduEvent[] = [];
+    let releaseReaders!: () => void;
+    const bothReadersStarted = new Promise<void>(resolve => { releaseReaders = resolve; });
     const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : request.prompt.includes('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'done';
-      if (request.prompt.startsWith('A') || request.prompt.startsWith('B')) { active++; maximum = Math.max(maximum, active); await new Promise(resolve => setTimeout(resolve, 20)); done.add(request.prompt[0]!); active--; }
+      if (request.prompt.startsWith('A') || request.prompt.startsWith('B')) {
+        active++; maximum = Math.max(maximum, active);
+        // Neither reader may finish until both enter, regardless of startup I/O latency.
+        if (active === 2) releaseReaders();
+        await bothReadersStarted;
+        done.add(request.prompt[0]!); active--;
+      }
       yield { type: 'agent.text', agentId, text, at } as EduEvent;
       yield { type: 'agent.end', agentId, ok: true, summary: 'done', at } as EduEvent;
     } };
