@@ -13,13 +13,18 @@ function pick(via: ResolveVia, matches: Note[]): ResolveResult | undefined {
   return matches.length === 1 ? { via, note: matches[0]! } : { via, candidates: matches };
 }
 
+/** Shared with recall so wikilink labels never become search terms. */
+export function normalizeReference(reference: string): string {
+  return reference.trim().replace(/^\[\[|\]\]$/g, '').split('|')[0]!.trim();
+}
+
 /**
  * Resolves what a human or agent calls a note, in order: exact id → legacy_id / alias → unique id prefix
  * → filename stem (Edu's, or the imported source's) → exact title (case- and accent-insensitive).
  * The first step with any match decides; several matches there come back as candidates, never a guess.
  */
 export function resolveReference(notes: Note[], reference: string): ResolveResult | undefined {
-  const ref = reference.trim().replace(/^\[\[|\]\]$/g, '').split('|')[0]!.trim();
+  const ref = normalizeReference(reference);
   if (!ref) return undefined;
   const lower = ref.toLowerCase();
   const exact = notes.filter(note => note.meta.id === ref);
