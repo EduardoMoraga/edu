@@ -21,15 +21,17 @@ async function albertBrain() {
 }
 
 describe('session-start brief on a large imported brain', () => {
-  it('stays byte-identical across consecutive briefs (usage tracking included) and recall', async () => {
+  it('stays byte-identical across consecutive read-only briefs and recall', async () => {
     const { brain, eduMdPath, total } = await albertBrain();
     expect(total).toBe(Object.values(ALBERT_COUNTS).reduce((sum, n) => sum + n, 0));
     const first = await brief(brain, 1500, { eduMdPath, now: NOW });
-    // The first brief records usage, which reorders lessons by learned weight in the second one.
+    // Read-only briefs must not change the ranking of subsequent calls.
     const second = await brief(brain, 1500, { eduMdPath, now: NOW });
-    // A larger budget reaches every section (decisions, lessons, episodes) and records usage on many more notes.
+    // A larger budget reaches more body passages without recording usage.
     const wide = await brief(brain, 6000, { eduMdPath, now: NOW });
     const wideAgain = await brief(brain, 6000, { eduMdPath, now: NOW });
+    expect(second).toBe(first);
+    expect(wideAgain).toBe(wide);
     const query = await buildContext(brain, { query: 'pricing forecast', budgetTokens: 800 }, { eduMdPath, now: NOW, trackUsage: false });
     const recall = rankNotes('stock latency review', await brain.list(), NOW, 12).map(hit => `${hit.note.meta.id} ${hit.score.toFixed(9)} ${hit.why}`);
     await expect([first, '=== second ===', second, '=== wide ===', wide, '=== wide again ===', wideAgain, '=== query ===', query.text, `deferred ${query.deferred.join(',')}`, '=== recall ===', ...recall].join('\n'))

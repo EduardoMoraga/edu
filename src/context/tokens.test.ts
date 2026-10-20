@@ -19,3 +19,22 @@ describe('token estimates', () => {
     expect(truncateToTokens(text, 1000)).toBe(text);
   });
 });
+
+
+it('fills the budget after a short header instead of discarding the body', () => {
+  const result = truncateToTokens('# Header\n\n' + 'Operational detail matters. '.repeat(200), 100);
+  expect(result).toContain('Operational detail');
+  expect(estimateTokens(result)).toBeGreaterThanOrEqual(90);
+  expect(estimateTokens(result)).toBeLessThanOrEqual(100);
+});
+
+it('preserves Unicode graphemes at truncation boundaries', () => {
+  const unit = '👩🏽‍💻e\u0301東京';
+  const input = unit.repeat(100);
+  const boundaries = new Set([...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(input)].map(part => part.index));
+  for (let budget = 1; budget < 80; budget++) {
+    const result = truncateToTokens(input, budget);
+    expect(estimateTokens(result)).toBeLessThanOrEqual(budget);
+    expect(boundaries.has(result.replace(/…$/, '').length)).toBe(true);
+  }
+});
