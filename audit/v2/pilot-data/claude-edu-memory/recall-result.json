@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "L-empty-tenant-or-sku-yields-null-key-but-still-72h-retention · inferred · candidate · Empty tenant or SKU yields null key but still 72h retention · Matched ttl, retry, retention; learned weight 0.50. Passage: \"When tenant or normalized SKU is empty: cacheKey null, TTL 0, retry false, yet retentionHours stays 72 (invalid requests included).\\n\\nNoted by the host model when closing session [[2026-10-20-synthetic-service-learning-a76cc0b4]]; not verified.\"\nL-trial-tenant-gets-ttl-0-but-can-still-retry · inferred · candidate · Trial tenant gets TTL 0 but can still retry · Matched ttl, retry; learned weight 0.50. Passage: \"Tenant 'trial' (case-insensitive) has TTL 0 while retry is decided independently: POST with non-empty trimmed idempotencyKey and attempts < 2 may retry.\\n\\nNoted by the host model when closing session [[2026-10-20-synthetic-service-learning-a76cc0b4]]; not verified.\""
+    }
+  ]
+}

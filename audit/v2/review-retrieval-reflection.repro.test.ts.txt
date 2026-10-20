@@ -1,0 +1,94 @@
+import { mkdtemp, mkdir, writeFile, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openBrain } from '/code/edu/src/brain/index.js';
+import { consolidatePending } from '/code/edu/src/reflect/consolidate.js';
+import { reflect } from '/code/edu/src/reflect/index.js';
+import { rankNotes } from '/code/edu/src/brain/search.js';
+import { buildContext } from '/code/edu/src/context/pack.js';
+import { estimateTokens, truncateToTokens } from '/code/edu/src/context/tokens.js';
+
+async function setup() {
+  const root = await mkdtemp(join(tmpdir(), 'rv-')); const brain = openBrain([{ scope: 'project', root }]); await brain.init({ scope: 'project', root });
+  await mkdir(join(root, 'reflect-queue'), { recursive: true }); return { root, brain };
+}
+async function queue(root: string, name: string, runId: string, sessionId: string, interventions = true) {
+  await mkdir(join(root, 'runs', runId), { recursive: true });
+  await writeFile(join(root, 'reflect-queue', `${name}.json`), JSON.stringify({ runId, sessionId }));
+  if (!interventions) return;
+  await writeFile(join(root, 'runs', runId, 'task.json'), JSON.stringify({ runId }));
+  await writeFile(join(root, 'runs', runId, 'outcome.json'), JSON.stringify({ label: 'failed' }));
+  await writeFile(join(root, 'runs', runId, 'intervention.jsonl'), JSON.stringify({ type: 'intervention', by: 'user', avoidable: true, harnessGap: 'context', action: `fix ${runId}`, detail: 'had to repeat' }) + '\n');
+}
+const engine = (out: unknown) => ({ cli: 'claude', available: async () => true, async *run() { yield { type: 'agent.text', agentId: 'x', text: typeof out === 'string' ? out : JSON.stringify(out), at: '' }; } }) as never;
+const empty = { lessons: [], hypotheses: [], feedback: [], skillProposals: [], canonicalProposals: [] };
+
+it('R1 queue starvation: 50 stuck entries block later valid ones', async () => {
+  const { root, brain } = await setup();
+  for (let i = 0; i < 50; i++) await queue(root, `a-${String(i).padStart(3, '0')}`, `stuck-${i}`, 'missing-session', false);
+  const s = await brain.write({ tier: 'episodic', kind: 'session', status: 'closed', title: 'good', body: 'x' });
+  await queue(root, 'z-valid', 'good-run', s.meta.id);
+  const r = await consolidatePending(brain, root);
+  console.log('R1', JSON.stringify({ lessons: r.lessons.length, ack: r.acknowledged.length, skipped: r.skipped.length }));
+});
+
+it('R2 stale lock never recovers', async () => {
+  const { root, brain } = await setup();
+  await writeFile(join(root, '.reflection.lock'), JSON.stringify({ pid: 999999, startedAt: '2020-01-01T00:00:00Z' }));
+  const r = await consolidatePending(brain, root);
+  console.log('R2', JSON.stringify({ busy: r.busy }));
+});
+
+it('R3 body with trailing newline -> identity collision on replay', async () => {
+  const { root, brain } = await setup();
+  await brain.write({ tier: 'episodic', kind: 'session', status: 'closed', title: 'ep', body: 'did things' });
+  const out = { ...empty, lessons: [{ title: 'L', body: 'Always do X\n', evidence: [] }] };
+  const first = await reflect({ brain, engine: engine(out), brainRoot: root }).then(r => 'ok:' + r.lessons.length, e => 'ERR ' + e.message);
+  const second = await reflect({ brain, engine: engine(out), brainRoot: root }).then(r => 'ok:' + r.lessons.length, e => 'ERR ' + e.message);
+  console.log('R3', first, second);
+});
+
+it('R4 empty evidence gets linked to all episodes; feedback reported but unapplied; rejected proven lesson re-proposed', async () => {
+  const { root, brain } = await setup();
+  const e1 = await brain.write({ tier: 'episodic', kind: 'session', status: 'closed', title: 'ep1', body: 'a' });
+  const e2 = await brain.write({ tier: 'episodic', kind: 'session', status: 'closed', title: 'ep2', body: 'b' });
+  const pl = await brain.write({ tier: 'transitive', kind: 'lesson', status: 'proven', title: 'Old proven', body: 'rule' });
+  const out = { ...empty, lessons: [{ title: 'Uncited', body: 'claim', evidence: [] }], feedback: [{ id: pl.meta.id, helpful: true }] };
+  const rep = await reflect({ brain, engine: engine(out), brainRoot: root });
+  const les = await brain.read(rep.lessons[0]!);
+  console.log('R4a links', JSON.stringify(les?.meta.links), 'feedback reported', JSON.stringify(rep.feedback), 'usage', JSON.stringify((await brain.read(pl.meta.id))?.meta.usage), 'canon', rep.canonicalProposals.length);
+  const prop = (await brain.list({ tier: 'canonical', status: 'proposed' }))[0]!;
+  await brain.rejectCanonical(prop.meta.id, 'no');
+  const rep2 = await reflect({ brain, engine: engine({ ...empty, lessons: [{ title: 'Another', body: 'zzz', evidence: [] }] }), brainRoot: root });
+  console.log('R4b after reject, new proposals', rep2.canonicalProposals.length, (await brain.list({ tier: 'canonical', status: 'proposed' })).length);
+});
+
+it('R5 pipe in query truncates search', () => {
+  const n = (id: string, t: string, b: string) => ({ meta: { id, tier: 'transitive', title: t, kind: 'lesson', status: 'candidate', tags: [], links: [], created: '2026-01-01T00:00:00Z' }, body: b, path: '/' + id }) as never;
+  const notes = [n('L-a', 'alpha', 'alpha only'), n('L-b', 'beta', 'beta only')];
+  console.log('R5', rankNotes('alpha | beta', notes).map(h => h.note.meta.id), rankNotes('| beta', notes).map(h => h.note.meta.id), rankNotes('beta]]', notes).length);
+});
+
+it('R6 pack budget fuzz + truncate fuzz', async () => {
+  const { root, brain } = await setup();
+  for (let i = 0; i < 30; i++) await brain.write({ tier: 'transitive', kind: i % 2 ? 'lesson' : 'decision', title: `Item ${i} retry payment`, body: ('retry payment duplicate 漢字 😀 ' + i).repeat(60) });
+  const over: number[] = [];
+  for (const b of [0, 1, 5, 10, 20, 33, 50, 100, 300]) { const p = await buildContext(brain, { query: 'retry payment', budgetTokens: b }, { eduMdPath: join(root, 'EDU.md') }); if (p.tokens > b) over.push(b); }
+  const tover: string[] = [];
+  for (const t of ['a\n\nb'.repeat(50), '😀'.repeat(100), 'é'.repeat(100), '漢'.repeat(100), '"\\.,;'.repeat(60)]) for (const l of [1, 2, 3, 7, 40]) if (estimateTokens(truncateToTokens(t, l)) > l) tover.push(l + ':' + t.slice(0, 4));
+  console.log('R6 over', over, tover);
+});
+
+it('R7 synonym match shows unrelated passage', async () => {
+  const { root, brain } = await setup();
+  await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Reglas', body: 'Intro sobre estilo de commits y formato general del repositorio.\n\nNunca reintentar un pago sin clave de idempotencia.' });
+  const p = await buildContext(brain, { query: 'retry payment', budgetTokens: 600 }, { eduMdPath: join(root, 'EDU.md') });
+  console.log('R7', p.text.split('\n').filter(l => l.includes('Reglas')));
+});
+
+it('R8 recall perf: passage computed for all hits in pack', async () => {
+  const { root, brain } = await setup();
+  for (let i = 0; i < 400; i++) await brain.write({ tier: 'transitive', kind: 'lesson', title: `L ${i}`, body: ('payment retry word ').repeat(3000) });
+  const t = performance.now(); await buildContext(brain, { query: 'payment retry', budgetTokens: 2000 }, { eduMdPath: join(root, 'EDU.md') });
+  console.log('R8 ms', Math.round(performance.now() - t));
+});

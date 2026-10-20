@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Error: Invalid arguments: id Invalid input: expected string, received null"
+    }
+  ],
+  "isError": true
+}

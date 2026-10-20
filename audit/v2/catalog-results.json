@@ -1,0 +1,60 @@
+{
+  "kind": "mcp-catalog-structural-measurement",
+  "version": "2.0.0-rc.1",
+  "rows": [
+    {
+      "profile": "full",
+      "toolCount": 18,
+      "serializedUtf8Bytes": 11921,
+      "estimatedCatalogTokens": 3461,
+      "names": [
+        "edu_brief",
+        "edu_recall",
+        "edu_read",
+        "edu_remember",
+        "edu_feedback",
+        "edu_propose_canonical",
+        "edu_commitments",
+        "edu_session_open",
+        "edu_session_close",
+        "edu_capabilities",
+        "edu_projects",
+        "edu_project_use",
+        "edu_crew_dispatch",
+        "edu_crew_status",
+        "edu_crew_result",
+        "edu_orchestrate",
+        "edu_crew_approve",
+        "edu_crew_review"
+      ]
+    },
+    {
+      "profile": "memory",
+      "toolCount": 12,
+      "serializedUtf8Bytes": 8296,
+      "estimatedCatalogTokens": 2406,
+      "names": [
+        "edu_brief",
+        "edu_recall",
+        "edu_read",
+        "edu_remember",
+        "edu_feedback",
+        "edu_propose_canonical",
+        "edu_commitments",
+        "edu_session_open",
+        "edu_session_close",
+        "edu_capabilities",
+        "edu_projects",
+        "edu_project_use"
+      ]
+    }
+  ],
+  "modelCalls": 0,
+  "billedCostUsd": null,
+  "limitations": [
+    "Measures serialized listTools, not a provider request or invoice.",
+    "Token counts are the local heuristic, not provider usage.",
+    "Deferred tools and prompt caching can change actual cost.",
+    "Memory still adds tools versus native-clean; no net savings are established."
+  ]
+}

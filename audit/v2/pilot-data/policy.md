@@ -1,0 +1,3 @@
+# Synthetic service policy v1
+For every request, tenant is trimmed then lowercased. SKU is NFKC-normalized, trimmed and uppercased; internal spaces are preserved. If tenant or normalized SKU is empty, cacheKey is null, TTL is 0 and retries are forbidden. Otherwise cacheKey is tenant + "::" + SKU. Valid non-trial tenants have TTL 47 seconds; tenant "trial" has TTL 0. Retries require attempts < 2. GET may retry; POST may retry only with a non-empty trimmed idempotencyKey; other methods never retry. Idempotency retention is always 72 hours, including invalid requests.
+These are synthetic fixture rules, not production policy.

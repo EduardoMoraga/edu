@@ -1,0 +1,31 @@
+{
+  "status": "internal-release-candidate-not-published",
+  "version": "2.0.0-rc.1",
+  "runtime": "Node v22.23.3 / Linux",
+  "checks": {
+    "typecheck": "passed",
+    "pluginsGeneratedAndChecked": "passed",
+    "testsPassed": 1021,
+    "testsSkipped": 1,
+    "testFilesPassed": 124,
+    "skipReason": "Existing opt-in live Albert private-vault test; no vault supplied or copied.",
+    "freshPackInstall": "passed",
+    "realPublished0102Upgrade": "passed with native Codex fixture, not a live plugin reload",
+    "packagePrivacy": {
+      "files": 262,
+      "privateOrAuditFiles": []
+    },
+    "productionDependencyAudit": "0 vulnerabilities",
+    "fullDependencyAudit": "1 low dev-only esbuild Windows development-server advisory; no moderate/high/critical"
+  },
+  "candidateSha256": "45a5f921e65f766aefc6021d1faa8b3af22a2812d8fc2007cc88e12475a7b573",
+  "limitations": [
+    "GitHub CI not yet run; macOS and Windows native runs pending.",
+    "No stable/latest release, tag, or npm publication.",
+    "Pilot ties 10/10 per family and arm; no measured efficiency or billing.",
+    "Private work repository URL/access not supplied.",
+    "RC/chained-PR delivery awaiting owner decision.",
+    "Existing module-level reviews are not proof of crash-safe multi-file transactions.",
+    "Personal Edu brain is not attached in this Cloud host: a read-only real edu_brief returned 0 notes; paired Mac was unavailable. No replacement brain or guessed session close was created. Decisions/results are retained in these committed project records."
+  ]
+}

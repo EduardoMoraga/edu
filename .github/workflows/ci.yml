@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   check:
@@ -34,16 +35,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install pinned Pi API for integration contracts
+        run: |
+          npm install --prefix "$RUNNER_TEMP/edu-pi-protocol" --no-package-lock --no-fund --no-audit @earendil-works/pi-coding-agent@1.2.0
+          node -e "require('node:fs').appendFileSync(process.env.GITHUB_ENV, 'PI_PROTOCOL_ROOT=' + require('node:path').join(process.env.RUNNER_TEMP, 'edu-pi-protocol', 'node_modules', '@earendil-works', 'pi-coding-agent') + '\n')"
+
       - name: Typecheck
         run: npm run typecheck
 
       - name: Test
-        run: npm test
+        run: npm test -- --maxWorkers=2
 
       - name: Test plugin generator
         run: |
           printf 'export default { test: { include: ["scripts/build-plugins.test.ts"] } }\n' > "$RUNNER_TEMP/vitest-plugins.config.mjs"
-          npx vitest run --config "$RUNNER_TEMP/vitest-plugins.config.mjs"
+          npx vitest run --config "$RUNNER_TEMP/vitest-plugins.config.mjs" --maxWorkers=2
 
       - name: Build
         run: npm run build
@@ -58,6 +64,14 @@ jobs:
 
       - name: Smoke install
         run: bash scripts/smoke-install.sh
+
+      - name: Upgrade from the published 0.10.2 package
+        run: |
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+          curl -fsSL --retry 2 https://github.com/EduardoMoraga/edu/releases/download/v0.10.2/edu-agent-0.10.2.tgz -o "$RUNNER_TEMP/edu-published-0.10.2.tgz"
+          node -e "const fs=require('node:fs'),p=require('node:path'),c=require('node:crypto');if(c.createHash('sha256').update(fs.readFileSync(p.join(process.env.RUNNER_TEMP,'edu-published-0.10.2.tgz'))).digest('hex')!=='0cc31fa000265bd2a4cdba32fa76b558fd741b9d47442954d8f8a9b44fa12fbc')throw Error('Published baseline checksum changed')"
+          CANDIDATE="$(node -p "require('node:path').join(process.env.RUNNER_TEMP, 'edu-agent-' + require('./package.json').version + '.tgz')")"
+          node scripts/smoke-upgrade.mjs "$RUNNER_TEMP/edu-published-0.10.2.tgz" "$CANDIDATE"
 
       - name: One-line installer (Windows)
         if: runner.os == 'Windows'

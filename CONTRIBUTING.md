@@ -2,22 +2,30 @@
 
 ## Setup
 
-- Use Node.js 22 or newer.
+- Use Node.js 22.19 or newer for development (the pinned Pi API contract requires it).
 - Install dependencies with `npm ci`.
 - Run `npm run build` before checking package behavior.
 
 ## Checks
 
-Run the focused project checks before handing off changes:
+Run the focused project checks before handing off changes. The Pi protocol tests execute the real
+Pi loader without a model or credentials. Provide Pi 1.2.0 via `PI_PROTOCOL_ROOT` (the package root),
+or install the test tool outside this checkout:
 
 ```bash
+npm install --prefix /tmp/edu-pi-api --no-package-lock --no-fund --no-audit @earendil-works/pi-coding-agent@1.2.0
+export PI_PROTOCOL_ROOT=/tmp/edu-pi-api/node_modules/@earendil-works/pi-coding-agent
 npm run typecheck
-npm test
+npm test -- --maxWorkers=2
+npm run build:plugins -- --check
 npm run build
 npm run smoke
 ```
 
-CI runs the same checks on Ubuntu and macOS with Node 22.
+On Windows, use a temporary prefix and set `$env:PI_PROTOCOL_ROOT` to that package directory.
+This is a test-tool installation, not a production dependency. Missing Pi fails the contract tests;
+it does not silently skip them. CI installs the pinned API in its temporary folder and runs the
+checks on Ubuntu, macOS and Windows with Node 22. No test should launch a paid model.
 
 ### Windows workstations
 

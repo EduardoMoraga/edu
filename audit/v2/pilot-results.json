@@ -1,0 +1,68 @@
+{
+  "kind": "behavioral-transfer-pilot",
+  "gradedAt": "2026-10-20T02:45:06.903395+00:00",
+  "status": "inconclusive-for-efficiency",
+  "rows": [
+    {
+      "family": "codex",
+      "arm": "source-only",
+      "passed": 10,
+      "total": 10,
+      "extras": 0,
+      "oracleExit": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "billedCostUsd": null,
+      "speedComparison": null
+    },
+    {
+      "family": "codex",
+      "arm": "edu-memory",
+      "passed": 10,
+      "total": 10,
+      "extras": 0,
+      "oracleExit": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "billedCostUsd": null,
+      "speedComparison": null
+    },
+    {
+      "family": "claude",
+      "arm": "source-only",
+      "passed": 10,
+      "total": 10,
+      "extras": 0,
+      "oracleExit": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "billedCostUsd": null,
+      "speedComparison": null
+    },
+    {
+      "family": "claude",
+      "arm": "edu-memory",
+      "passed": 10,
+      "total": 10,
+      "extras": 0,
+      "oracleExit": 0,
+      "inputTokens": null,
+      "outputTokens": null,
+      "billedCostUsd": null,
+      "speedComparison": null
+    }
+  ],
+  "lessonsPerTeacher": {
+    "codex": 3,
+    "claude": 3
+  },
+  "independentTrajectoriesPerFamilyArm": 1,
+  "limitations": [
+    "Not native-clean: shared Cloudroom instructions remain.",
+    "Actual models accessed real MCP through a stdio bridge, not native plugin discovery.",
+    "Both arms had the same source policy.",
+    "No usage or billing supplied; missing values are not zero.",
+    "Ten cases in one session are correlated, not ten independent replications.",
+    "Teachers saw oracle feedback; students were graded externally only after completion."
+  ]
+}

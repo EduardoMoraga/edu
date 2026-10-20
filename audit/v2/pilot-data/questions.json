@@ -1,0 +1,82 @@
+[
+  {
+    "id": "holdout-1",
+    "tenant": " ALICE ",
+    "sku": " \uff41\uff42 ",
+    "method": "GET",
+    "idempotencyKey": "",
+    "attempts": 0
+  },
+  {
+    "id": "holdout-2",
+    "tenant": "Bob",
+    "sku": " x y ",
+    "method": "POST",
+    "idempotencyKey": "key",
+    "attempts": 1
+  },
+  {
+    "id": "holdout-3",
+    "tenant": "trial",
+    "sku": "c",
+    "method": "GET",
+    "idempotencyKey": "",
+    "attempts": 0
+  },
+  {
+    "id": "holdout-4",
+    "tenant": "TRIAL",
+    "sku": " c ",
+    "method": "POST",
+    "idempotencyKey": " ",
+    "attempts": 0
+  },
+  {
+    "id": "holdout-5",
+    "tenant": "",
+    "sku": "a",
+    "method": "GET",
+    "idempotencyKey": "k",
+    "attempts": 0
+  },
+  {
+    "id": "holdout-6",
+    "tenant": "bob",
+    "sku": " ",
+    "method": "GET",
+    "idempotencyKey": "k",
+    "attempts": 0
+  },
+  {
+    "id": "holdout-7",
+    "tenant": "alice",
+    "sku": "q",
+    "method": "GET",
+    "idempotencyKey": "k",
+    "attempts": 2
+  },
+  {
+    "id": "holdout-8",
+    "tenant": "ALICE",
+    "sku": "r",
+    "method": "DELETE",
+    "idempotencyKey": "key",
+    "attempts": 0
+  },
+  {
+    "id": "holdout-9",
+    "tenant": "bob",
+    "sku": "s",
+    "method": "POST",
+    "idempotencyKey": " key ",
+    "attempts": 0
+  },
+  {
+    "id": "holdout-10",
+    "tenant": " bob ",
+    "sku": "\uff5a",
+    "method": "POST",
+    "idempotencyKey": "",
+    "attempts": 1
+  }
+]

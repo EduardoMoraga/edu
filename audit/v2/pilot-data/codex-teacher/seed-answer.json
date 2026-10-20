@@ -1,0 +1,5 @@
+[
+  {"id":"seed-1","cacheKey":"alice::AB","ttlSeconds":47,"retryAllowed":true,"retentionHours":72},
+  {"id":"seed-2","cacheKey":"trial::X","ttlSeconds":0,"retryAllowed":true,"retentionHours":72},
+  {"id":"seed-3","cacheKey":null,"ttlSeconds":0,"retryAllowed":false,"retentionHours":72}
+]

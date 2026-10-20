@@ -19,6 +19,18 @@ them, hand work to the others and watch it happen.
 
 ---
 
+## Edu 2.0 candidate
+
+This branch implements bounded, actionable memory retrieval; repeatable consolidation of structured
+experience; advisory versus externally supported feedback; safe sessions; and backed-up upgrades.
+It is **not a published stable release or a guarantee of cheaper model operation**. See the
+[upgrade guide](docs/guides/upgrade-2.0.md), [evaluation format](docs/evals/edu-2.0.md) and
+[release gates](docs/evals/edu-2.0-release-gates.md).
+
+After installing this candidate, `edu capabilities --json` (alias `edu whats-new --json`) describes the
+actual installed binary. Ask your agent to call `edu_capabilities` or run that command; restart the
+host CLI and MCP server after an upgrade so old sessions do not keep obsolete tools.
+
 ## Quickstart
 
 **Windows** (PowerShell):
@@ -46,10 +58,13 @@ Open your CLI and ask: **"what do you remember?"** — Edu answers from its brai
 (`~/.edu`), and records every change so `edu uninstall` can reverse it. `edu doctor` shows
 what is connected.
 
-**Stay current:** `edu update` installs the latest GitHub release with the npm of the Node that runs
-Edu, runs the new `edu setup --yes`, re-indexes and maintains every registered workspace and shows
-what's new. `edu update --check` only reports; `edu update v0.8.0` (or `--to v0.8.0`) picks a
-release. If the install fails, the current version stays as it was.
+**Stay current:** `edu update` installs the latest published GitHub release with the npm of the Node
+that runs Edu. The 2.0 candidate backs up and migrates managed contracts for the global brain and
+registered workspaces before refreshing setup; it preserves custom memory and does not enable paid
+background inference. Partial migration is reported as incomplete. `edu update --check` only reports;
+`edu update <published-tag>` (or `--to <published-tag>`) selects a release, including an explicitly
+published RC. npm installation is not transactional: after failure, verify `edu --version` before
+retrying. Restart your host CLIs/MCP servers after a successful upgrade.
 
 ## Give Edu your knowledge: `edu create`
 

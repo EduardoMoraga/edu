@@ -1,0 +1,26 @@
+[
+  {
+    "id": "seed-1",
+    "tenant": " Alice ",
+    "sku": " \uff41\uff42 ",
+    "method": "GET",
+    "idempotencyKey": "",
+    "attempts": 0
+  },
+  {
+    "id": "seed-2",
+    "tenant": "TRIAL",
+    "sku": " X ",
+    "method": "POST",
+    "idempotencyKey": " k ",
+    "attempts": 1
+  },
+  {
+    "id": "seed-3",
+    "tenant": " ",
+    "sku": " y ",
+    "method": "GET",
+    "idempotencyKey": "x",
+    "attempts": 0
+  }
+]

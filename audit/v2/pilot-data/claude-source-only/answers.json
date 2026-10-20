@@ -1,0 +1,12 @@
+[
+  {"id":"holdout-1","cacheKey":"alice::AB","ttlSeconds":47,"retryAllowed":true,"retentionHours":72},
+  {"id":"holdout-2","cacheKey":"bob::X Y","ttlSeconds":47,"retryAllowed":true,"retentionHours":72},
+  {"id":"holdout-3","cacheKey":"trial::C","ttlSeconds":0,"retryAllowed":true,"retentionHours":72},
+  {"id":"holdout-4","cacheKey":"trial::C","ttlSeconds":0,"retryAllowed":false,"retentionHours":72},
+  {"id":"holdout-5","cacheKey":null,"ttlSeconds":0,"retryAllowed":false,"retentionHours":72},
+  {"id":"holdout-6","cacheKey":null,"ttlSeconds":0,"retryAllowed":false,"retentionHours":72},
+  {"id":"holdout-7","cacheKey":"alice::Q","ttlSeconds":47,"retryAllowed":false,"retentionHours":72},
+  {"id":"holdout-8","cacheKey":"alice::R","ttlSeconds":47,"retryAllowed":false,"retentionHours":72},
+  {"id":"holdout-9","cacheKey":"bob::S","ttlSeconds":47,"retryAllowed":true,"retentionHours":72},
+  {"id":"holdout-10","cacheKey":"bob::Z","ttlSeconds":47,"retryAllowed":false,"retentionHours":72}
+]

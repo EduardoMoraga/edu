@@ -1,0 +1,47 @@
+{
+  "passed": 10,
+  "total": 10,
+  "extras": 0,
+  "results": [
+    {
+      "id": "holdout-1",
+      "ok": true
+    },
+    {
+      "id": "holdout-2",
+      "ok": true
+    },
+    {
+      "id": "holdout-3",
+      "ok": true
+    },
+    {
+      "id": "holdout-4",
+      "ok": true
+    },
+    {
+      "id": "holdout-5",
+      "ok": true
+    },
+    {
+      "id": "holdout-6",
+      "ok": true
+    },
+    {
+      "id": "holdout-7",
+      "ok": true
+    },
+    {
+      "id": "holdout-8",
+      "ok": true
+    },
+    {
+      "id": "holdout-9",
+      "ok": true
+    },
+    {
+      "id": "holdout-10",
+      "ok": true
+    }
+  ]
+}

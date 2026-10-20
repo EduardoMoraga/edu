@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "from": "0.10.2",
+  "to": "2.0.0-rc.1",
+  "platform": "linux",
+  "oldAssetSha256": "0cc31fa000265bd2a4cdba32fa76b558fd741b9d47442954d8f8a9b44fa12fbc",
+  "candidateSha256": "45a5f921e65f766aefc6021d1faa8b3af22a2812d8fc2007cc88e12475a7b573",
+  "preservedFiles": 5,
+  "migrationRepeatable": true,
+  "customPointerPreserved": true,
+  "noUnrequestedProjectIntegration": true,
+  "nativeFixtureRefreshes": 1,
+  "restartRequired": true,
+  "limits": [
+    "Local release metadata fixture; no GitHub release published.",
+    "Codex host is a no-agent fixture; native plugin cache reload is not tested.",
+    "No model calls or efficiency measurement."
+  ]
+}

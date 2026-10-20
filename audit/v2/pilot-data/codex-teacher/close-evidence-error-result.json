@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Error: Evidence not found: policy.md: tenant trim/lowercase; SKU NFKC/trim/uppercase; internal spaces preserved.. Cite only existing note ids; nothing was closed or recorded"
+    }
+  ],
+  "isError": true
+}

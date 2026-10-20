@@ -1,0 +1,76 @@
+[
+  {
+    "role": "teacher",
+    "family": "codex",
+    "startedAt": "2026-10-20T02:38:40.287948+00:00",
+    "result": {
+      "harness": "codex",
+      "id": "cr_child_de7efcad33ab489c83a38399",
+      "model": "gpt-6-astra",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "role": "teacher",
+    "family": "claude",
+    "startedAt": "2026-10-20T02:38:42.219504+00:00",
+    "result": {
+      "harness": "claude-code",
+      "id": "cr_child_2681e792943e55b3b40f864d",
+      "model": "sonnet",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "role": "student",
+    "family": "codex",
+    "arm": "source-only",
+    "startedAt": "2026-10-20T02:41:59.833677+00:00",
+    "fixture": "/tmp/edu-v2-model-pilot/codex-source-only",
+    "result": {
+      "harness": "codex",
+      "id": "cr_child_c941cf0e77feb8f41b8d0f68",
+      "model": "gpt-6-astra",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "role": "student",
+    "family": "codex",
+    "arm": "edu-memory",
+    "startedAt": "2026-10-20T02:42:00.886086+00:00",
+    "fixture": "/tmp/edu-v2-model-pilot/codex-edu-memory",
+    "result": {
+      "harness": "codex",
+      "id": "cr_child_054d44f62bec5ce2d6af7508",
+      "model": "gpt-6-astra",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "role": "student",
+    "family": "claude",
+    "arm": "source-only",
+    "startedAt": "2026-10-20T02:42:01.183925+00:00",
+    "fixture": "/tmp/edu-v2-model-pilot/claude-source-only",
+    "result": {
+      "harness": "claude-code",
+      "id": "cr_child_b2db860ec03920a0585df062",
+      "model": "sonnet",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "role": "student",
+    "family": "claude",
+    "arm": "edu-memory",
+    "startedAt": "2026-10-20T02:42:01.959783+00:00",
+    "fixture": "/tmp/edu-v2-model-pilot/claude-edu-memory",
+    "result": {
+      "harness": "claude-code",
+      "id": "cr_child_b3dfed0aacba5f7ac2972925",
+      "model": "sonnet",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  }
+]

@@ -19,6 +19,17 @@ cualquiera de ellos se puede delegar trabajo a los demás y verlo en curso.
 
 ---
 
+## Candidata Edu 2.0
+
+Esta rama incorpora recuperación accionable y acotada, consolidación repetible de experiencias
+estructuradas, separación entre opiniones y feedback respaldado por verificaciones, sesiones seguras
+y actualizaciones con respaldo. **No es todavía una versión estable publicada ni una garantía de ahorro.**
+Consulte la [guía de actualización](guides/upgrade-2.0.md) y los [criterios de publicación](evals/edu-2.0-release-gates.md).
+
+Con esta candidata instalada, `edu capabilities --json` o `edu whats-new --json` muestra la versión y
+las capacidades reales. Puede pedirle al agente que llame a `edu_capabilities` o ejecute ese comando.
+Después de actualizar hay que reiniciar el CLI y MCP: una conversación abierta puede conservar herramientas antiguas.
+
 ## Inicio rápido
 
 **Windows** (PowerShell):
@@ -48,9 +59,12 @@ cerebro global (`~/.edu`) y registra cada cambio para que `edu uninstall` pueda 
 `edu doctor` muestra qué está conectado.
 
 **Manténgase al día:** `edu update` instala la última versión publicada en GitHub con el npm del Node
-que ejecuta Edu, corre el nuevo `edu setup --yes`, reindexa y mantiene cada espacio registrado y
-muestra las novedades. `edu update --check` solo informa; `edu update v0.8.0` (o `--to v0.8.0`)
-elige una versión. Si la instalación falla, la versión actual queda tal como estaba.
+que ejecuta Edu. La candidata 2.0 respalda y migra los contratos gestionados del cerebro global y los
+espacios registrados antes de refrescar setup; conserva memoria custom y no activa inferencias de pago
+en segundo plano. Los fallos parciales se muestran como actualización incompleta. `edu update --check`
+solo informa; `edu update <tag-publicado>` selecciona una versión, incluida una RC publicada explícitamente.
+La instalación npm no es transaccional: si falla, compruebe `edu --version` antes de reintentar.
+Reinicie sus CLIs y servidores MCP después de actualizar.
 
 ## Entréguele su conocimiento a Edu: `edu create`
 
