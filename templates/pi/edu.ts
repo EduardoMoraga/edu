@@ -1,6 +1,6 @@
 // Edu for Pi: MCP server, identity at agent start, and the live Edu Deck (header, crew widget, footer,
 // /edu-deck overlay). Generated into plugins/pi/extensions by scripts/build-plugins.ts.
-import { execFile, spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { basename } from 'node:path';
 import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-coding-agent';
 import { Key, matchesKey, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
@@ -150,22 +150,58 @@ function jobLine(job: DeckJob, t: Theme, width: number, now: number): string {
 }
 
 export default function (pi: ExtensionAPI): void {
-  pi.registerMcpServer('edu', windows ? { command: 'cmd', args: ['/c', 'edu', 'mcp'] } : { command: 'edu', args: ['mcp'] });
-  // A failed brief is reported once per Pi process instead of silently starting without it.
-  let briefWarned = false;
-  const briefUnavailable = (ctx: ExtensionContext | undefined, reason: string) => {
-    if (briefWarned) return;
-    briefWarned = true;
-    try { ctx?.ui?.notify?.(`Edu brief unavailable: ${reason}`, 'warning'); } catch { /* No UI (print mode). */ }
+  const registerMcp = (workspace?: string) => pi.registerMcpServer('edu', {
+    ...(windows ? { command: 'cmd', args: ['/c', EDU, 'mcp'] } : { command: EDU, args: ['mcp'] }),
+    ...(workspace ? { cwd: workspace } : {}),
+    // Fail closed: this MCP must follow the host workspace, not inherited project
+    // selectors, client roots or an independent edu_project_use switch.
+    env: { EDU_PROJECT: '', EDU_LOCK_WORKSPACE: '1' },
+  });
+  registerMcp();
+  let mcpCwd: string | undefined;
+  let sessionId: string | undefined;
+  // Cache both successful and failed attempts. No synchronous rebuild on each prompt;
+  // /edu-refresh is the explicit retry/update boundary. Promises coalesce concurrent starts.
+  const briefs = new Map<string, Promise<string>>();
+  const workspaceFor = (ctx: ExtensionContext): string => {
+    const id = ctx.sessionManager.getSessionId();
+    if (id !== sessionId) { briefs.clear(); sessionId = id; }
+    const workspace = ctx.cwd || process.cwd();
+    if (workspace !== mcpCwd) { registerMcp(workspace); mcpCwd = workspace; }
+    return workspace;
   };
-  pi.on('before_agent_start', async (event: any, ctx?: ExtensionContext) => {
-    try {
-      const result = spawnSync(EDU, ['hook', 'session-start'], { encoding: 'utf8', timeout: BRIEF_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'], shell: windows });
-      if (result.error) return briefUnavailable(ctx, (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' ? `edu hook session-start timed out after ${BRIEF_TIMEOUT_MS / 1000} s` : result.error.message);
-      if (result.status !== 0) return briefUnavailable(ctx, `edu hook session-start exited with ${result.status ?? result.signal}`);
-      if (!result.stdout?.trim()) return; // No brain in this folder: nothing to inject.
-      return { systemPrompt: `${event.systemPrompt ?? ''}\n\n${result.stdout.trim()}` };
-    } catch (error) { return briefUnavailable(ctx, error instanceof Error ? error.message : String(error)); }
+  const loadBrief = (workspace: string, hostId: string): Promise<string> => new Promise((resolve, reject) => {
+    const child = execFile(EDU, ['hook', 'session-start'], {
+      cwd: workspace, encoding: 'utf8', timeout: BRIEF_TIMEOUT_MS, maxBuffer: 1 << 20,
+      shell: windows, windowsHide: true,
+    }, (error, stdout, stderr) => {
+      // safeHook may report an internal error on stderr while exiting zero.
+      // Throw to Pi's error channel, including print/RPC mode, rather than hiding it in UI.
+      if (error || stderr.trim()) {
+        reject(new Error(`Edu brief unavailable (${workspace}): ${stderr.trim() || error?.message}. Retry with /edu-refresh.`));
+      } else resolve(stdout.trim());
+    });
+    // Pi's real session id lets the hook open/reuse the matching Edu episode.
+    child.stdin?.end(JSON.stringify({ cwd: workspace, session_id: hostId, source: 'pi' }));
+  });
+  pi.on('before_agent_start', async (event, ctx) => {
+    const workspace = workspaceFor(ctx);
+    let pending = briefs.get(workspace);
+    if (!pending) { pending = loadBrief(workspace, ctx.sessionManager.getSessionId()); briefs.set(workspace, pending); }
+    const text = await pending;
+    if (!text) return; // No brain: cache absence too, without inventing memory.
+    const memory = `Edu memory already briefed for workspace ${JSON.stringify(workspace)}. Do not repeat edu_brief unless explicitly refreshing. Retain the injected Edu session id; only if absent, edu_session_open(title, source=pi). Close with edu_session_close(id, summary), using that exact id. Recall on demand: edu_recall then edu_read; check edu_capabilities for the installed version.\nMemory provenance: stored project/global notes, not model training or independently verified facts. Inspect note ids, scope, claim bands and evidence before applying them. edu_feedback is advisory, not proof. Discover edu_capabilities for this installed version; absence means capabilities are unknown. In Pi, Edu tools use mcp__edu__edu_* (discover through codemode/tool_search when needed). This MCP requests a host-workspace lock: verify the active workspace before reading/writing. To change projects, change the host cwd and restart; do not use edu_project_use to diverge from this snapshot. No automatic bidirectional workspace synchronization is promised.\nAt close, if the current tool schema supports it, optionally send lessons?: [{title, body, evidence?: [ids]}] (max 3): actionable observations of what worked or corrected errors, candidate/inferred, not proof. Use the current model and observed session only; no second reflection LLM. Lessons are optional: omit if none; no secrets or invented evidence. Do not duplicate lessons already saved. Crew is for independent work or review of substantial changes; no automatic crew for trivial tasks.\n\n${text}`;
+    // Pi resets the base system prompt for each run: reattach the cached snapshot,
+    // not a newly constructed brief. The hook may return the matching Edu episode id;
+    // meaningful closure still requires the agent's explicit summary.
+    return { systemPrompt: `${event.systemPrompt ?? ''}\n\n${memory}` };
+  });
+  pi.registerCommand('edu-refresh', {
+    description: 'Invalidate the Edu brief for this session/workspace; reload on the next prompt',
+    handler: async (_args, ctx) => {
+      briefs.delete(workspaceFor(ctx));
+      if (ctx.hasUI) ctx.ui.notify('Edu brief will refresh on the next prompt.', 'info');
+    },
   });
 
   let deck: Deck | undefined;
@@ -362,7 +398,7 @@ export default function (pi: ExtensionAPI): void {
   };
 
   pi.on('session_start', async (_event: unknown, ctx: ExtensionContext) => {
-    cwd = ctx.cwd || process.cwd();
+    cwd = workspaceFor(ctx);
     if (ctx.mode !== 'tui') return;
     ui = ctx;
     widgetShown = false;
@@ -381,6 +417,8 @@ export default function (pi: ExtensionAPI): void {
     if (timer) clearInterval(timer);
     timer = undefined;
     ui = undefined;
+    briefs.clear();
+    sessionId = undefined;
     renderers.clear();
   });
 

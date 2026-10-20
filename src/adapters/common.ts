@@ -21,14 +21,14 @@ export async function binaryOnPath(binary: string): Promise<boolean> {
   return false;
 }
 
-function protocol(scope: InstallScope, home: string): string {
-  const pointer = scope === 'project' ? '@.edu/EDU.md' : `@${join(home, '.edu/EDU.md')}`;
-  return `${pointer}\n1. Start with \`edu_brief\` for identity and open commitments.\n2. Recall on demand with \`edu_recall\`, then \`edu_read\`.\n3. Record decisions and lessons with \`edu_remember\`.\n4. Treat hypotheses as unproven until evidence confirms them.\n5. Close with \`edu_session_close\` and report what remains open.`;
+function protocol(scope: InstallScope, home: string, brainRoot?: string): string {
+  const pointer = scope === 'project' ? '@.edu/EDU.md' : `@${join(brainRoot ?? join(home, '.edu'), 'EDU.md')}`;
+  return `${pointer}\n1. Reuse an injected Edu brief; call \`edu_brief\` only if absent or explicitly refreshing.\n2. Retain an injected Edu session id; only if absent, \`edu_session_open\` (title, source) and keep its exact returned id per workspace.\n3. Recall on demand with \`edu_recall\`, then \`edu_read\`; cite ids, scope, claim bands and evidence.\n4. Record decisions and lessons with \`edu_remember\`. Memory is stored notes, not model training. \`edu_feedback\` is advisory, never proof that a lesson is proven. Check \`edu_capabilities\` for the installed version; unavailable means unknown.\n5. Close with \`edu_session_close\` using that exact id and a summary. Optionally include up to 3 durable \`lessons\` ({title, body, evidence:[existing ids]}); they are candidate/inferred observations, never verified facts. Do not invent a lesson or run another model to extract it. Report what remains open; never invent an id or claim closure after failure.\nTool names are logical names: in Pi discover \`mcp__edu__edu_*\` through codemode/tool_search as needed. Pi requests a host-owned workspace lock: change the host cwd and restart MCP rather than switching only with \`edu_project_use\`. Other clients may allow that tool: verify scope and retain separate session ids. Use crew only for independent work, substantial review or an explicit request; do not spawn extra agents for every trivial task.`;
 }
 
-export function instructionActions(cli: CliId, scope: InstallScope, root: string, options: IntegrationOptions): PlannedAction[] {
+export function instructionActions(cli: CliId, scope: InstallScope, root: string, options: IntegrationOptions & { brainRoot?: string }): PlannedAction[] {
   return pathsFor(cli, scope, root, options.home).instructions.map(path => ({
-    cli, kind: 'managed-block', path, description: 'Install Edu protocol block', content: protocol(scope, options.home),
+    cli, kind: 'managed-block', path, description: 'Install Edu protocol block', content: protocol(scope, options.home, options.brainRoot),
   }));
 }
 
