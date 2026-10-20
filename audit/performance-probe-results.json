@@ -1,0 +1,75 @@
+{
+  "note": "Local structural estimates only. Tool exposure and provider serialization depend on the host; no Kimi A/B or billing measurement.",
+  "node": "v25.9.0",
+  "tools": {
+    "count": 17,
+    "names": [
+      "edu_brief",
+      "edu_recall",
+      "edu_read",
+      "edu_remember",
+      "edu_feedback",
+      "edu_propose_canonical",
+      "edu_commitments",
+      "edu_session_open",
+      "edu_session_close",
+      "edu_projects",
+      "edu_project_use",
+      "edu_crew_dispatch",
+      "edu_crew_status",
+      "edu_crew_result",
+      "edu_orchestrate",
+      "edu_crew_approve",
+      "edu_crew_review"
+    ],
+    "schemaPayload": {
+      "bytes": 8755,
+      "estimatedTokens": 2553
+    }
+  },
+  "templateIdentity": {
+    "bytes": 5135,
+    "estimatedTokens": 1431
+  },
+  "freshHookBrief": {
+    "bytes": 1608,
+    "estimatedTokens": 449,
+    "milliseconds": 135
+  },
+  "freshMcpBrief": {
+    "bytes": 1608,
+    "estimatedTokens": 449
+  },
+  "synthetic32LessonsHookBriefs": [
+    {
+      "bytes": 4571,
+      "estimatedTokens": 1279,
+      "milliseconds": 184,
+      "sha256": "2d4792732a74f86e64a93fa26af0a1b98884870d36d7c49e4ea795cb0f460bfa"
+    },
+    {
+      "bytes": 4571,
+      "estimatedTokens": 1279,
+      "milliseconds": 169,
+      "sha256": "2d4792732a74f86e64a93fa26af0a1b98884870d36d7c49e4ea795cb0f460bfa"
+    },
+    {
+      "bytes": 4571,
+      "estimatedTokens": 1279,
+      "milliseconds": 167,
+      "sha256": "2d4792732a74f86e64a93fa26af0a1b98884870d36d7c49e4ea795cb0f460bfa"
+    },
+    {
+      "bytes": 4571,
+      "estimatedTokens": 1279,
+      "milliseconds": 172,
+      "sha256": "2d4792732a74f86e64a93fa26af0a1b98884870d36d7c49e4ea795cb0f460bfa"
+    }
+  ],
+  "longSingleParagraphRead": {
+    "bytes": 105,
+    "estimatedTokens": 28,
+    "includesBody": false,
+    "preview": "<note-id> · inferred · candidate · Long single-paragraph audit fixture\n…"
+  }
+}

@@ -1,0 +1,255 @@
+{
+  "harness": "Vitest + real Brain/MCP/context/respond; injected capture engine, no LLM",
+  "criteria": "Relevant target is preselected per task; sufficient payload must contain exact required policy values, not just title/id.",
+  "emptyBrief": {
+    "text": "## Identity core\n# Fixture identity\nAudit only.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+    "error": false
+  },
+  "sparseParaphrase": [],
+  "recall": [
+    {
+      "label": "literal",
+      "query": "Cobros duplicados",
+      "target": "D-702-politica-de-reintentos",
+      "ids": [
+        "D-702-politica-de-reintentos"
+      ],
+      "rank": 1,
+      "visibleInMcp": true,
+      "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos · Matched cobros, duplicados; learned weight 0.50."
+    },
+    {
+      "label": "accent",
+      "query": "politica reintentos",
+      "target": "D-702-politica-de-reintentos",
+      "ids": [
+        "D-702-politica-de-reintentos"
+      ],
+      "rank": 1,
+      "visibleInMcp": true,
+      "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos · Matched politica, reintentos; learned weight 0.50."
+    },
+    {
+      "label": "paraphrase",
+      "query": "impedir facturas repetidas",
+      "target": "D-702-politica-de-reintentos",
+      "ids": [
+        "L-ruido-0",
+        "L-ruido-1",
+        "L-ruido-10",
+        "L-ruido-11",
+        "L-ruido-12"
+      ],
+      "rank": 0,
+      "visibleInMcp": false,
+      "text": "L-ruido-0 · inferred · candidate · Ruido 0 · Matched impedir, facturas, repetidas; learned weight 0.50.\nL-ruido-1 · inferred · candidate · Ruido 1 · Matched impedir, facturas, repetidas; learned weight 0.50.\nL-ruido-10 · inferred · candidate · Ruido 10 · Matched impedir, facturas, repetidas; learned weight 0.50.\nL-ruido-11 · inferred · candidate · Ruido 11 · Matched impedir, facturas, repetidas; learned weight 0.50.\nL-ruido-12 · inferred · candidate · Ruido 12 · Matched impedir, facturas, repetidas; learned weight 0.50."
+    },
+    {
+      "label": "natural-question",
+      "query": "¿Cómo impedir que la misma factura se pague dos veces?",
+      "target": "D-702-politica-de-reintentos",
+      "ids": [
+        "L-ruido-0",
+        "L-ruido-1",
+        "L-ruido-10",
+        "L-ruido-11",
+        "L-ruido-12"
+      ],
+      "rank": 0,
+      "visibleInMcp": false,
+      "text": "L-ruido-0 · inferred · candidate · Ruido 0 · Matched como, impedir, que, la; learned weight 0.50.\nL-ruido-1 · inferred · candidate · Ruido 1 · Matched como, impedir, que, la; learned weight 0.50.\nL-ruido-10 · inferred · candidate · Ruido 10 · Matched como, impedir, que, la; learned weight 0.50.\nL-ruido-11 · inferred · candidate · Ruido 11 · Matched como, impedir, que, la; learned weight 0.50.\nL-ruido-12 · inferred · candidate · Ruido 12 · Matched como, impedir, que, la; learned weight 0.50."
+    },
+    {
+      "label": "alias",
+      "query": "regla-pagos",
+      "target": "D-702-politica-de-reintentos",
+      "ids": [
+        "D-702-politica-de-reintentos"
+      ],
+      "rank": 1,
+      "visibleInMcp": true,
+      "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos · Named by id or alias \"regla-pagos\"; learned weight 0.50."
+    },
+    {
+      "label": "long-tail",
+      "query": "snapshot Q7",
+      "target": "D-recuperacion-boreal",
+      "ids": [
+        "D-recuperacion-boreal"
+      ],
+      "rank": 1,
+      "visibleInMcp": true,
+      "text": "D-recuperacion-boreal · inferred · active · Recuperación Boreal · Matched snapshot, q7; learned weight 0.50."
+    }
+  ],
+  "references": [
+    {
+      "id": "D-702-politica-de-reintentos",
+      "sufficient": true,
+      "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos\n\nCobros duplicados: conservar Idempotency-Key durante 72 horas; rechazar el segundo cargo. Motivo: la pasarela reenvía eventos.",
+      "error": false
+    },
+    {
+      "id": "D-702",
+      "sufficient": true,
+      "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos\n\nCobros duplicados: conservar Idempotency-Key durante 72 horas; rechazar el segundo cargo. Motivo: la pasarela reenvía eventos.",
+      "error": false
+    },
+    {
+      "id": "regla-pagos",
+      "sufficient": true,
+      "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos\n\nCobros duplicados: conservar Idempotency-Key durante 72 horas; rechazar el segundo cargo. Motivo: la pasarela reenvía eventos.",
+      "error": false
+    },
+    {
+      "id": "[[D-702-politica-de-reintentos|pagos]]",
+      "sufficient": true,
+      "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos\n\nCobros duplicados: conservar Idempotency-Key durante 72 horas; rechazar el segundo cargo. Motivo: la pasarela reenvía eventos.",
+      "error": false
+    },
+    {
+      "id": "D-702-politica-de-reintentos.md",
+      "sufficient": true,
+      "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos\n\nCobros duplicados: conservar Idempotency-Key durante 72 horas; rechazar el segundo cargo. Motivo: la pasarela reenvía eventos.",
+      "error": false
+    },
+    {
+      "id": "politica de reintentos",
+      "sufficient": true,
+      "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos\n\nCobros duplicados: conservar Idempotency-Key durante 72 horas; rechazar el segundo cargo. Motivo: la pasarela reenvía eventos.",
+      "error": false
+    }
+  ],
+  "payloadReads": [
+    {
+      "id": "D-702-politica-de-reintentos",
+      "fact": "72 horas",
+      "present": true
+    },
+    {
+      "id": "D-recuperacion-boreal",
+      "fact": "47 minutos",
+      "present": false
+    },
+    {
+      "id": "L-cierre-de-conexion",
+      "fact": "drainSockets",
+      "present": true
+    },
+    {
+      "id": "K-contrato-zafiro",
+      "fact": "checksum V9",
+      "present": true
+    }
+  ],
+  "longRead": {
+    "rawContains": true,
+    "defaultContains": false,
+    "expandedContains": true,
+    "defaultLength": 91,
+    "defaultText": "D-recuperacion-boreal · inferred · active · Recuperación Boreal\n\nAntecedentes operativos.\n…",
+    "expandedLength": 8466
+  },
+  "context": [
+    {
+      "budgetTokens": 800,
+      "tokens": 228,
+      "text": "## Identity core\n# Fixture identity\nAudit only.\n\n## Active decisions\n- Recuperación Boreal\n- Política de reintentos\n\n## Proven lessons\n- Cierre de conexión (proven; verified)\n- Ruido 0 (candidate; inferred)\n- Ruido 1 (candidate; inferred)\n- Ruido 10 (candidate; inferred)\n- Ruido 11 (candidate; inferred)\n- Ruido 12 (candidate; inferred)\n- Ruido 13 (candidate; inferred)\n- Ruido 14 (candidate; inferred)\n- Ruido 2 (candidate; inferred)\n- Ruido 3 (candidate; inferred)\n- Ruido 4 (candidate; inferred)\n- Ruido 5 (candidate; inferred)\n- Ruido 6 (candidate; inferred)\n- Ruido 7 (candidate; inferred)\n- Ruido 8 (candidate; inferred)\n- Ruido 9 (candidate; inferred)\n\n## Canonical hits\n- Contrato Zafiro: Resumen del contrato Zafiro.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+      "decisionTitle": true,
+      "requiredFacts": [
+        {
+          "fact": "72 horas",
+          "present": false
+        },
+        {
+          "fact": "47 minutos",
+          "present": false
+        },
+        {
+          "fact": "drainSockets",
+          "present": false
+        },
+        {
+          "fact": "checksum V9",
+          "present": false
+        }
+      ]
+    },
+    {
+      "budgetTokens": 8000,
+      "tokens": 228,
+      "text": "## Identity core\n# Fixture identity\nAudit only.\n\n## Active decisions\n- Recuperación Boreal\n- Política de reintentos\n\n## Proven lessons\n- Cierre de conexión (proven; verified)\n- Ruido 0 (candidate; inferred)\n- Ruido 1 (candidate; inferred)\n- Ruido 10 (candidate; inferred)\n- Ruido 11 (candidate; inferred)\n- Ruido 12 (candidate; inferred)\n- Ruido 13 (candidate; inferred)\n- Ruido 14 (candidate; inferred)\n- Ruido 2 (candidate; inferred)\n- Ruido 3 (candidate; inferred)\n- Ruido 4 (candidate; inferred)\n- Ruido 5 (candidate; inferred)\n- Ruido 6 (candidate; inferred)\n- Ruido 7 (candidate; inferred)\n- Ruido 8 (candidate; inferred)\n- Ruido 9 (candidate; inferred)\n\n## Canonical hits\n- Contrato Zafiro: Resumen del contrato Zafiro.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+      "decisionTitle": true,
+      "requiredFacts": [
+        {
+          "fact": "72 horas",
+          "present": false
+        },
+        {
+          "fact": "47 minutos",
+          "present": false
+        },
+        {
+          "fact": "drainSockets",
+          "present": false
+        },
+        {
+          "fact": "checksum V9",
+          "present": false
+        }
+      ]
+    }
+  ],
+  "prompt": {
+    "title": true,
+    "id": false,
+    "requiredFacts": [
+      {
+        "fact": "72 horas",
+        "present": false
+      },
+      {
+        "fact": "47 minutos",
+        "present": false
+      },
+      {
+        "fact": "drainSockets",
+        "present": false
+      },
+      {
+        "fact": "checksum V9",
+        "present": false
+      }
+    ],
+    "text": "# Fixture identity\nAudit only.\n\n## Identity core\n# Fixture identity\nAudit only.\n\n## Active decisions\n- Recuperación Boreal\n- Política de reintentos\n\n## Proven lessons\n- Cierre de conexión (proven; verified)\n- Ruido 0 (candidate; inferred)\n- Ruido 1 (candidate; inferred)\n- Ruido 10 (candidate; inferred)\n- Ruido 11 (candidate; inferred)\n- Ruido 12 (candidate; inferred)\n- Ruido 13 (candidate; inferred)\n- Ruido 14 (candidate; inferred)\n- Ruido 2 (candidate; inferred)\n- Ruido 3 (candidate; inferred)\n- Ruido 4 (candidate; inferred)\n- Ruido 5 (candidate; inferred)\n- Ruido 6 (candidate; inferred)\n- Ruido 7 (candidate; inferred)\n- Ruido 8 (candidate; inferred)\n- Ruido 9 (candidate; inferred)\n\n## Canonical hits\n- Contrato Zafiro: Resumen del contrato Zafiro.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read\n\nIf the user asks for work that should change files or needs a multi-step team, reply with exactly one line `TASK: <the goal, restated precisely>` and nothing else. Otherwise answer directly and concisely in the user's language, citing note ids like [[D-…]] and stating claim bands."
+  },
+  "crowded": {
+    "targetIncluded": false,
+    "targetDeferred": false,
+    "tokens": 222,
+    "text": "## Identity core\n# Fixture identity\nAudit only.\n\n## Active decisions\n- Diseño icono 0\n- Diseño icono 1\n- Diseño icono 2\n- Diseño icono 3\n- Diseño icono 4\n- Diseño icono 5\n- Diseño icono 6\n- Diseño icono 7\n\n## Proven lessons\n- Ruido 0 (candidate; inferred)\n- Ruido 1 (candidate; inferred)\n- Ruido 10 (candidate; inferred)\n- Ruido 11 (candidate; inferred)\n- Ruido 12 (candidate; inferred)\n- Ruido 13 (candidate; inferred)\n- Ruido 14 (candidate; inferred)\n- Ruido 2 (candidate; inferred)\n- Ruido 3 (candidate; inferred)\n- Ruido 4 (candidate; inferred)\n- Ruido 5 (candidate; inferred)\n- Ruido 6 (candidate; inferred)\n- Ruido 7 (candidate; inferred)\n- Ruido 8 (candidate; inferred)\n- Ruido 9 (candidate; inferred)\n\n## Index pointer\n4 more notes available via edu_recall/edu_read"
+  },
+  "positiveControl": {
+    "bodyInPrompt": true,
+    "idInPrompt": false
+  },
+  "afterPositiveFeedback": [
+    "L-ruido-0",
+    "L-ruido-1",
+    "L-ruido-10",
+    "L-ruido-11",
+    "L-ruido-12"
+  ],
+  "bracketReferenceRecall": {
+    "text": "No matching notes.",
+    "error": false
+  },
+  "bracketReferenceRead": {
+    "text": "D-702-politica-de-reintentos · inferred · active · Política de reintentos\n\nCobros duplicados: conservar Idempotency-Key durante 72 horas; rechazar el segundo cargo. Motivo: la pasarela reenvía eventos.",
+    "error": false
+  },
+  "close": {
+    "text": "Closed 2026-10-20-temporary-retrieval-audit-b7b360e8 · inferred · closed · Temporary retrieval audit",
+    "error": false
+  }
+}

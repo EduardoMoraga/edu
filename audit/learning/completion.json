@@ -1,0 +1,92 @@
+[
+  {
+    "task": "01-capture",
+    "id": "cr_child_9a12ccebc61dfb0cd8af56a7",
+    "harness": "codex",
+    "modelLabel": "gpt-6-astra",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  },
+  {
+    "task": "02-retrieval",
+    "id": "cr_child_ff7a260932647989290fd237",
+    "harness": "codex",
+    "modelLabel": "gpt-6-astra",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  },
+  {
+    "task": "03-autonomy",
+    "id": "cr_child_cd1a3c58981b0b5a990bc43f",
+    "harness": "codex",
+    "modelLabel": "gpt-6-astra",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  },
+  {
+    "task": "04-feedback",
+    "id": "cr_child_44e98eda1d41fb9f19cf1b73",
+    "harness": "claude-code",
+    "modelLabel": "sonnet",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  },
+  {
+    "task": "05-forgetting",
+    "id": "cr_child_cf0e6969e7c4b9142940fdaf",
+    "harness": "claude-code",
+    "modelLabel": "sonnet",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  },
+  {
+    "task": "06-reflection",
+    "id": "cr_child_345dfe6fef6a9899a02cb916",
+    "harness": "claude-code",
+    "modelLabel": "sonnet",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  },
+  {
+    "task": "07-pi-integration",
+    "id": "cr_child_44165c16c88322c3a574e332",
+    "harness": "pi",
+    "modelLabel": "gpt-6.1-sol",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  },
+  {
+    "task": "08-longitudinal",
+    "id": "cr_child_f09d9197ba215b1ebba0b556",
+    "harness": "pi",
+    "modelLabel": "gpt-6.1-sol",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  },
+  {
+    "task": "09-opencode-integration",
+    "id": "cr_child_7ce3aa33c499feaeddb56422",
+    "harness": "opencode",
+    "modelLabel": "openai/gpt-6.1-sol",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  },
+  {
+    "task": "10-evaluation",
+    "id": "cr_child_0fb191a0a5e2f3f0b247d551",
+    "harness": "opencode",
+    "modelLabel": "openai/gpt-6.1-sol",
+    "state": "idle",
+    "busy": false,
+    "error": null
+  }
+]

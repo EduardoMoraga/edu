@@ -1,0 +1,122 @@
+[
+  {
+    "task": "01-capture",
+    "provider": "codex",
+    "requestedModel": null,
+    "returncode": 0,
+    "result": {
+      "harness": "codex",
+      "id": "cr_child_9a12ccebc61dfb0cd8af56a7",
+      "model": "gpt-6-astra",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "task": "02-retrieval",
+    "provider": "codex",
+    "requestedModel": null,
+    "returncode": 0,
+    "result": {
+      "harness": "codex",
+      "id": "cr_child_ff7a260932647989290fd237",
+      "model": "gpt-6-astra",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "task": "03-autonomy",
+    "provider": "codex",
+    "requestedModel": null,
+    "returncode": 0,
+    "result": {
+      "harness": "codex",
+      "id": "cr_child_cd1a3c58981b0b5a990bc43f",
+      "model": "gpt-6-astra",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "task": "04-feedback",
+    "provider": "claude-code",
+    "requestedModel": null,
+    "returncode": 0,
+    "result": {
+      "harness": "claude-code",
+      "id": "cr_child_44e98eda1d41fb9f19cf1b73",
+      "model": "sonnet",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "task": "05-forgetting",
+    "provider": "claude-code",
+    "requestedModel": null,
+    "returncode": 0,
+    "result": {
+      "harness": "claude-code",
+      "id": "cr_child_cf0e6969e7c4b9142940fdaf",
+      "model": "sonnet",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "task": "06-reflection",
+    "provider": "claude-code",
+    "requestedModel": null,
+    "returncode": 0,
+    "result": {
+      "harness": "claude-code",
+      "id": "cr_child_345dfe6fef6a9899a02cb916",
+      "model": "sonnet",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "task": "07-pi-integration",
+    "provider": "pi",
+    "requestedModel": "openai-codex/gpt-6.1-sol",
+    "returncode": 0,
+    "result": {
+      "harness": "pi",
+      "id": "cr_child_44165c16c88322c3a574e332",
+      "model": "gpt-6.1-sol",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "task": "08-longitudinal",
+    "provider": "pi",
+    "requestedModel": "openai-codex/gpt-6.1-sol",
+    "returncode": 0,
+    "result": {
+      "harness": "pi",
+      "id": "cr_child_f09d9197ba215b1ebba0b556",
+      "model": "gpt-6.1-sol",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "task": "09-opencode-integration",
+    "provider": "opencode",
+    "requestedModel": "openai/gpt-6.1-sol",
+    "returncode": 0,
+    "result": {
+      "harness": "opencode",
+      "id": "cr_child_7ce3aa33c499feaeddb56422",
+      "model": "openai/gpt-6.1-sol",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  },
+  {
+    "task": "10-evaluation",
+    "provider": "opencode",
+    "requestedModel": "openai/gpt-6.1-sol",
+    "returncode": 0,
+    "result": {
+      "harness": "opencode",
+      "id": "cr_child_0fb191a0a5e2f3f0b247d551",
+      "model": "openai/gpt-6.1-sol",
+      "note": "Started in this sandbox and folder. Keep working: Cloudroom sends you a message each time it finishes a turn."
+    }
+  }
+]

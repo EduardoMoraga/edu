@@ -1,0 +1,26 @@
+{
+  "scope": "Deployment inventory, not evidence of end-to-end learning or efficiency",
+  "agentsRequested": 10,
+  "agentsSpawned": 10,
+  "harnessCounts": {
+    "codex": 3,
+    "claude-code": 3,
+    "pi": 2,
+    "opencode": 2
+  },
+  "effectiveModelLabels": [
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+    "openai/gpt-6.1-sol",
+    "sonnet"
+  ],
+  "gemini": {
+    "status": "not_available_in_exposed_provider_catalog",
+    "reason": "Cloudroom cloud spawn supports no Gemini harness; the accessible Mac provider/model catalogs did not expose Google/Gemini. No credentials copied or installs attempted."
+  },
+  "kimi": {
+    "status": "not_tested",
+    "reason": "User reports no membership; no Kimi execution requested."
+  },
+  "important": "Four harnesses do not mean four independent model families: Pi and OpenCode here use OpenAI routes. Claude reports a sonnet alias; do not infer exact release."
+}

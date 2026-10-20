@@ -1,0 +1,1 @@
+export default { test: { include: ['audit/learning/03-autonomy.probe.test.ts'], environment: 'node', testTimeout: 15000, cache: false }, cacheDir: `/tmp/03-autonomy-vite-${process.pid}-${Date.now()}` };

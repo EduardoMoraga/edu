@@ -1,0 +1,10 @@
+{"name":"workspace-brief-a","correctProject":true,"globalOverlay":true}
+{"name":"actual-pi-loader","errors":[],"events":["before_agent_start","session_start","turn_end","agent_end","session_shutdown"],"version":"1.2.0"}
+{"name":"exposure-contract","default":"codemode","directAccepted":true,"deferredAccepted":true,"customEduBinUsedByMcp":false,"llmDiscoveryTested":false}
+{"name":"ctx-cwd-b-process-cwd-a","injectedProject":"A","expectedContextProject":"B","wrongBrainReproduced":true}
+{"name":"fresh-brief-per-prompt","readsNewFixtureNote":true,"modelLearningDemonstrated":false}
+{"name":"skill-discovery","paths":9,"suppressedExternalDuplicate":true}
+{"name":"skill-reload","retainsOwnSkill":true}
+{"name":"mcp-project-switch-vs-hook","mcpBrain":"B","hookBrain":"A","independentSelectors":true,"tools":17,"briefSchema":{"type":"object","properties":{"maxTokens":{"default":null,"description":"Maximum response tokens (default 800)","type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"$schema":"http://json-schema.org/draft-07/schema#"}}
+{"name":"new-mcp-session","persistedDecisionVisible":true,"modelLearningDemonstrated":false}
+{"name":"failed-hook","returnsNoBrief":true,"warningCount":1}

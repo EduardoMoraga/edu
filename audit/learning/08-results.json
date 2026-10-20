@@ -1,0 +1,1234 @@
+{
+  "harness": "Cloudroom/pi; deterministic Vitest, no model calls",
+  "modelEnv": "gpt-6.1-sol",
+  "root": "/tmp/08-longitudinal-13S2y5",
+  "external": [
+    {
+      "exit": 1,
+      "ok": false,
+      "observed": " SKU42 ",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": false,
+        "scope": "global",
+        "sku": " SKU42 ",
+        "sourceContext": "baseline"
+      }
+    },
+    {
+      "exit": 1,
+      "ok": false,
+      "observed": "private-alice",
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "trim": false,
+        "scope": "global",
+        "sku": "SKU42",
+        "sourceContext": "baseline"
+      }
+    },
+    {
+      "exit": 1,
+      "ok": false,
+      "observed": " SKU42 ",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": false,
+        "sku": " SKU42 "
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": "SKU42",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": true,
+        "sku": " SKU42"
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": "SKU42",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": true,
+        "sku": "SKU42 "
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": "SKU42",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": true,
+        "sku": " SKU42 "
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": "SKU42",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": true,
+        "scope": "global",
+        "sku": " SKU42 ",
+        "sourceContext": "episode1"
+      }
+    },
+    {
+      "exit": 1,
+      "ok": false,
+      "observed": "private-alice",
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "trim": true,
+        "scope": "global",
+        "sku": "SKU42",
+        "sourceContext": "episode1"
+      }
+    },
+    {
+      "exit": 1,
+      "ok": false,
+      "observed": "private-alice",
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "scope": "global",
+        "sku": "SKU42",
+        "trim": true
+      }
+    },
+    {
+      "exit": 1,
+      "ok": false,
+      "observed": "private-alice",
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "scope": "global",
+        "sku": "SKU43",
+        "trim": true
+      }
+    },
+    {
+      "exit": 1,
+      "ok": false,
+      "observed": "private-alice",
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "scope": "global",
+        "sku": "SKU44",
+        "trim": true
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": "SKU42",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": true,
+        "scope": "global",
+        "sku": " SKU42 ",
+        "sourceContext": "episode2"
+      }
+    },
+    {
+      "exit": 1,
+      "ok": false,
+      "observed": "private-alice",
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "trim": true,
+        "scope": "global",
+        "sku": "SKU42",
+        "sourceContext": "episode2"
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": null,
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "scope": "user",
+        "sku": "SKU42",
+        "trim": true
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": null,
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "scope": "user",
+        "sku": "SKU43",
+        "trim": true
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": null,
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "scope": "user",
+        "sku": "SKU44",
+        "trim": true
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": "SKU42",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": true,
+        "scope": "user",
+        "sku": " SKU42 ",
+        "sourceContext": "episode3-before-maintain"
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": null,
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "trim": true,
+        "scope": "user",
+        "sku": "SKU42",
+        "sourceContext": "episode3-before-maintain"
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": "SKU42",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": true,
+        "scope": "user",
+        "sku": " SKU42 ",
+        "sourceContext": "after-maintain"
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": null,
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "trim": true,
+        "scope": "user",
+        "sku": "SKU42",
+        "sourceContext": "after-maintain"
+      }
+    },
+    {
+      "exit": 1,
+      "ok": false,
+      "observed": " SKU42 ",
+      "expected": "SKU42",
+      "cfg": {
+        "mode": "sku",
+        "trim": false,
+        "scope": "user",
+        "sku": " SKU42 ",
+        "sourceContext": "after-210-days"
+      }
+    },
+    {
+      "exit": 0,
+      "ok": true,
+      "observed": null,
+      "expected": null,
+      "cfg": {
+        "mode": "isolation",
+        "trim": false,
+        "scope": "user",
+        "sku": "SKU42",
+        "sourceContext": "after-210-days"
+      }
+    }
+  ],
+  "snapshots": [
+    {
+      "stage": "baseline",
+      "scriptedReplay": {
+        "sku": false,
+        "isolation": false
+      },
+      "context": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+      "contextMetrics": {
+        "useful": [],
+        "missingOf2": 2,
+        "obsolete": false,
+        "lines": 6,
+        "tokensEstimate": 35,
+        "usefulLineTokens": 0,
+        "knownNoiseTokens": 0
+      },
+      "brief": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+      "briefMetrics": {
+        "useful": [],
+        "missingOf2": 2,
+        "obsolete": false,
+        "lines": 6,
+        "tokensEstimate": 35,
+        "usefulLineTokens": 0,
+        "knownNoiseTokens": 0
+      },
+      "recallMetrics": {
+        "useful": [],
+        "missingOf2": 2,
+        "obsolete": false,
+        "lines": 1,
+        "tokensEstimate": 0,
+        "usefulLineTokens": 0,
+        "knownNoiseTokens": 0
+      },
+      "recall": [],
+      "small": {
+        "text": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+        "metrics": {
+          "useful": [],
+          "missingOf2": 2,
+          "obsolete": false,
+          "lines": 6,
+          "tokensEstimate": 35,
+          "usefulLineTokens": 0,
+          "knownNoiseTokens": 0
+        },
+        "deferred": []
+      }
+    },
+    {
+      "stage": "episode1",
+      "scriptedReplay": {
+        "sku": true,
+        "isolation": false
+      },
+      "context": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache shared for throughput\n\n## Proven lessons\n- checkout cache optimization (candidate; inferred)\n- checkout sku trim surrounding whitespace (candidate; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)\n\n## Last 3 episodes\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+      "contextMetrics": {
+        "useful": [
+          "TRIM_SKU"
+        ],
+        "missingOf2": 1,
+        "obsolete": true,
+        "lines": 18,
+        "tokensEstimate": 155,
+        "usefulLineTokens": 18,
+        "knownNoiseTokens": 36
+      },
+      "brief": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache shared for throughput\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (candidate; inferred)\n- checkout cache optimization (candidate; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)\n\n## Last 3 episodes\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+      "briefMetrics": {
+        "useful": [
+          "TRIM_SKU"
+        ],
+        "missingOf2": 1,
+        "obsolete": true,
+        "lines": 18,
+        "tokensEstimate": 155,
+        "usefulLineTokens": 18,
+        "knownNoiseTokens": 36
+      },
+      "recallMetrics": {
+        "useful": [
+          "TRIM_SKU"
+        ],
+        "missingOf2": 1,
+        "obsolete": true,
+        "lines": 5,
+        "tokensEstimate": 70,
+        "usefulLineTokens": 29,
+        "knownNoiseTokens": 0
+      },
+      "recall": [
+        {
+          "id": "D-checkout-cache-shared-for-throughput",
+          "status": "active",
+          "body": "SCOPE_GLOBAL: cache checkout results by sku only.",
+          "score": 2.7170929098345566
+        },
+        {
+          "id": "L-checkout-cache-optimization",
+          "status": "candidate",
+          "body": "SCOPE_GLOBAL: use a shared cache keyed only by sku.",
+          "score": 2.7067381670118373
+        },
+        {
+          "id": "L-checkout-sku-trim-surrounding-whitespace",
+          "status": "candidate",
+          "body": "TRIM_SKU: trim surrounding whitespace before checkout lookup.",
+          "score": 1.7839647127313678
+        },
+        {
+          "id": "2026-01-01-checkout-episode-1-normalization-ca683934",
+          "status": "closed",
+          "body": "Normalization checks: three pass after trimming.\nTRIM_SKU validated with whitespace cases.",
+          "score": 0.9939483064924466
+        }
+      ],
+      "small": {
+        "text": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache shared for throughput\n\n## Proven lessons\n- checkout cache optimization (candidate; inferred)\n- checkout sku trim surrounding whitespace (candidate; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)",
+        "metrics": {
+          "useful": [
+            "TRIM_SKU"
+          ],
+          "missingOf2": 1,
+          "obsolete": true,
+          "lines": 12,
+          "tokensEstimate": 108,
+          "usefulLineTokens": 18,
+          "knownNoiseTokens": 36
+        },
+        "deferred": [
+          "2026-01-01-checkout-episode-1-normalization-ca683934"
+        ]
+      }
+    },
+    {
+      "stage": "episode2",
+      "scriptedReplay": {
+        "sku": true,
+        "isolation": false
+      },
+      "context": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache shared for throughput\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (candidate; inferred)\n- checkout cache optimization (candidate; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)\n\n## Last 3 episodes\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+      "contextMetrics": {
+        "useful": [
+          "TRIM_SKU"
+        ],
+        "missingOf2": 1,
+        "obsolete": true,
+        "lines": 19,
+        "tokensEstimate": 180,
+        "usefulLineTokens": 18,
+        "knownNoiseTokens": 36
+      },
+      "brief": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache shared for throughput\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (candidate; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)\n- checkout cache optimization (candidate; inferred)\n\n## Last 3 episodes\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n0 more notes available via edu_recall/edu_read",
+      "briefMetrics": {
+        "useful": [
+          "TRIM_SKU"
+        ],
+        "missingOf2": 1,
+        "obsolete": true,
+        "lines": 19,
+        "tokensEstimate": 180,
+        "usefulLineTokens": 18,
+        "knownNoiseTokens": 36
+      },
+      "recallMetrics": {
+        "useful": [
+          "TRIM_SKU"
+        ],
+        "missingOf2": 1,
+        "obsolete": true,
+        "lines": 7,
+        "tokensEstimate": 97,
+        "usefulLineTokens": 29,
+        "knownNoiseTokens": 0
+      },
+      "recall": [
+        {
+          "id": "D-checkout-cache-shared-for-throughput",
+          "status": "active",
+          "body": "SCOPE_GLOBAL: cache checkout results by sku only.",
+          "score": 2.769972957001092
+        },
+        {
+          "id": "L-checkout-cache-optimization",
+          "status": "candidate",
+          "body": "SCOPE_GLOBAL: use a shared cache keyed only by sku.",
+          "score": 2.0943486224445986
+        },
+        {
+          "id": "L-checkout-sku-trim-surrounding-whitespace",
+          "status": "candidate",
+          "body": "TRIM_SKU: trim surrounding whitespace before checkout lookup.",
+          "score": 1.5164903559613787
+        },
+        {
+          "id": "2026-01-01-checkout-episode-1-normalization-ca683934",
+          "status": "closed",
+          "body": "Normalization checks: three pass after trimming.\nTRIM_SKU validated with whitespace cases.",
+          "score": 0.859613788859042
+        },
+        {
+          "id": "2026-01-02-checkout-episode-2-isolation-failure-d52862cc",
+          "status": "closed",
+          "body": "Isolation failed in three independent sku cases.\nSCOPE_GLOBAL leaks private results across users.",
+          "score": 0.8050038089431569
+        }
+      ],
+      "small": {
+        "text": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache shared for throughput\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (candidate; inferred)\n- checkout cache optimization (candidate; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)",
+        "metrics": {
+          "useful": [
+            "TRIM_SKU"
+          ],
+          "missingOf2": 1,
+          "obsolete": true,
+          "lines": 12,
+          "tokensEstimate": 108,
+          "usefulLineTokens": 18,
+          "knownNoiseTokens": 36
+        },
+        "deferred": [
+          "2026-01-02-checkout-episode-2-isolation-failure-d52862cc",
+          "2026-01-01-checkout-episode-1-normalization-ca683934"
+        ]
+      }
+    },
+    {
+      "stage": "episode3-before-maintain",
+      "scriptedReplay": {
+        "sku": true,
+        "isolation": true
+      },
+      "context": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (candidate; inferred)\n- checkout cache optimization (candidate; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)\n\n## Last 3 episodes\n- checkout episode 3 isolation correction: User-scoped cache passed three isolation checks.\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n1 more notes available via edu_recall/edu_read",
+      "contextMetrics": {
+        "useful": [
+          "TRIM_SKU",
+          "SCOPE_USER"
+        ],
+        "missingOf2": 0,
+        "obsolete": false,
+        "lines": 20,
+        "tokensEstimate": 204,
+        "usefulLineTokens": 28,
+        "knownNoiseTokens": 36
+      },
+      "brief": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (candidate; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)\n- checkout cache optimization (candidate; inferred)\n\n## Last 3 episodes\n- checkout episode 3 isolation correction: User-scoped cache passed three isolation checks.\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n1 more notes available via edu_recall/edu_read",
+      "briefMetrics": {
+        "useful": [
+          "TRIM_SKU",
+          "SCOPE_USER"
+        ],
+        "missingOf2": 0,
+        "obsolete": false,
+        "lines": 20,
+        "tokensEstimate": 204,
+        "usefulLineTokens": 28,
+        "knownNoiseTokens": 36
+      },
+      "recallMetrics": {
+        "useful": [
+          "TRIM_SKU",
+          "SCOPE_USER"
+        ],
+        "missingOf2": 0,
+        "obsolete": true,
+        "lines": 10,
+        "tokensEstimate": 137,
+        "usefulLineTokens": 56,
+        "knownNoiseTokens": 0
+      },
+      "recall": [
+        {
+          "id": "D-checkout-cache-shared-for-throughput",
+          "status": "reverted",
+          "body": "SCOPE_GLOBAL: cache checkout results by sku only.",
+          "score": 2.145655464530384
+        },
+        {
+          "id": "D-checkout-cache-isolated-per-user",
+          "status": "active",
+          "body": "SCOPE_USER: cache key must include user and normalized sku.",
+          "score": 2.0505554584119547
+        },
+        {
+          "id": "L-checkout-cache-optimization",
+          "status": "candidate",
+          "body": "SCOPE_GLOBAL: use a shared cache keyed only by sku.",
+          "score": 1.624137510112196
+        },
+        {
+          "id": "L-checkout-sku-trim-surrounding-whitespace",
+          "status": "candidate",
+          "body": "TRIM_SKU: trim surrounding whitespace before checkout lookup.",
+          "score": 1.4679743101471217
+        },
+        {
+          "id": "2026-01-03-checkout-episode-3-isolation-correction-8b64cf90",
+          "status": "closed",
+          "body": "User-scoped cache passed three isolation checks.\nSCOPE_USER includes user in cache key.",
+          "score": 1.3928411947315853
+        },
+        {
+          "id": "2026-01-01-checkout-episode-1-normalization-ca683934",
+          "status": "closed",
+          "body": "Normalization checks: three pass after trimming.\nTRIM_SKU validated with whitespace cases.",
+          "score": 0.8106014727236324
+        },
+        {
+          "id": "2026-01-02-checkout-episode-2-isolation-failure-d52862cc",
+          "status": "closed",
+          "body": "Isolation failed in three independent sku cases.\nSCOPE_GLOBAL leaks private results across users.",
+          "score": 0.7587031404293578
+        }
+      ],
+      "small": {
+        "text": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (candidate; inferred)\n- checkout cache optimization (candidate; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)",
+        "metrics": {
+          "useful": [
+            "TRIM_SKU",
+            "SCOPE_USER"
+          ],
+          "missingOf2": 0,
+          "obsolete": false,
+          "lines": 12,
+          "tokensEstimate": 107,
+          "usefulLineTokens": 28,
+          "knownNoiseTokens": 36
+        },
+        "deferred": [
+          "2026-01-03-checkout-episode-3-isolation-correction-8b64cf90",
+          "2026-01-02-checkout-episode-2-isolation-failure-d52862cc",
+          "2026-01-01-checkout-episode-1-normalization-ca683934"
+        ]
+      }
+    },
+    {
+      "stage": "after-maintain",
+      "scriptedReplay": {
+        "sku": true,
+        "isolation": true
+      },
+      "context": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (proven; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)\n\n## Last 3 episodes\n- checkout episode 3 isolation correction: User-scoped cache passed three isolation checks.\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n3 more notes available via edu_recall/edu_read",
+      "contextMetrics": {
+        "useful": [
+          "TRIM_SKU",
+          "SCOPE_USER"
+        ],
+        "missingOf2": 0,
+        "obsolete": false,
+        "lines": 19,
+        "tokensEstimate": 188,
+        "usefulLineTokens": 27,
+        "knownNoiseTokens": 36
+      },
+      "brief": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (proven; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)\n\n## Last 3 episodes\n- checkout episode 3 isolation correction: User-scoped cache passed three isolation checks.\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n3 more notes available via edu_recall/edu_read",
+      "briefMetrics": {
+        "useful": [
+          "TRIM_SKU",
+          "SCOPE_USER"
+        ],
+        "missingOf2": 0,
+        "obsolete": false,
+        "lines": 19,
+        "tokensEstimate": 188,
+        "usefulLineTokens": 27,
+        "knownNoiseTokens": 36
+      },
+      "recallMetrics": {
+        "useful": [
+          "TRIM_SKU",
+          "SCOPE_USER"
+        ],
+        "missingOf2": 0,
+        "obsolete": true,
+        "lines": 11,
+        "tokensEstimate": 154,
+        "usefulLineTokens": 73,
+        "knownNoiseTokens": 0
+      },
+      "recall": [
+        {
+          "id": "D-checkout-cache-shared-for-throughput",
+          "status": "reverted",
+          "body": "SCOPE_GLOBAL: cache checkout results by sku only.",
+          "score": 2.2176530780704886
+        },
+        {
+          "id": "D-checkout-cache-isolated-per-user",
+          "status": "active",
+          "body": "SCOPE_USER: cache key must include user and normalized sku.",
+          "score": 2.1117397208398647
+        },
+        {
+          "id": "L-checkout-cache-optimization",
+          "status": "retired",
+          "body": "SCOPE_GLOBAL: use a shared cache keyed only by sku.",
+          "score": 1.6700884885212044
+        },
+        {
+          "id": "2026-01-03-checkout-episode-3-isolation-correction-8b64cf90",
+          "status": "closed",
+          "body": "User-scoped cache passed three isolation checks.\nSCOPE_USER includes user in cache key.",
+          "score": 1.4770500957226695
+        },
+        {
+          "id": "L-checkout-sku-trim-surrounding-whitespace",
+          "status": "proven",
+          "body": "TRIM_SKU: trim surrounding whitespace before checkout lookup.",
+          "score": 1.321917614053053
+        },
+        {
+          "id": "K-checkout-sku-trim-surrounding-whitespace",
+          "status": "proposed",
+          "body": "TRIM_SKU: trim surrounding whitespace before checkout lookup.",
+          "score": 1.0059218074226695
+        },
+        {
+          "id": "2026-01-01-checkout-episode-1-normalization-ca683934",
+          "status": "closed",
+          "body": "Normalization checks: three pass after trimming.\nTRIM_SKU validated with whitespace cases.",
+          "score": 0.7236110719485065
+        },
+        {
+          "id": "2026-01-02-checkout-episode-2-isolation-failure-d52862cc",
+          "status": "closed",
+          "body": "Isolation failed in three independent sku cases.\nSCOPE_GLOBAL leaks private results across users.",
+          "score": 0.6773286663910625
+        }
+      ],
+      "small": {
+        "text": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Proven lessons\n- checkout sku trim surrounding whitespace (proven; inferred)\n- NOISE_1 gardening water orchids weekly (candidate; inferred)\n- NOISE_2 typography prefer serif headings (candidate; inferred)\n\n## Index pointer\n6 more notes available via edu_recall/edu_read",
+        "metrics": {
+          "useful": [
+            "TRIM_SKU",
+            "SCOPE_USER"
+          ],
+          "missingOf2": 0,
+          "obsolete": false,
+          "lines": 14,
+          "tokensEstimate": 109,
+          "usefulLineTokens": 27,
+          "knownNoiseTokens": 36
+        },
+        "deferred": [
+          "2026-01-03-checkout-episode-3-isolation-correction-8b64cf90",
+          "2026-01-02-checkout-episode-2-isolation-failure-d52862cc",
+          "2026-01-01-checkout-episode-1-normalization-ca683934"
+        ]
+      }
+    },
+    {
+      "stage": "after-210-days",
+      "scriptedReplay": {
+        "sku": false,
+        "isolation": true
+      },
+      "context": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Last 3 episodes\n- checkout episode 3 isolation correction: User-scoped cache passed three isolation checks.\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n6 more notes available via edu_recall/edu_read",
+      "contextMetrics": {
+        "useful": [
+          "SCOPE_USER"
+        ],
+        "missingOf2": 1,
+        "obsolete": false,
+        "lines": 14,
+        "tokensEstimate": 129,
+        "usefulLineTokens": 10,
+        "knownNoiseTokens": 0
+      },
+      "brief": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Last 3 episodes\n- checkout episode 3 isolation correction: User-scoped cache passed three isolation checks.\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n6 more notes available via edu_recall/edu_read",
+      "briefMetrics": {
+        "useful": [
+          "SCOPE_USER"
+        ],
+        "missingOf2": 1,
+        "obsolete": false,
+        "lines": 14,
+        "tokensEstimate": 129,
+        "usefulLineTokens": 10,
+        "knownNoiseTokens": 0
+      },
+      "recallMetrics": {
+        "useful": [
+          "TRIM_SKU",
+          "SCOPE_USER"
+        ],
+        "missingOf2": 0,
+        "obsolete": true,
+        "lines": 11,
+        "tokensEstimate": 154,
+        "usefulLineTokens": 73,
+        "knownNoiseTokens": 0
+      },
+      "recall": [
+        {
+          "id": "L-checkout-cache-optimization",
+          "status": "retired",
+          "body": "SCOPE_GLOBAL: use a shared cache keyed only by sku.",
+          "score": 1.6700884885212044
+        },
+        {
+          "id": "D-checkout-cache-shared-for-throughput",
+          "status": "reverted",
+          "body": "SCOPE_GLOBAL: cache checkout results by sku only.",
+          "score": 1.6632398085528664
+        },
+        {
+          "id": "D-checkout-cache-isolated-per-user",
+          "status": "active",
+          "body": "SCOPE_USER: cache key must include user and normalized sku.",
+          "score": 1.5838047906298987
+        },
+        {
+          "id": "2026-01-03-checkout-episode-3-isolation-correction-8b64cf90",
+          "status": "closed",
+          "body": "User-scoped cache passed three isolation checks.\nSCOPE_USER includes user in cache key.",
+          "score": 1.4770500957226695
+        },
+        {
+          "id": "L-checkout-sku-trim-surrounding-whitespace",
+          "status": "retired",
+          "body": "TRIM_SKU: trim surrounding whitespace before checkout lookup.",
+          "score": 0.7626447773382998
+        },
+        {
+          "id": "K-checkout-sku-trim-surrounding-whitespace",
+          "status": "proposed",
+          "body": "TRIM_SKU: trim surrounding whitespace before checkout lookup.",
+          "score": 0.7544413555670021
+        },
+        {
+          "id": "2026-01-01-checkout-episode-1-normalization-ca683934",
+          "status": "closed",
+          "body": "Normalization checks: three pass after trimming.\nTRIM_SKU validated with whitespace cases.",
+          "score": 0.7236110719485065
+        },
+        {
+          "id": "2026-01-02-checkout-episode-2-isolation-failure-d52862cc",
+          "status": "closed",
+          "body": "Isolation failed in three independent sku cases.\nSCOPE_GLOBAL leaks private results across users.",
+          "score": 0.6773286663910625
+        }
+      ],
+      "small": {
+        "text": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Last 3 episodes\n- checkout episode 3 isolation correction: User-scoped cache passed three isolation checks.\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.",
+        "metrics": {
+          "useful": [
+            "SCOPE_USER"
+          ],
+          "missingOf2": 1,
+          "obsolete": false,
+          "lines": 11,
+          "tokensEstimate": 111,
+          "usefulLineTokens": 10,
+          "knownNoiseTokens": 0
+        },
+        "deferred": []
+      }
+    }
+  ],
+  "maintenance": {
+    "changed": [
+      "L-checkout-cache-optimization",
+      "L-checkout-sku-trim-surrounding-whitespace"
+    ],
+    "promoted": [
+      "L-checkout-sku-trim-surrounding-whitespace"
+    ],
+    "retired": [
+      "L-checkout-cache-optimization"
+    ],
+    "overdue": [],
+    "indexRebuilt": true
+  },
+  "notesAfterMaintain": [
+    {
+      "id": "K-checkout-sku-trim-surrounding-whitespace",
+      "tier": "canonical",
+      "title": "checkout sku trim surrounding whitespace",
+      "kind": "standard",
+      "status": "proposed",
+      "band": "inferred",
+      "tags": [
+        "lesson",
+        "standard"
+      ],
+      "links": [
+        "L-checkout-sku-trim-surrounding-whitespace"
+      ],
+      "created": "2026-01-03T12:00:00.000Z",
+      "updated": "2026-01-03T12:00:00.000Z",
+      "source": "edu:maintain",
+      "usage": {
+        "uses": 1,
+        "wins": 0,
+        "losses": 0,
+        "lastUsed": "2026-01-03T12:00:00.000Z"
+      }
+    },
+    {
+      "id": "2026-01-01-checkout-episode-1-normalization-ca683934",
+      "tier": "episodic",
+      "title": "checkout episode 1 normalization",
+      "kind": "session",
+      "status": "closed",
+      "tags": [
+        "session"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-01-01T12:00:00.000Z",
+      "source": "audit:08"
+    },
+    {
+      "id": "2026-01-02-checkout-episode-2-isolation-failure-d52862cc",
+      "tier": "episodic",
+      "title": "checkout episode 2 isolation failure",
+      "kind": "session",
+      "status": "closed",
+      "tags": [
+        "session"
+      ],
+      "links": [],
+      "created": "2026-01-02T12:00:00.000Z",
+      "updated": "2026-01-02T12:00:00.000Z",
+      "source": "audit:08"
+    },
+    {
+      "id": "2026-01-03-checkout-episode-3-isolation-correction-8b64cf90",
+      "tier": "episodic",
+      "title": "checkout episode 3 isolation correction",
+      "kind": "session",
+      "status": "closed",
+      "tags": [
+        "session"
+      ],
+      "links": [],
+      "created": "2026-01-03T12:00:00.000Z",
+      "updated": "2026-01-03T12:00:00.000Z",
+      "source": "audit:08"
+    },
+    {
+      "id": "D-checkout-cache-isolated-per-user",
+      "tier": "transitive",
+      "title": "checkout cache isolated per user",
+      "kind": "decision",
+      "status": "active",
+      "tags": [
+        "decision"
+      ],
+      "links": [
+        "2026-01-02-checkout-episode-2-isolation-failure-d52862cc"
+      ],
+      "created": "2026-01-03T12:00:00.000Z",
+      "updated": "2026-01-03T12:00:00.000Z",
+      "source": "audit:08",
+      "supersedes": "D-checkout-cache-shared-for-throughput",
+      "usage": {
+        "uses": 1,
+        "wins": 0,
+        "losses": 0,
+        "lastUsed": "2026-01-03T12:00:00.000Z"
+      }
+    },
+    {
+      "id": "D-checkout-cache-shared-for-throughput",
+      "tier": "transitive",
+      "title": "checkout cache shared for throughput",
+      "kind": "decision",
+      "status": "reverted",
+      "tags": [
+        "decision"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-01-03T12:00:00.000Z",
+      "source": "audit:08",
+      "usage": {
+        "uses": 3,
+        "wins": 0,
+        "losses": 0,
+        "lastUsed": "2026-01-03T12:00:00.000Z"
+      },
+      "supersedes": "D-checkout-cache-isolated-per-user"
+    },
+    {
+      "id": "L-checkout-cache-optimization",
+      "tier": "transitive",
+      "title": "checkout cache optimization",
+      "kind": "lesson",
+      "status": "retired",
+      "tags": [
+        "lesson"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-01-03T12:00:00.000Z",
+      "source": "audit:08",
+      "usage": {
+        "uses": 2,
+        "wins": 0,
+        "losses": 3,
+        "lastUsed": "2026-01-03T12:00:00.000Z"
+      }
+    },
+    {
+      "id": "L-checkout-sku-trim-surrounding-whitespace",
+      "tier": "transitive",
+      "title": "checkout sku trim surrounding whitespace",
+      "kind": "lesson",
+      "status": "proven",
+      "tags": [
+        "lesson"
+      ],
+      "links": [
+        "2026-01-01-checkout-episode-1-normalization-ca683934"
+      ],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-01-03T12:00:00.000Z",
+      "source": "audit:08",
+      "usage": {
+        "uses": 2,
+        "wins": 3,
+        "losses": 0,
+        "lastUsed": "2026-01-03T12:00:00.000Z"
+      }
+    },
+    {
+      "id": "L-noise-1-gardening-water-orchids-weekly",
+      "tier": "transitive",
+      "title": "NOISE_1 gardening water orchids weekly",
+      "kind": "lesson",
+      "status": "candidate",
+      "tags": [
+        "lesson"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-01-01T12:00:00.000Z",
+      "source": "audit:08"
+    },
+    {
+      "id": "L-noise-2-typography-prefer-serif-headings",
+      "tier": "transitive",
+      "title": "NOISE_2 typography prefer serif headings",
+      "kind": "lesson",
+      "status": "candidate",
+      "tags": [
+        "lesson"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-01-01T12:00:00.000Z",
+      "source": "audit:08"
+    }
+  ],
+  "lateMaintenance": {
+    "changed": [
+      "L-checkout-sku-trim-surrounding-whitespace",
+      "L-noise-1-gardening-water-orchids-weekly",
+      "L-noise-2-typography-prefer-serif-headings"
+    ],
+    "promoted": [],
+    "retired": [
+      "L-checkout-sku-trim-surrounding-whitespace",
+      "L-noise-1-gardening-water-orchids-weekly",
+      "L-noise-2-typography-prefer-serif-headings"
+    ],
+    "overdue": [],
+    "indexRebuilt": true
+  },
+  "notesFinal": [
+    {
+      "id": "K-checkout-sku-trim-surrounding-whitespace",
+      "tier": "canonical",
+      "title": "checkout sku trim surrounding whitespace",
+      "kind": "standard",
+      "status": "proposed",
+      "band": "inferred",
+      "tags": [
+        "lesson",
+        "standard"
+      ],
+      "links": [
+        "L-checkout-sku-trim-surrounding-whitespace"
+      ],
+      "created": "2026-01-03T12:00:00.000Z",
+      "updated": "2026-08-01T12:00:00.000Z",
+      "source": "edu:maintain",
+      "usage": {
+        "uses": 2,
+        "wins": 0,
+        "losses": 0,
+        "lastUsed": "2026-08-01T12:00:00.000Z"
+      }
+    },
+    {
+      "id": "2026-01-01-checkout-episode-1-normalization-ca683934",
+      "tier": "episodic",
+      "title": "checkout episode 1 normalization",
+      "kind": "session",
+      "status": "closed",
+      "tags": [
+        "session"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-01-01T12:00:00.000Z",
+      "source": "audit:08"
+    },
+    {
+      "id": "2026-01-02-checkout-episode-2-isolation-failure-d52862cc",
+      "tier": "episodic",
+      "title": "checkout episode 2 isolation failure",
+      "kind": "session",
+      "status": "closed",
+      "tags": [
+        "session"
+      ],
+      "links": [],
+      "created": "2026-01-02T12:00:00.000Z",
+      "updated": "2026-01-02T12:00:00.000Z",
+      "source": "audit:08"
+    },
+    {
+      "id": "2026-01-03-checkout-episode-3-isolation-correction-8b64cf90",
+      "tier": "episodic",
+      "title": "checkout episode 3 isolation correction",
+      "kind": "session",
+      "status": "closed",
+      "tags": [
+        "session"
+      ],
+      "links": [],
+      "created": "2026-01-03T12:00:00.000Z",
+      "updated": "2026-01-03T12:00:00.000Z",
+      "source": "audit:08"
+    },
+    {
+      "id": "D-checkout-cache-isolated-per-user",
+      "tier": "transitive",
+      "title": "checkout cache isolated per user",
+      "kind": "decision",
+      "status": "active",
+      "tags": [
+        "decision"
+      ],
+      "links": [
+        "2026-01-02-checkout-episode-2-isolation-failure-d52862cc"
+      ],
+      "created": "2026-01-03T12:00:00.000Z",
+      "updated": "2026-08-01T12:00:00.000Z",
+      "source": "audit:08",
+      "supersedes": "D-checkout-cache-shared-for-throughput",
+      "usage": {
+        "uses": 2,
+        "wins": 0,
+        "losses": 0,
+        "lastUsed": "2026-08-01T12:00:00.000Z"
+      }
+    },
+    {
+      "id": "D-checkout-cache-shared-for-throughput",
+      "tier": "transitive",
+      "title": "checkout cache shared for throughput",
+      "kind": "decision",
+      "status": "reverted",
+      "tags": [
+        "decision"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-08-01T12:00:00.000Z",
+      "source": "audit:08",
+      "usage": {
+        "uses": 4,
+        "wins": 0,
+        "losses": 0,
+        "lastUsed": "2026-08-01T12:00:00.000Z"
+      },
+      "supersedes": "D-checkout-cache-isolated-per-user"
+    },
+    {
+      "id": "L-checkout-cache-optimization",
+      "tier": "transitive",
+      "title": "checkout cache optimization",
+      "kind": "lesson",
+      "status": "retired",
+      "tags": [
+        "lesson"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-08-01T12:00:00.000Z",
+      "source": "audit:08",
+      "usage": {
+        "uses": 3,
+        "wins": 0,
+        "losses": 3,
+        "lastUsed": "2026-08-01T12:00:00.000Z"
+      }
+    },
+    {
+      "id": "L-checkout-sku-trim-surrounding-whitespace",
+      "tier": "transitive",
+      "title": "checkout sku trim surrounding whitespace",
+      "kind": "lesson",
+      "status": "retired",
+      "tags": [
+        "lesson"
+      ],
+      "links": [
+        "2026-01-01-checkout-episode-1-normalization-ca683934"
+      ],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-08-01T12:00:00.000Z",
+      "source": "audit:08",
+      "usage": {
+        "uses": 3,
+        "wins": 3,
+        "losses": 0,
+        "lastUsed": "2026-08-01T12:00:00.000Z"
+      }
+    },
+    {
+      "id": "L-noise-1-gardening-water-orchids-weekly",
+      "tier": "transitive",
+      "title": "NOISE_1 gardening water orchids weekly",
+      "kind": "lesson",
+      "status": "retired",
+      "tags": [
+        "lesson"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-08-01T12:00:00.000Z",
+      "source": "audit:08"
+    },
+    {
+      "id": "L-noise-2-typography-prefer-serif-headings",
+      "tier": "transitive",
+      "title": "NOISE_2 typography prefer serif headings",
+      "kind": "lesson",
+      "status": "retired",
+      "tags": [
+        "lesson"
+      ],
+      "links": [],
+      "created": "2026-01-01T12:00:00.000Z",
+      "updated": "2026-08-01T12:00:00.000Z",
+      "source": "audit:08"
+    }
+  ],
+  "reopenedBrief": "## Identity core\n# Fixture identity\nTemporary audit only.\n\n## Active decisions\n- checkout cache isolated per user\n\n## Last 3 episodes\n- checkout episode 3 isolation correction: User-scoped cache passed three isolation checks.\n- checkout episode 2 isolation failure: Isolation failed in three independent sku cases.\n- checkout episode 1 normalization: Normalization checks: three pass after trimming.\n\n## Index pointer\n6 more notes available via edu_recall/edu_read"
+}

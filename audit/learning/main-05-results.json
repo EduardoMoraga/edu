@@ -1,0 +1,14 @@
+{
+ "day360": {
+  "bad": "retired",
+  "stale": "candidate",
+  "staleUsage": {
+   "uses": 6,
+   "wins": 0,
+   "losses": 0,
+   "lastUsed": "2026-12-27T00:00:00.000Z"
+  },
+  "control": "candidate"
+ },
+ "injectedAtDay361": "stale lesson STILL injected"
+}
