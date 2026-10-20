@@ -13,9 +13,9 @@ GitHub CI run 39416775153 passes Linux but reports four Windows failures in setu
 - Engram mirror unavailable in this runtime; synchronization pending.
 
 ## Tasks
-- [ ] W1: Diagnose Windows CI failures, correct supported test fixtures or report any required production fix, run focused checks, commit the coherent correction, and rerun the cross-platform matrix.
-- [ ] W2: Investigate the macOS concurrency-test failure in corrected CI 39417671185 and remove any timing dependency while preserving concurrency and dependency-order assertions. Production changes require separate diagnosis.
-- [ ] W3: Correct the Windows ESM preload specifier in scripts/smoke-upgrade.mjs and preserve the complete legacy-upgrade smoke contract.
+- [x] W1: Diagnose Windows CI failures, correct supported test fixtures or report any required production fix, run focused checks, commit the coherent correction, and rerun the cross-platform matrix.
+- [x] W2: Investigate the macOS concurrency-test failure in corrected CI 39417671185 and remove any timing dependency while preserving concurrency and dependency-order assertions. Production changes require separate diagnosis.
+- [x] W3: Correct the Windows ESM preload specifier in scripts/smoke-upgrade.mjs and preserve the complete legacy-upgrade smoke contract.
 
 ## Route and authorization
 W1 uses delegated direct execution because diagnosis prepares edits in two non-trivial test files. The user authorized RC publication and the preceding multi-agent implementation. Initial allowed surfaces: src/platform/file-lock.test.ts and src/setup/upgrade.test.ts. Forecast: approximately 100 authored changed lines; delivery strategy ask-on-risk, below the current task budget.
@@ -42,3 +42,13 @@ W2 diagnosis: a fixed 20 ms sleep assumed both reader engines entered within tha
 W2 commit: 91d84ab3bd02c0beb727ba8d610712a58fcd4f63. Independent verification passed 26 tests and found no severe issue. W3 native RED evidence: Windows in run 39417671185 passed the full test suite, build and fresh install, then the smoke script passed an absolute drive path to node --import and failed ERR_UNSUPPORTED_ESM_URL_SCHEME before the legacy updater ran. Log: /tmp/edu-v2-public-release/corrected-failed.log. W3 uses delegated direct preparation/edit of one smoke script, forecast under 20 lines. The release package remains unchanged.
 
 W3 writer changed only the preload specifier to pathToFileURL(fixture).href. Full Linux upgrade smoke passed against published 0.10.2 and the audited RC tarball; node --check and git diff --check passed. Five preserved files, custom pointer, repeatable migration, and one native fixture refresh were verified. Independent readback and final native matrix pending.
+
+## Final outcome
+
+W3 commit: d1e124c7035a2e627c37e01645af636341bae2f8. Independent verification passed and found no severe issue. Parent repeated node syntax and diff checks. All three corrections change test/smoke fixtures only; packaged files are identical to the original audited candidate. Native review assessment remains unavailable; no review receipt is claimed.
+
+Final CI https://github.com/EduardoMoraga/edu/actions/runs/39418508693 passed Linux, macOS and Windows on d1e124c, including the full suite, typecheck, generated files, build, fresh install, upgrade from published 0.10.2, platform installers and MCP smoke. Earlier failures and their corrections are retained above rather than hidden by reruns.
+
+Published https://github.com/EduardoMoraga/edu/releases/tag/v2.0.0-rc.1 as a prerelease targeting that exact CI commit. Both the package and SHA256SUMS were downloaded from the published release and verified: 45a5f921e65f766aefc6021d1faa8b3af22a2812d8fc2007cc88e12475a7b573. Stable latest remains v0.10.2. Install the RC explicitly with edu update v2.0.0-rc.1, then restart the host and MCP server.
+
+Scope completed: personal GitHub RC publication. Main was not merged. Private mirror access and chained PR strategy/size exceptions remain outside this completed publication task. Native host reload and efficiency claims still require separate evidence. Engram and Edu tools remain unavailable in this runtime, so the memory mirror and session-close synchronization are pending; this committed document preserves the session outcome.
