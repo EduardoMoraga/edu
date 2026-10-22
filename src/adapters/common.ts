@@ -1,10 +1,10 @@
-import { assertContained, readSkillBundle, UnsupportedSkillPathError } from '../skills/bundle.js';
+import { assertContained, readSkillBundle, UnsupportedSkillPathError, UnsupportedSkillEncodingError, canonicalAnchor } from '../skills/bundle.js';
 import { access, readdir, readFile, stat, lstat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import type { CliId, InstallScope } from '../core/contracts.js';
 import type { IntegrationOptions, PlannedAction } from './types.js';
-import { pathsFor } from './paths.js';
+import { pathsFor, baseFor, pinConfiguredBases } from './paths.js';
 
 export async function binaryOnPath(binary: string): Promise<boolean> {
   const extensions = process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';') : [''];
@@ -34,11 +34,13 @@ export function instructionActions(cli: CliId, scope: InstallScope, root: string
 }
 
 export async function skillActions(cli: CliId, scope: InstallScope, root: string, options: IntegrationOptions): Promise<PlannedAction[]> {
+  const bases = options.bases ?? await pinConfiguredBases(root, options.home);
   const destination = pathsFor(cli, scope, root, options.home).skills;
   const brain = join(scope === 'project' ? root : options.home, '.edu/skills');
-  const sources = [{ root: join(options.templatesDir, 'skills'), anchor: options.templatesDir }, { root: brain, custom: true, anchor: scope === 'project' ? root : options.home }];
+  const sources = [{ root: join(options.templatesDir, 'skills'), anchor: options.templatesDir }, { root: brain, custom: true, anchor: join(scope === 'project' ? root : options.home, '.edu') }];
   const skills = new Map<string, PlannedAction[]>();
   for (const source of sources) {
+    const sourceCanonical = await canonicalAnchor(source.anchor);
     try { await lstat(source.root); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
     try { await assertContained(source.anchor, source.root); if (!(await lstat(source.root)).isDirectory()) throw new UnsupportedSkillPathError(`Non-directory skill source: ${source.root}`); }
     catch (error) {
@@ -58,15 +60,22 @@ export async function skillActions(cli: CliId, scope: InstallScope, root: string
         }
       }
       try { await lstat(file); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
-      const bundle = await readSkillBundle(directory, name, { anchor: source.anchor, hasCommand: options.detectBinary });
+      let bundle;
+      try { bundle = await readSkillBundle(directory, name, { anchor: source.anchor, hasCommand: options.detectBinary }); }
+      catch (error) {
+        if (!source.custom || !(error instanceof UnsupportedSkillEncodingError)) throw error;
+        skills.delete(name); options.notes?.push(`Skipped custom skill ${name}: ${error.message}; builtin override remains suppressed.`); continue;
+      }
       if (bundle.metadata.hosts && !bundle.metadata.hosts.includes(cli)) {
         if ((options.selectedHosts?.length ?? 1) < 2) throw new Error(`Skill ${name} does not support host ${cli}`);
         skills.delete(name); options.notes?.push(`Skipped skill ${name} for unsupported host ${cli}.`); continue;
       }
+      const destinationBase = join(scope === 'project' ? root : options.home, cli === 'claude' ? '.claude' : '.agents');
+      const destinationPin = baseFor(destinationBase, bases);
       skills.set(name, bundle.files.map(file => ({
         cli, kind: 'file', path: join(destination, name, file.path), description: `Install ${name} skill bundle ${file.path}`, content: file.content,
-        bundle: { name, root: join(destination, name), anchor: scope === 'project' ? root : options.home, scope, relative: file.path,
-          source: { path: join(directory, file.path), anchor: source.anchor, sha256: file.sha256 } },
+        bundle: { name, bases, base: destinationPin, root: join(destination, name), anchor: scope === 'project' ? root : options.home, scope, relative: file.path,
+          source: { path: join(directory, file.path), anchor: source.anchor, canonical: sourceCanonical, sha256: file.sha256 } },
       })));
     }
   }

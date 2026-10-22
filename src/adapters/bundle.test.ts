@@ -171,3 +171,58 @@ it('does not soften single-host errors or missing requirements when host filteri
   await fs.writeFile(join(f.source, 'SKILL.md'), f.document([]).replace('bundle:\n', 'bundle:\n  hosts: [codex]\n').replace('node', 'edu-command-does-not-exist'));
   await expect(planInstall({ clis: ['claude', 'codex'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') })).rejects.toThrow(/requirement/i);
 });
+it('supports pre-existing .agents and .edu base aliases with repeat install, helper upgrades and custom preservation', async () => {
+  const f = await fixture(); const agents = join(f.base, 'dotfiles/agents'), brain = join(f.base, 'dotfiles/brain');
+  await fs.mkdir(agents, { recursive: true }); await fs.mkdir(join(brain, 'skills/local'), { recursive: true });
+  await fs.writeFile(join(brain, 'skills/local/SKILL.md'), 'Local document');
+  await fs.symlink(agents, join(f.home, '.agents'), 'junction'); await fs.symlink(brain, join(f.home, '.edu'), 'junction');
+  const { planInstall } = await import('./installer.js');
+  const plan = () => planInstall({ clis: ['codex'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') });
+  await applyInstall(await plan()); const manifest = await fs.readFile(join(brain, 'manifest.json'));
+  await applyInstall(await plan()); expect(await fs.readFile(join(brain, 'manifest.json'))).toEqual(manifest);
+  await fs.writeFile(join(agents, 'skills/fixture/custom'), 'CUSTOM');
+  await fs.writeFile(join(f.source, 'SKILL.md'), f.document(['scripts/new.mjs'])); await fs.writeFile(join(f.source, 'scripts/new.mjs'), 'new');
+  await applyInstall(await plan());
+  expect(await fs.readFile(join(agents, 'skills/fixture/scripts/new.mjs'), 'utf8')).toBe('new');
+  await expect(fs.readFile(join(agents, 'skills/fixture/scripts/helper.mjs'))).rejects.toThrow();
+  expect(await fs.readFile(join(agents, 'skills/fixture/custom'), 'utf8')).toBe('CUSTOM');
+  expect(await fs.readFile(join(agents, 'skills/local/SKILL.md'), 'utf8')).toBe('Local document');
+});
+it.each(['.agents', '.edu'])('rejects a newly inserted or retargeted configured %s alias after planning', async baseName => {
+  const f = await fixture(); const first = join(f.base, 'first'), second = join(f.base, 'second');
+  await fs.mkdir(first); await fs.mkdir(second);
+  await fs.symlink(first, join(f.home, baseName), 'junction');
+  const { planInstall } = await import('./installer.js');
+  const options = { clis: ['codex'] as const, scope: 'global' as const, root: f.root, home: f.home, templatesDir: join(f.base, 'templates') };
+  const plan = await planInstall({ ...options, clis: [...options.clis] });
+  await fs.unlink(join(f.home, baseName)); await fs.symlink(second, join(f.home, baseName), 'junction');
+  await expect(applyInstall(plan)).rejects.toThrow(/changed|identity|retarget/i);
+  expect(await fs.readdir(second)).toEqual([]);
+});
+it.each([Buffer.from([0x23, 0x20, 0xe9]), Buffer.from('Legacy document', 'utf16le')])('skips unsupported legacy custom encoding visibly, preserving bytes and suppressing its builtin (%j)', async bytes => {
+  const f = await fixture(); const custom = join(f.home, '.edu/skills'); await fs.mkdir(join(custom, 'fixture'), { recursive: true });
+  await fs.writeFile(join(custom, 'fixture/SKILL.md'), bytes);
+  await fs.mkdir(join(custom, 'valid')); await fs.writeFile(join(custom, 'valid/SKILL.md'), 'Valid');
+  const { planInstall } = await import('./installer.js');
+  const plan = await planInstall({ clis: ['codex'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') });
+  expect(plan.notes.join(' ')).toMatch(/skip.*fixture.*encoding/i);
+  expect(plan.actions.some(a => a.path.startsWith(f.destination))).toBe(false);
+  await applyInstall(plan); expect(await fs.readFile(join(custom, 'fixture/SKILL.md'))).toEqual(bytes);
+  expect(await fs.readFile(join(f.home, '.agents/skills/valid/SKILL.md'), 'utf8')).toBe('Valid');
+});
+it('keeps declared custom helper encoding corruption fatal rather than skipping the bundle', async () => {
+  const f = await fixture(); const custom = join(f.home, '.edu/skills/fixture'); await fs.mkdir(join(custom, 'scripts'), { recursive: true });
+  await fs.writeFile(join(custom, 'SKILL.md'), f.document(['scripts/helper.mjs']));
+  await fs.writeFile(join(custom, 'scripts/helper.mjs'), Buffer.from([0xe9]));
+  await expect(f.plan()).rejects.toThrow(/UTF-8.*resource/i);
+  await fs.writeFile(join(custom, 'SKILL.md'), Buffer.concat([Buffer.from(f.document([])), Buffer.from([0xe9])]));
+  await expect(f.plan()).rejects.toThrow(/UTF-8.*declared/i);
+  await fs.writeFile(join(custom, 'SKILL.md'), f.document([]) + '\0');
+  await expect(f.plan()).rejects.toThrow(/Invalid UTF-8|encoding/i);
+});
+it.each(['.agents', '.edu'])('rejects a configured %s alias inserted after a standalone skill plan', async baseName => {
+  const f = await fixture(), plan = await f.plan(), outside = join(f.base, 'outside'); await fs.mkdir(outside);
+  await fs.symlink(outside, join(f.home, baseName), 'junction');
+  await expect(applyInstall(plan)).rejects.toThrow(/identity changed/i);
+  expect(await fs.readdir(outside)).toEqual([]);
+});

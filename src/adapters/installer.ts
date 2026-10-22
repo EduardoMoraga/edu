@@ -1,3 +1,4 @@
+import { configuredBases, pinConfiguredBases } from './paths.js';
 import { assertContained } from '../skills/bundle.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -101,7 +102,8 @@ export async function planInstall(options: PlanInstallOptions): Promise<InstallP
   const clis = options.clis === 'all' ? CLI_IDS : [...new Set(options.clis)];
   for (const cli of clis) if (!CLI_IDS.includes(cli)) throw new Error(`Unknown CLI: ${cli}`);
   const notes = clis.includes('agy') ? ['agy MCP: manual step'] : [];
-  const settings = { home, templatesDir, selectedHosts: options.selectedHosts ?? clis, notes };
+  const bases = await pinConfiguredBases(root, home);
+  const settings = { home, templatesDir, bases, selectedHosts: options.selectedHosts ?? clis, notes };
   const integrations = {
     claude: createClaudeIntegration(settings), codex: createCodexIntegration(settings),
     pi: createPiIntegration(settings), opencode: createOpenCodeIntegration(settings), agy: createAgyIntegration(settings),
@@ -124,7 +126,7 @@ export async function planInstall(options: PlanInstallOptions): Promise<InstallP
       actions.push(action);
     }
   }
-  return { scope: options.scope, root, home, templatesDir, actions, notes };
+  return { scope: options.scope, root, home, templatesDir, actions, notes, bases };
 }
 
 export function describePlan(plan: InstallPlan): string {
@@ -162,11 +164,17 @@ async function applyPreparedInstall(plan: InstallPlan, transaction: FileTransact
   const manifestPath = explicitManifest ?? getManifestPath(plan.scope, plan.root, plan.home);
   transaction.anchors.add(resolve(plan.root));
   transaction.anchors.add(resolve(plan.home));
-  await assertContained(plan.scope === 'project' ? plan.root : plan.home, manifestPath);
-  await assertContained(plan.home, sharedRegistryPath(plan.home));
+  const allowedBases = configuredBases(plan.root, plan.home);
+  const bases = [...(plan.bases ?? await pinConfiguredBases(plan.root, plan.home)), ...plan.actions.flatMap(a => a.bundle?.bases ?? [])];
+  for (const pin of bases) {
+    if (!allowedBases.includes(pin.path)) throw new Error(`Untrusted install base: ${pin.path}`);
+    await assertContained(pin.path, pin.path, pin.canonical); transaction.bases.set(pin.path, pin.canonical);
+  }
+  await transaction.check(manifestPath);
+  await transaction.check(sharedRegistryPath(plan.home));
   for (const action of plan.actions) {
     if (action.bundle && action.bundle.anchor !== (plan.scope === 'project' ? plan.root : plan.home)) throw new Error('Bundle anchor does not match install scope');
-    await validateBundleAction(action);
+    await validateBundleAction(action, bases);
   }
   const previous = await loadManifest(manifestPath);
   if (previous && previous.scope !== plan.scope) throw new Error('Existing manifest has a different scope');
@@ -182,7 +190,7 @@ async function applyPreparedInstall(plan: InstallPlan, transaction: FileTransact
   const planned = new Set(plan.actions.map(action => action.path));
   const bundleRoots = new Set(plan.actions.flatMap(action => action.bundle ? [action.bundle.root] : []));
   const retiring = (previous?.actions ?? []).filter(action => !planned.has(action.path) && (isRetired(action, plan.retire ?? []) || (action.bundle && bundleRoots.has(action.bundle.root))));
-  for (const action of retiring) if (action.bundle) await validateBundleAction(action as PlannedAction);
+  for (const action of retiring) if (action.bundle) await validateBundleAction(action as PlannedAction, bases);
   const existing = new Map((previous?.actions ?? []).map(action => [`${action.kind}:${action.path}`, action]));
   // Refuse drift before any write, including actions omitted from a repeat install.
   for (const action of previous?.actions ?? []) {
@@ -215,7 +223,7 @@ async function applyPreparedInstall(plan: InstallPlan, transaction: FileTransact
   const legacyBackups: string[] = [];
   let sharedChanged = false;
   for (const [index, { action, before, after, prior }] of prepared.entries()) {
-    await validateBundleAction(action);
+    await validateBundleAction(action, bases);
     const key = `${action.kind}:${action.path}`;
     if (isSharedTarget(action.path, plan.home)) {
       let target = shared.targets[action.path];
@@ -298,7 +306,7 @@ function isRetired(action: StoredAction, retire: RetiredAction[]): boolean {
  * JSONC kept), and anything missing or unparseable is left alone. Its backup is dropped either way.
  */
 async function retireAction(action: StoredAction, createdDirs: string[], transaction?: FileTransaction): Promise<void> {
-  if (action.bundle) await validateBundleAction(action as PlannedAction);
+  if (action.bundle) await validateBundleAction(action as PlannedAction, [...(transaction?.bases ?? [])].map(([path, canonical]) => ({ path, canonical })));
   const write = transaction ? transaction.write.bind(transaction) : writeFile;
   const remove = transaction ? transaction.remove.bind(transaction) : unlink;
   const current = await readTarget(action.path).catch(() => undefined);
@@ -326,7 +334,8 @@ async function retireAction(action: StoredAction, createdDirs: string[], transac
 export async function uninstall(options: { manifestPath: string; force?: boolean }): Promise<void> {
   const manifest = await loadManifest(options.manifestPath);
   if (!manifest) throw new Error(`Edu manifest not found: ${options.manifestPath}`);
-  for (const action of manifest.actions) if (action.bundle) await validateBundleAction(action as PlannedAction);
+  const bases = await pinConfiguredBases(manifest.actions.find(a => a.bundle)?.bundle?.anchor ?? dirname(dirname(options.manifestPath)), manifest.home ?? dirname(dirname(options.manifestPath)));
+  for (const action of manifest.actions) if (action.bundle) await validateBundleAction(action as PlannedAction, bases);
   if (options.force) {
     for (const action of manifest.actions) {
       if (action.kind !== 'json-merge' || action.jsonPatch) continue;

@@ -1,3 +1,4 @@
+import { baseFor, type BasePin } from './paths.js';
 import { assertContained, portablePath } from '../skills/bundle.js';
 import { createHash } from 'node:crypto';
 import { access, lstat, mkdir, readFile, writeFile, rename, unlink, rmdir, chmod } from 'node:fs/promises';
@@ -32,6 +33,7 @@ export function materialize(action: PlannedAction, before: Buffer | undefined): 
 }
 
 export async function ensureParents(path: string, createdDirs: string[], transaction?: FileTransaction): Promise<void> {
+  await transaction?.check(path);
   const missing: string[] = [];
   let dir = dirname(path);
   while (true) {
@@ -82,12 +84,13 @@ export class FileTransaction {
   private before = new Map<string, { content: Buffer; mode: number } | undefined>();
   readonly createdDirs = new Set<string>();
   readonly anchors = new Set<string>();
-  private async check(path: string): Promise<void> {
+  readonly bases = new Map<string, string>();
+  async check(path: string): Promise<void> {
     if (!this.anchors.size) return;
     const absolute = resolve(path);
-    const anchor = [...this.anchors].filter(root => absolute === root || absolute.startsWith(root + sep)).sort((a, b) => b.length - a.length)[0];
+    const anchor = [...this.anchors, ...this.bases.keys()].filter(root => absolute === root || absolute.startsWith(root + sep)).sort((a, b) => b.length - a.length)[0];
     if (!anchor) throw new Error(`Installer path escapes containment: ${path}`);
-    await assertContained(anchor, absolute);
+    await assertContained(anchor, absolute, this.bases.get(anchor));
   }
   private async capture(path: string): Promise<void> {
     await this.check(path);
@@ -107,21 +110,27 @@ export class FileTransaction {
         else await unlink(path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
       } catch (error) { failures.push(error); }
     }
-    for (const path of [...this.createdDirs].reverse()) await rmdir(path).catch(error => { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) failures.push(error); });
+    for (const path of [...this.createdDirs].reverse()) {
+      try { await this.check(path); await rmdir(path); }
+      catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) failures.push(error); }
+    }
     this.before.clear(); this.createdDirs.clear();
     if (failures.length) throw new AggregateError(failures, 'Installation rollback incomplete');
   }
 }
 
-export async function validateBundleAction(action: PlannedAction): Promise<void> {
+export async function validateBundleAction(action: PlannedAction, bases: readonly BasePin[] = []): Promise<void> {
   if (!action.bundle) return;
   const { root, anchor, relative, source } = action.bundle;
   portablePath(relative);
   if (action.kind !== 'file' || action.path !== join(root, relative)) throw new Error(`Invalid bundle target: ${action.path}`);
-  await assertContained(anchor, root);
-  await assertContained(anchor, action.path);
+  const pin = action.bundle.base ?? baseFor(action.path, bases);
+  if (pin && pin.path !== anchor && pin.path !== join(anchor, action.cli === 'claude' ? '.claude' : '.agents')) throw new Error('Untrusted bundle base');
+  if (pin && pin.path !== anchor && !pin.path.startsWith(resolve(anchor) + sep)) throw new Error('Bundle base escapes scope');
+  await assertContained(pin?.path ?? anchor, root, pin?.canonical);
+  await assertContained(pin?.path ?? anchor, action.path, pin?.canonical);
   if (source) {
-    await assertContained(source.anchor, source.path);
+    await assertContained(source.anchor, source.path, source.canonical);
     const current = await readTarget(source.path);
     if (!current || sha256(current) !== source.sha256 || sha256(action.content ?? '') !== source.sha256) throw new Error(`Bundle source changed after planning: ${source.path}`);
   }

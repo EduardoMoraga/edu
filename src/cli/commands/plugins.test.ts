@@ -27,3 +27,16 @@ it('prints skipped custom skill notices in the registered normal setup command',
     expect(await readFile(join(external, 'SKILL.md'), 'utf8')).toBe('PRIVATE custom skill');
   } finally { await rm(base, { recursive: true, force: true }); }
 });
+it('prints unsupported custom encoding notices and installs remaining skills through normal setup', async () => {
+  const c = await captureContext({ detected: ['codex'] }); const base = dirname(c.dirs.home);
+  try {
+    const custom = join(c.dirs.home, '.edu/skills'); await mkdir(join(custom, 'edu-brief'), { recursive: true });
+    const bytes = Buffer.from([0x23, 0x20, 0xe9]); await writeFile(join(custom, 'edu-brief/SKILL.md'), bytes);
+    await mkdir(join(custom, 'my-local')); await writeFile(join(custom, 'my-local/SKILL.md'), 'Remaining valid skill');
+    await runCli(c, ['setup', '--yes']);
+    expect(c.exitCode).toBeUndefined(); expect(c.stdout.join('\n')).toMatch(/skip.*edu-brief.*encoding/i);
+    expect(await readFile(join(custom, 'edu-brief/SKILL.md'))).toEqual(bytes);
+    expect(await readFile(join(c.dirs.home, '.agents/skills/my-local/SKILL.md'), 'utf8')).toBe('Remaining valid skill');
+    await expect(readFile(join(c.dirs.home, '.agents/skills/edu-brief/SKILL.md'))).rejects.toThrow();
+  } finally { await rm(base, { recursive: true, force: true }); }
+});

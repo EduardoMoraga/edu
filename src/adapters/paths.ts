@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { canonicalAnchor } from '../skills/bundle.js';
+import { join, resolve, sep } from 'node:path';
 import type { CliId, InstallScope } from '../core/contracts.js';
 
 export interface CliPaths {
@@ -41,4 +42,17 @@ export function pathsFor(cli: CliId, scope: InstallScope, root: string, home: st
       skills: sharedSkills,
     };
   }
+}
+
+export interface BasePin { path: string; canonical: string }
+/** Caller-configured bases only. A skill or helper directory is never a trusted base. */
+export function configuredBases(root: string, home: string): string[] {
+  return [...new Set([root, home].flatMap(base => [resolve(base), ...['.edu', '.agents', '.claude'].map(name => resolve(base, name))]).concat(['.codex', '.pi', '.config/opencode', '.gemini'].map(name => resolve(home, name))))];
+}
+export async function pinConfiguredBases(root: string, home: string): Promise<BasePin[]> {
+  return Promise.all(configuredBases(root, home).map(async path => ({ path, canonical: await canonicalAnchor(path) })));
+}
+export function baseFor(path: string, pins: readonly BasePin[]): BasePin | undefined {
+  const target = resolve(path);
+  return pins.filter(pin => target === pin.path || target.startsWith(pin.path + sep)).sort((a, b) => b.path.length - a.path.length)[0];
 }

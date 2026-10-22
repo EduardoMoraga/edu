@@ -1,3 +1,4 @@
+import { pinConfiguredBases } from '../adapters/paths.js';
 import { planClaudeRefresh } from './claude-upgrade.js';
 import { planCodexRefresh } from './codex-upgrade.js';
 import { eduMcpLaunch, spawnCli, type McpLaunch } from '../platform/index.js';
@@ -304,6 +305,7 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
   const notes: string[] = [];
   for (const scope of scopes) {
     const changed: PlannedAction[] = [];
+    const bases = await pinConfiguredBases(scope.root, plan.home);
     const actions = plan.clis.flatMap(cli => instructionActions(cli, scope.scope, scope.root, { home: plan.home, templatesDir, brainRoot }));
     for (const action of new Map(actions.map(a => [a.path, a])).values()) {
       const before = await optionalSetupFile(action.path);
@@ -318,11 +320,11 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
     if (!Array.isArray(owned)) throw new Error(`Invalid adapter manifest: ${scopedManifestPath}`);
     const bundleActions: PlannedAction[] = [];
     for (const cli of plan.clis) {
-      for (const action of await skillActions(cli, scope.scope, scope.root, { home: plan.home, templatesDir, selectedHosts: plan.clis, notes })) {
+      for (const action of await skillActions(cli, scope.scope, scope.root, { home: plan.home, templatesDir, selectedHosts: plan.clis, notes, bases })) {
         const prior = owned.find(a => a.kind === 'file' && a.path === action.path && (a.clis ?? [a.cli]).includes(cli));
         const document = action.bundle ? owned.find(a => a.kind === 'file' && a.path === join(action.bundle!.root, 'SKILL.md') && (a.clis ?? [a.cli]).includes(cli)) : undefined;
         if (!prior && !document) continue; // A name/prefix is not proof of ownership.
-        await validateBundleAction(action);
+        await validateBundleAction(action, bases);
         if (!prior) {
           const beforeDocument = await readTarget(document!.path);
           if (!beforeDocument || !document!.sha256 || sha256(beforeDocument) !== document!.sha256) throw new Error(`Manual conflict: custom or missing managed skill ${document!.path}`);
@@ -355,9 +357,9 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
       }
     }
     const bundleRoots = new Set(bundleActions.flatMap(a => a.bundle ? [a.bundle.root] : []));
-    for (const action of owned) if (action.bundle && bundleRoots.has(action.bundle.root)) await validateBundleAction(action);
+    for (const action of owned) if (action.bundle && bundleRoots.has(action.bundle.root)) await validateBundleAction(action, bases);
     const retiringBundle = owned.some(a => a.bundle && bundleRoots.has(a.bundle.root) && !bundleActions.some(next => next.path === a.path));
-    if (changed.length || retiringBundle) upgrades.push({ ...scope, home: plan.home, templatesDir, notes: [], actions: [...new Map([...changed, ...bundleActions].map(a => [a.path, a])).values()] });
+    if (changed.length || retiringBundle) upgrades.push({ ...scope, bases, home: plan.home, templatesDir, notes: [], actions: [...new Map([...changed, ...bundleActions].map(a => [a.path, a])).values()] });
   }
   // Do not report an installed native plugin as refreshed merely because list succeeded.
   // Old manifests contain no cache baseline: never overwrite unknown custom plugin files.

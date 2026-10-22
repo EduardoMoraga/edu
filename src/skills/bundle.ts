@@ -39,17 +39,19 @@ export function portablePath(path: string): string {
 
 /** Only a caller-owned anchor may be an intentional alias. Descendants never may. */
 export class UnsupportedSkillPathError extends Error {}
-async function canonicalAnchor(anchor: string): Promise<string> {
+export class UnsupportedSkillEncodingError extends Error {}
+export async function canonicalAnchor(anchor: string): Promise<string> {
   try { return await realpath(anchor); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || dirname(anchor) === anchor) throw error;
     return join(await canonicalAnchor(dirname(anchor)), relative(dirname(anchor), anchor));
   }
 }
-export async function assertContained(anchor: string, target: string): Promise<void> {
+export async function assertContained(anchor: string, target: string, pinnedCanonical?: string): Promise<void> {
   const lexicalRoot = resolve(anchor), path = resolve(target), rel = relative(lexicalRoot, path);
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error(`Bundle path escapes containment: ${target}`);
   const root = await canonicalAnchor(lexicalRoot);
+  if (pinnedCanonical !== undefined && root !== pinnedCanonical) throw new Error(`Configured base identity changed (symlink/alias retarget): ${anchor}`);
   let current = root;
   const parts = rel ? rel.split(sep) : [];
   for (let i = -1; i < parts.length; i++) {
@@ -145,7 +147,17 @@ export async function readSkillBundle(directory: string, name: string, options: 
     const file = join(directory, path), stat = await lstat(file);
     if (!stat.isFile() || (path !== 'SKILL.md' && stat.size > BUNDLE_LIMITS.fileBytes)) throw new Error(`Non-regular or oversized bundle file: ${file}`);
     const bytes = await readFile(file);
-    const value = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    let value: string;
+    try { value = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch {
+      if (path === 'SKILL.md' && (options.strictDocument || metadata(name, bytes.toString('utf8')).declared)) throw new Error(`Invalid UTF-8 declared skill document: ${file}`);
+      if (path === 'SKILL.md') throw new UnsupportedSkillEncodingError(`Unsupported skill document encoding (UTF-8 required): ${file}`);
+      throw new Error(`Invalid UTF-8 bundle resource: ${file}`);
+    }
+    if (path === 'SKILL.md' && value.includes('\0')) {
+      if (options.strictDocument || metadata(name, value).declared) throw new Error(`Invalid declared skill document encoding: ${file}`);
+      throw new UnsupportedSkillEncodingError(`Unsupported skill document encoding (NUL/UTF-16): ${file}`);
+    }
     return path === 'SKILL.md' ? value : text(value, path);
   };
   const content = await read('SKILL.md'), { bundle: meta } = metadata(name, content, options.strictDocument);

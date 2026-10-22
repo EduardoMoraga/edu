@@ -1,9 +1,10 @@
+import type { BasePin } from './paths.js';
 import type { CliId, InstallAction, InstallScope } from '../core/contracts.js';
 
 export interface PlannedAction extends InstallAction {
   clis?: CliId[];
   content?: string;
-  bundle?: { name: string; root: string; anchor: string; scope: InstallScope; relative: string; source?: { path: string; anchor: string; sha256: string } };
+  bundle?: { name: string; root: string; anchor: string; scope: InstallScope; relative: string; bases?: BasePin[]; base?: BasePin; source?: { path: string; anchor: string; canonical?: string; sha256: string } };
   jsonPatch?: Record<string, unknown>;
   tomlBody?: string;
 }
@@ -15,6 +16,7 @@ export interface InstallPlan {
   templatesDir: string;
   actions: PlannedAction[];
   notes: string[];
+  bases?: BasePin[];
   /**
    * Actions an earlier Edu version recorded that this version no longer installs. applyInstall undoes
    * each one found in the manifest (matching kind, path and, when given, jsonPatch) and stops tracking it.
@@ -28,6 +30,7 @@ export interface RetiredAction { kind: PlannedAction['kind']; path: string; json
 export interface IntegrationOptions {
   home: string;
   templatesDir: string;
+  bases?: BasePin[];
   selectedHosts?: CliId[];
   notes?: string[];
   detectBinary?: (binary: string) => Promise<boolean>;
