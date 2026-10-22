@@ -22,7 +22,7 @@ const DECK_TIMEOUT_MS = 1500;
 const BRIEF_TIMEOUT_MS = 15000;
 
 /** `edu deck --json` contract, version 1. Everything is optional here: an older edu degrades to identity only. */
-interface DeckJob { id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number }
+interface DeckJob { id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number; tokensKnown?: boolean }
 interface Deck {
   version: 1;
   project: { name: string; root: string };
@@ -142,7 +142,7 @@ function statsLine(deck: Deck | undefined, cwd: string, t: Theme): string {
 
 function jobLine(job: DeckJob, t: Theme, width: number, now: number): string {
   const [mark, color] = GLYPH[job.status] ?? ['?', 'muted'];
-  const right = t.fg('dim', `${job.tokens ? `${compact(job.tokens)} · ` : ''}${elapsed(job.startedAt, job.endedAt ?? now)}`);
+  const right = t.fg('dim', `${job.tokensKnown === true ? `${compact(job.tokens)} · ` : job.tokens > 0 ? `>=${compact(job.tokens)} (partial) · ` : 'unknown tok · '}${elapsed(job.startedAt, job.endedAt ?? now)}`);
   const head = `${t.fg(color, mark)} ${t.fg('text', t.bold(job.cli))} ${t.fg('dim', job.mode)} `;
   const room = width - visibleWidth(head) - visibleWidth(right) - 1;
   const task = room > 3 ? truncateToWidth(oneLine(job.task), room, '…') : '';
@@ -274,16 +274,24 @@ export default function (pi: ExtensionAPI): void {
     const unbranch = typeof data?.onBranchChange === 'function' ? data.onBranchChange(() => tui.requestRender()) : undefined;
     return {
       render(width: number): string[] {
-        let input = 0, output = 0, cost = 0;
+        let input = 0, output = 0, cost = 0, messages = 0;
+        let inputKnown = true, outputKnown = true, costKnown = true;
+        const measured = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
         try {
           for (const entry of ctx.sessionManager.getBranch() as any[]) {
             if (entry?.type === 'message' && entry.message?.role === 'assistant') {
-              input += entry.message.usage?.input ?? 0;
-              output += entry.message.usage?.output ?? 0;
-              cost += entry.message.usage?.cost?.total ?? 0;
+              messages++;
+              const u = entry.message.usage;
+              inputKnown &&= measured(u?.input) && measured(u?.cacheRead) && measured(u?.cacheWrite);
+              outputKnown &&= measured(u?.output);
+              costKnown &&= measured(u?.cost?.total);
+              input += [u?.input, u?.cacheRead, u?.cacheWrite].filter(measured).reduce((a: number, b: number) => a + b, 0);
+              if (measured(u?.output)) output += u.output;
+              if (measured(u?.cost?.total)) cost += u.cost.total;
             }
           }
-        } catch { /* Usage is decorative. */ }
+        } catch { inputKnown = outputKnown = costKnown = false; }
+        const observed = (n: number, known: boolean, format: (value: number) => string) => known && messages > 0 ? format(n) : n > 0 ? `>=${format(n)} (partial)` : 'unknown';
         const sep = t.fg('dim', ' · ');
         const usage = (() => { try { return ctx.getContextUsage(); } catch { return undefined; } })();
         let context = t.fg('dim', 'ctx —');
@@ -297,7 +305,7 @@ export default function (pi: ExtensionAPI): void {
           t.fg('accent', '◆ edu'),
           t.fg('text', ctx.model?.id ?? 'no model'),
           context,
-          t.fg('muted', `↑${compact(input)} ↓${compact(output)}`) + (cost ? t.fg('muted', ` $${cost.toFixed(cost < 1 ? 3 : 2)}`) : ''),
+          t.fg('muted', `↑${observed(input, inputKnown, compact)} ↓${observed(output, outputKnown, compact)} ${observed(cost, costKnown, n => `$${n.toFixed(n < 1 ? 3 : 2)}`)}`),
         ].join(sep);
         const branch = data?.getGitBranch?.();
         const crew = deck?.jobs.filter(job => job.status === 'running').length ?? 0;

@@ -192,8 +192,36 @@ interface EngineRunRequest {
     autonomy: Autonomy;
     resumeSessionId?: string;
     signal?: AbortSignal;
+    /** Require host-enforced readonly; ordinary autonomy requests remain compatible. */
+    requireReadonly?: boolean;
+    /** No current adapter provides an Edu OS/network sandbox. */
+    requireSandbox?: boolean;
+    /** IDs must be unique per actual call; replay reuses receipts, never a new invocation with the same ID. */
+    invocation?: {
+        id: string;
+        purpose: InvocationPurpose;
+    };
 }
+type InvocationPurpose = 'task' | 'planning' | 'recovery' | 'reflection' | 'selection' | 'review' | 'chat' | 'extraction';
+type UsageField = 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'costUsd';
 interface Usage {
+    /** Explicit true means complete reported measurement. Absent metadata is unknown. */
+    known?: Partial<Record<UsageField, boolean>>;
+    /** Provider observations before adapter normalization; never summed into totals. */
+    raw?: Partial<Record<UsageField, number>>;
+    inputSemantics?: 'inclusive-cache' | 'exclusive-cache' | 'unknown';
+    /** Lifecycle markers carry no token/cost delta; only normal completion supersedes pending. */
+    receipt?: 'pending' | 'complete';
+    observationId?: string;
+    invocationId?: string;
+    purpose?: InvocationPurpose;
+    /** Aggregate bookkeeping, persisted for replay deduplication. */
+    observationIds?: string[];
+    observations?: number;
+    /** Aggregate lifecycle and intrinsic knownness, retained so later completion can resolve pending calls. */
+    invocationStates?: Record<string, 'pending' | 'complete'>;
+    observedKnown?: Partial<Record<UsageField, boolean>>;
+    /** Normalized total input, including cache subsets. Numeric placeholders require knownness. */
     inputTokens: number;
     outputTokens: number;
     cacheReadTokens?: number;
@@ -379,7 +407,14 @@ type EduEvent = {
     at: string;
 };
 type AgentStatus = 'queued' | 'running' | 'awaiting-approval' | 'done' | 'failed' | 'cancelled';
+interface EngineCapabilities {
+    readonly: 'enforced' | 'unsupported';
+    mechanism?: string;
+    isolation: 'host';
+    limitations: string[];
+}
 interface Engine {
+    readonly capabilities?: EngineCapabilities;
     readonly cli: CliId;
     /** True when the CLI binary is installed and runnable. */
     available(): Promise<boolean>;
@@ -497,4 +532,4 @@ interface ProgramOptions {
 }
 declare function createProgram(overrides?: Partial<CliContext>, options?: ProgramOptions): Command;
 
-export { type AgentStatus, type ApprovalPolicy, type Autonomy, type BrainLocation, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewJob, type CrewJobMode, type CrewJobStatus, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineRunRequest, type FailureType, type FeedbackContext, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type Note, type NoteMeta, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageStats, type WorkspaceIdentity, createProgram };
+export { type AgentStatus, type ApprovalPolicy, type Autonomy, type BrainLocation, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewJob, type CrewJobMode, type CrewJobStatus, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineCapabilities, type EngineRunRequest, type FailureType, type FeedbackContext, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type InvocationPurpose, type Note, type NoteMeta, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageField, type UsageStats, type WorkspaceIdentity, createProgram };

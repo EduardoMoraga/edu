@@ -19,17 +19,20 @@ them, hand work to the others and watch it happen.
 
 ---
 
-## Edu 2.0 candidate
+## Edu 2.1
 
-This branch implements bounded, actionable memory retrieval; repeatable consolidation of structured
-experience; advisory versus externally supported feedback; safe sessions; and backed-up upgrades.
-It is **not a published stable release or a guarantee of cheaper model operation**. See the
-[upgrade guide](docs/guides/upgrade-2.0.md), [evaluation format](docs/evals/edu-2.0.md) and
-[release gates](docs/evals/edu-2.0-release-gates.md).
+Edu 2.1 includes the audited 2.0 memory/session work and adds honest usage completeness,
+capability-aware reader scheduling, declared skill bundles and explicitly approved experiments.
+It does not establish that Edu is generally cheaper or faster than a native harness.
 
-After installing this candidate, `edu capabilities --json` (alias `edu whats-new --json`) describes the
-actual installed binary. Ask your agent to call `edu_capabilities` or run that command; restart the
-host CLI and MCP server after an upgrade so old sessions do not keep obsolete tools.
+See [install and upgrade](docs/guides/upgrade-2.1.md),
+[measurement](docs/guides/measurement-2.1.md), [skill bundles](docs/guides/skills-2.1.md)
+and [experiments](docs/guides/experiments-2.1.md). Experiments never run during setup or upgrade,
+make no automatic model calls and activate no candidates.
+
+`edu capabilities --json` (alias `edu whats-new --json`) describes the actual installed binary.
+Ask your agent to call `edu_capabilities` or run that command; restart host CLIs and MCP servers
+after upgrading so existing sessions reload the plugin and tools.
 
 ## Quickstart
 
@@ -50,7 +53,7 @@ The installer checks Node.js 22+ (if missing: `brew install node` on macOS with 
 never runs sudo), installs Edu, runs `edu setup`, which connects Edu to every coding CLI it finds,
 and prints the next steps in your language. Prefer npm directly?
 `npm i -g https://github.com/EduardoMoraga/edu/releases/latest/download/edu-agent.tgz` then `edu setup`
-(or `npm i -g github:EduardoMoraga/edu`).
+For a source checkout, use the [build and install workflow](docs/guides/upgrade-2.1.md#install-from-a-source-checkout).
 
 Open your CLI and ask: **"what do you remember?"** — Edu answers from its brain.
 
@@ -59,7 +62,7 @@ Open your CLI and ask: **"what do you remember?"** — Edu answers from its brai
 what is connected.
 
 **Stay current:** `edu update` installs the latest published GitHub release with the npm of the Node
-that runs Edu. The 2.0 candidate backs up and migrates managed contracts for the global brain and
+that runs Edu. Version 2.1 backs up and migrates managed contracts for the global brain and
 registered workspaces before refreshing setup; it preserves custom memory and does not enable paid
 background inference. Partial migration is reported as incomplete. `edu update --check` only reports;
 `edu update <published-tag>` (or `--to <published-tag>`) selects a release, including an explicitly

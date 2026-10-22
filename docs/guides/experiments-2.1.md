@@ -1,6 +1,6 @@
 # Explicit experiments in Edu 2.1
 
-`edu experiment` compares two trusted commands in disposable workspace copies. It is off unless explicitly invoked. It starts no models, awards no learning credit, installs no skills and adopts no changes.
+`edu experiment` compares two trusted commands in disposable workspace copies. It is off unless explicitly invoked. It makes no automatic model calls, awards no learning credit, installs no skills and adopts no changes.
 
 These copies are **workspace isolation, not an OS or network sandbox**. Approved executables can access host files, credentials and network, launch arbitrary code, or escape process cleanup. Only run commands you trust. Requests for another isolation mode or unknown isolation requirements fail before execution.
 
