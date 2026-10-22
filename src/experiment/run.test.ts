@@ -106,7 +106,9 @@ it('preflights overlay size and case collisions before either command can run', 
   await expect(f.run()).rejects.toThrow(/limit/i);
   f.spec.overlay = { 'INPUT.txt': 'collision' }; await expect(f.run()).rejects.toThrow(/collision/i);
 });
-it.each(['timeout', 'cancel'] as const)('settles %s when a Node parent exits with a descendant holding inherited pipes', async mode => {
+// A Windows parent can close these pipes on exit even while its descendant lives.
+// The live-parent cases below cover real descendant timeout/cancellation on every OS.
+it.runIf(process.platform !== 'win32').each(['timeout', 'cancel'] as const)('settles %s for POSIX orphaned inherited pipes', async mode => {
   const f = await fixture();
   // The descendant expires itself even on platforms where cleanup is only best effort.
   const descendant = 'setTimeout(()=>{},3000)';
@@ -116,10 +118,54 @@ it.each(['timeout', 'cancel'] as const)('settles %s when a Node parent exits wit
   const running = f.run(f.spec, controller.signal);
   if (mode === 'cancel') setTimeout(() => controller.abort(), 100);
   const result = await running;
-  expect(Date.now() - started).toBeLessThan(1800);
-  expect(result.arms.baseline.status).toBe(mode === 'cancel' ? 'cancelled' : 'timeout');
-  expect(result.arms.candidate.status).toBe(mode === 'cancel' ? 'not-run' : 'ok');
-  expect(JSON.parse(await readFile(result.evidencePath, 'utf8')).decision).toBe('inconclusive');
+  const diagnostic = JSON.stringify({ platform: process.platform, mode, elapsedMs: Date.now() - started, arms: result.arms, evidencePath: result.evidencePath }, null, 2);
+  expect(Date.now() - started, diagnostic).toBeLessThan(1800);
+  expect(result.arms.baseline.status, diagnostic).toBe(mode === 'cancel' ? 'cancelled' : 'timeout');
+  expect(result.arms.candidate.status, diagnostic).toBe(mode === 'cancel' ? 'not-run' : 'ok');
+  expect(JSON.parse(await readFile(result.evidencePath, 'utf8')).decision, diagnostic).toBe('inconclusive');
+});
+it.each(['timeout', 'cancel'] as const)('settles %s with a confirmed live parent and descendant on every platform', async mode => {
+  const f = await fixture(), readyPath = join(f.root, 'descendant-ready.json');
+  // IPC confirms that the actual descendant started. Keeping the parent alive
+  // makes this independent of platform-specific orphaned stdio behavior.
+  // Both processes also expire themselves if best-effort cleanup cannot kill them.
+  const descendant = "process.send('ready');setTimeout(()=>{},5000)";
+  f.spec.baseline.args = ['-e', `const fs=require('fs');const child=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore','inherit','inherit','ipc']});child.on('error',error=>{console.error(error);process.exit(91)});child.on('message',()=>{process.stdout.write('descendant-ready\\n',()=>{const ready=${JSON.stringify(readyPath)};fs.writeFileSync(ready+'.tmp',JSON.stringify({parent:process.pid,descendant:child.pid}));fs.renameSync(ready+'.tmp',ready)})});setTimeout(()=>{},5000)`];
+  f.spec.limits.timeoutMs = 2000;
+  const controller = new AbortController(), started = Date.now();
+  const running = f.run(f.spec, controller.signal); let completed = false;
+  void running.then(() => { completed = true; }, () => { completed = true; });
+  let ready: { parent: number; descendant: number } | undefined;
+  try {
+    const readyDeadline = Date.now() + 1500;
+    while (!completed && Date.now() < readyDeadline) {
+      try { ready = JSON.parse(await readFile(readyPath, 'utf8')); break; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    if (mode === 'cancel' || !ready) controller.abort();
+    const result = await running;
+    const diagnostic = JSON.stringify({ platform: process.platform, mode, ready, elapsedMs: Date.now() - started, arms: result.arms, evidencePath: result.evidencePath }, null, 2);
+    expect(ready, diagnostic).toBeDefined();
+    expect(ready?.parent, diagnostic).toBeGreaterThan(0); expect(ready?.descendant, diagnostic).toBeGreaterThan(0);
+    expect(Date.now() - started, diagnostic).toBeLessThan(4000);
+    expect(result.arms.baseline.stdout, diagnostic).toContain('descendant-ready');
+    expect(result.arms.baseline.status, diagnostic).toBe(mode === 'cancel' ? 'cancelled' : 'timeout');
+    expect(result.arms.candidate.status, diagnostic).toBe(mode === 'cancel' ? 'not-run' : 'ok');
+    expect(result.decision, diagnostic).toBe('inconclusive'); expect(result.fallbackUsable, diagnostic).toBe(false);
+    expect(JSON.parse(await readFile(result.evidencePath, 'utf8')).arms.baseline.status, diagnostic).toBe(result.arms.baseline.status);
+  } finally { controller.abort(); await running; }
+}, 6000);
+it('records missing-artifact invalidity when a parent finishes before its deadline with no inherited pipe holders', async () => {
+  const f = await fixture();
+  f.spec.baseline.args = ['-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},300)'],{stdio:'ignore',cwd:require('os').tmpdir()}).unref()"];
+  const result = await f.run();
+  const diagnostic = JSON.stringify({ platform: process.platform, arms: result.arms, evidencePath: result.evidencePath }, null, 2);
+  expect(result.arms.baseline.exitCode, diagnostic).toBe(0);
+  expect(result.arms.baseline.status, diagnostic).toBe('invalid');
+  expect(result.arms.baseline.error, diagnostic).toMatch(/missing required artifact/i);
+  expect(result.arms.candidate.status, diagnostic).toBe('ok');
+  expect(result.decision, diagnostic).toBe('inconclusive'); expect(result.fallbackUsable, diagnostic).toBe(false);
 });
 it('preserves empty directories and hashes executable modes in both workspace copies', async () => {
   const { chmod } = await import('node:fs/promises'); const f = await fixture();
