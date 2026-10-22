@@ -43,8 +43,8 @@ export function parseLine(line: string, ctx: ParseContext) {
   }
   if (type === 'result') {
     const events = data.usage && typeof data.usage === 'object'
-      ? makeUsage(ctx, { ...(data.usage as Record<string, unknown>), total_cost_usd: data.total_cost_usd })
-      : (typeof data.total_cost_usd === 'number' ? makeUsage(ctx, { cost_usd: data.total_cost_usd }) : []);
+      ? makeUsage(ctx, { ...(data.usage as Record<string, unknown>), total_cost_usd: data.total_cost_usd }, 'exclusive-cache')
+      : (typeof data.total_cost_usd === 'number' ? makeUsage(ctx, { cost_usd: data.total_cost_usd }, 'exclusive-cache') : []);
     events.push(endEvent(ctx, !String(data.subtype ?? '').includes('error'), str(data.result) ?? '', session));
     return events;
   }

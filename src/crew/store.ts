@@ -1,3 +1,4 @@
+import { sumUsage } from '../core/usage.js';
 import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -42,7 +43,7 @@ export function createCrewStore(brainRoot: string): CrewStore {
   return {
     async create(input) {
       const now = new Date().toISOString();
-      const job: CrewJob = { ...input, id: randomUUID(), status: 'queued', createdAt: now, summary: '', usage: { inputTokens: 0, outputTokens: 0 } };
+      const job: CrewJob = { ...input, id: randomUUID(), status: 'queued', createdAt: now, summary: '', usage: sumUsage([]) };
       await atomicJson(metaPath(job.id), job);
       await writeFile(eventPath(job.id), '', { flag: 'wx' });
       return job;

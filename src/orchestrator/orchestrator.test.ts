@@ -152,7 +152,7 @@ describe('orchestrator contracts', () => {
     const observed: EduEvent[] = [];
     let releaseReaders!: () => void;
     const bothReadersStarted = new Promise<void>(resolve => { releaseReaders = resolve; });
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { capabilities: { readonly: 'enforced', isolation: 'host', mechanism: 'test adapter', limitations: [] }, cli: 'claude', available: async () => true, async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : request.prompt.includes('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'done';
       if (request.prompt.startsWith('A') || request.prompt.startsWith('B')) {
         active++; maximum = Math.max(maximum, active);
@@ -177,6 +177,24 @@ describe('orchestrator contracts', () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
+  it('serializes readonly steps when the actual engine does not enforce readonly', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu-unsupported-readers-'));
+    const plan = { steps: ['A', 'B'].map(id => ({ id, role: 'explorer', task: id, dependsOn: [], parallelSafe: true })) };
+    let active = 0, maximum = 0;
+    const runtime: Engine = { cli: 'pi', available: async () => true, async *run(request, agentId) {
+      const reader = /^[AB]\n/.test(request.prompt);
+      if (reader) { active++; maximum = Math.max(maximum, active); await new Promise(resolve => setTimeout(resolve, 25)); active--; }
+      const text = request.prompt.startsWith('Create a safe') ? JSON.stringify(plan) : request.prompt.startsWith('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'done';
+      yield { type: 'agent.text', agentId, text, at } as EduEvent;
+    } };
+    const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
+    try {
+      const result = await orchestrate('goal', { config: defaultConfig('pi'), brain, context, engines: () => runtime, available: ['pi'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true });
+      expect(result.ok, result.summary).toBe(true);
+      expect(maximum).toBe(1);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
   it('cancels and settles parallel siblings before emitting the terminal run event', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-parallel-failure-'));
     const plan = { steps: [
@@ -184,7 +202,7 @@ describe('orchestrator contracts', () => {
       { id: 'wait', role: 'explorer', task: 'wait step', dependsOn: [], parallelSafe: true },
     ] };
     const observed: EduEvent[] = [];
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { capabilities: { readonly: 'enforced', isolation: 'host', mechanism: 'test adapter', limitations: [] }, cli: 'claude', available: async () => true, async *run(request, agentId) {
       if (request.prompt.startsWith('Create a safe')) { yield { type: 'agent.text', agentId, text: JSON.stringify(plan), at } as EduEvent; return; }
       if (request.prompt.startsWith('fail step')) { yield { type: 'error', agentId, message: 'expected failure', at } as EduEvent; return; }
       await new Promise<void>(resolve => request.signal?.addEventListener('abort', () => resolve(), { once: true }));

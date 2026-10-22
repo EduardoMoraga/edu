@@ -1,7 +1,8 @@
-import type { EduEvent, Usage } from '../core/contracts.js';
+import type { CliId, EduEvent, Usage } from '../core/contracts.js';
 
 export interface ParseContext {
   agentId: string;
+  cli?: CliId;
   at?: string;
   sessionId?: string;
   summary?: string;
@@ -29,10 +30,10 @@ export function str(value: unknown): string | undefined {
 }
 
 export function num(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
-export function makeUsage(ctx: ParseContext, values: Record<string, unknown>): EduEvent[] {
+export function makeUsage(ctx: ParseContext, values: Record<string, unknown>, inputSemantics: NonNullable<Usage['inputSemantics']> = 'inclusive-cache'): EduEvent[] {
   const pick = (...keys: string[]): number | undefined => {
     for (const key of keys) {
       const found = num(values[key]);
@@ -50,6 +51,19 @@ export function makeUsage(ctx: ParseContext, values: Record<string, unknown>): E
   if (cacheReadTokens !== undefined) usage.cacheReadTokens = cacheReadTokens;
   if (cacheWriteTokens !== undefined) usage.cacheWriteTokens = cacheWriteTokens;
   if (costUsd !== undefined) usage.costUsd = costUsd;
+  usage.known = {
+    inputTokens: pick('input_tokens', 'inputTokens', 'prompt_tokens', 'input') !== undefined,
+    outputTokens: pick('output_tokens', 'outputTokens', 'completion_tokens', 'output') !== undefined,
+    cacheReadTokens: cacheReadTokens !== undefined, cacheWriteTokens: cacheWriteTokens !== undefined, costUsd: costUsd !== undefined,
+  };
+  usage.raw = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, ...(cacheReadTokens === undefined ? {} : { cacheReadTokens }), ...(cacheWriteTokens === undefined ? {} : { cacheWriteTokens }), ...(costUsd === undefined ? {} : { costUsd }) };
+  if (!usage.known.inputTokens) delete usage.raw.inputTokens;
+  if (!usage.known.outputTokens) delete usage.raw.outputTokens;
+  usage.inputSemantics = ctx.cli === 'agy' ? 'unknown' : inputSemantics;
+  if (usage.inputSemantics === 'exclusive-cache') {
+    usage.inputTokens += (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0);
+    usage.known.inputTokens &&= cacheReadTokens !== undefined && cacheWriteTokens !== undefined;
+  } else if (usage.inputSemantics === 'unknown') usage.known.inputTokens = false;
   return [{ type: 'usage', agentId: ctx.agentId, usage, at: eventAt(ctx) }];
 }
 

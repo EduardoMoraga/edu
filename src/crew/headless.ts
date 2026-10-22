@@ -1,3 +1,5 @@
+import { sumUsage } from '../core/usage.js';
+import { measuredEngine } from '../engine/measurement.js';
 import { open, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -56,7 +58,7 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
   if (!job) throw new Error(`Crew job not found: ${jobId}`);
   if (job.kind === 'orchestration') return runOrchestration(job, { brainRoot: root, store, engineFactory: options.engineFactory, detectClis: options.detectClis, now: options.now, sleep: options.sleep });
   let summary = '';
-  const usage: Usage = { inputTokens: 0, outputTokens: 0 };
+  let usage: Usage = sumUsage([]);
   let failed = false;
   try {
     await store.update(job.id, { status: 'running', pid: process.pid, note: undefined });
@@ -68,7 +70,7 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
       'Respect the requested autonomy and report a concise result, including blockers and verification.',
       context ? `\n## Brain brief\n${context}` : '',
     ].filter(Boolean).join('\n');
-    for await (const event of engine.run({ cli: job.cli, prompt: job.task, cwd: job.cwd, autonomy: job.autonomy, systemPrompt }, job.id)) {
+    for await (const event of measuredEngine(engine).run({ invocation: { id: crypto.randomUUID(), purpose: 'task' }, cli: job.cli, prompt: job.task, cwd: job.cwd, autonomy: job.autonomy, systemPrompt }, job.id)) {
       const stamped = { ...event, at: event.at || iso(now) } as EduEvent;
       await store.appendEvent(job.id, stamped);
       if (event.type === 'agent.text') summary += event.text;
@@ -79,11 +81,7 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
         summary = summary ? `${summary}\n${event.message}` : event.message;
         failed = true;
       } else if (event.type === 'usage') {
-        usage.inputTokens += event.usage.inputTokens;
-        usage.outputTokens += event.usage.outputTokens;
-        usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + (event.usage.cacheReadTokens ?? 0);
-        usage.cacheWriteTokens = (usage.cacheWriteTokens ?? 0) + (event.usage.cacheWriteTokens ?? 0);
-        if (event.usage.costUsd !== undefined) usage.costUsd = (usage.costUsd ?? 0) + event.usage.costUsd;
+        usage = sumUsage([usage, event.usage]);
       }
     }
     const status = failed ? 'failed' : 'done';

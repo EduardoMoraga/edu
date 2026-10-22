@@ -1,4 +1,4 @@
-import type { Autonomy, CliId } from '../core/contracts.js';
+import type { Autonomy, CliId, EngineCapabilities } from '../core/contracts.js';
 
 /** The sole source of CLI autonomy flags. Empty arrays mean the CLI has no mapping. */
 export const AUTONOMY_FLAGS: Record<CliId, Record<Autonomy, readonly string[]>> = {
@@ -22,4 +22,12 @@ export const AUTONOMY_FLAGS: Record<CliId, Record<Autonomy, readonly string[]>> 
 
 export function autonomyFlags(cli: CliId, autonomy: Autonomy): string[] {
   return [...AUTONOMY_FLAGS[cli][autonomy]];
+}
+
+/** Host controls only. No adapter supplies an Edu OS/network sandbox. */
+export function engineCapabilities(cli: CliId): EngineCapabilities {
+  const enforced = cli === 'claude' || cli === 'codex';
+  return { readonly: enforced ? 'enforced' : 'unsupported', isolation: 'host',
+    ...(enforced ? { mechanism: cli === 'claude' ? '--permission-mode plan' : '-s read-only' } : {}),
+    limitations: [...(!enforced ? ['Readonly enforcement is unsupported; shared-workspace steps run serially.'] : []), 'Host permission modes are not an Edu OS/network sandbox.'] };
 }

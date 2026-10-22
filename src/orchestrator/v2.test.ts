@@ -72,6 +72,7 @@ describe('Edu 2.0 orchestration boundaries', () => {
     const registry = JSON.stringify({ tools: [{ id: 'UNIQUE_TOOL', command: 'node --version' }], checks: [] }, null, 2);
     const state = '# Task state\n\n## Goal\nCreate marker\n\n## Hypotheses\n- None recorded yet.\n\n## Inspected files\n- None recorded yet.\n\n## Open questions\n- None recorded yet.\n\n## Next steps\n- build: Build marker\n';
     expect(requests[1]).toEqual({
+      invocation: { id: expect.any(String), purpose: 'task' },
       cli: 'claude', cwd: requests[0]!.cwd, autonomy: 'auto', signal: expect.any(AbortSignal),
       prompt: `Build marker\n\nGoal:\nCreate marker\n\nDependencies:\n\n\nContext pack:\nTool and check registry:\n${registry}\n\nBrain context pack:\n[[L-used]] UNIQUE_MEMORY\n[[L-idle]] unused memory\n\nTask state:\n${state}`,
       systemPrompt: 'Implement the assigned change and verify it.\n\nPlaybook: default\nFixture\n\nFixture method.\n\nIf you actually apply a supplied note, cite it explicitly on a separate line: EDU_APPLIED {"noteId":"L-id","requirementIds":["R-1"],"application":"Applied [[L-id]] by ..."}. Report only concrete application, never mere exposure or presumed benefit.',

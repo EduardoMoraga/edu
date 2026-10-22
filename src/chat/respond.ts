@@ -1,3 +1,4 @@
+import { measuredEngine } from '../engine/measurement.js';
 /** A single read only conversation turn on the configured CLI. */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -58,7 +59,8 @@ export async function respond(options: RespondOptions): Promise<ChatResult> {
   let ended = false;
   let ok = true;
   try {
-    for await (const event of engines(config.defaultCli).run({
+    for await (const event of measuredEngine(engines(config.defaultCli)).run({
+      invocation: { id: crypto.randomUUID(), purpose: 'chat' },
       cli: config.defaultCli, prompt: promptFor(message, history), systemPrompt, cwd,
       autonomy: 'readonly', resumeSessionId: history.sessionId, signal,
     }, CHAT_AGENT)) {

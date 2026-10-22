@@ -232,9 +232,29 @@ export interface EngineRunRequest {
   autonomy: Autonomy;
   resumeSessionId?: string;
   signal?: AbortSignal;
+  /** Require host-enforced readonly; ordinary autonomy requests remain compatible. */
+  requireReadonly?: boolean;
+  /** No current adapter provides an Edu OS/network sandbox. */
+  requireSandbox?: boolean;
+  invocation?: { id: string; purpose: InvocationPurpose };
 }
 
+export type InvocationPurpose = 'task' | 'planning' | 'recovery' | 'reflection' | 'selection' | 'review' | 'chat' | 'extraction';
+export type UsageField = 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'costUsd';
+
 export interface Usage {
+  /** Explicit true means complete reported measurement. Absent metadata is unknown. */
+  known?: Partial<Record<UsageField, boolean>>;
+  /** Provider observations before adapter normalization; never summed into totals. */
+  raw?: Partial<Record<UsageField, number>>;
+  inputSemantics?: 'inclusive-cache' | 'exclusive-cache' | 'unknown';
+  observationId?: string;
+  invocationId?: string;
+  purpose?: InvocationPurpose;
+  /** Aggregate bookkeeping, persisted for replay deduplication. */
+  observationIds?: string[];
+  observations?: number;
+  /** Normalized total input, including cache subsets. Numeric placeholders require knownness. */
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
@@ -280,7 +300,15 @@ export type EduEvent =
 
 export type AgentStatus = 'queued' | 'running' | 'awaiting-approval' | 'done' | 'failed' | 'cancelled';
 
+export interface EngineCapabilities {
+  readonly: 'enforced' | 'unsupported';
+  mechanism?: string;
+  isolation: 'host';
+  limitations: string[];
+}
+
 export interface Engine {
+  readonly capabilities?: EngineCapabilities;
   readonly cli: CliId;
   /** True when the CLI binary is installed and runnable. */
   available(): Promise<boolean>;

@@ -4,7 +4,8 @@ export type EvalStatus = 'inconclusive' | 'insufficient-sample' | 'observed';
 export interface ArmSummary {
   n: number; successes: number; failures: number; successRate: number; wilson95: [number, number];
   tokens: { input: number; output: number; acquisition: number; reflection: number; total: number };
-  meanTotalTokens: number; tokensPerSuccess: number | null; meanWallMs: number; humanInterventions: number;
+  tokensKnown: { input: boolean; output: boolean; acquisition: boolean; reflection: boolean; total: boolean };
+  meanTotalTokens: number | null; tokensPerSuccess: number | null; meanWallMs: number; humanInterventions: number;
   /** Declared subsets (already inside input/output); null when any trial leaves them unknown. Not part of tokens.total. */
   declared: { cacheReadTokens: number | null; cacheWriteTokens: number | null; reasoningTokens: number | null };
   /** Provider-billed USD; null when ANY trial's cost is unknown (never treated as 0). */
@@ -50,10 +51,13 @@ function summarize(rows: Trial[]): ArmSummary {
   const tokens = { input: sum(r => r.costs.inputTokens), output: sum(r => r.costs.outputTokens), acquisition: sum(r => r.costs.acquisitionTokens), reflection: sum(r => r.costs.reflectionTokens), total: 0 };
   tokens.total = tokens.input + tokens.output + tokens.acquisition + tokens.reflection;
   const known = (pick: (row: Trial) => number | null | undefined) => (rows.every(row => pick(row) != null) ? sum(row => pick(row) ?? 0) : null);
-  const totalBilledCostUsd = known(r => r.costs.billedCostUsd);
-  return { n, successes, failures: n - successes, successRate: successes / n, wilson95: wilson(successes, n), tokens, meanTotalTokens: tokens.total / n, tokensPerSuccess: successes ? tokens.total / successes : null, meanWallMs: sum(r => r.costs.wallMs) / n, humanInterventions: sum(r => r.costs.humanInterventions),
+  const totalBilledCostUsd = known(r => r.costs.known?.billedCostUsd === false ? null : r.costs.billedCostUsd);
+  const tokensKnown = { input: rows.every(r => r.costs.known?.inputTokens !== false), output: rows.every(r => r.costs.known?.outputTokens !== false),
+    acquisition: rows.every(r => r.costs.known?.acquisitionTokens !== false), reflection: rows.every(r => r.costs.known?.reflectionTokens !== false), total: false };
+  tokensKnown.total = tokensKnown.input && tokensKnown.output && tokensKnown.acquisition && tokensKnown.reflection;
+  return { n, successes, failures: n - successes, successRate: successes / n, wilson95: wilson(successes, n), tokens, tokensKnown, meanTotalTokens: tokensKnown.total ? tokens.total / n : null, tokensPerSuccess: successes && tokensKnown.total ? tokens.total / successes : null, meanWallMs: sum(r => r.costs.wallMs) / n, humanInterventions: sum(r => r.costs.humanInterventions),
     declared: { cacheReadTokens: known(r => r.costs.cacheReadTokens), cacheWriteTokens: known(r => r.costs.cacheWriteTokens), reasoningTokens: known(r => r.costs.reasoningTokens) },
-    totalBilledCostUsd, meanBilledCostUsd: totalBilledCostUsd === null ? null : totalBilledCostUsd / n, billedCostKnownTrials: rows.filter(r => r.costs.billedCostUsd != null).length };
+    totalBilledCostUsd, meanBilledCostUsd: totalBilledCostUsd === null ? null : totalBilledCostUsd / n, billedCostKnownTrials: rows.filter(r => r.costs.billedCostUsd != null && r.costs.known?.billedCostUsd !== false).length };
 }
 
 /**
@@ -90,7 +94,7 @@ export function aggregateTrials(input: Trial[], options: { minTrialsPerArm?: num
     const sa = arms[baseline]!, sb = arms[candidate]!;
     return {
       baseline, candidate, status, reasons,
-      successRateDelta: sb.successRate - sa.successRate, meanTotalTokensDelta: sb.meanTotalTokens - sa.meanTotalTokens,
+      successRateDelta: sb.successRate - sa.successRate, meanTotalTokensDelta: sb.meanTotalTokens !== null && sa.meanTotalTokens !== null ? sb.meanTotalTokens - sa.meanTotalTokens : null,
       dollarDelta: sa.meanBilledCostUsd !== null && sb.meanBilledCostUsd !== null ? sb.meanBilledCostUsd - sa.meanBilledCostUsd : null,
       tokensPerSuccessDelta: sa.tokensPerSuccess !== null && sb.tokensPerSuccess !== null ? sb.tokensPerSuccess - sa.tokensPerSuccess : null,
       successInterval: sb.wilson95[0] > sa.wilson95[1] ? 'candidate-higher' : sb.wilson95[1] < sa.wilson95[0] ? 'candidate-lower' : 'overlap',

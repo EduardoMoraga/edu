@@ -1,3 +1,4 @@
+import { measuredEngine } from '../engine/measurement.js';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir } from 'node:os';
@@ -109,7 +110,7 @@ export function createCrew(options: CrewOptions = {}) {
       const rawDiff = await (options.diff ?? defaultDiff)(base, workspaceRoot);
       const prompt = `Review the following changes. Do not modify files. Return concrete findings first, then residual risks.\n\n\`\`\`diff\n${truncateToTokens(rawDiff, 6000)}\n\`\`\``;
       let summary = '';
-      for await (const event of engineFactory(reviewer).run({ cli: reviewer, prompt, cwd: workspaceRoot, autonomy: 'readonly', systemPrompt: 'You are an independent, read-only code reviewer. Never request write access.' }, `review-${Date.now()}`)) {
+      for await (const event of measuredEngine(engineFactory(reviewer)).run({ invocation: { id: crypto.randomUUID(), purpose: 'review' }, cli: reviewer, prompt, cwd: workspaceRoot, autonomy: 'readonly', systemPrompt: 'You are an independent, read-only code reviewer. Never request write access.' }, `review-${Date.now()}`)) {
         if (event.type === 'agent.text') summary += event.text;
         else if (event.type === 'agent.end' || event.type === 'run.end') {
           if (!event.ok) throw new Error('reviewer ended unsuccessfully');

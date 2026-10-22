@@ -1,3 +1,5 @@
+import { tokenMeasurement } from '../../core/usage.js';
+import type { Usage } from '../../core/contracts.js';
 /** Fast, filesystem-only snapshot for host CLI deck renderers. */
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -19,7 +21,7 @@ export interface DeckSnapshot {
   /** Last auto-maintenance stamp (promoted/retired from that run) and commitments currently overdue. */
   maintenance: { lastRun: number | null; promoted: number; retired: number; overdue: number };
   spec: { name: string; requirements: number; checks: number } | null;
-  jobs: Array<{ id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number }>;
+  jobs: Array<{ id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number; tokensKnown?: boolean }>;
   approvals: number;
   recent: Array<{ title: string; tier: Tier; at: number }>;
   updatedAt: number;
@@ -71,7 +73,6 @@ async function latestSpec(root: string): Promise<DeckSnapshot['spec']> {
 }
 
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-const finite = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? value : 0;
 const string = (value: unknown, fallback = ''): string => typeof value === 'string' ? value : fallback;
 
 async function crewJobs(root: string): Promise<DeckSnapshot['jobs']> {
@@ -94,7 +95,8 @@ async function crewJobs(root: string): Promise<DeckSnapshot['jobs']> {
         mode: job.kind === 'orchestration' ? 'run' : string(job.mode, 'headless'),
         startedAt: Number.isFinite(started) ? started : file.at,
         endedAt: Number.isFinite(ended) ? ended : null,
-        tokens: finite(usage.inputTokens) + finite(usage.outputTokens),
+        tokens: tokenMeasurement(usage as unknown as Usage).value,
+        tokensKnown: tokenMeasurement(usage as unknown as Usage).known,
       };
     } catch { return null; }
   }));

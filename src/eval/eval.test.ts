@@ -163,3 +163,15 @@ describe('advisory feedback is not verified evidence', () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });
+
+it('retains incomplete token observations but suppresses comparative totals and USD claims', () => {
+  const candidate = batch('memory-adaptive', 10, 10).map(t => ({ ...t, costs: { ...t.costs, billedCostUsd: 0, known: { inputTokens: false, billedCostUsd: false } } }));
+  const report = aggregateTrials([...batch('native-clean', 10, 10), ...candidate]);
+  const summary = report.arms['memory-adaptive']!;
+  expect(summary.tokens.input).toBe(1000);
+  expect(summary.tokensKnown.total).toBe(false);
+  expect(summary.meanTotalTokens).toBeNull();
+  expect(summary.tokensPerSuccess).toBeNull();
+  expect(summary.totalBilledCostUsd).toBeNull();
+  expect(report.comparisons.find(c => c.baseline === 'native-clean' && c.candidate === 'memory-adaptive')).toMatchObject({ meanTotalTokensDelta: null, tokensPerSuccessDelta: null, dollarDelta: null });
+});

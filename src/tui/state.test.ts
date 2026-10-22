@@ -185,12 +185,13 @@ describe('reduce: usage aggregation', () => {
       },
       { type: 'usage', agentId: 'bld', usage: { inputTokens: 30_000, outputTokens: 2_000, costUsd: 0.27 }, at: at(7) },
     ]);
-    expect(agentTokens(s.agents.lead!)).toBe(6100);
+    expect(agentTokens(s.agents.lead!)).toBe(1800);
     expect(s.agents.lead!.usage.costUsd).toBeCloseTo(0.15);
     const totals = runTotals(s);
-    expect(totals.tokens).toBe(38_100);
+    expect(totals.tokens).toBe(33_800);
     expect(totals.costUsd).toBeCloseTo(0.42);
-    expect(totals.costPartial).toBe(false);
+    expect(totals.costPartial).toBe(true); // Other spawned agents reported no measurements.
+    expect(totals.tokensKnown).toBe(false);
     expect(totals.agents).toBe(4);
   });
   it('never guesses cost: unknown stays undefined, mixed is flagged partial', () => {

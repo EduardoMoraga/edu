@@ -1,3 +1,4 @@
+import { measuredText } from '../../core/usage.js';
 import { Box, Text } from 'ink';
 import { displayWidth, formatCost, formatDuration, formatTokens, type Glyphs } from '../../identity/index.js';
 import type { Layout } from '../layout.js';
@@ -46,8 +47,7 @@ export function headerModel({ state, layout, name, now, cancelling, glyphs, stri
   const clock = now ?? state.now;
   const elapsed = state.run.startedAt !== undefined ? formatDuration((state.run.endedAt ?? clock) - state.run.startedAt) : '';
   const metaLine = [meta, elapsed, state.run.endedAt !== undefined ? state.run.outcomeLabel : undefined].filter(Boolean).join(sep);
-  const costPrefix = totals.costPartial && totals.costUsd !== undefined ? (glyphs.unicode ? '≥' : '>=') : '';
-  const money = `${costPrefix}${formatCost(totals.costUsd)}${sep}${formatTokens(totals.tokens)} tok`;
+  const money = `${measuredText(totals.costUsd, !totals.costPartial, formatCost)}${sep}${measuredText(totals.tokens, totals.tokensKnown, formatTokens)} tok`;
 
   let status: HeaderModel['status'];
   if (state.run.endedAt !== undefined) {

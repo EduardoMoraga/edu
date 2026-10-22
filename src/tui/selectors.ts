@@ -1,3 +1,4 @@
+import { sumUsage, tokenMeasurement, usageValue } from '../core/usage.js';
 /**
  * Pure selectors and UI-driven focus transitions over TuiState.
  */
@@ -72,11 +73,12 @@ export function agentElapsed(agent: AgentView, now: number): number {
 
 export function agentTokens(agent: AgentView): number {
   const u = agent.usage;
-  return u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheWriteTokens;
+  return tokenMeasurement(u).value;
 }
 
 export interface RunTotals {
   tokens: number;
+  tokensKnown: boolean;
   costUsd?: number;
   costPartial: boolean;
   agents: number;
@@ -84,19 +86,11 @@ export interface RunTotals {
 }
 
 export function runTotals(state: TuiState): RunTotals {
-  let tokens = 0;
-  let cost: number | undefined;
-  let partial = false;
-  let running = 0;
-  for (const id of state.order) {
-    const a = state.agents[id];
-    if (!a) continue;
-    tokens += agentTokens(a);
-    if (a.usage.costUsd !== undefined) cost = (cost ?? 0) + a.usage.costUsd;
-    if (a.usage.costPartial) partial = true;
-    if (a.status === 'running' || a.status === 'awaiting-approval') running += 1;
-  }
-  return { tokens, costUsd: cost, costPartial: partial, agents: state.order.length, running };
+  const agents = state.order.flatMap(id => state.agents[id] ? [state.agents[id]!] : []);
+  const total = sumUsage(agents.map(agent => agent.usage.observations === 0 ? { inputTokens: 0, outputTokens: 0 } : agent.usage));
+  const tokens = tokenMeasurement(total);
+  return { tokens: tokens.value, tokensKnown: tokens.known, costUsd: total.costUsd, costPartial: usageValue(total, 'costUsd') === null,
+    agents: agents.length, running: agents.filter(agent => agent.status === 'running' || agent.status === 'awaiting-approval').length };
 }
 
 /** Distinct CLIs in spawn order, e.g. ["claude"] in solo mode. */

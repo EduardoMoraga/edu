@@ -4,7 +4,18 @@ import type { EduEvent } from '../../core/contracts.js';
 import { ASCII_GLYPHS, UNICODE_GLYPHS, createTheme, displayWidth } from '../../identity/index.js';
 import { uiStrings } from '../strings.js';
 import { App, type AppProps } from '../App.js';
-import { demoEvents } from '../demo.js';
+import { demoEvents as unmeasuredDemoEvents } from '../demo.js';
+
+// This layout fixture declares complete measurements; incomplete real events have separate coverage.
+function demoEvents(): EduEvent[] {
+  const events = unmeasuredDemoEvents();
+  const known = { inputTokens: true, outputTokens: true, costUsd: true };
+  return events.flatMap((event): EduEvent[] => {
+    if (event.type === 'usage') return [{ ...event, usage: { ...event.usage, known } }];
+    if (event.type === 'agent.spawn') return [event, { type: 'usage', agentId: event.agentId, at: event.at, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, known } }];
+    return [event];
+  });
+}
 import { reduceAll } from '../state.js';
 import { CARD_HEIGHT, constellationLines, placeCards } from './constellation.js';
 import { overlaps } from './canvas.js';

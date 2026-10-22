@@ -1,3 +1,4 @@
+import { sumUsage, usageValue } from '../core/usage.js';
 /**
  * Pure TUI state: a reducer over the EduEvent stream plus small selectors.
  * No React, no I/O — the whole live view is a fold of events.
@@ -27,7 +28,7 @@ export type LogEntry =
   | { kind: 'intervention'; action: string; detail?: string; avoidable: boolean; harnessGap: string }
   | { kind: 'end'; ok: boolean; summary: string };
 
-export interface AgentUsage {
+export interface AgentUsage extends Usage {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -334,7 +335,7 @@ function newAgent(id: string, at: number): AgentView {
     task: '',
     status: 'queued',
     spawnedAt: at,
-    usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costPartial: false },
+    usage: { ...sumUsage([]), cacheReadTokens: 0, cacheWriteTokens: 0, costPartial: true },
     log: [],
   };
 }
@@ -402,16 +403,6 @@ function resolveTool(a: AgentView, callId: string, ok: boolean, output: string):
 }
 
 function addUsage(u: AgentUsage, d: Usage): AgentUsage {
-  return {
-    inputTokens: u.inputTokens + safe(d.inputTokens),
-    outputTokens: u.outputTokens + safe(d.outputTokens),
-    cacheReadTokens: u.cacheReadTokens + safe(d.cacheReadTokens),
-    cacheWriteTokens: u.cacheWriteTokens + safe(d.cacheWriteTokens),
-    costUsd: d.costUsd === undefined ? u.costUsd : (u.costUsd ?? 0) + safe(d.costUsd),
-    costPartial: u.costPartial || d.costUsd === undefined,
-  };
-}
-
-function safe(n: number | undefined): number {
-  return n !== undefined && Number.isFinite(n) && n > 0 ? n : 0;
+  const total = sumUsage([u, d]);
+  return { ...total, cacheReadTokens: total.cacheReadTokens ?? 0, cacheWriteTokens: total.cacheWriteTokens ?? 0, costPartial: usageValue(total, 'costUsd') === null };
 }

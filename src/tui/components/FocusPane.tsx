@@ -1,3 +1,4 @@
+import { measuredText, tokenMeasurement, usageValue } from '../../core/usage.js';
 import { Box, Text } from 'ink';
 import { displayWidth, formatCost, formatDuration, formatTokens, roleIcon } from '../../identity/index.js';
 import type { FocusWindow } from '../focus.js';
@@ -33,7 +34,7 @@ export function FocusPane({ agent, width, now, active, task, view }: FocusPanePr
   const status = strings.status[agent.status];
   const time = agent.status === 'queued' ? '' : `${sep}${formatDuration(agentElapsed(agent, now))}`;
   const tokens = agentTokens(agent);
-  const usage = tokens > 0 ? `${formatTokens(tokens)} tok${sep}${formatCost(agent.usage.costUsd)}` : '';
+  const usage = `${measuredText(tokens, tokenMeasurement(agent.usage).known, formatTokens)} tok${sep}${measuredText(agent.usage.costUsd, usageValue(agent.usage, 'costUsd') !== null, formatCost)}`;
   const engine = [agent.cli, agent.model].filter(Boolean).join(sep);
   const title = `${roleIcon(agent.role, glyphs)} ${agent.role}`;
   const leftWidth = displayWidth(`${title}${sep}${status}${time}`);

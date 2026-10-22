@@ -1,3 +1,4 @@
+import { measuredText } from '../../core/usage.js';
 /**
  * The flight deck: stacked panels beside the constellation (run, context,
  * gate, agents, checks, brain, log) fitted to an exact height, plus the
@@ -111,9 +112,9 @@ function runSection(input: DeckInput): Section {
     lines: [
       [{ text: [model || '—', state.run.mode ?? 'solo'].join(sep), tone: 'peach', bold: true }],
       [
-        { text: `${totals.costPartial && totals.costUsd !== undefined ? (glyphs.unicode ? '≥' : '>=') : ''}${formatCost(totals.costUsd)}`, bold: true },
+        { text: measuredText(totals.costUsd, !totals.costPartial, formatCost), bold: true },
         { text: sep, tone: 'muted' },
-        { text: `${formatTokens(totals.tokens)} tok`, bold: true },
+        { text: `${measuredText(totals.tokens, totals.tokensKnown, formatTokens)} tok`, bold: true },
         { text: `${sep}${totals.running} active`, tone: 'muted' },
       ],
     ],
@@ -180,7 +181,7 @@ export function deckSummary(state: TuiState, glyphs: Glyphs, chat = false): Disp
   const model = state.order.map((id) => state.agents[id]?.model).find(Boolean) ?? runClis(state).join('+');
   const out: DisplayLine = [
     { text: [model || '—', state.run.mode ?? 'solo'].join(` ${glyphs.sep} `), tone: 'peach', bold: true },
-    { text: `  ${formatCost(totals.costUsd)} ${glyphs.sep} ${formatTokens(totals.tokens)} tok`, bold: true },
+    { text: `  ${measuredText(totals.costUsd, !totals.costPartial, formatCost)} ${glyphs.sep} ${measuredText(totals.tokens, totals.tokensKnown, formatTokens)} tok`, bold: true },
   ];
   const ctx = state.brain.context;
   if (ctx && ctx.budgetTokens > 0) {

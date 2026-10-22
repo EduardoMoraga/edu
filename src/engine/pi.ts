@@ -52,7 +52,7 @@ export function parseLine(line: string, ctx: ParseContext) {
     const usageRaw = message.usage && typeof message.usage === 'object' ? message.usage as Record<string, unknown> : undefined;
     const usage = usageRaw ? piUsage(usageRaw) : ctx.usage;
     ctx.usage = undefined;
-    return usage ? [{ type: 'usage' as const, agentId: ctx.agentId, usage, at: ctx.at ?? new Date().toISOString() }] : [];
+    return usage ? [{ type: 'usage' as const, agentId: ctx.agentId, usage, at: ctx.at ?? new Date().toISOString() }] : makeUsage(ctx, {}, 'exclusive-cache');
   }
   if (type === 'auto_retry_end' && data.success === false) {
     ctx.ok = false;
@@ -70,8 +70,8 @@ export function parseLine(line: string, ctx: ParseContext) {
 
 function piUsage(raw: Record<string, unknown>): Usage {
   const cost = raw.cost && typeof raw.cost === 'object' ? raw.cost as Record<string, unknown> : {};
-  const event = makeUsage({ agentId: '', at: '' }, { ...raw, cost_usd: cost.total })[0];
-  if (!event || event.type !== 'usage') return { inputTokens: 0, outputTokens: 0 };
+  const event = makeUsage({ agentId: '', at: '', cli: 'pi' }, { ...raw, cost_usd: cost.total }, 'exclusive-cache')[0];
+  if (!event || event.type !== 'usage') return { inputTokens: 0, outputTokens: 0, known: { inputTokens: false, outputTokens: false } };
   return event.usage;
 }
 

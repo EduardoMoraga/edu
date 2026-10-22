@@ -20,7 +20,7 @@ export function registerEvaluation(program: Command, ctx: CliContext): void {
       if (opts.json || g.json) return printJson(ctx, report);
       ctx.out(`status: ${report.status}${report.reasons.length ? ` (${report.reasons.join(', ')})` : ''}`);
       ctx.out(`model: ${report.model ?? '-'}  harness: ${report.harness ?? '-'}  trials: ${report.trials}`);
-      for (const [arm, s] of Object.entries(report.arms)) ctx.out(`${arm.padEnd(16)} n=${s.n} success=${(s.successRate * 100).toFixed(0)}% tokens/success=${s.tokensPerSuccess === null ? 'n/a' : s.tokensPerSuccess.toFixed(0)} total-tokens=${s.tokens.total}`);
+      for (const [arm, s] of Object.entries(report.arms)) ctx.out(`${arm.padEnd(16)} n=${s.n} success=${(s.successRate * 100).toFixed(0)}% tokens/success=${s.tokensPerSuccess === null ? 'n/a' : s.tokensPerSuccess.toFixed(0)} total-tokens=${s.tokensKnown.total ? s.tokens.total : 'unknown'}`);
       for (const c of report.comparisons) ctx.out(`${c.baseline} -> ${c.candidate}: ${c.status}${c.reasons.length ? ` (${c.reasons.join(', ')})` : ''}`);
       for (const limit of report.limits) ctx.out(`- ${limit}`);
     }));

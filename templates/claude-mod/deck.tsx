@@ -10,6 +10,8 @@ const REFRESH_MS = 2000
 const snapshot = atom({ plugin: 'edu', key: 'snapshot' } as const, null as DeckSnapshot | null)
 
 // Edu's warm accent on dark, matching the EDU wordmark.
+type MeasuredJob = DeckJob & { tokensKnown?: boolean }
+
 const ACCENT = '#F5A97F'
 const OK = '#A6DA95'
 const WARN = '#EED49F'
@@ -93,11 +95,11 @@ async function crewJobs($: EngineInterface): Promise<DeckJob[]> {
     .filter(entry => entry.kind === 'file' && entry.name.endsWith('.json'))
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, 8)
-  const jobs: DeckJob[] = []
+  const jobs: MeasuredJob[] = []
   for (const file of files) {
     try {
       const job = JSON.parse(await $.fs.read(`${dir}/${file.name}`)) as Record<string, unknown>
-      const usage = (job.usage ?? {}) as { inputTokens?: number; outputTokens?: number }
+      const usage = (job.usage ?? {}) as { inputTokens?: number; outputTokens?: number; known?: { inputTokens?: boolean; outputTokens?: boolean } }
       jobs.push({
         id: String(job.id ?? file.name).slice(0, 8),
         cli: String(job.cli ?? '?'),
@@ -107,6 +109,7 @@ async function crewJobs($: EngineInterface): Promise<DeckJob[]> {
         startedAt: Date.parse(String(job.createdAt ?? '')) || file.mtimeMs,
         endedAt: job.endedAt ? Date.parse(String(job.endedAt)) : undefined,
         tokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+        tokensKnown: usage.known?.inputTokens === true && usage.known?.outputTokens === true,
       })
     } catch {
       // A job file being written right now is skipped until the next refresh.
@@ -263,7 +266,7 @@ export const register: Register = on => {
                         <Text color={MUTED}> {job.mode} </Text>
                         <Text>{job.task}</Text>
                       </Text>
-                      <Text color={MUTED}> {job.tokens ? `${compact(job.tokens)} · ` : ''}{time}</Text>
+                      <Text color={MUTED}> {(job as MeasuredJob).tokensKnown === true ? `${compact(job.tokens)} · ` : job.tokens > 0 ? `>=${compact(job.tokens)} (partial) · ` : 'unknown tok · '}{time}</Text>
                     </Box>
                   )
                 })}

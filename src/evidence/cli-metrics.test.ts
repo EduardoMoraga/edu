@@ -46,7 +46,7 @@ it('real CLI reclassifies contradictions and retains incomplete/corrupt episodes
 });
 
 it('real CLI reports observed usage and missing data without inventing zeroes', async () => {
-  const usage = (inputTokens: number, costUsd?: number) => ({ type: 'usage', usage: { inputTokens, outputTokens: 3, cacheReadTokens: 0, costUsd } });
+  const usage = (inputTokens: number, costUsd?: number) => ({ type: 'usage', usage: { inputTokens, outputTokens: 3, cacheReadTokens: 0, costUsd, known: { inputTokens: true, outputTokens: true, cacheReadTokens: true, costUsd: costUsd !== undefined } } });
   const { row } = await fixture(JSON.stringify(proof), undefined, [
     { type: 'agent.spawn', model: 'fixture-model' }, usage(10, 0.01), usage(20, 0.02),
   ]);
@@ -55,4 +55,12 @@ it('real CLI reports observed usage and missing data without inventing zeroes', 
   } });
   expect((await fixture(JSON.stringify(proof), undefined, [usage(10, 0.01), usage(20)])).row.resources.costUsd).toBeNull();
   expect((await fixture(JSON.stringify(proof))).row.resources.inputTokens).toBeNull();
+});
+
+it('deduplicates stable observation IDs and preserves explicit unknowns after JSON persistence', async () => {
+  const measured = { type: 'usage', usage: { inputTokens: 10, outputTokens: 0, costUsd: 0, observationId: 'call:0', known: { inputTokens: true, outputTokens: true, costUsd: true } } };
+  const missing = { type: 'usage', usage: { inputTokens: 0, outputTokens: 0, observationId: 'call2:0', known: { inputTokens: false, outputTokens: false, costUsd: false } } };
+  expect((await fixture(JSON.stringify(proof), undefined, [measured, measured])).row.resources).toMatchObject({ inputTokens: 10, outputTokens: 0, costUsd: 0 });
+  expect((await fixture(JSON.stringify(proof), undefined, [measured, missing])).row.resources).toMatchObject({ inputTokens: null, outputTokens: null, costUsd: null });
+  expect((await fixture(JSON.stringify(proof), undefined, [{ type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } }])).row.resources.inputTokens).toBeNull();
 });

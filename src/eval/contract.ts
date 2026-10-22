@@ -11,6 +11,8 @@ const count = z.number().finite().nonnegative();
  * The schema checks the subset relation but cannot detect a recorder that double counts acquisition/reflection.
  */
 export const CostsSchema = z.object({
+  /** Existing numeric trial records declare measurements; new incomplete recorders must set false explicitly. */
+  known: z.object({ inputTokens: z.boolean().optional(), outputTokens: z.boolean().optional(), acquisitionTokens: z.boolean().optional(), reflectionTokens: z.boolean().optional(), billedCostUsd: z.boolean().optional() }).strict().optional(),
   /** TOTAL normalized input tokens of the task's model calls (cache read/write included), excluding acquisition and reflection. */
   inputTokens: count,
   /** TOTAL normalized output tokens (reasoning included), excluding acquisition and reflection. */
@@ -26,8 +28,8 @@ export const CostsSchema = z.object({
   /** Provider-billed cost in USD. null/absent = unknown (NOT zero); 0 = billed zero. */
   billedCostUsd: count.nullish(),
 }).strict().superRefine((c, ctx) => {
-  if ((c.cacheReadTokens ?? 0) + (c.cacheWriteTokens ?? 0) > c.inputTokens) ctx.addIssue({ code: 'custom', path: ['cacheReadTokens'], message: 'cacheReadTokens + cacheWriteTokens must be a subset of inputTokens' });
-  if ((c.reasoningTokens ?? 0) > c.outputTokens) ctx.addIssue({ code: 'custom', path: ['reasoningTokens'], message: 'reasoningTokens must be a subset of outputTokens' });
+  if (c.known?.inputTokens !== false && (c.cacheReadTokens ?? 0) + (c.cacheWriteTokens ?? 0) > c.inputTokens) ctx.addIssue({ code: 'custom', path: ['cacheReadTokens'], message: 'cacheReadTokens + cacheWriteTokens must be a subset of inputTokens' });
+  if (c.known?.outputTokens !== false && (c.reasoningTokens ?? 0) > c.outputTokens) ctx.addIssue({ code: 'custom', path: ['reasoningTokens'], message: 'reasoningTokens must be a subset of outputTokens' });
 });
 
 export const TrialSchema = z.object({

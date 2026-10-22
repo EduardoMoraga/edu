@@ -1,3 +1,4 @@
+import { measuredText, tokenMeasurement } from '../../core/usage.js';
 import { Box, Text } from 'ink';
 import type { AgentStatus } from '../../core/contracts.js';
 import {
@@ -74,7 +75,7 @@ function TreeLine({ row, width, now, selected, showTokens, glyphs, queuedLabel }
 
   const glyph = statusGlyph(agent.status, glyphs);
   const time = agent.status === 'queued' ? queuedLabel : formatDuration(agentElapsed(agent, now));
-  const tokens = showTokens && agentTokens(agent) > 0 ? formatTokens(agentTokens(agent)) : '';
+  const tokens = showTokens ? measuredText(agentTokens(agent), tokenMeasurement(agent.usage).known, formatTokens).replace(' (partial)', '').replace('unknown', '?') : '';
   const right = `${glyph} ${time.padStart(6)}${showTokens ? ` ${tokens.padStart(5)}` : ''}`;
 
   // marker · rails · icon(2)+space · label · space · right · trailing gap before the divider

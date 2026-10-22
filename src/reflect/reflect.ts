@@ -1,4 +1,7 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { measuredEngine } from '../engine/measurement.js';
+import { sumUsage } from '../core/usage.js';
+import type { Usage } from '../core/contracts.js';
+import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { stringify } from 'yaml';
 import { z } from 'zod';
@@ -18,6 +21,8 @@ export const ReflectionSchema = z.object({
 export type ReflectionOutput = z.infer<typeof ReflectionSchema>;
 export interface ReflectInput { brain: Brain; engine: Engine; since?: string; now?: Date; brainRoot?: string; budgetTokens?: number; maxEpisodes?: number }
 export interface ReflectReport { lessons: string[]; hypotheses: string[]; feedback: string[]; skillProposals: { id: string; path: string }[]; canonicalProposals: string[]; episodesRead: number; message?: string;
+  usage?: Usage;
+  measurementPath?: string;
   promptTokens?: number;
   advisoryFeedback?: string[];
   omitted?: { episodes: number; targets: number; runSummaries: number; runLogFiles?: number; interventions: number };
@@ -96,6 +101,7 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
     const allowed = new Map([...episodes, ...targets].filter(note => suppliedIds.has(note.meta.id)).map(note => [note.meta.id, note]));
     // Persist validated model output before writes. A failed write resumes the same output.
     const journal = join(root, '.reflection-results', `${digest(prompt)}.json`);
+    const measurementPath = `${journal}.usage.jsonl`;
     let output: ReflectionOutput;
     try { output = ReflectionSchema.parse(JSON.parse(await readFile(journal, 'utf8'))); }
     catch (error) {
@@ -103,9 +109,27 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
       let response = '';
       const request: EngineRunRequest = { cli: engine.cli, prompt, cwd: process.cwd(), autonomy: 'readonly' };
       if (estimateTokens(request.prompt) > budgetTokens) throw new Error('Reflection request exceeds budgetTokens.');
-      for await (const event of engine.run(request, 'reflect')) if (event.type === 'agent.text') response += event.text;
+      request.invocation = { id: crypto.randomUUID(), purpose: 'reflection' };
+      // Record the attempt before starting. A crash without usage remains unknown on resume.
+      await mkdir(dirname(measurementPath), { recursive: true });
+      await appendFile(measurementPath, JSON.stringify({ invocationId: request.invocation.id }) + '\n');
+      for await (const event of measuredEngine(engine).run(request, 'reflect')) {
+        if (event.type === 'usage') await appendFile(measurementPath, JSON.stringify(event.usage) + '\n');
+        if (event.type === 'agent.text') response += event.text;
+        if (event.type === 'error' || (event.type === 'agent.end' && !event.ok)) throw new Error('Reflection engine failed.');
+      }
       output = ReflectionSchema.parse(parseJson(response));
     }
+    const measurementRows: Usage[] = [];
+    try {
+      const records = (await readFile(measurementPath, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Partial<Usage>);
+      const observed = new Set(records.filter(row => row.observationId).map(row => row.invocationId));
+      for (const row of records) {
+        if (row.observationId) measurementRows.push(row as Usage);
+        else if (row.invocationId && !observed.has(row.invocationId)) measurementRows.push({ inputTokens: 0, outputTokens: 0, observationId: `${row.invocationId}:missing`, invocationId: row.invocationId });
+      }
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    const usage = sumUsage(measurementRows);
     // Validate the ENTIRE response before any memory/proposal/feedback write.
     for (const item of [...output.lessons, ...output.hypotheses, ...output.canonicalProposals]) {
       for (const id of item.evidence) if (!allowed.has(id)) throw new Error(`Invalid reflection evidence ID: ${id}`);
@@ -122,7 +146,7 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
     await atomicWrite(journal, JSON.stringify(output));
     // Processing provenance is separate from claim evidence: no citation is invented.
     await atomicWrite(`${journal}.provenance.json`, JSON.stringify({ episodes: [...selected], targets: suppliedTargets.map(note => note.id) }));
-    const report: ReflectReport = { lessons: await writeInterventions(brain, interventions), hypotheses: [], feedback: [], advisoryFeedback: [...new Set(output.feedback.map(item => item.id))], skillProposals: [], canonicalProposals: [], episodesRead: suppliedEpisodes.length, ...accounting };
+    const report: ReflectReport = { lessons: await writeInterventions(brain, interventions), hypotheses: [], feedback: [], advisoryFeedback: [...new Set(output.feedback.map(item => item.id))], skillProposals: [], canonicalProposals: [], episodesRead: suppliedEpisodes.length, usage, measurementPath, ...accounting };
     // Model opinions remain in the journal. Never call brain.feedback: a model cannot verify an outcome.
     const links = (evidence: string[]) => [...new Set(evidence)].sort();
     for (const lesson of output.lessons) report.lessons.push((await writeOnce(brain, noteInput({ ...lesson, evidence: links(lesson.evidence) }, 'lesson'))).id);

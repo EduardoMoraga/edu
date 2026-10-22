@@ -1,5 +1,6 @@
 import type { EngineRunRequest } from '../core/contracts.js';
-import { autonomyFlags } from './autonomy.js';
+import { measuredEngine } from './measurement.js';
+import { autonomyFlags, engineCapabilities } from './autonomy.js';
 import type { CliId, Engine } from '../core/contracts.js';
 import { endEvent, makeUsage, parseJson, str, textEvent, toolCall, toolResult, type ParseContext } from './parse.js';
 import { binaryAvailable, runJsonlProcess, type CommandSpec } from './process.js';
@@ -39,13 +40,13 @@ export function parseLine(line: string, ctx: ParseContext) {
   if (type === 'step_finish' && part.type === 'step-finish') {
     const tokens = part.tokens && typeof part.tokens === 'object' ? part.tokens as Record<string, unknown> : {};
     const cache = tokens.cache && typeof tokens.cache === 'object' ? tokens.cache as Record<string, unknown> : {};
-    return makeUsage(ctx, {
+    return makeUsage({ ...ctx, cli: 'opencode' }, {
       input_tokens: tokens.input,
       output_tokens: tokens.output,
       cache_read_tokens: cache.read,
       cache_write_tokens: cache.write,
       cost_usd: part.cost,
-    });
+    }, 'exclusive-cache');
   }
   return [];
 }
@@ -54,11 +55,12 @@ export function finalizeOpencode(ctx: ParseContext) {
   return [endEvent(ctx, true, ctx.summary ?? '', ctx.sessionId)];
 }
 
-export const opencodeEngine: Engine = {
+export const opencodeEngine: Engine = measuredEngine({
+  capabilities: engineCapabilities('opencode'),
   cli: 'opencode' as CliId,
   available: () => binaryAvailable('opencode'),
   run: (req, agentId) => runJsonlProcess(
-    buildOpencodeArgv(req), req.cwd, agentId, parseLine, req.signal,
+    buildOpencodeArgv(req), req.cwd, agentId, (line, ctx) => parseLine(line, Object.assign(ctx, { cli: 'opencode' as const })), req.signal,
     (_exitCode, ctx) => finalizeOpencode(ctx),
   ),
-};
+});

@@ -1,9 +1,11 @@
+import type { Usage } from '../../core/contracts.js';
+import { sumUsage, usageValue } from '../../core/usage.js';
 /** `edu metrics` and deterministic harness check registry commands. */
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Command } from 'commander';
 import type { HarnessLevel } from '../../core/contracts.js';
-import { aggregateMetrics, sumResources, type ResourceMetrics, type EpisodeSummary } from '../../evidence/metrics.js';
+import { aggregateMetrics, type ResourceMetrics, type EpisodeSummary } from '../../evidence/metrics.js';
 import { classifyPackage } from '../../evidence/classify.js';
 import { loadChecks, runCheck, saveChecks } from '../../evidence/registry.js';
 import type { CliContext } from '../context.js';
@@ -122,11 +124,11 @@ async function readEpisodes(root: string): Promise<EpisodeSummary[]> {
 function readResources(events: Array<Record<string, unknown>>, metrics: Record<string, unknown>): ResourceMetrics {
   const usage = events.filter(event => event.type === 'usage').map(event => object(event.usage));
   const numeric = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
-  const totals = sumResources(usage.map(value => ({
-    inputTokens: numeric(value.inputTokens), outputTokens: numeric(value.outputTokens),
-    cacheReadTokens: numeric(value.cacheReadTokens), cacheWriteTokens: numeric(value.cacheWriteTokens),
-    costUsd: numeric(value.costUsd), elapsedMs: null, models: [],
-  })));
+  const total = sumUsage(usage as unknown as Usage[]);
+  const totals = { inputTokens: usageValue(total, 'inputTokens'), outputTokens: usageValue(total, 'outputTokens'),
+    cacheReadTokens: usageValue(total, 'cacheReadTokens'), cacheWriteTokens: usageValue(total, 'cacheWriteTokens'),
+    costUsd: usageValue(total, 'costUsd'), elapsedMs: null, models: [] };
+
   const start = events.find(event => event.type === 'run.start');
   const end = events.findLast(event => event.type === 'run.end');
   const elapsed = Date.parse(String(end?.at)) - Date.parse(String(start?.at));

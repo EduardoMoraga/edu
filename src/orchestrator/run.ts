@@ -1,3 +1,4 @@
+import { measuredEngine } from '../engine/measurement.js';
 import { appendFile, mkdir, open, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -46,6 +47,13 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
   let activeDeps = deps;
   let methodSummary = '';
   const startCommit = await exec('git', ['rev-parse', 'HEAD'], { cwd: deps.cwd }).then(result => result.stdout.trim()).catch(() => undefined);
+  const resolvedEngines = new Map<CliId, Engine>();
+  const engineFor = (cli: CliId) => {
+    let engine = resolvedEngines.get(cli);
+    if (!engine) { engine = measuredEngine(deps.engines(cli)); resolvedEngines.set(cli, engine); }
+    return engine;
+  };
+  activeDeps = { ...deps, engines: engineFor };
   const steps: StepResult[] = [];
   const at = () => iso(deps);
   await mkdir(deps.runsDir, { recursive: true });
@@ -102,7 +110,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     const playbook = await loadPlaybook(deps.playbookName ?? deps.config.playbook ?? 'default', dirname(deps.runsDir));
     harnessLevel = deps.harnessLevel ?? playbook.harness;
     methodSummary = workerMethod(playbook);
-    activeDeps = { ...deps, config: applyPlaybookRoles(deps.config, playbook) };
+    activeDeps = { ...deps, engines: engineFor, config: applyPlaybookRoles(deps.config, playbook) };
     if (harnessLevel === 'H2' || harnessLevel === 'H3') {
       pack = await deps.context.build({ query: goal, budgetTokens: deps.config.context.budgetTokens });
       for (const section of pack.sections) for (const noteId of section.noteIds) {
@@ -125,6 +133,11 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       await writeFile(taskStatePath, taskState, 'utf8');
     }
     const leadId = `${runId}-lead`;
+    for (const role of activeDeps.config.roles) {
+      const cli = assignCli(role.id, activeDeps.config, deps.available);
+      const capabilities = engineFor(cli).capabilities!;
+      if (role.autonomy === 'readonly' && capabilities.readonly !== 'enforced') limitations.push(`${role.id}/${cli}: readonly enforcement unsupported; steps run serially. ${capabilities.limitations.join(' ')}`);
+    }
     const leadCli = assignCli('lead', activeDeps.config, deps.available);
     const planningMethod = `Playbook: ${playbook.name}\n${playbook.description}\n\n${playbook.body}`;
     const prompt = planningPrompt(goal, '', { harnessLevel, playbook: planningMethod });
@@ -132,7 +145,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     let plan;
     try { plan = extractPlan(planText.text); }
     catch (first) {
-      const repaired = await runText(activeDeps, emit, leadCli, leadId, 'lead', `${repairPrompt(planText.text, String(first))}\n\nFollow this playbook method when planning:\n${planningMethod}`, 'readonly', supportContext(), methodSummary);
+      const repaired = await runText(activeDeps, emit, leadCli, `${leadId}-repair`, 'lead', `${repairPrompt(planText.text, String(first))}\n\nFollow this playbook method when planning:\n${planningMethod}`, 'readonly', supportContext(), methodSummary);
       try { plan = extractPlan(repaired.text); }
       catch (second) { throw new Error(`Unable to produce a valid plan after one repair: ${String(second)}`); }
     }
@@ -206,9 +219,10 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       if (!ready.length) throw new Error('Plan contains a dependency cycle or an unsatisfied dependency.');
       const first = ready[0]!;
       const firstRole = activeDeps.config.roles.find(role => role.id === first.role);
-      const firstReadonly = firstRole?.autonomy === 'readonly';
+      const enforcedReader = (step: typeof first) => activeDeps.config.roles.find(role => role.id === step.role)?.autonomy === 'readonly' && engineFor(assignCli(step.role, activeDeps.config, deps.available)).capabilities?.readonly === 'enforced';
+      const firstReadonly = firstRole?.autonomy === 'readonly' && enforcedReader(first);
       const batch = first.parallelSafe && firstReadonly
-        ? ready.filter(step => step.parallelSafe && activeDeps.config.roles.find(role => role.id === step.role)?.autonomy === 'readonly').slice(0, 3)
+        ? ready.filter(step => step.parallelSafe && enforcedReader(step)).slice(0, 3)
         : [first];
       const batchController = new AbortController();
       const batchSignal = deps.signal ? AbortSignal.any([deps.signal, batchController.signal]) : batchController.signal;
@@ -493,10 +507,11 @@ async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise
   const role = deps.config.roles.find(candidate => candidate.id === roleId);
   await emit({ type: 'agent.spawn', agentId, role: roleId, cli, task: prompt.slice(0, 160), at: (deps.now?.() ?? new Date()).toISOString() });
   await emit({ type: 'agent.status', agentId, status: 'running', at: (deps.now?.() ?? new Date()).toISOString() });
-  const request: EngineRunRequest = { cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, systemPrompt: [role?.mission, roleId === 'lead' ? '' : methodSummary, roleId === 'builder' && context.includes('Brain context pack:') ? 'If you actually apply a supplied note, cite it explicitly on a separate line: EDU_APPLIED {"noteId":"L-id","requirementIds":["R-1"],"application":"Applied [[L-id]] by ..."}. Report only concrete application, never mere exposure or presumed benefit.' : ''].filter(Boolean).join('\n\n'), ...(role?.model ? { model: role.model } : {}), signal };
+  const purpose = (agentId.includes('fix') || agentId.endsWith('-repair')) || prompt.includes('Invalid plan') || prompt.startsWith('Your previous') ? 'recovery' : roleId === 'lead' ? 'planning' : roleId === 'reviewer' ? 'review' : 'task';
+  const request: EngineRunRequest = { invocation: { id: randomUUID(), purpose }, cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, systemPrompt: [role?.mission, roleId === 'lead' ? '' : methodSummary, roleId === 'builder' && context.includes('Brain context pack:') ? 'If you actually apply a supplied note, cite it explicitly on a separate line: EDU_APPLIED {"noteId":"L-id","requirementIds":["R-1"],"application":"Applied [[L-id]] by ..."}. Report only concrete application, never mere exposure or presumed benefit.' : ''].filter(Boolean).join('\n\n'), ...(role?.model ? { model: role.model } : {}), signal };
   let text = ''; let summary = ''; let sessionId: string | undefined;
   try {
-    for await (const event of deps.engines(cli).run(request, agentId)) {
+    for await (const event of measuredEngine(deps.engines(cli)).run(request, agentId)) {
       const stamped = { ...event, at: event.at || (deps.now?.() ?? new Date()).toISOString() } as EduEvent;
       if (stamped.type === 'agent.text') text += stamped.text;
       if (stamped.type === 'agent.end') { summary = stamped.summary; sessionId = stamped.sessionId; }

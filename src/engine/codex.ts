@@ -40,7 +40,7 @@ export function parseLine(line: string, ctx: ParseContext) {
     }
   }
   if (type === 'turn.completed' || type === 'turn.failed') {
-    const events = data.usage && typeof data.usage === 'object' ? makeUsage(ctx, data.usage as Record<string, unknown>) : [];
+    const events = data.usage && typeof data.usage === 'object' ? makeUsage(ctx, data.usage as Record<string, unknown>, 'inclusive-cache') : [];
     events.push(endEvent(ctx, type !== 'turn.failed', str(data.error) ?? '', str(data.thread_id)));
     return events;
   }

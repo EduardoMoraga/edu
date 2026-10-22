@@ -79,7 +79,8 @@ describe('native JSONL fixtures', () => {
     };
     expect(types).toEqual(expectedTypes[cli]);
     const usage = events.find((event): event is Extract<EduEvent, { type: 'usage' }> => event.type === 'usage');
-    expect(usage?.usage.inputTokens).toBe(120);
+    expect(usage?.usage.inputTokens).toBe(cli === 'claude' ? 135 : cli === 'pi' || cli === 'opencode' ? 139 : 120);
+    expect(usage?.usage.raw?.inputTokens).toBe(120);
     expect(usage?.usage.outputTokens).toBe(30);
     if (cli === 'codex' || cli === 'agy') expect(usage?.usage.costUsd).toBeUndefined();
     else expect(usage?.usage.costUsd).toBe(0.0012);
@@ -112,7 +113,7 @@ describe('native JSONL fixtures', () => {
       { type: 'agent_settled', aborted: false },
     ];
     const events = lines.flatMap((line) => parsePiLine(JSON.stringify(line), ctx));
-    expect(events).toEqual([expect.objectContaining({
+    expect(events).toEqual([expect.objectContaining({ type: 'usage', usage: expect.objectContaining({ known: expect.objectContaining({ inputTokens: false, outputTokens: false }) }) }), expect.objectContaining({
       type: 'agent.end', ok: false, summary: 'Request failed.', sessionId: 'pi-error-session',
     })]);
   });
@@ -129,7 +130,7 @@ describe('native JSONL fixtures', () => {
     ];
     const events = lines.flatMap((line) => parsePiLine(JSON.stringify(line), ctx));
     expect(events.map((event) => event.type)).toEqual(['agent.text', 'agent.text', 'usage', 'agent.text', 'usage', 'agent.end']);
-    expect(events.filter((event): event is Extract<EduEvent, { type: 'usage' }> => event.type === 'usage').map((event) => event.usage.inputTokens)).toEqual([10, 20]);
+    expect(events.filter((event): event is Extract<EduEvent, { type: 'usage' }> => event.type === 'usage').map((event) => event.usage.inputTokens)).toEqual([15, 30]);
   });
 });
 
