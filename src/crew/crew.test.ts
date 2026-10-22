@@ -44,7 +44,8 @@ describe('crew jobs', () => {
     expect(result.status).toBe('done');
     expect(result.summary).toBe('Done.');
     expect(result.usage.inputTokens).toBe(12);
-    expect((await f.store.events(job.id)).map(event => event.type)).toEqual(['agent.text', 'usage', 'agent.end', 'brain.learn']);
+    expect((await f.store.events(job.id)).filter(event => event.type === 'usage').map(event => event.usage.receipt)).toEqual(['pending', undefined, 'complete']);
+    expect((await f.store.events(job.id)).map(event => event.type)).toEqual(['usage', 'agent.text', 'usage', 'agent.end', 'usage', 'brain.learn']);
     expect((await openBrain([f.location]).list({ kind: 'session' })).some(note => note.meta.status === 'closed')).toBe(true);
   });
 

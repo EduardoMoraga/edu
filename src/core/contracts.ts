@@ -236,6 +236,7 @@ export interface EngineRunRequest {
   requireReadonly?: boolean;
   /** No current adapter provides an Edu OS/network sandbox. */
   requireSandbox?: boolean;
+  /** IDs must be unique per actual call; replay reuses receipts, never a new invocation with the same ID. */
   invocation?: { id: string; purpose: InvocationPurpose };
 }
 
@@ -248,12 +249,17 @@ export interface Usage {
   /** Provider observations before adapter normalization; never summed into totals. */
   raw?: Partial<Record<UsageField, number>>;
   inputSemantics?: 'inclusive-cache' | 'exclusive-cache' | 'unknown';
+  /** Lifecycle markers carry no token/cost delta; only normal completion supersedes pending. */
+  receipt?: 'pending' | 'complete';
   observationId?: string;
   invocationId?: string;
   purpose?: InvocationPurpose;
   /** Aggregate bookkeeping, persisted for replay deduplication. */
   observationIds?: string[];
   observations?: number;
+  /** Aggregate lifecycle and intrinsic knownness, retained so later completion can resolve pending calls. */
+  invocationStates?: Record<string, 'pending' | 'complete'>;
+  observedKnown?: Partial<Record<UsageField, boolean>>;
   /** Normalized total input, including cache subsets. Numeric placeholders require knownness. */
   inputTokens: number;
   outputTokens: number;

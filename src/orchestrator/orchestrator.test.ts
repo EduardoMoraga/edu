@@ -1,3 +1,4 @@
+import { sumUsage, usageValue } from '../core/usage.js';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -202,16 +203,25 @@ describe('orchestrator contracts', () => {
       { id: 'wait', role: 'explorer', task: 'wait step', dependsOn: [], parallelSafe: true },
     ] };
     const observed: EduEvent[] = [];
+    let readerReady!: () => void;
+    const readerStarted = new Promise<void>(resolve => { readerReady = resolve; });
     const runtime: Engine = { capabilities: { readonly: 'enforced', isolation: 'host', mechanism: 'test adapter', limitations: [] }, cli: 'claude', available: async () => true, async *run(request, agentId) {
       if (request.prompt.startsWith('Create a safe')) { yield { type: 'agent.text', agentId, text: JSON.stringify(plan), at } as EduEvent; return; }
-      if (request.prompt.startsWith('fail step')) { yield { type: 'error', agentId, message: 'expected failure', at } as EduEvent; return; }
-      await new Promise<void>(resolve => request.signal?.addEventListener('abort', () => resolve(), { once: true }));
+      if (request.prompt.startsWith('fail step')) { await readerStarted; yield { type: 'error', agentId, message: 'expected failure', at } as EduEvent; return; }
+      yield { type: 'usage', agentId, at, usage: { inputTokens: 10, outputTokens: 0, costUsd: 0, known: { inputTokens: true, outputTokens: true, costUsd: true } } } as EduEvent;
+      readerReady();
+      await new Promise<void>(resolve => request.signal?.aborted ? resolve() : request.signal?.addEventListener('abort', () => resolve(), { once: true }));
       yield { type: 'agent.text', agentId, text: 'settled after cancellation', at } as EduEvent;
     } };
     const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
     try {
       const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true });
       expect(result.ok).toBe(false);
+      const waitingUsage = observed.filter((event): event is Extract<EduEvent, { type: 'usage' }> => event.type === 'usage' && event.agentId.endsWith('-wait')).map(event => event.usage);
+      const replay = sumUsage([...waitingUsage, ...waitingUsage]);
+      expect(replay.inputTokens).toBe(10);
+      expect(usageValue(replay, 'inputTokens')).toBeNull();
+      expect(usageValue(replay, 'costUsd')).toBeNull();
       expect(observed).toContainEqual(expect.objectContaining({ type: 'agent.status', status: 'cancelled' }));
       expect(observed.at(-1)?.type).toBe('run.end');
       expect(observed.slice(0, -1).every(event => event.type !== 'run.end')).toBe(true);

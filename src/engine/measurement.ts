@@ -22,23 +22,29 @@ export function measuredEngine(engine: Engine): Engine {
       const invocation = request.invocation ?? { id: randomUUID(), purpose: 'task' as const };
       if (!invocation.id.trim()) throw new Error('Invocation id must not be empty.');
       let observations = 0;
-      const missingUsage = (): EduEvent => {
-        observations++;
-        return { type: 'usage', agentId, usage: { inputTokens: 0, outputTokens: 0, known: Object.fromEntries(USAGE_FIELDS.map(field => [field, false])),
-          observationId: `${invocation.id}:0`, invocationId: invocation.id, purpose: invocation.purpose }, at: new Date().toISOString() };
-      };
-      try {
-        for await (const event of engine.run({ ...request, invocation }, agentId)) {
-          if (event.type !== 'usage') {
-            // Consumers may stop at a terminal/error event: persist missing usage first.
-            if (!observations && (event.type === 'agent.end' || event.type === 'run.end' || event.type === 'error')) yield missingUsage();
-            yield event; continue;
-          }
-          const usage: Usage = { ...event.usage, observationId: `${invocation.id}:${observations++}`, invocationId: invocation.id, purpose: invocation.purpose };
-          yield { ...event, usage };
+      const marker = (receipt: 'pending' | 'complete'): EduEvent => ({
+        type: 'usage', agentId, usage: { inputTokens: 0, outputTokens: 0,
+          known: Object.fromEntries(USAGE_FIELDS.map(field => [field, false])), receipt,
+          observationId: `${invocation.id}:${receipt}`, invocationId: invocation.id, purpose: invocation.purpose }, at: new Date().toISOString(),
+      });
+      // The consumer must receive this before any adapter event: return()/throw() may discard final yields.
+      yield marker('pending');
+      if (request.signal?.aborted) return;
+      let failed = false;
+      for await (const event of engine.run({ ...request, invocation }, agentId)) {
+        if (event.type !== 'usage') {
+          if (event.type === 'error' || ((event.type === 'agent.end' || event.type === 'run.end') && !event.ok)) failed = true;
+          yield event;
+          continue;
         }
-      } finally {
-        if (!observations) yield missingUsage();
+        const usage: Usage = { ...event.usage, observationId: `${invocation.id}:${observations++}`, invocationId: invocation.id, purpose: invocation.purpose };
+        yield { ...event, usage };
+      }
+      // Early consumer exit or an adapter exception never reaches this point.
+      if (!failed && !request.signal?.aborted) {
+        if (!observations) yield { type: 'usage', agentId, usage: { inputTokens: 0, outputTokens: 0,
+          known: Object.fromEntries(USAGE_FIELDS.map(field => [field, false])), observationId: `${invocation.id}:0`, invocationId: invocation.id, purpose: invocation.purpose }, at: new Date().toISOString() };
+        yield marker('complete');
       }
     },
   };

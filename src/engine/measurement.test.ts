@@ -23,11 +23,11 @@ describe('measurement completeness', () => {
   it('records an invocation with no usage as incomplete and deduplicates replay', async () => {
     const engine: Engine = { cli: 'pi', available: async () => true, async *run() {} };
     const rows = await collect(engine, { ...req, invocation: { id: 'actual-call-1', purpose: 'recovery' } });
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(3);
     expect(rows[0]?.usage).toMatchObject({ invocationId: 'actual-call-1', purpose: 'recovery' });
     const sum = sumUsage([...rows, ...rows].map(e => e.usage));
     expect(usageValue(sum, 'inputTokens')).toBeNull();
-    expect(sum.observationIds).toHaveLength(1);
+    expect(sum.observationIds).toHaveLength(3);
   });
   it('retains partial observations without turning a missing call into zero cost', async () => {
     const engine: Engine = { cli: 'pi', available: async () => true, async *run(_r, agentId) {
@@ -61,4 +61,46 @@ it('emits unknown usage before a terminal error even if the caller stops immedia
   }
   expect(seen.map(event => event.type)).toEqual(['usage', 'error']);
   expect(seen[0]).toMatchObject({ usage: { known: { inputTokens: false, costUsd: false } } });
+});
+
+it.each(['break', 'throw', 'abort'] as const)('keeps a call incomplete after consumer %s, including observations before text', async stop => {
+  for (const priorUsage of [false, true]) {
+    const controller = new AbortController();
+    const seen: EduEvent[] = [];
+    const engine: Engine = { cli: 'pi', available: async () => true, async *run(request, agentId) {
+      if (priorUsage) yield { type: 'usage', agentId, at, usage: { inputTokens: 5, outputTokens: 0, costUsd: 0, known: { inputTokens: true, outputTokens: true, costUsd: true } } };
+      yield { type: 'agent.text', agentId, at, text: 'not the end' };
+      if (request.signal?.aborted) return;
+      yield { type: 'usage', agentId, at, usage: { inputTokens: 7, outputTokens: 0, costUsd: 0, known: { inputTokens: true, outputTokens: true, costUsd: true } } };
+    } };
+    try {
+      for await (const event of measuredEngine(engine).run({ ...req, signal: controller.signal }, 'interrupted')) {
+        seen.push(event);
+        if (event.type !== 'agent.text') continue;
+        if (stop === 'throw') throw new Error('consumer stopped');
+        if (stop === 'break') break;
+        controller.abort();
+      }
+    } catch (error) { expect((error as Error).message).toBe('consumer stopped'); }
+    const previous = { inputTokens: 10, outputTokens: 0, costUsd: 0, known: { inputTokens: true, outputTokens: true, costUsd: true }, observationId: 'previous-call' };
+    const total = sumUsage([previous, ...seen.filter((e): e is Extract<EduEvent, { type: 'usage' }> => e.type === 'usage').map(e => e.usage)]);
+    expect(total.inputTokens).toBe(priorUsage ? 15 : 10);
+    expect(usageValue(total, 'inputTokens')).toBeNull();
+    expect(usageValue(total, 'costUsd')).toBeNull();
+  }
+});
+
+it('supersedes pending receipts after normal late usage and deduplicates incremental replay', async () => {
+  const engine: Engine = { cli: 'pi', available: async () => true, async *run(_request, agentId) {
+    yield { type: 'agent.text', agentId, at, text: 'answer' };
+    yield { type: 'usage', agentId, at, usage: { inputTokens: 7, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, known: { inputTokens: true, outputTokens: true, cacheReadTokens: true, cacheWriteTokens: true, costUsd: true } } };
+  } };
+  const rows = await collect(engine);
+  expect(rows[0]?.usage).toMatchObject({ receipt: 'pending' });
+  const complete = sumUsage([...rows, ...rows].map(e => e.usage));
+  expect(usageValue(complete, 'inputTokens')).toBe(7);
+  expect(usageValue(complete, 'costUsd')).toBe(0);
+  let incremental = sumUsage([]);
+  for (const row of rows) incremental = sumUsage([incremental, row.usage]);
+  expect(incremental).toEqual(complete);
 });

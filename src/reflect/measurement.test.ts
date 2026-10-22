@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { appendFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -26,6 +26,12 @@ it('persists actual reflection attempts and reuses cached measurements without b
     expect(cached.usage).toEqual(first.usage);
     expect(usageValue(cached.usage!, 'inputTokens')).toBe(10);
     expect(usageValue(cached.usage!, 'costUsd')).toBe(0);
-    expect(cached.usage!.observationIds).toHaveLength(1);
+    expect(cached.usage!.observationIds).toHaveLength(3);
+    await appendFile(cached.measurementPath!, '{"invocationId":"torn');
+    const recovered = await reflect({ brain, brainRoot: root, engine });
+    expect(calls).toBe(1);
+    expect(recovered.usage!.inputTokens).toBe(10);
+    expect(usageValue(recovered.usage!, 'inputTokens')).toBeNull();
+    expect(usageValue(recovered.usage!, 'costUsd')).toBeNull();
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

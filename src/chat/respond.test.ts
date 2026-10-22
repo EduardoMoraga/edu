@@ -45,7 +45,8 @@ describe('respond', () => {
     expect(requests[0]).toMatchObject({ cli: 'claude', autonomy: 'readonly' });
     expect(requests[0]?.systemPrompt).toContain('You are **Edu**');
     expect(requests[0]?.systemPrompt).toContain('TASK: <the goal, restated precisely>');
-    expect(events.map(event => event.type)).toEqual(['brain.recall', 'agent.spawn', 'agent.status', 'agent.text', 'usage', 'agent.end']);
+    expect(events.map(event => event.type)).toEqual(['brain.recall', 'agent.spawn', 'agent.status', 'agent.text', 'usage', 'usage', 'usage', 'agent.end']);
+    expect(events.filter(event => event.type === 'usage').map(event => event.usage.receipt)).toEqual(['pending', undefined, 'complete']);
     expect(events.find(event => event.type === 'agent.spawn')).toMatchObject({ agentId: 'edu', role: 'lead' });
   });
 

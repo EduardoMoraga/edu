@@ -10,23 +10,32 @@ export function usageValue(usage: Usage, field: UsageField): number | null {
 
 /** Empty observations are unknown. An explicit empty accumulator is an identity, not a measured call. */
 export function sumUsage(rows: readonly Usage[]): Usage {
-  const result: Usage = { inputTokens: 0, outputTokens: 0, known: {}, observationIds: [], observations: 0 };
+  const result: Usage = { inputTokens: 0, outputTokens: 0, known: {}, observedKnown: {}, observationIds: [], observations: 0, invocationStates: {} };
   const seen = new Set<string>();
+  const lifecycle = (id: string, state: 'pending' | 'complete') => {
+    if (state === 'complete' || result.invocationStates![id] !== 'complete') result.invocationStates![id] = state;
+  };
   for (const row of rows) {
-    if (row.observations === 0) continue;
     const ids = row.observationId ? [row.observationId] : row.observationIds ?? [];
+    if (row.observations === 0 && !ids.length && !row.receipt && !Object.keys(row.invocationStates ?? {}).length) continue;
     if (ids.length && ids.every(id => seen.has(id))) continue;
     if (ids.some(id => seen.has(id))) throw new Error('Overlapping usage aggregates cannot be summed without individual observations.');
-    const first = result.observations === 0;
-    for (const field of USAGE_FIELDS) {
-      const value = row[field];
-      if (validUsageNumber(value)) result[field] = (result[field] ?? 0) + value;
-      result.known![field] = (first || result.known![field] === true) && usageValue(row, field) !== null;
+    for (const [id, state] of Object.entries(row.invocationStates ?? {})) lifecycle(id, state);
+    if (row.receipt && row.invocationId) lifecycle(row.invocationId, row.receipt);
+    if (!row.receipt && row.observations !== 0) {
+      const first = result.observations === 0;
+      for (const field of USAGE_FIELDS) {
+        const value = row[field];
+        if (validUsageNumber(value)) result[field] = (result[field] ?? 0) + value;
+        const intrinsic = row.observedKnown ?? row.known;
+        result.observedKnown![field] = (first || result.observedKnown![field] === true) && intrinsic?.[field] === true && validUsageNumber(value);
+      }
+      result.observations! += row.observations ?? 1;
     }
-    result.observations! += row.observations ?? 1;
     for (const id of ids) seen.add(id);
   }
-  if (!result.observations) for (const field of USAGE_FIELDS) result.known![field] = false;
+  const pending = Object.values(result.invocationStates!).includes('pending');
+  for (const field of USAGE_FIELDS) result.known![field] = Boolean(result.observations) && !pending && result.observedKnown![field] === true;
   result.observationIds = [...seen];
   return result;
 }

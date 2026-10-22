@@ -122,7 +122,18 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
     }
     const measurementRows: Usage[] = [];
     try {
-      const records = (await readFile(measurementPath, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Partial<Usage>);
+      const raw = await readFile(measurementPath, 'utf8');
+      const records: Partial<Usage>[] = [];
+      let damaged = false;
+      for (const line of raw.split('\n').filter(line => line.trim())) {
+        try {
+          const record: unknown = JSON.parse(line);
+          if (!record || typeof record !== 'object' || Array.isArray(record)) { damaged = true; continue; }
+          records.push(record as Partial<Usage>);
+        } catch { damaged = true; }
+      }
+      // Keep cached validated output usable. Damaged telemetry is unknown, never zero or a reason to rerun a model.
+      if (damaged) measurementRows.push({ inputTokens: 0, outputTokens: 0, observationId: `damaged-ledger:${digest(raw)}` });
       const observed = new Set(records.filter(row => row.observationId).map(row => row.invocationId));
       for (const row of records) {
         if (row.observationId) measurementRows.push(row as Usage);
