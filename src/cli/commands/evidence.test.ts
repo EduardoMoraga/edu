@@ -37,10 +37,16 @@ describe('evidence CLI', () => {
     const texts = [JSON.stringify(plan), 'Implementation finished.', '{"verdict":"pass","issues":[]}'];
     let invocation = 0;
     c.ctx.availableClis = ['claude'];
-    c.ctx.engineFactory = () => new FakeEngine([{ type: 'agent.text', agentId: `fake-${invocation}`, text: texts[invocation++] ?? 'done', at: new Date().toISOString() }]);
+    c.ctx.engineFactory = () => ({
+      cli: 'claude', available: async () => true,
+      async *run(request, agentId) {
+        yield* new FakeEngine([{ type: 'agent.text', agentId, text: texts[invocation++] ?? 'done', at: new Date().toISOString() }]).run(request, agentId);
+      },
+    });
 
     await runCli(c, ['run', 'verify evidence path', '--harness', 'H3', '--yes']);
     expect(c.exitCode).toBeUndefined();
+    expect(invocation).toBe(3);
     const runDirectories = await import('node:fs/promises').then(fs => fs.readdir(join(brainRoot, 'runs'), { withFileTypes: true }));
     const episode = runDirectories.find(entry => entry.isDirectory());
     expect(episode).toBeDefined();
