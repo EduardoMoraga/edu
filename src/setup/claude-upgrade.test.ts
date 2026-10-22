@@ -1,17 +1,21 @@
-import { cp, mkdir, mkdtemp, readFile, realpath, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { applySetup, planSetup, type SetupRunner } from './index.js';
+const candidateVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version as string;
+const versions = ['0.10.2', '2.0.0-rc.1'] as const;
+const platforms = ['linux', 'win32'] as const;
+const cases = versions.flatMap(baseline => platforms.map(platform => ({ baseline, platform })));
 const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
-async function fixture(platform: NodeJS.Platform = 'linux') {
+async function nativeFixture(platform: NodeJS.Platform = 'linux', baseline: string = '0.10.2') {
   const home = await realpath(await mkdtemp(join(tmpdir(), '09-claude-native-'))); roots.push(home);
   vi.stubEnv('CLAUDE_CONFIG_DIR', join(home, 'claude home'));
   const brainRoot = join(home, '.edu'); const packageRoot = join(home, 'node_modules/edu-agent');
   const source = join(packageRoot, 'plugins/claude-code'); const base = join(home, 'claude home/plugins/cache/edu/edu');
-  const oldRoot = join(base, '0.10.2'); const nextRoot = join(base, '2.0.0-rc.1');
-  const files: Record<string, string> = JSON.parse(await readFile(new URL('./fixtures/claude-0.10.2.json', import.meta.url), 'utf8'));
+  const oldRoot = join(base, baseline); const nextRoot = join(base, candidateVersion);
+  const files: Record<string, string> = JSON.parse(await readFile(new URL(`./fixtures/claude-${baseline}.json`, import.meta.url), 'utf8'));
   for (const [path, content] of Object.entries(files)) {
     for (const root of [oldRoot, source]) { await mkdir(dirname(join(root, path)), { recursive: true }); await writeFile(join(root, path), content); }
   }
@@ -21,7 +25,7 @@ async function fixture(platform: NodeJS.Platform = 'linux') {
     const shape = { edu: launch };
     await writeFile(join(oldRoot, '.mcp.json'), `${JSON.stringify(shape, null, 2)}\n`);
   }
-  const manifest = JSON.parse(files['.claude-plugin/plugin.json']!); manifest.version = '2.0.0-rc.1';
+  const manifest = JSON.parse(files['.claude-plugin/plugin.json']!); manifest.version = candidateVersion;
   await writeFile(join(source, '.claude-plugin/plugin.json'), JSON.stringify(manifest));
   await writeFile(join(source, 'skills/brief/SKILL.md'), 'NEW PROTOCOL');
   await mkdir(join(packageRoot, '.claude-plugin'), { recursive: true });
@@ -29,7 +33,7 @@ async function fixture(platform: NodeJS.Platform = 'linux') {
   await mkdir(brainRoot); await writeFile(join(brainRoot, 'EDU.md'), '# CUSTOM IDENTITY');
   await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot, native: ['claude'], fallback: [] }));
   const other = join(home, 'claude home/plugins/cache/other/other/custom.txt'); await mkdir(dirname(other), { recursive: true }); await writeFile(other, 'OTHER CUSTOM');
-  const calls: string[] = []; let installedVersion = '0.10.2'; let mode = 'ok';
+  const calls: string[] = []; let installedVersion = baseline; let mode = 'ok';
   const runner: SetupRunner = async c => {
     const args = c.args.join(' '); calls.push(args);
     if (mode === 'throw' && args === 'plugin update edu@edu --scope user') throw new Error('spawn failed');
@@ -50,27 +54,37 @@ async function fixture(platform: NodeJS.Platform = 'linux') {
 
     if (mode === 'failure') return { exitCode: 1, stderr: 'simulated host failure' };
     if (mode === 'noop') return { exitCode: 0, stdout: 'Already latest' };
-    await cp(source, nextRoot, { recursive: true }); installedVersion = manifest.version; // Claude can retain the pristine old version.
+    await cp(source, join(base, manifest.version), { recursive: true }); installedVersion = manifest.version; // Claude can retain the pristine old version.
     if (mode === 'corrupt') await writeFile(join(nextRoot, 'skills/brief/SKILL.md'), 'STALE');
     return { exitCode: 0, stdout: JSON.stringify({ pluginId: 'edu@edu', version: manifest.version, installedPath: mode === 'wrong-path' ? '/other/cache' : nextRoot }) };
   };
   const run = async () => applySetup(await planSetup({ home, packageRoot, clis: ['claude'], runner }), { runner, brainRoot, platform });
-  return { home, brainRoot, packageRoot, runner, source, base, oldRoot, nextRoot, other, calls, run, setMode: (value: string) => { mode = value; } };
+  return { home, brainRoot, packageRoot, runner, source, base, oldRoot, nextRoot, other, calls, run, replaceCandidate: async (contents: Record<string, string>) => {
+    await rm(source, { recursive: true });
+    for (const [path, content] of Object.entries(contents)) { await mkdir(dirname(join(source, path)), { recursive: true }); await writeFile(join(source, path), content); }
+    manifest.version = JSON.parse(contents['.claude-plugin/plugin.json']!).version;
+    await writeFile(join(packageRoot, '.claude-plugin/marketplace.json'), JSON.stringify({ name: 'edu', plugins: [{ name: 'edu', source: './plugins/claude-code', version: manifest.version }] }));
+  }, setInstalledVersion: (value: string) => { installedVersion = value; }, setMode: (value: string) => { mode = value; } };
 }
-it.each(['linux', 'win32'] as const)('refreshes a pristine public 0.10.2 cache on %s with backup and validates candidate bytes; rerun does not reinstall', async platform => {
-  const f = await fixture(platform); await f.run();
+describe.each(cases)('$baseline on $platform', ({ platform, baseline }) => {
+const fixture = (override: NodeJS.Platform = platform) => nativeFixture(override, baseline);
+it('refreshes a pristine public cache with backup and candidate validation; repeat does not reinstall', async () => {
+  const f = await fixture(); await f.run();
   expect(await readFile(join(f.nextRoot, 'skills/brief/SKILL.md'), 'utf8')).toBe('NEW PROTOCOL');
   expect(await readFile(f.other, 'utf8')).toBe('OTHER CUSTOM');
   const launch = platform === 'win32' ? { command: 'cmd', args: ['/c', 'edu', 'mcp'] } : { command: 'edu', args: ['mcp'] };
   expect(JSON.parse(await readFile(join(f.nextRoot, '.mcp.json'), 'utf8'))).toEqual({ edu: launch });
   await f.run(); expect(f.calls.filter(c => c === 'plugin update edu@edu --scope user')).toHaveLength(1);
 });
-it.each(['edited', 'extra', 'missing', 'symlink', 'origin', 'unsupported'])('preserves custom/unknown cache (%s) without invoking install', async mode => {
+it.each(['edited', 'extra', 'missing', 'symlink', 'origin', 'unsupported', 'unknown-version', 'unknown-directory', 'empty-directory'])('preserves custom/unknown cache (%s) without invoking install', async mode => {
   const f = await fixture(); f.setMode(mode);
   const path = join(f.oldRoot, 'skills/brief/SKILL.md');
   if (mode === 'edited') await writeFile(path, 'CUSTOM');
   if (mode === 'extra') await writeFile(join(f.oldRoot, 'custom.txt'), 'CUSTOM');
   if (mode === 'missing') await rm(path);
+  if (mode === 'unknown-version') f.setInstalledVersion('8.0.0');
+  if (mode === 'unknown-directory') { await mkdir(join(f.base, 'unknown')); await writeFile(join(f.base, 'unknown/custom'), 'CUSTOM'); }
+  if (mode === 'empty-directory') await mkdir(join(f.base, 'empty'));
   if (mode === 'symlink') { await rm(path); await symlink(f.other, path); }
   await expect(f.run()).rejects.toThrow(/manual conflict/i);
   expect(f.calls).not.toContain('plugin update edu@edu --scope user');
@@ -133,7 +147,7 @@ it.each(['after-preflight', 'during-backup'])('aborts before native mutation whe
   const { planClaudeRefresh } = await import('./claude-upgrade.js');
   const migration = await import('../update/migrate.js');
   const mutate = () => writeFile(join(f.packageRoot, '.claude-plugin/marketplace.json'), '{"name":"edu","plugins":[{"name":"edu","source":"https://untrusted.invalid/plugin"}]}');
-  const execute = await planClaudeRefresh({ home: f.home, packageRoot: f.packageRoot, previousPackageRoot: f.packageRoot, brainRoot: f.brainRoot, runner: f.runner, platform: 'linux' });
+  const execute = await planClaudeRefresh({ home: f.home, packageRoot: f.packageRoot, previousPackageRoot: f.packageRoot, brainRoot: f.brainRoot, runner: f.runner, platform });
   if (phase === 'after-preflight') await mutate();
   else {
     const original = migration.backupUpgradeFiles;
@@ -147,7 +161,7 @@ it.each(['after-preflight', 'during-backup'])('aborts before native mutation whe
   const { planClaudeRefresh } = await import('./claude-upgrade.js');
   const migration = await import('../update/migrate.js');
   const mutate = () => writeFile(join(f.home, 'claude home/settings.json'), 'changed local source');
-  const execute = await planClaudeRefresh({ home: f.home, packageRoot: f.packageRoot, previousPackageRoot: f.packageRoot, brainRoot: f.brainRoot, runner: f.runner, platform: 'linux' });
+  const execute = await planClaudeRefresh({ home: f.home, packageRoot: f.packageRoot, previousPackageRoot: f.packageRoot, brainRoot: f.brainRoot, runner: f.runner, platform });
   if (phase === 'after-preflight') await mutate();
   else {
     const original = migration.backupUpgradeFiles;
@@ -160,8 +174,58 @@ it.each(['after-preflight', 'during-backup'])('aborts before native mutation whe
 it('rejects changed effective host registration even when local source/cache are unchanged', async () => {
   const f = await fixture();
   const { planClaudeRefresh } = await import('./claude-upgrade.js');
-  const execute = await planClaudeRefresh({ home: f.home, packageRoot: f.packageRoot, previousPackageRoot: f.packageRoot, brainRoot: f.brainRoot, runner: f.runner, platform: 'linux' });
+  const execute = await planClaudeRefresh({ home: f.home, packageRoot: f.packageRoot, previousPackageRoot: f.packageRoot, brainRoot: f.brainRoot, runner: f.runner, platform });
   f.setMode('origin');
   await expect(execute()).rejects.toThrow(/provenance/i);
+  expect(f.calls).not.toContain('plugin update edu@edu --scope user');
+});
+
+it.each(['cache', 'source'] as const)('refuses symlinked %s roots without changing their contents', async target => {
+  const f = await fixture(); const path = target === 'cache' ? f.base : f.source, actual = path + '-preserved';
+  await rename(path, actual); await symlink(actual, path, 'junction');
+  const before = await readFile(join(actual, target === 'cache' ? baseline + '/skills/brief/SKILL.md' : 'skills/brief/SKILL.md'));
+  await expect(f.run()).rejects.toThrow(/manual conflict/i);
+  expect(f.calls).not.toContain('plugin update edu@edu --scope user');
+  expect(await readFile(join(actual, target === 'cache' ? baseline + '/skills/brief/SKILL.md' : 'skills/brief/SKILL.md'))).toEqual(before);
+});
+it.each(['after-preflight', 'during-backup'] as const)('rechecks source and cache bytes at %s', async phase => {
+  for (const target of ['cache', 'source'] as const) {
+    const f = await fixture();
+    const { planClaudeRefresh } = await import('./claude-upgrade.js');
+    const migration = await import('../update/migrate.js');
+    const path = join(target === 'cache' ? f.oldRoot : f.source, 'skills/brief/SKILL.md');
+    const execute = await planClaudeRefresh({ home: f.home, packageRoot: f.packageRoot, previousPackageRoot: f.packageRoot, brainRoot: f.brainRoot, runner: f.runner, platform });
+    const mutate = () => writeFile(path, 'CHANGED AT BOUNDARY');
+    if (phase === 'after-preflight') await mutate();
+    else {
+      const original = migration.backupUpgradeFiles;
+      vi.spyOn(migration, 'backupUpgradeFiles').mockImplementationOnce(async (...args) => { const backup = await original(...args); await mutate(); return backup; });
+    }
+    await expect(execute()).rejects.toThrow(/changed during/i);
+    expect(f.calls).not.toContain('plugin update edu@edu --scope user');
+    expect(await readFile(path, 'utf8')).toBe('CHANGED AT BOUNDARY');
+    vi.restoreAllMocks();
+  }
+});
+
+});
+it.each(platforms)('retains exact 0.10.2 -> RC -> candidate Claude history on %s and rejects edited history', async platform => {
+  const f = await nativeFixture(platform, '0.10.2');
+  const { tree } = await import('./native-files.js');
+  const candidateFiles = Object.fromEntries(await Promise.all(Object.keys(await tree(f.source)).map(async path => [path, await readFile(join(f.source, path), 'utf8')])));
+  const rc = JSON.parse(await readFile(new URL('./fixtures/claude-2.0.0-rc.1.json', import.meta.url), 'utf8'));
+  await f.replaceCandidate(rc); await f.run();
+  expect(await readdir(f.base)).toEqual(expect.arrayContaining(['0.10.2', '2.0.0-rc.1']));
+  await f.replaceCandidate(candidateFiles); await f.run(); await f.run();
+  expect((await readdir(f.base)).sort()).toEqual(['0.10.2', '2.0.0-rc.1', candidateVersion].sort());
+  expect(f.calls.filter(c => c === 'plugin update edu@edu --scope user')).toHaveLength(2);
+  await writeFile(join(f.oldRoot, 'skills/brief/SKILL.md'), 'EDITED OLD HISTORY');
+  await expect(f.run()).rejects.toThrow(/manual conflict/i);
+  expect(f.calls.filter(c => c === 'plugin update edu@edu --scope user')).toHaveLength(2);
+});
+it.each(platforms)('requires the registered active Claude tree even when another known tree is pristine on %s', async platform => {
+  const f = await nativeFixture(platform, '0.10.2');
+  f.setInstalledVersion('2.0.0-rc.1');
+  await expect(f.run()).rejects.toThrow(/manual conflict/i);
   expect(f.calls).not.toContain('plugin update edu@edu --scope user');
 });

@@ -27,3 +27,35 @@ export const claudeBaseline: Readonly<Record<string, string>> = {
 export function claudeBaselineFor(platform: NodeJS.Platform): Readonly<Record<string, string>> {
   return platform === 'win32' ? { ...claudeBaseline, '.mcp.json': '5e44db1bdf44d58b9f423dcc5199bff628836f9ffcfc2b3baa86b10749656175' } : claudeBaseline;
 }
+
+// Public edu-agent@2.0.0-rc.1, independently checked against the published archive.
+// Tarball SHA256: 45a5f921e65f766aefc6021d1faa8b3af22a2812d8fc2007cc88e12475a7b573
+const claudeRcBaseline: Readonly<Record<string, string>> = {
+  ".claude-plugin/plugin.json": "9d70fd2bf3625aa9af383c7a910d4a01077df5cf41745c21a7862a1dfaebfe15",
+  ".mcp.json": "e25e3d6db2d0276940a19d5f39101761cc8ff5681c3fbb515ed4a880ef25ea97",
+  "agents/builder.md": "5c65cfd0499b2b1d2a604733364bb8f37e171d5462ce723a5c6461ad600e1f6b",
+  "agents/explorer.md": "e3355d6cfed509f8055b5126bd6aa3c926f38f024c17180e55f2d54c71bf6b03",
+  "agents/lead.md": "7fbdadfd4f3e26c19b7ddbc7c825a7076f313bb5ac5d09a09120aa375a24121f",
+  "agents/reviewer.md": "9ddba101bd35fce1f5d617e01b00fe017dda7bb7632221bbf6d301ca3a4306fa",
+  "hooks/deck.tsx": "f252830a511539bb27dae6c8a856b393a9f549494d2f0b605c32d90df2de00d2",
+  "hooks/hooks.json": "a04ed69e0a7f9b364e05f581cd86387feb3cc344461556ba9866f9bd5d3648b4",
+  "output-styles/edu.md": "b6f8344e1215f70ecd76f6ee3e5222cfb388b906dcd58f94aafba9bb9af2a441",
+  "skills/brain/SKILL.md": "41d5df56fd4d17b2f1b6552f9efb2ff0fc2c4e47e0cd1e69b2fc3838bbeec5d2",
+  "skills/brief/SKILL.md": "be48240d0857f0d4a31615843198de3743b9d84f1c384483f19cc1ce4451f27f",
+  "skills/crew/SKILL.md": "084dd78c6c01dddcf5ff8b0fa021a1ef37f1218412aa0fcf7336516c6cc1f0d8",
+  "skills/recall/SKILL.md": "55c17301721afd8d8f569ecb4f7ea6cc165e8a5020cca719f19f9af8d9025589",
+  "skills/reflect/SKILL.md": "2f67145784f066df2aa5cdf958d69d3d7fd1fc2591409718d5ff2886e27a1e35",
+  "skills/remember/SKILL.md": "b25189f2a7baffd8d99ae5fe2f4e88c907900dcfa09aade531635769f8abfef8",
+  "skills/review/SKILL.md": "876dfb18a1e4db240e0d32f22acd7d6374d3dab051ab483a23efee8eb1127da5",
+  "skills/run/SKILL.md": "1d424c0024495d0a0503fb238784efcdcc0b55a70f3f657e56fac5c0d113820d",
+  "skills/status/SKILL.md": "0cfb463026726394076c77e76c0429d3cb6263d8305814b3958e71fde4dcde7f",
+  "skills/vault/SKILL.md": "9f0bd012e39975355d893b43963d8865b9f53f460bd401de5525bea668d71f9a",
+  "types/index.d.ts": "8eb1512bb87669b7f8a0208ca58ea8e91b5cd8d859ae2335f2b5a9bd96eeef6f"
+};
+
+/** Only exact published versions are trusted; installed cache bytes never define a baseline. */
+export function claudeBaselineForVersion(release: string, platform: NodeJS.Platform): Readonly<Record<string, string>> | undefined {
+  if (release === '0.10.2') return claudeBaselineFor(platform);
+  if (release !== '2.0.0-rc.1') return undefined;
+  return platform === 'win32' ? { ...claudeRcBaseline, '.mcp.json': '5e44db1bdf44d58b9f423dcc5199bff628836f9ffcfc2b3baa86b10749656175' } : claudeRcBaseline;
+}

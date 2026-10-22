@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { tree, equal, version, type Hashes } from './native-files.js';
 import { backupUpgradeFiles } from '../update/migrate.js';
 import { compareVersions } from '../update/release.js';
-import { codexBaselineFor } from './codex-baseline.js';
+import { codexBaselineForVersion } from './codex-baseline.js';
 import type { SetupRunner } from './index.js';
 
 /** Preflight every target before returning a deferred native mutation. */
@@ -41,8 +41,9 @@ export async function planCodexRefresh(options: { home: string; packageRoot: str
     before = await tree(base);
     const expectedCurrent = Object.fromEntries(Object.entries(candidate).map(([p, hash]) => [`${nextVersion}/${p}`, hash]));
     if (installedVersion === nextVersion && equal(before, expectedCurrent)) return async () => {};
-    const expectedOld = Object.fromEntries(Object.entries(codexBaselineFor(options.platform ?? process.platform)).map(([p, hash]) => [`0.10.2/${p}`, hash]));
-    if (installedVersion !== '0.10.2' || !equal(before, expectedOld)) throw new Error('cache differs from the public 0.10.2 baseline (custom, missing or extra files)');
+    const baseline = codexBaselineForVersion(installedVersion, options.platform ?? process.platform);
+    const expectedOld = baseline && Object.fromEntries(Object.entries(baseline).map(([p, hash]) => [`${installedVersion}/${p}`, hash]));
+    if (!expectedOld || !equal(before, expectedOld)) throw new Error('cache differs from an exact published baseline (unknown version, custom, missing or extra files)');
   } catch (error) {
     throw new Error(`Manual conflict: Codex native cache: ${error instanceof Error ? error.message : error}`);
   }

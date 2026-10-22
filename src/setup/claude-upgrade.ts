@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { backupUpgradeFiles } from '../update/migrate.js';
 import { compareVersions } from '../update/release.js';
 import { tree, equal, version, type Hashes } from './native-files.js';
-import { claudeBaselineFor } from './claude-baseline.js';
+import { claudeBaselineForVersion } from './claude-baseline.js';
 import type { SetupRunner } from './index.js';
 
 export async function planClaudeRefresh(options: { home: string; packageRoot: string; previousPackageRoot?: string; brainRoot: string; runner: SetupRunner; platform?: NodeJS.Platform }): Promise<() => Promise<void>> {
@@ -21,10 +21,22 @@ export async function planClaudeRefresh(options: { home: string; packageRoot: st
     if (result.exitCode !== 0 || matches.length !== 1 || entry.scope !== 'user' || entry.enabled !== true || entry.errors?.length) throw new Error('unknown or ambiguous user-scope installation');
     return entry;
   };
-  const old = Object.fromEntries(Object.entries(claudeBaselineFor(options.platform ?? process.platform)).map(([p, hash]) => [`0.10.2/${p}`, hash]));
   let checkProvenance: () => Promise<void>;
   let before: Hashes; let candidate: Hashes; let nextVersion: string;
-  let current: Hashes; let currentWithOld: Hashes;
+  // Every retained version must be a complete exact known tree, older than the
+  // registered active version. The active candidate must equal the source tree.
+  const matchesCache = (cache: Hashes, active: string): boolean => {
+    const releases = new Set(Object.keys(cache).map(path => path.split('/')[0]!));
+    if (!releases.has(active)) return false;
+    const expected: Hashes = {};
+    for (const release of releases) {
+      if (release !== active && compareVersions(release, active) >= 0) return false;
+      const hashes = release === nextVersion && release === active ? candidate : claudeBaselineForVersion(release, options.platform ?? process.platform);
+      if (!hashes) return false;
+      for (const [path, hash] of Object.entries(hashes)) expected[`${release}/${path}`] = hash;
+    }
+    return equal(cache, expected);
+  };
   try {
     const entry = await listedPlugin();
     if (previousPackageRoot !== packageRoot) throw new Error('registered source path changed');
@@ -44,10 +56,8 @@ export async function planClaudeRefresh(options: { home: string; packageRoot: st
     nextVersion = manifest.version;
     if (compareVersions(nextVersion, entry.version) < 0) throw new Error('candidate plugin downgrade refused');
     before = await tree(base);
-    current = Object.fromEntries(Object.entries(candidate).map(([p, hash]) => [`${nextVersion}/${p}`, hash]));
-    currentWithOld = { ...old, ...current };
-    if (entry.version === nextVersion && (equal(before, current) || equal(before, currentWithOld))) return async () => {};
-    if (entry.version !== '0.10.2' || !equal(before, old)) throw new Error('cache differs from public 0.10.2 baseline (custom, missing or extra files)');
+    if (!matchesCache(before, entry.version)) throw new Error('cache differs from complete exact published version trees (unknown version, custom, missing or extra files)');
+    if (entry.version === nextVersion) return async () => {};
   } catch (error) {
     throw new Error(`Manual conflict: Claude native cache: ${error instanceof Error ? error.message : error}`);
   }
@@ -63,7 +73,7 @@ export async function planClaudeRefresh(options: { home: string; packageRoot: st
       const installed = await listedPlugin();
       if (installed.version !== nextVersion || installed.installPath !== join(base, nextVersion) || installed.readFromFolder) throw new Error('unexpected installed version/path');
       const after = await tree(base);
-      if (!equal(after, current) && !equal(after, currentWithOld)) throw new Error('installed cache does not match candidate hashes');
+      if (!matchesCache(after, nextVersion)) throw new Error('installed cache does not match candidate hashes');
     } catch (error) {
       throw new Error(`Claude native refresh failed: ${error instanceof Error ? error.message : error}. Backup: ${backup}. No automatic host rollback; restart only after repair.`);
     }
