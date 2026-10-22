@@ -179,3 +179,14 @@ it('ships declared helper bytes and rejects missing helpers before replacing gen
   await expect(buildPlugins(root)).rejects.toThrow();
   expect(await readFile(join(root, 'plugins/codex/skills/edu-brief/scripts/helper.mjs'), 'utf8')).toBe(helper);
 });
+it('tolerates CRLF only in ordinary generated comparisons and still detects declared helper byte drift', async () => {
+  const root = await fixture(); await mkdir(join(root, 'templates/skills/edu-brief/scripts'));
+  await writeFile(join(root, 'templates/skills/edu-brief/SKILL.md'), '---\nname: edu-brief\ndescription: Brief\nbundle:\n  files:\n    - path: scripts/helper.mjs\n---\nRun helper.\n');
+  await writeFile(join(root, 'templates/skills/edu-brief/scripts/helper.mjs'), 'console.log("helper")\n');
+  await buildPlugins(root);
+  const config = join(root, 'plugins/codex/.mcp.json'); await writeFile(config, (await readFile(config, 'utf8')).replace(/\n/g, '\r\n'));
+  expect((await buildPlugins(root, { check: true })).changed).toBe(false);
+  const helper = 'plugins/codex/skills/edu-brief/scripts/helper.mjs';
+  await writeFile(join(root, helper), (await readFile(join(root, helper), 'utf8')).replace(/\n/g, '\r\n'));
+  expect((await buildPlugins(root, { check: true })).files).toContain(helper);
+});

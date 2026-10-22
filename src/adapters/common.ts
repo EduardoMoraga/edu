@@ -61,15 +61,15 @@ export async function skillActions(cli: CliId, scope: InstallScope, root: string
       }
       try { await lstat(file); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
       let bundle;
-      try { bundle = await readSkillBundle(directory, name, { anchor: source.anchor, hasCommand: options.detectBinary }); }
+      try { bundle = await readSkillBundle(directory, name, { anchor: source.anchor, checkRequirements: false }); }
       catch (error) {
         if (!source.custom || !(error instanceof UnsupportedSkillEncodingError)) throw error;
         skills.delete(name); options.notes?.push(`Skipped custom skill ${name}: ${error.message}; builtin override remains suppressed.`); continue;
       }
       if (bundle.metadata.hosts && !bundle.metadata.hosts.includes(cli)) {
-        if ((options.selectedHosts?.length ?? 1) < 2) throw new Error(`Skill ${name} does not support host ${cli}`);
         skills.delete(name); options.notes?.push(`Skipped skill ${name} for unsupported host ${cli}.`); continue;
       }
+      for (const requirement of bundle.metadata.requires) if (!await (options.detectBinary ?? binaryOnPath)(requirement)) throw new Error(`Missing bundle requirement: ${requirement}`);
       const destinationBase = join(scope === 'project' ? root : options.home, cli === 'claude' ? '.claude' : '.agents');
       const destinationPin = baseFor(destinationBase, bases);
       skills.set(name, bundle.files.map(file => ({

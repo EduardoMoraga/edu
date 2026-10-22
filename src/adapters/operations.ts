@@ -83,6 +83,7 @@ export async function applyStandaloneActions(actions: PlannedAction[], home: str
 export class FileTransaction {
   private before = new Map<string, { content: Buffer; mode: number } | undefined>();
   readonly createdDirs = new Set<string>();
+  private removedDirs = new Map<string, number>();
   readonly anchors = new Set<string>();
   readonly bases = new Map<string, string>();
   async check(path: string): Promise<void> {
@@ -101,8 +102,18 @@ export class FileTransaction {
   async write(path: string, content: Buffer | string): Promise<void> { await this.capture(path); await writeFile(path, content); }
   async remove(path: string): Promise<void> { await this.capture(path); await unlink(path); }
   async move(from: string, to: string): Promise<void> { await this.capture(from); await this.capture(to); await rename(from, to); }
+  async removeEmptyDirectory(path: string): Promise<void> {
+    await this.check(path);
+    const mode = (await lstat(path)).mode & 0o777;
+    await rmdir(path);
+    if (!this.createdDirs.has(path)) this.removedDirs.set(path, mode);
+  }
   async rollback(): Promise<void> {
     const failures: unknown[] = [];
+    for (const [path, mode] of [...this.removedDirs].sort(([a], [b]) => a.length - b.length)) {
+      try { await this.check(path); await mkdir(path); await chmod(path, mode); }
+      catch (error) { failures.push(error); }
+    }
     for (const [path, before] of [...this.before].reverse()) {
       try {
         await this.check(path);
@@ -114,7 +125,7 @@ export class FileTransaction {
       try { await this.check(path); await rmdir(path); }
       catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) failures.push(error); }
     }
-    this.before.clear(); this.createdDirs.clear();
+    this.before.clear(); this.createdDirs.clear(); this.removedDirs.clear();
     if (failures.length) throw new AggregateError(failures, 'Installation rollback incomplete');
   }
 }

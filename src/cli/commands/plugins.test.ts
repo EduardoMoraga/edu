@@ -40,3 +40,14 @@ it('prints unsupported custom encoding notices and installs remaining skills thr
     await expect(readFile(join(c.dirs.home, '.agents/skills/edu-brief/SKILL.md'))).rejects.toThrow();
   } finally { await rm(base, { recursive: true, force: true }); }
 });
+it('default one-host setup skips a Codex-only custom bundle without blocking Claude installation', async () => {
+  const c = await captureContext({ detected: ['claude'] }); const base = dirname(c.dirs.home);
+  try {
+    const directory = join(c.dirs.home, '.edu/skills/restricted'); await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'SKILL.md'), '---\nname: restricted\ndescription: Codex only\nbundle:\n  hosts: [codex]\n  requires: [codex]\n---\nBody');
+    await runCli(c, ['setup', '--yes']);
+    expect(c.exitCode).toBeUndefined(); expect(c.stdout.join('\n')).toMatch(/skip.*restricted.*claude/i);
+    await expect(readFile(join(c.dirs.home, '.claude/skills/restricted/SKILL.md'))).rejects.toThrow();
+    expect(await readFile(join(c.dirs.home, '.claude/skills/edu-brief/SKILL.md'), 'utf8')).toContain('name: edu-brief');
+  } finally { await rm(base, { recursive: true, force: true }); }
+});

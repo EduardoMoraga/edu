@@ -163,11 +163,13 @@ it('skips a dangling or directory custom document without falling back to its bu
   plan = await planInstall({ ...options, clis: [...options.clis] });
   expect(plan.notes.join(' ')).toMatch(/skip.*fixture.*symlink/i);
 });
-it('does not soften single-host errors or missing requirements when host filtering is available', async () => {
+it('skips unsupported hosts even in a one-host install and still rejects missing compatible requirements', async () => {
   const f = await fixture(); await fs.mkdir(join(f.base, 'templates/agents')); await fs.writeFile(join(f.base, 'templates/EDU.md'), 'Identity');
   const { planInstall } = await import('./installer.js');
   await fs.writeFile(join(f.source, 'SKILL.md'), f.document([]).replace('bundle:\n', 'bundle:\n  hosts: [codex]\n'));
-  await expect(planInstall({ clis: ['claude'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') })).rejects.toThrow(/host claude/i);
+  const plan = await planInstall({ clis: ['claude'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') });
+  expect(plan.notes.join(' ')).toMatch(/skip.*fixture.*claude/i);
+  await applyInstall(plan); await expect(fs.readFile(join(f.home, '.claude/skills/fixture/SKILL.md'))).rejects.toThrow();
   await fs.writeFile(join(f.source, 'SKILL.md'), f.document([]).replace('bundle:\n', 'bundle:\n  hosts: [codex]\n').replace('node', 'edu-command-does-not-exist'));
   await expect(planInstall({ clis: ['claude', 'codex'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') })).rejects.toThrow(/requirement/i);
 });
@@ -225,4 +227,47 @@ it.each(['.agents', '.edu'])('rejects a configured %s alias inserted after a sta
   await fs.symlink(outside, join(f.home, baseName), 'junction');
   await expect(applyInstall(plan)).rejects.toThrow(/identity changed/i);
   expect(await fs.readdir(outside)).toEqual([]);
+});
+it('removes empty retired owned directories and restores them and files if manifest persistence then fails', async () => {
+  const f = await fixture(['old/deep/helper.mjs']); await applyInstall(await f.plan());
+  const old = join(f.destination, 'old'), manifest = getManifestPath('global', f.root, f.home), prior = await fs.readFile(manifest);
+  await fs.writeFile(join(f.source, 'SKILL.md'), f.document([]));
+  const { FileTransaction } = await import('./operations.js');
+  const transaction = new FileTransaction(); const move = transaction.move.bind(transaction); let sawRemoval = false;
+  transaction.move = async (from, to) => {
+    if (to === manifest) {
+      sawRemoval = !(await fs.stat(old).catch(() => undefined));
+      throw new Error('injected manifest move after retirement');
+    }
+    return move(from, to);
+  };
+  await expect(applyInstall(await f.plan(), { transaction })).rejects.toThrow('injected manifest move');
+  expect(sawRemoval).toBe(true);
+  expect(await fs.readFile(join(old, 'deep/helper.mjs'), 'utf8')).toContain('bundle-ok');
+  expect(await fs.readFile(manifest)).toEqual(prior);
+  await applyInstall(await f.plan()); await expect(fs.stat(old)).rejects.toThrow();
+});
+it('rolls back files and an already removed nested directory when later directory removal fails', async () => {
+  const f = await fixture(['old/deep/helper.mjs']); await applyInstall(await f.plan());
+  const manifest = getManifestPath('global', f.root, f.home), prior = await fs.readFile(manifest);
+  await fs.writeFile(join(f.source, 'SKILL.md'), f.document([]));
+  const { FileTransaction } = await import('./operations.js'); const transaction = new FileTransaction();
+  const remove = transaction.removeEmptyDirectory.bind(transaction); let nestedRemoved = false;
+  transaction.removeEmptyDirectory = async path => {
+    if (path === join(f.destination, 'old')) { nestedRemoved = !(await fs.stat(join(path, 'deep')).catch(() => undefined)); throw new Error('injected directory removal'); }
+    return remove(path);
+  };
+  await expect(applyInstall(await f.plan(), { transaction })).rejects.toThrow('injected directory removal');
+  expect(nestedRemoved).toBe(true);
+  expect(await fs.readFile(join(f.destination, 'old/deep/helper.mjs'), 'utf8')).toContain('bundle-ok');
+  expect(await fs.readFile(manifest)).toEqual(prior);
+});
+
+it('skips unavailable requirements of an unsupported host after structural validation', async () => {
+  const f = await fixture();
+  await fs.writeFile(join(f.source, 'SKILL.md'), f.document([]).replace('bundle:\n', 'bundle:\n  hosts: [codex]\n').replace('node', 'codex'));
+  const notes: string[] = [];
+  const actions = await skillActions('claude', 'global', f.root, { home: f.home, templatesDir: join(f.base, 'templates'), detectBinary: async () => false, notes });
+  expect(actions).toEqual([]); expect(notes.join(' ')).toMatch(/skip.*fixture.*claude/i);
+  await expect(skillActions('codex', 'global', f.root, { home: f.home, templatesDir: join(f.base, 'templates'), detectBinary: async () => false })).rejects.toThrow(/requirement/i);
 });

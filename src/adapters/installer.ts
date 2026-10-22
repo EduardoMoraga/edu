@@ -323,10 +323,13 @@ async function retireAction(action: StoredAction, createdDirs: string[], transac
     }
   }
   if (action.backup) await remove(action.backup).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
-  if (transaction) return;
   // Drop directories Edu created for it once they are empty (e.g. ~/.config/opencode/tui-plugins).
   for (let dir = dirname(action.path); createdDirs.includes(dir); dir = dirname(dir)) {
-    try { await rmdir(dir); } catch { break; }
+    try { if (transaction) await transaction.removeEmptyDirectory(dir); else await rmdir(dir); }
+    catch (error) {
+      if (['ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) break;
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
     createdDirs.splice(createdDirs.indexOf(dir), 1);
   }
 }

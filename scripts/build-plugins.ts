@@ -29,6 +29,8 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
     optional('pi/edu.ts'), optional('pi/edu-theme.json'), optional('opencode/edu-tui.tsx'), optional('opencode/edu-theme.json'),
   ]);
   const generated = new Map<string, string>();
+  const exact = new Set<string>();
+  const addBundle = (path: string, content: string) => { exact.add(path); generated.set(path, content); };
   const add = (path: string, content: string) => generated.set(path, `${content.replace(/\r\n/g, '\n').replace(/\s*$/, '')}\n`);
   const mcp = { command: 'edu', args: ['mcp'] };
   const hook = { hooks: { SessionStart: [{ matcher: 'startup|resume|clear|fork', hooks: [{ type: 'command', command: 'edu hook session-start', timeout: 30 }] }] } };
@@ -52,7 +54,7 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   }
   add('plugins/claude-code/output-styles/edu.md', core);
   for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('claude')) {
-    for (const file of skill.files) generated.set(`plugins/claude-code/skills/${skill.name.replace(/^edu-/, '')}/${file.path}`, file.content);
+    for (const file of skill.files) addBundle(`plugins/claude-code/skills/${skill.name.replace(/^edu-/, '')}/${file.path}`, file.content);
   }
   for (const agent of agents) add(`plugins/claude-code/agents/${agent.name}.md`, claudeAgent(agent));
 
@@ -67,12 +69,12 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   add('plugins/codex/.mcp.json', json({ mcpServers: { edu: mcp } }));
   add('plugins/codex/hooks/hooks.json', json(hook));
   for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('codex')) {
-    for (const file of skill.files) generated.set(`plugins/codex/skills/${skill.name}/${file.path}`, file.content);
+    for (const file of skill.files) addBundle(`plugins/codex/skills/${skill.name}/${file.path}`, file.content);
   }
   for (const agent of agents) add(`plugins/codex/agents/${agent.name}.md`, agent.content);
 
   for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('pi')) {
-    for (const file of skill.files) generated.set(`plugins/pi/skills/${skill.name}/${file.path}`, file.content);
+    for (const file of skill.files) addBundle(`plugins/pi/skills/${skill.name}/${file.path}`, file.content);
   }
   for (const command of commands) add(`plugins/pi/prompts/edu-${command.name}.md`, piPrompt(command));
   add('plugins/pi/extensions/edu.ts', piSource ?? piExtension());
@@ -92,12 +94,12 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   add('plugins/agy/mcp_config.json', json({ mcpServers: { edu: mcp } }));
   add('plugins/agy/rules/edu.md', core);
   for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('agy')) {
-    for (const file of skill.files) generated.set(`plugins/agy/skills/${skill.name}/${file.path}`, file.content);
+    for (const file of skill.files) addBundle(`plugins/agy/skills/${skill.name}/${file.path}`, file.content);
   }
   for (const agent of agents) add(`plugins/agy/agents/${agent.name}.md`, agent.content);
 
   for (const path of ['.claude-plugin', '.agents/plugins', 'plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy', ...generated.keys()]) await assertContained(root, join(root, path));
-  const changed = await findDrift(root, generated);
+  const changed = await findDrift(root, generated, exact);
   if (!options.check) {
     for (const path of generated.keys()) await assertWritableParent(join(root, path));
     for (const dir of ['plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy']) {
@@ -129,13 +131,16 @@ async function assertWritableParent(target: string): Promise<void> {
   }
 }
 
-async function findDrift(root: string, generated: Generated): Promise<string[]> {
+async function findDrift(root: string, generated: Generated, exact: Set<string>): Promise<string[]> {
   const actual = new Map<string, string>();
   const roots = ['.claude-plugin', '.agents/plugins', 'plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy'];
   for (const path of roots) await scan(join(root, path), path, actual);
   const paths = new Set([...actual.keys(), ...generated.keys()]);
   const changed: string[] = [];
-  for (const path of paths) if (actual.get(path) !== generated.get(path)) changed.push(path);
+  for (const path of paths) {
+    const compare = (value: string | undefined) => exact.has(path) ? value : value?.replace(/\r\n/g, '\n');
+    if (compare(actual.get(path)) !== compare(generated.get(path))) changed.push(path);
+  }
   return changed.sort();
 }
 
