@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Real npm install + published 0.10.2 updater + candidate setup/migration, all in temporary homes.
+// Real npm install + published updater + candidate setup/migration, all in temporary homes.
 // The release HTTP metadata and host CLIs are fixtures; npm and both Edu binaries are real.
 import assert from 'node:assert/strict';
 import { access, copyFile, cp, mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
@@ -9,8 +9,8 @@ import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import spawn from 'cross-spawn';
 
-const [oldArg, nextArg] = process.argv.slice(2);
-if (!oldArg || !nextArg) throw new Error('Usage: node scripts/smoke-upgrade.mjs <published-0.10.2.tgz> <candidate.tgz>');
+const [oldArg, nextArg, expectedOldVersion] = process.argv.slice(2);
+if (!oldArg || !nextArg || !expectedOldVersion) throw new Error('Usage: node scripts/smoke-upgrade.mjs <old.tgz> <candidate.tgz> <expected-old-version>');
 const oldPackage = resolve(oldArg), nextPackage = resolve(nextArg);
 const temp = await realpath(await mkdtemp(join(tmpdir(), 'edu upgrade smoke ')));
 const home = join(temp, 'home'), prefix = join(temp, 'prefix'), tools = join(temp, 'tools');
@@ -71,11 +71,12 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
     else await writeFile(join(tools, cli), `#!${process.execPath}\n${body}\n`, { mode: 0o755 });
   }
   run('npm', ['install', '--global', '--prefix', prefix, '--no-fund', '--no-audit', oldPackage]);
-  assert.equal(run(process.execPath, [entry, '--version']), '0.10.2');
-  await put(nativeState, JSON.stringify({ version: '0.10.2', refreshes: 0 }));
+  assert.equal(run(process.execPath, [entry, '--version']), expectedOldVersion);
+  const oldPluginVersion = JSON.parse(await readFile(join(packageRoot, 'plugins/codex/.codex-plugin/plugin.json'), 'utf8')).version;
+  await put(nativeState, JSON.stringify({ version: oldPluginVersion, refreshes: 0 }));
   const oldSource = join(packageRoot, 'plugins', 'codex');
   if (windows) await writeFile(join(oldSource, '.mcp.json'), JSON.stringify({ mcpServers: { edu: { command: 'cmd', args: ['/c', 'edu', 'mcp'] } } }, null, 2) + '\n');
-  await cp(oldSource, join(cacheBase, '0.10.2'), { recursive: true });
+  await cp(oldSource, join(cacheBase, oldPluginVersion), { recursive: true });
   const oldTemplate = await readFile(join(packageRoot, 'templates', 'EDU.md'), 'utf8');
   const identity = oldTemplate.replaceAll('{{name}}', 'Private fixture') + '\nPRIVATE CUSTOM IDENTITY\n';
   await put(join(global, 'EDU.md'), identity);
@@ -96,9 +97,10 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
   const preserved = [note, skill, join(global, 'config.json'), join(project, '.edu', 'config.json'), projectInstructions];
   const before = await Promise.all(preserved.map(async path => [path, await readFile(path, 'utf8')]));
   // Only GitHub's release metadata is substituted. The actual OLD updater installs and verifies the new package,
-  // invokes its setup first, and then invokes its migration hook in the original 0.10.2 order.
+  // runs its own published setup/migration order (0.10.2: setup first; RC: migration first).
   const fixture = join(temp, 'release-fixture.mjs');
   const nextVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
+  assert.equal(nextVersion, '2.1.0', 'This release gate must test the stable 2.1.0 candidate');
   await writeFile(fixture, `const original=globalThis.fetch; globalThis.fetch=async(url,opts)=>String(url).startsWith('https://api.github.com/repos/EduardoMoraga/edu/releases') ? new Response(JSON.stringify({tag_name:${JSON.stringify(`v${nextVersion}`)},name:'Local candidate fixture',body:'Local smoke only; not a published release.',assets:[{name:${JSON.stringify(`edu-agent-${nextVersion}.tgz`)},browser_download_url:${JSON.stringify(nextPackage)}}]}),{status:200,headers:{'content-type':'application/json'}}) : original(url,opts);`);
   const updateOutput = run(process.execPath, ['--import', pathToFileURL(fixture).href, entry, 'update', `v${nextVersion}`]);
   assert.equal(run(process.execPath, [entry, '--version']), nextVersion);
@@ -109,9 +111,11 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
   assert.ok((await readFile(join(global, 'EDU.md'), 'utf8')).includes('PRIVATE CUSTOM IDENTITY'));
   const checkpoint = JSON.parse(await readFile(join(global, 'state', 'upgrade.json'), 'utf8'));
   assert.equal(checkpoint.version, nextVersion);
-  assert.deepEqual(JSON.parse(await readFile(nativeState, 'utf8')), { version: nextVersion, refreshes: 1 });
-  assert.equal(JSON.parse(await readFile(join(cacheBase, nextVersion, '.codex-plugin', 'plugin.json'), 'utf8')).version, nextVersion);
-  if (windows) assert.equal(JSON.parse(await readFile(join(cacheBase, nextVersion, '.mcp.json'), 'utf8')).mcpServers.edu.command, 'cmd');
+  const nextPluginVersion = JSON.parse(await readFile(join(packageRoot, 'plugins/codex/.codex-plugin/plugin.json'), 'utf8')).version;
+  assert.equal(nextPluginVersion, nextVersion, 'Candidate plugin metadata must match the release version');
+  assert.deepEqual(JSON.parse(await readFile(nativeState, 'utf8')), { version: nextPluginVersion, refreshes: 1 });
+  assert.equal(JSON.parse(await readFile(join(cacheBase, nextPluginVersion, '.codex-plugin', 'plugin.json'), 'utf8')).version, nextPluginVersion);
+  if (windows) assert.equal(JSON.parse(await readFile(join(cacheBase, nextPluginVersion, '.mcp.json'), 'utf8')).mcpServers.edu.command, 'cmd');
   const beforeRetry = await readFile(join(global, 'EDU.md'), 'utf8');
   const backupsBefore = await readdir(join(global, 'backups'));
   run(process.execPath, [entry, 'setup', '--yes']);
@@ -122,7 +126,7 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
   assert.deepEqual(await readdir(join(global, 'backups')), backupsBefore, 'repeat migration made unnecessary backups');
   const caps = JSON.parse(run(process.execPath, [entry, 'capabilities', '--json']));
   assert.equal(caps.version, nextVersion); assert.equal(caps.restartRequired, true);
-  console.log(JSON.stringify({ status: 'passed', from: '0.10.2', to: nextVersion, platform: process.platform,
+  console.log(JSON.stringify({ status: 'passed', from: expectedOldVersion, to: nextVersion, oldPluginVersion, nextPluginVersion, platform: process.platform,
     oldAssetSha256: hash(await readFile(oldPackage)), candidateSha256: hash(await readFile(nextPackage)),
     preservedFiles: preserved.length, migrationRepeatable: true, customPointerPreserved: true,
     noUnrequestedProjectIntegration: true, nativeFixtureRefreshes: 1, restartRequired: caps.restartRequired,

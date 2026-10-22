@@ -65,20 +65,29 @@ jobs:
       - name: Smoke install
         run: bash scripts/smoke-install.sh
 
-      - name: Upgrade from the published 0.10.2 package
+      - name: Pack verified candidate
         run: |
-          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
-          curl -fsSL --retry 2 https://github.com/EduardoMoraga/edu/releases/download/v0.10.2/edu-agent-0.10.2.tgz -o "$RUNNER_TEMP/edu-published-0.10.2.tgz"
-          node -e "const fs=require('node:fs'),p=require('node:path'),c=require('node:crypto');if(c.createHash('sha256').update(fs.readFileSync(p.join(process.env.RUNNER_TEMP,'edu-published-0.10.2.tgz'))).digest('hex')!=='0cc31fa000265bd2a4cdba32fa76b558fd741b9d47442954d8f8a9b44fa12fbc')throw Error('Published baseline checksum changed')"
-          CANDIDATE="$(node -p "require('node:path').join(process.env.RUNNER_TEMP, 'edu-agent-' + require('./package.json').version + '.tgz')")"
-          node scripts/smoke-upgrade.mjs "$RUNNER_TEMP/edu-published-0.10.2.tgz" "$CANDIDATE"
+          mkdir -p "$RUNNER_TEMP/edu-candidate"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/edu-candidate"
+          node -e "require('node:fs').appendFileSync(process.env.GITHUB_ENV, 'EDU_CANDIDATE=' + require('node:path').join(process.env.RUNNER_TEMP, 'edu-candidate', 'edu-agent-' + require('./package.json').version + '.tgz') + '\n')"
+
+      - name: Upgrade with both published updaters
+        run: |
+          mkdir -p "$RUNNER_TEMP/edu-baselines"
+          curl -fsSL --retry 2 https://github.com/EduardoMoraga/edu/releases/download/v0.10.2/edu-agent-0.10.2.tgz -o "$RUNNER_TEMP/edu-baselines/0.10.2.tgz"
+          curl -fsSL --retry 2 https://github.com/EduardoMoraga/edu/releases/download/v2.0.0-rc.1/edu-agent-2.0.0-rc.1.tgz -o "$RUNNER_TEMP/edu-baselines/2.0.0-rc.1.tgz"
+          node -e "const fs=require('node:fs'),p=require('node:path'),c=require('node:crypto');for(const [v,h] of Object.entries({'0.10.2':'0cc31fa000265bd2a4cdba32fa76b558fd741b9d47442954d8f8a9b44fa12fbc','2.0.0-rc.1':'45a5f921e65f766aefc6021d1faa8b3af22a2812d8fc2007cc88e12475a7b573'})){if(c.createHash('sha256').update(fs.readFileSync(p.join(process.env.RUNNER_TEMP,'edu-baselines',v+'.tgz'))).digest('hex')!==h)throw Error('Published baseline checksum changed: '+v)}"
+          node scripts/smoke-upgrade.mjs "$RUNNER_TEMP/edu-baselines/0.10.2.tgz" "$EDU_CANDIDATE" 0.10.2
+          node scripts/smoke-upgrade.mjs "$RUNNER_TEMP/edu-baselines/2.0.0-rc.1.tgz" "$EDU_CANDIDATE" 2.0.0-rc.1
+
+      - name: Install from committed source without checkout dependencies
+        run: node scripts/smoke-source.mjs
 
       - name: One-line installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          npm pack --pack-destination $env:RUNNER_TEMP
-          $env:EDU_ASSET = (Get-ChildItem "$env:RUNNER_TEMP\edu-agent-*.tgz").FullName
+          $env:EDU_ASSET = $env:EDU_CANDIDATE
           ./scripts/install.ps1
           edu --version
           node scripts/mcp-smoke.mjs
@@ -86,7 +95,6 @@ jobs:
       - name: One-line installer (macOS/Linux)
         if: runner.os != 'Windows'
         run: |
-          npm pack --pack-destination "$RUNNER_TEMP"
-          EDU_ASSET="$(ls "$RUNNER_TEMP"/edu-agent-*.tgz)" bash scripts/install.sh
+          EDU_ASSET="$EDU_CANDIDATE" bash scripts/install.sh
           edu --version
           node scripts/mcp-smoke.mjs

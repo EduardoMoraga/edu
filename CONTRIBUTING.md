@@ -50,4 +50,20 @@ Use Conventional Commits, for example `feat: add smoke install check` or `fix: p
 
 ## Git installs
 
-`npm i -g github:EduardoMoraga/edu` runs the package `prepare` script. The build uses devDependencies such as `tsup` and `typescript`; npm makes those available during the git install build flow, so the CLI is built before the global `edu` binary is linked.
+For a source checkout, build explicitly before installing a package copy:
+
+```bash
+npm ci --include=dev
+npm run build:plugins -- --check
+npm run build
+npm install --global --install-links .
+```
+
+The package uses `prepack`, not `prepare`. Its build needs development dependencies such as `tsup`.
+`--install-links` copies the package instead of linking the global CLI to the checkout. CI verifies
+this workflow from the exact committed source, moves that source away, then checks the installed
+version, help, capabilities and MCP handshake on Linux, macOS and Windows.
+
+Release validation also runs the real published 0.10.2 and 2.0.0-rc.1 updaters against the built
+candidate. These checks preserve synthetic custom memory, skills, configuration and brain pointers;
+they never inspect a personal brain or execute a paid model.
