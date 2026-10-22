@@ -1,3 +1,4 @@
+import { ProposalBundleSchema, validateSkillBundle } from '../skills/bundle.js';
 import { measuredEngine } from '../engine/measurement.js';
 import { sumUsage } from '../core/usage.js';
 import type { Usage } from '../core/contracts.js';
@@ -15,7 +16,7 @@ const Item = z.object({ title: z.string().min(1), body: z.string().min(1), evide
 export const ReflectionSchema = z.object({
   lessons: z.array(Item), hypotheses: z.array(Item),
   feedback: z.array(z.object({ id: z.string().min(1), helpful: z.boolean() }).strict()),
-  skillProposals: z.array(z.object({ name: z.string().min(1), rationale: z.string().min(1), diff: z.string().optional(), content: z.string().optional() }).strict().refine(value => Boolean(value.content || value.diff), 'Skill proposals require content or a diff')),
+  skillProposals: z.array(ProposalBundleSchema.extend({ name: z.string().min(1), rationale: z.string().min(1), diff: z.string().optional(), content: z.string().optional() }).strict().refine(value => Boolean(value.content || value.diff), 'Skill proposals require content or a diff')),
   canonicalProposals: z.array(z.object({ title: z.string().min(1), body: z.string().min(1), evidence: z.array(z.string()) }).strict()),
 }).strict();
 export type ReflectionOutput = z.infer<typeof ReflectionSchema>;
@@ -145,6 +146,7 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
     for (const item of [...output.lessons, ...output.hypotheses, ...output.canonicalProposals]) {
       for (const id of item.evidence) if (!allowed.has(id)) throw new Error(`Invalid reflection evidence ID: ${id}`);
     }
+    for (const skill of output.skillProposals) for (const id of [...(skill.evidence ?? []), ...(skill.checks ?? []).flatMap(check => check.evidence)]) if (!allowed.has(id)) throw new Error(`Invalid reflection skill evidence ID: ${id}`);
     for (const feedback of output.feedback) {
       const note = allowed.get(feedback.id);
       if (!note || note.meta.tier === 'episodic') throw new Error(`Invalid reflection feedback ID: ${feedback.id}`);
@@ -154,6 +156,12 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
       if (!name || !/[a-z0-9]/.test(name)) throw new Error('Skill proposal name must contain an alphanumeric character.');
       return { ...skill, name };
     });
+    for (const skill of skills) if (skill.files || skill.hashes || skill.evidence || skill.checks || /(?:^|\n)bundle\s*:/.test(skill.content ?? '')) {
+      if (!skill.content) throw new Error('Bundle proposals require a full skill document.');
+      const bundle = await validateSkillBundle({ name: skill.name, content: skill.content, files: skill.files }, { strictDocument: true });
+      for (const id of bundle.metadata.evidence) if (!allowed.has(id)) throw new Error(`Invalid reflection skill evidence ID: ${id}`);
+      for (const [path, expected] of Object.entries(skill.hashes ?? {})) if (!bundle.files.some(file => file.path === path && file.sha256 === expected)) throw new Error(`Proposal hash mismatch: ${path}`);
+    }
     await atomicWrite(journal, JSON.stringify(output));
     // Processing provenance is separate from claim evidence: no citation is invented.
     await atomicWrite(`${journal}.provenance.json`, JSON.stringify({ episodes: [...selected], targets: suppliedTargets.map(note => note.id) }));

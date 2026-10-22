@@ -1,3 +1,4 @@
+import { assertContained, readSkillBundle, type SkillBundle } from '../src/skills/bundle.ts';
 import { access, readdir, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -50,7 +51,9 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
     add('plugins/claude-code/types/index.d.ts', deck.deckState);
   }
   add('plugins/claude-code/output-styles/edu.md', core);
-  for (const skill of skills) add(`plugins/claude-code/skills/${skill.name.replace(/^edu-/, '')}/SKILL.md`, skill.content);
+  for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('claude')) {
+    for (const file of skill.files) generated.set(`plugins/claude-code/skills/${skill.name.replace(/^edu-/, '')}/${file.path}`, file.content);
+  }
   for (const agent of agents) add(`plugins/claude-code/agents/${agent.name}.md`, claudeAgent(agent));
 
   add('plugins/codex/.codex-plugin/plugin.json', json({
@@ -63,10 +66,14 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   // tools that start other agents still ask. Never opt the whole server into auto-approval.
   add('plugins/codex/.mcp.json', json({ mcpServers: { edu: mcp } }));
   add('plugins/codex/hooks/hooks.json', json(hook));
-  for (const skill of skills) add(`plugins/codex/skills/${skill.name}/SKILL.md`, skill.content);
+  for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('codex')) {
+    for (const file of skill.files) generated.set(`plugins/codex/skills/${skill.name}/${file.path}`, file.content);
+  }
   for (const agent of agents) add(`plugins/codex/agents/${agent.name}.md`, agent.content);
 
-  for (const skill of skills) add(`plugins/pi/skills/${skill.name}/SKILL.md`, skill.content);
+  for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('pi')) {
+    for (const file of skill.files) generated.set(`plugins/pi/skills/${skill.name}/${file.path}`, file.content);
+  }
   for (const command of commands) add(`plugins/pi/prompts/edu-${command.name}.md`, piPrompt(command));
   add('plugins/pi/extensions/edu.ts', piSource ?? piExtension());
   add('plugins/pi/extensions/edu-skills.ts', piSkillsExtension());
@@ -84,9 +91,12 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   add('plugins/agy/plugin.json', json({ name: 'edu', version: pkg.version, description: DESCRIPTION }));
   add('plugins/agy/mcp_config.json', json({ mcpServers: { edu: mcp } }));
   add('plugins/agy/rules/edu.md', core);
-  for (const skill of skills) add(`plugins/agy/skills/${skill.name}/SKILL.md`, skill.content);
+  for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('agy')) {
+    for (const file of skill.files) generated.set(`plugins/agy/skills/${skill.name}/${file.path}`, file.content);
+  }
   for (const agent of agents) add(`plugins/agy/agents/${agent.name}.md`, agent.content);
 
+  for (const path of ['.claude-plugin', '.agents/plugins', 'plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy', ...generated.keys()]) await assertContained(root, join(root, path));
   const changed = await findDrift(root, generated);
   if (!options.check) {
     for (const path of generated.keys()) await assertWritableParent(join(root, path));
@@ -95,6 +105,7 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
     }
     for (const [path, content] of generated) {
       const target = join(root, path);
+      await assertContained(root, target);
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, content);
     }
@@ -136,7 +147,7 @@ async function scan(directory: string, relative: string, files: Map<string, stri
     const path = join(directory, entry.name);
     const key = join(relative, entry.name).replaceAll('\\', '/');
     if (entry.isDirectory()) await scan(path, key, files);
-    else if (entry.isFile()) files.set(key, (await readFile(path, 'utf8')).replace(/\r\n/g, '\n'));
+    else if (entry.isFile()) files.set(key, await readFile(path, 'utf8'));
   }
 }
 
@@ -153,15 +164,15 @@ async function readMarkdown(directory: string): Promise<Array<{ name: string; co
   return result;
 }
 
-async function readSkills(directory: string): Promise<Array<{ name: string; content: string }>> {
+async function readSkills(directory: string): Promise<SkillBundle[]> {
   let names: string[];
   try { names = await readdir(directory); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
-  const result = [];
+  const result: SkillBundle[] = [];
   for (const name of names.sort()) {
-    const path = join(directory, name, 'SKILL.md');
-    try { result.push({ name, content: await readFile(path, 'utf8') }); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    try { await access(join(directory, name, 'SKILL.md')); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
+    result.push(await readSkillBundle(join(directory, name), name, { anchor: directory }));
   }
   return result;
 }

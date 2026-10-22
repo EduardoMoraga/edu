@@ -1,3 +1,4 @@
+import { assertContained, readSkillBundle } from '../skills/bundle.js';
 import { access, readdir, readFile, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
@@ -39,19 +40,24 @@ async function exists(path: string): Promise<boolean> {
 export async function skillActions(cli: CliId, scope: InstallScope, root: string, options: IntegrationOptions): Promise<PlannedAction[]> {
   const destination = pathsFor(cli, scope, root, options.home).skills;
   const brain = join(scope === 'project' ? root : options.home, '.edu/skills');
-  const sources = [join(options.templatesDir, 'skills'), brain];
-  const skills = new Map<string, string>();
+  const sources = [{ root: join(options.templatesDir, 'skills'), anchor: options.templatesDir }, { root: brain, anchor: scope === 'project' ? root : options.home }];
+  const skills = new Map<string, PlannedAction[]>();
   for (const source of sources) {
-    if (!await exists(source)) continue;
-    for (const name of await readdir(source)) {
+    if (!await exists(source.root)) continue;
+    await assertContained(source.anchor, source.root);
+    for (const name of (await readdir(source.root)).sort()) {
       if (!/^[a-zA-Z0-9][\w-]*$/.test(name)) continue;
-      const file = join(source, name, 'SKILL.md');
-      if (await exists(file)) skills.set(name, await readFile(file, 'utf8'));
+      const directory = join(source.root, name), file = join(directory, 'SKILL.md');
+      if (!await exists(file)) continue;
+      const bundle = await readSkillBundle(directory, name, { anchor: source.anchor, host: cli, hasCommand: options.detectBinary });
+      skills.set(name, bundle.files.map(file => ({
+        cli, kind: 'file', path: join(destination, name, file.path), description: `Install ${name} skill bundle ${file.path}`, content: file.content,
+        bundle: { name, root: join(destination, name), anchor: scope === 'project' ? root : options.home, scope, relative: file.path,
+          source: { path: join(directory, file.path), anchor: source.anchor, sha256: file.sha256 } },
+      })));
     }
   }
-  return [...skills].map(([name, content]) => ({
-    cli, kind: 'file' as const, path: join(destination, name, 'SKILL.md'), description: `Install ${name} skill`, content,
-  }));
+  return [...skills.values()].flat();
 }
 
 export interface AgentTemplate { name: string; description: string; tools: string; prompt: string }

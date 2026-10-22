@@ -244,3 +244,30 @@ it.each([
   await applySetup(plan, { runner, brainRoot, platform });
   expect(calls.every(c => c === 'list' || c.startsWith('plugin list'))).toBe(true);
 });
+
+it('upgrades a pristine owned skill with new declared helpers, retires old helpers and refuses custom collisions', async () => {
+  const { home, brainRoot } = await fixture();
+  const { applyInstall } = await import('../adapters/installer.js');
+  const { skillActions } = await import('../adapters/common.js');
+  const templatesDir = join(home, 'bundle-templates'), source = join(templatesDir, 'skills/edu-bundle'), destination = join(home, '.claude/skills/edu-bundle');
+  await mkdir(source, { recursive: true });
+  const document = (file: string) => `---\nname: edu-bundle\ndescription: Bundle\nbundle:\n  files:\n    - path: ${file}\n---\nUse the helper.\n`;
+  // Start from a legacy, individually owned SKILL.md with no bundle metadata.
+  const old = 'Legacy managed document';
+  await applyInstall({ scope: 'global', root: process.cwd(), home, templatesDir, notes: [], actions: [{ cli: 'claude', kind: 'file', path: join(destination, 'SKILL.md'), content: old, description: 'skill' }] });
+  await writeFile(join(source, 'SKILL.md'), document('old.mjs')); await writeFile(join(source, 'old.mjs'), 'console.log("old")');
+  const runner: SetupRunner = async () => ({ exitCode: 0 });
+  const upgrade = async () => applySetup(await planSetup({ home, packageRoot: process.cwd(), clis: ['claude'], runner }), { runner, brainRoot, templatesDir });
+  await upgrade(); expect(await readFile(join(destination, 'old.mjs'), 'utf8')).toContain('old');
+  await writeFile(join(source, 'SKILL.md'), document('new.mjs')); await writeFile(join(source, 'new.mjs'), 'console.log("new")');
+  await upgrade();
+  await expect(readFile(join(destination, 'old.mjs'))).rejects.toThrow();
+  expect(await readFile(join(destination, 'new.mjs'), 'utf8')).toContain('new');
+  await writeFile(join(source, 'SKILL.md'), document('custom.mjs')); await writeFile(join(source, 'custom.mjs'), 'managed');
+  await writeFile(join(destination, 'custom.mjs'), 'CUSTOM');
+  const before = await readFile(join(destination, 'SKILL.md'));
+  await expect(upgrade()).rejects.toThrow(/manual conflict|unowned/i);
+  expect(await readFile(join(destination, 'SKILL.md'))).toEqual(before);
+  expect(await readFile(join(destination, 'custom.mjs'), 'utf8')).toBe('CUSTOM');
+  expect((await skillActions('claude', 'global', process.cwd(), { home, templatesDir })).some(a => a.path.endsWith('custom.mjs'))).toBe(true);
+});

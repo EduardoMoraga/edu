@@ -1,3 +1,4 @@
+import { assertContained } from '../skills/bundle.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
@@ -10,12 +11,12 @@ import { createCodexIntegration } from './codex.js';
 import { createPiIntegration } from './pi.js';
 import { createOpenCodeIntegration } from './opencode.js';
 import { createAgyIntegration } from './agy.js';
-import { ensureParents, materialize, readTarget, sha256 } from './operations.js';
+import { ensureParents, materialize, readTarget, sha256, FileTransaction, validateBundleAction } from './operations.js';
 import { removeManagedBlock } from './blocks.js';
 import { containsPatch, parseJsonFile, unmergeJsonFile, unmergeToml } from './merge.js';
 import { CLI_IDS, type InstallPlan, type PlannedAction, type RetiredAction } from './types.js';
 
-interface StoredAction extends InstallAction { clis?: CliId[]; shared?: boolean; jsonPatch?: Record<string, unknown>; tomlBody?: string }
+interface StoredAction extends InstallAction { bundle?: Omit<NonNullable<PlannedAction['bundle']>, 'source'>; clis?: CliId[]; shared?: boolean; jsonPatch?: Record<string, unknown>; tomlBody?: string }
 interface StoredManifest extends InstallManifest { actions: StoredAction[]; createdDirs?: string[]; home?: string }
 interface SharedTarget { sha256: string; owners: string[]; backup?: string }
 interface SharedRegistry { version: 1; targets: Record<string, SharedTarget>; createdDirs: string[] }
@@ -51,16 +52,16 @@ async function loadSharedRegistry(home: string): Promise<SharedRegistry> {
   return value as SharedRegistry;
 }
 
-async function saveSharedRegistry(home: string, registry: SharedRegistry): Promise<void> {
+async function saveSharedRegistry(home: string, registry: SharedRegistry, transaction?: FileTransaction): Promise<void> {
   const path = sharedRegistryPath(home);
   if (!Object.keys(registry.targets).length) {
-    await unlink(path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+    await (transaction ? transaction.remove(path) : unlink(path)).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
     return;
   }
-  await ensureParents(path, registry.createdDirs);
+  await ensureParents(path, registry.createdDirs, transaction);
   const temp = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temp, `${JSON.stringify(registry, null, 2)}\n`);
-  await rename(temp, path);
+  await (transaction ? transaction.write(temp, `${JSON.stringify(registry, null, 2)}\n`) : writeFile(temp, `${JSON.stringify(registry, null, 2)}\n`));
+  await (transaction ? transaction.move(temp, path) : rename(temp, path));
 }
 
 export interface PlanInstallOptions {
@@ -143,11 +144,28 @@ async function loadManifest(path: string): Promise<StoredManifest | undefined> {
 }
 
 function publicAction(action: PlannedAction, hash: string, backup?: string, shared = false): StoredAction {
-  return { cli: action.cli, clis: action.clis ?? [action.cli], kind: action.kind, path: action.path, description: action.description, sha256: hash, ...(backup ? { backup } : {}), ...(shared ? { shared: true } : {}), ...(action.jsonPatch ? { jsonPatch: action.jsonPatch } : {}), ...(action.tomlBody ? { tomlBody: action.tomlBody } : {}) };
+  return { ...(action.bundle ? { bundle: { name: action.bundle.name, root: action.bundle.root, anchor: action.bundle.anchor, scope: action.bundle.scope, relative: action.bundle.relative } } : {}), cli: action.cli, clis: action.clis ?? [action.cli], kind: action.kind, path: action.path, description: action.description, sha256: hash, ...(backup ? { backup } : {}), ...(shared ? { shared: true } : {}), ...(action.jsonPatch ? { jsonPatch: action.jsonPatch } : {}), ...(action.tomlBody ? { tomlBody: action.tomlBody } : {}) };
 }
 
-export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> {
-  const manifestPath = getManifestPath(plan.scope, plan.root, plan.home);
+export async function applyInstall(plan: InstallPlan, options: { manifestPath?: string; transaction?: FileTransaction } = {}): Promise<InstallManifest> {
+  const transaction = options.transaction ?? new FileTransaction();
+  try { return await applyPreparedInstall(plan, transaction, options.manifestPath); }
+  catch (error) {
+    try { await transaction.rollback(); } catch (rollback) { throw new AggregateError([error, rollback], 'Installation failed and rollback incomplete'); }
+    throw error;
+  }
+}
+
+async function applyPreparedInstall(plan: InstallPlan, transaction: FileTransaction, explicitManifest?: string): Promise<InstallManifest> {
+  const manifestPath = explicitManifest ?? getManifestPath(plan.scope, plan.root, plan.home);
+  transaction.anchors.add(resolve(plan.root));
+  transaction.anchors.add(resolve(plan.home));
+  await assertContained(plan.scope === 'project' ? plan.root : plan.home, manifestPath);
+  await assertContained(plan.home, sharedRegistryPath(plan.home));
+  for (const action of plan.actions) {
+    if (action.bundle && action.bundle.anchor !== (plan.scope === 'project' ? plan.root : plan.home)) throw new Error('Bundle anchor does not match install scope');
+    await validateBundleAction(action);
+  }
   const previous = await loadManifest(manifestPath);
   if (previous && previous.scope !== plan.scope) throw new Error('Existing manifest has a different scope');
   const shared = await loadSharedRegistry(plan.home);
@@ -160,7 +178,9 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
     if (conflict) throw new Error(`Target already managed by ${otherScope} installation: ${conflict.path}`);
   }
   const planned = new Set(plan.actions.map(action => action.path));
-  const retiring = (previous?.actions ?? []).filter(action => !planned.has(action.path) && isRetired(action, plan.retire ?? []));
+  const bundleRoots = new Set(plan.actions.flatMap(action => action.bundle ? [action.bundle.root] : []));
+  const retiring = (previous?.actions ?? []).filter(action => !planned.has(action.path) && (isRetired(action, plan.retire ?? []) || (action.bundle && bundleRoots.has(action.bundle.root))));
+  for (const action of retiring) if (action.bundle) await validateBundleAction(action as PlannedAction);
   const existing = new Map((previous?.actions ?? []).map(action => [`${action.kind}:${action.path}`, action]));
   // Refuse drift before any write, including actions omitted from a repeat install.
   for (const action of previous?.actions ?? []) {
@@ -175,6 +195,7 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
     paths.add(action.path);
     const before = await readTarget(action.path);
     const after = materialize(action, before);
+    if (action.bundle && before !== undefined && !existing.has(`${action.kind}:${action.path}`)) throw new Error(`Unowned bundle target collision: ${action.path}`);
     const owner = shared.targets[action.path];
     if (isSharedTarget(action.path, plan.home) && owner) {
       if (!before || sha256(before) !== owner.sha256) throw new Error(`Edu installation drift: ${action.path}`);
@@ -192,6 +213,7 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
   const legacyBackups: string[] = [];
   let sharedChanged = false;
   for (const [index, { action, before, after, prior }] of prepared.entries()) {
+    await validateBundleAction(action);
     const key = `${action.kind}:${action.path}`;
     if (isSharedTarget(action.path, plan.home)) {
       let target = shared.targets[action.path];
@@ -200,20 +222,20 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
         let backup: string | undefined;
         if (prior?.backup) {
           backup = join(plan.home, '.edu/shared-backups', `${backupStamp}-${index}-${basename(action.path)}`);
-          await ensureParents(backup, shared.createdDirs);
-          await writeFile(backup, await readFile(prior.backup));
+          await ensureParents(backup, shared.createdDirs, transaction);
+          await transaction.write(backup, await readFile(prior.backup));
           legacyBackups.push(prior.backup);
         } else if (before) {
           backup = join(plan.home, '.edu/shared-backups', `${backupStamp}-${index}-${basename(action.path)}`);
-          await ensureParents(backup, shared.createdDirs);
-          await writeFile(backup, before);
+          await ensureParents(backup, shared.createdDirs, transaction);
+          await transaction.write(backup, before);
         }
         target = { sha256: sha256(after), owners: [], ...(backup ? { backup } : {}) };
         shared.targets[action.path] = target;
       }
       if (!before?.equals(after)) {
-        await ensureParents(action.path, shared.createdDirs);
-        await writeFile(action.path, after);
+        await ensureParents(action.path, shared.createdDirs, transaction);
+        await transaction.write(action.path, after);
         target.sha256 = sha256(after);
       }
       if (!target.owners.includes(manifestPath)) target.owners.push(manifestPath);
@@ -235,29 +257,31 @@ export async function applyInstall(plan: InstallPlan): Promise<InstallManifest> 
     let backup = prior?.backup;
     if (before && !prior) {
       backup = join(dirname(manifestPath), 'backups', backupStamp, `${index}-${basename(action.path)}`);
-      await ensureParents(backup, createdDirs);
-      await writeFile(backup, before);
+      await ensureParents(backup, createdDirs, transaction);
+      await transaction.write(backup, before);
     }
-    await ensureParents(action.path, createdDirs);
-    await writeFile(action.path, after);
+    await ensureParents(action.path, createdDirs, transaction);
+    await transaction.write(action.path, after);
     const owners = [...new Set([...(prior?.clis ?? (prior ? [prior.cli] : [])), ...(action.clis ?? [action.cli])])];
     const saved = publicAction({ ...action, clis: owners }, sha256(after), backup);
     const oldIndex = nextActions.findIndex(item => `${item.kind}:${item.path}` === key);
     if (oldIndex >= 0) nextActions[oldIndex] = saved;
     else nextActions.push(saved);
   }
-  for (const action of retiring) await retireAction(action, createdDirs);
+  for (const action of retiring) await retireAction(action, createdDirs, transaction);
   const manifest: StoredManifest = {
     version: 1, eduVersion: pkg.version, installedAt: previous?.installedAt ?? new Date().toISOString(),
     scope: plan.scope, actions: nextActions, createdDirs, home: plan.home,
   };
-  await ensureParents(manifestPath, createdDirs);
+  await ensureParents(manifestPath, createdDirs, transaction);
   manifest.createdDirs = createdDirs;
-  if (sharedChanged) await saveSharedRegistry(plan.home, shared);
+  if (sharedChanged) await saveSharedRegistry(plan.home, shared, transaction);
+  const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
+  if ((await readTarget(manifestPath))?.toString('utf8') === serialized) return manifest;
   const temp = `${manifestPath}.${randomUUID()}.tmp`;
-  await writeFile(temp, `${JSON.stringify(manifest, null, 2)}\n`);
-  await rename(temp, manifestPath);
-  for (const backup of legacyBackups) await unlink(backup);
+  await transaction.write(temp, serialized);
+  await transaction.move(temp, manifestPath);
+  for (const backup of legacyBackups) await transaction.remove(backup);
   return manifest;
 }
 
@@ -271,21 +295,25 @@ function isRetired(action: StoredAction, retire: RetiredAction[]): boolean {
  * still byte-identical to what Edu wrote, a JSON merge loses only Edu's keys or entries (comments in
  * JSONC kept), and anything missing or unparseable is left alone. Its backup is dropped either way.
  */
-async function retireAction(action: StoredAction, createdDirs: string[]): Promise<void> {
+async function retireAction(action: StoredAction, createdDirs: string[], transaction?: FileTransaction): Promise<void> {
+  if (action.bundle) await validateBundleAction(action as PlannedAction);
+  const write = transaction ? transaction.write.bind(transaction) : writeFile;
+  const remove = transaction ? transaction.remove.bind(transaction) : unlink;
   const current = await readTarget(action.path).catch(() => undefined);
   if (current && action.kind === 'file' && action.sha256 && sha256(current) === action.sha256) {
-    if (action.backup) await writeFile(action.path, await readFile(action.backup));
-    else await unlink(action.path);
+    if (action.backup) await write(action.path, await readFile(action.backup));
+    else await remove(action.path);
   } else if (current && action.kind === 'json-merge' && action.jsonPatch) {
     let remaining: string | undefined;
     try { remaining = unmergeJsonFile(action.path, current.toString('utf8'), action.jsonPatch); } catch { /* Not ours to repair. */ }
     if (remaining !== undefined && remaining !== current.toString('utf8')) {
       // Delete only a plain-JSON file Edu created that held nothing else; never one with user comments.
-      if (!action.backup && isPlainJson(current.toString('utf8')) && isEmptyJson(remaining)) await unlink(action.path);
-      else await writeFile(action.path, remaining);
+      if (!action.backup && isPlainJson(current.toString('utf8')) && isEmptyJson(remaining)) await remove(action.path);
+      else await write(action.path, remaining);
     }
   }
-  if (action.backup) await unlink(action.backup).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+  if (action.backup) await remove(action.backup).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+  if (transaction) return;
   // Drop directories Edu created for it once they are empty (e.g. ~/.config/opencode/tui-plugins).
   for (let dir = dirname(action.path); createdDirs.includes(dir); dir = dirname(dir)) {
     try { await rmdir(dir); } catch { break; }
@@ -296,6 +324,7 @@ async function retireAction(action: StoredAction, createdDirs: string[]): Promis
 export async function uninstall(options: { manifestPath: string; force?: boolean }): Promise<void> {
   const manifest = await loadManifest(options.manifestPath);
   if (!manifest) throw new Error(`Edu manifest not found: ${options.manifestPath}`);
+  for (const action of manifest.actions) if (action.bundle) await validateBundleAction(action as PlannedAction);
   if (options.force) {
     for (const action of manifest.actions) {
       if (action.kind !== 'json-merge' || action.jsonPatch) continue;

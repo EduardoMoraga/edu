@@ -163,3 +163,19 @@ describe('generated frontmatter', () => {
     expect(checked).toBeGreaterThan(0);
   });
 });
+
+it('ships declared helper bytes and rejects missing helpers before replacing generated output', async () => {
+  const root = await fixture();
+  await mkdir(join(root, 'templates/skills/edu-brief/scripts'));
+  const helper = 'console.log("plugin-helper-ok")';
+  const document = '---\nname: edu-brief\ndescription: Brief\nbundle:\n  files:\n    - path: scripts/helper.mjs\n---\nUse [helper](scripts/helper.mjs).\n';
+  await writeFile(join(root, 'templates/skills/edu-brief/SKILL.md'), document);
+  await writeFile(join(root, 'templates/skills/edu-brief/scripts/helper.mjs'), helper);
+  await buildPlugins(root);
+  for (const path of ['claude-code/skills/brief', 'codex/skills/edu-brief', 'pi/skills/edu-brief', 'agy/skills/edu-brief']) expect(await readFile(join(root, 'plugins', path, 'scripts/helper.mjs'), 'utf8')).toBe(helper);
+  const { execFileSync } = await import('node:child_process');
+  expect(execFileSync(process.execPath, [join(root, 'plugins/codex/skills/edu-brief/scripts/helper.mjs')], { encoding: 'utf8' }).trim()).toBe('plugin-helper-ok');
+  await rm(join(root, 'templates/skills/edu-brief/scripts/helper.mjs'));
+  await expect(buildPlugins(root)).rejects.toThrow();
+  expect(await readFile(join(root, 'plugins/codex/skills/edu-brief/scripts/helper.mjs'), 'utf8')).toBe(helper);
+});

@@ -3,6 +3,7 @@ import type { CliId, InstallAction, InstallScope } from '../core/contracts.js';
 export interface PlannedAction extends InstallAction {
   clis?: CliId[];
   content?: string;
+  bundle?: { name: string; root: string; anchor: string; scope: InstallScope; relative: string; source?: { path: string; anchor: string; sha256: string } };
   jsonPatch?: Record<string, unknown>;
   tomlBody?: string;
 }

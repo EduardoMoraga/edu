@@ -1,6 +1,7 @@
+import { assertContained, portablePath } from '../skills/bundle.js';
 import { createHash } from 'node:crypto';
-import { access, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { access, lstat, mkdir, readFile, writeFile, rename, unlink, rmdir, chmod } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
 import type { InstallAction } from '../core/contracts.js';
 import type { PlannedAction } from './types.js';
 import { upsertManagedBlock } from './blocks.js';
@@ -30,7 +31,7 @@ export function materialize(action: PlannedAction, before: Buffer | undefined): 
   }
 }
 
-export async function ensureParents(path: string, createdDirs: string[]): Promise<void> {
+export async function ensureParents(path: string, createdDirs: string[], transaction?: FileTransaction): Promise<void> {
   const missing: string[] = [];
   let dir = dirname(path);
   while (true) {
@@ -44,12 +45,19 @@ export async function ensureParents(path: string, createdDirs: string[]): Promis
   }
   for (const next of missing.reverse()) {
     await mkdir(next);
+    transaction?.createdDirs.add(next);
     if (!createdDirs.includes(next)) createdDirs.push(next);
   }
 }
 
 /** Direct CliIntegration.apply support; the orchestrated installer owns durable manifests. */
 export async function applyStandaloneActions(actions: PlannedAction[], home: string): Promise<InstallAction[]> {
+  const bundle = actions.find(action => action.bundle)?.bundle;
+  if (bundle) {
+    const { applyInstall, resolveTemplatesDir } = await import('./installer.js');
+    const manifest = await applyInstall({ scope: bundle.scope, root: bundle.anchor, home, templatesDir: resolveTemplatesDir(), notes: [], actions });
+    return manifest.actions.filter(action => actions.some(planned => planned.path === action.path));
+  }
   const result: InstallAction[] = [];
   const created: string[] = [];
   for (const [index, action] of actions.entries()) {
@@ -67,4 +75,54 @@ export async function applyStandaloneActions(actions: PlannedAction[], home: str
     result.push({ cli: action.cli, kind: action.kind, path: action.path, description: action.description, sha256: sha256(after), backup });
   }
   return result;
+}
+
+/** In-process rollback records every changed file, including manifests, staging files and backups. */
+export class FileTransaction {
+  private before = new Map<string, { content: Buffer; mode: number } | undefined>();
+  readonly createdDirs = new Set<string>();
+  readonly anchors = new Set<string>();
+  private async check(path: string): Promise<void> {
+    if (!this.anchors.size) return;
+    const absolute = resolve(path);
+    const anchor = [...this.anchors].filter(root => absolute === root || absolute.startsWith(root + sep)).sort((a, b) => b.length - a.length)[0];
+    if (!anchor) throw new Error(`Installer path escapes containment: ${path}`);
+    await assertContained(anchor, absolute);
+  }
+  private async capture(path: string): Promise<void> {
+    await this.check(path);
+    if (this.before.has(path)) return;
+    const content = await readTarget(path);
+    this.before.set(path, content === undefined ? undefined : { content, mode: (await lstat(path)).mode & 0o777 });
+  }
+  async write(path: string, content: Buffer | string): Promise<void> { await this.capture(path); await writeFile(path, content); }
+  async remove(path: string): Promise<void> { await this.capture(path); await unlink(path); }
+  async move(from: string, to: string): Promise<void> { await this.capture(from); await this.capture(to); await rename(from, to); }
+  async rollback(): Promise<void> {
+    const failures: unknown[] = [];
+    for (const [path, before] of [...this.before].reverse()) {
+      try {
+        await this.check(path);
+        if (before) { await writeFile(path, before.content); await chmod(path, before.mode); }
+        else await unlink(path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+      } catch (error) { failures.push(error); }
+    }
+    for (const path of [...this.createdDirs].reverse()) await rmdir(path).catch(error => { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) failures.push(error); });
+    this.before.clear(); this.createdDirs.clear();
+    if (failures.length) throw new AggregateError(failures, 'Installation rollback incomplete');
+  }
+}
+
+export async function validateBundleAction(action: PlannedAction): Promise<void> {
+  if (!action.bundle) return;
+  const { root, anchor, relative, source } = action.bundle;
+  portablePath(relative);
+  if (action.kind !== 'file' || action.path !== join(root, relative)) throw new Error(`Invalid bundle target: ${action.path}`);
+  await assertContained(anchor, root);
+  await assertContained(anchor, action.path);
+  if (source) {
+    await assertContained(source.anchor, source.path);
+    const current = await readTarget(source.path);
+    if (!current || sha256(current) !== source.sha256 || sha256(action.content ?? '') !== source.sha256) throw new Error(`Bundle source changed after planning: ${source.path}`);
+  }
 }
