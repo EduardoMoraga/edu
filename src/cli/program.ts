@@ -14,6 +14,7 @@ import { registerDeck } from './commands/deck.js';
 import { registerDoctor } from './commands/doctor.js';
 import { registerDetach } from './commands/detach.js';
 import { registerEvidence } from './commands/evidence.js';
+import { registerExperiment } from './commands/experiment.js';
 import { registerEvaluation } from './commands/eval.js';
 import { registerIntegrations } from './commands/integrations.js';
 import { registerLearn } from './commands/learn.js';
@@ -30,7 +31,7 @@ import { packageVersion } from './package.js';
 
 const GROUPS: Array<[string, string[]]> = [
   ['Get started:', ['create', 'init', 'vault', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities']],
-  ['Work:', ['run', 'ui', 'demo', 'deck']],
+  ['Work:', ['run', 'ui', 'demo', 'deck', 'experiment']],
   ['Brain:', ['brief', 'brain', 'context', 'reflect', 'proposals', 'metrics', 'checks', 'eval']],
   ['Integrations:', ['mcp', 'connect', 'statusline', 'hook']],
 ];
@@ -86,6 +87,7 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerDetach(program, ctx);
   registerEvidence(program, ctx);
   registerEvaluation(program, ctx);
+  registerExperiment(program, ctx);
   registerCapabilities(program, ctx);
   registerIntegrations(program, ctx);
   registerMcpProject(program, ctx);
