@@ -143,3 +143,13 @@ describe('bounded local consolidation', () => {
     expect((await consolidatePending(brain, root)).busy).toBe(false);
   });
 });
+it('journals a structurally valid proposal despite unavailable local requirements and never repeats the model', async () => {
+  const { brain, root } = await fixture(); let invocations = 0;
+  const content = '---\nname: proposed\ndescription: Review this\nbundle:\n  requires: [edu-nonexistent-fixture-command]\n---\nBody';
+  const output = { ...empty, skillProposals: [{ name: 'proposed', rationale: 'reason', content }] };
+  const input = { brain, brainRoot: root, engine: engine(output, async () => { invocations++; }) };
+  const first = await reflect(input); await reflect(input);
+  expect(invocations).toBe(1);
+  expect((await listProposals(brain, root)).find(p => p.id === first.skillProposals[0]?.id)?.content).toBe(content);
+  await expect(acceptProposal(brain, first.skillProposals[0]!.id, root)).rejects.toThrow(/requirement/i);
+});

@@ -1,9 +1,9 @@
 /** Declared UTF-8 skill bundles. Validation never executes helpers or scans undeclared files. */
 import { createHash } from 'node:crypto';
-import { access, lstat, readFile, stat } from 'node:fs/promises';
+import { access, lstat, readFile, stat, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { parse } from 'yaml';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isMap, isScalar, parseDocument } from 'yaml';
 import { z } from 'zod';
 import type { CliId } from '../core/contracts.js';
 
@@ -29,7 +29,7 @@ export interface SkillBundle {
   metadata: z.infer<typeof BundleMetadataSchema>;
   files: Array<{ path: string; content: string; sha256: string }>;
 }
-export interface BundleOptions { host?: CliId; hasCommand?: (name: string) => Promise<boolean>; strictDocument?: boolean; anchor?: string }
+export interface BundleOptions { host?: CliId; hasCommand?: (name: string) => Promise<boolean>; strictDocument?: boolean; anchor?: string; checkRequirements?: boolean }
 
 export function portablePath(path: string): string {
   const parts = path.split('/');
@@ -37,17 +37,28 @@ export function portablePath(path: string): string {
   return path;
 }
 
-/** The anchor is caller-owned. Every existing descendant must be regular and contain no symlink. */
+/** Only a caller-owned anchor may be an intentional alias. Descendants never may. */
+export class UnsupportedSkillPathError extends Error {}
+async function canonicalAnchor(anchor: string): Promise<string> {
+  try { return await realpath(anchor); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || dirname(anchor) === anchor) throw error;
+    return join(await canonicalAnchor(dirname(anchor)), relative(dirname(anchor), anchor));
+  }
+}
 export async function assertContained(anchor: string, target: string): Promise<void> {
-  const root = resolve(anchor), path = resolve(target), rel = relative(root, path);
+  const lexicalRoot = resolve(anchor), path = resolve(target), rel = relative(lexicalRoot, path);
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error(`Bundle path escapes containment: ${target}`);
+  const root = await canonicalAnchor(lexicalRoot);
   let current = root;
   const parts = rel ? rel.split(sep) : [];
   for (let i = -1; i < parts.length; i++) {
     if (i >= 0) current = join(current, parts[i]!);
     try {
-      const stat = await lstat(current);
-      if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile()) || (i < parts.length - 1 && !stat.isDirectory())) throw new Error(`Refusing symlink or non-regular bundle path: ${current}`);
+      const info = await lstat(current);
+      if (info.isSymbolicLink() || (!info.isDirectory() && !info.isFile()) || (i < parts.length - 1 && !info.isDirectory())) throw new UnsupportedSkillPathError(`Refusing symlink or non-regular bundle path: ${current}`);
+      const actual = await realpath(current), actualRel = relative(root, actual);
+      if (actualRel === '..' || actualRel.startsWith(`..${sep}`) || isAbsolute(actualRel)) throw new Error(`Bundle path escapes real containment: ${current}`);
     } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
   }
 }
@@ -67,15 +78,36 @@ function text(value: string, path: string, limit = BUNDLE_LIMITS.fileBytes): str
 function metadata(name: string, content: string, strict = false): { bundle: SkillBundle['metadata']; declared: boolean } {
   portablePath(name);
   if (name.includes('/')) throw new Error('Skill name must be a single portable segment.');
-  text(content, 'SKILL.md', BUNDLE_LIMITS.documentBytes);
-  if (!content.trim()) throw new Error('Skill document must not be empty.');
   const match = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$/.exec(content);
-  const front: unknown = match ? parse(match[1]!) : undefined;
+  const header = /^---\s*\r?\n/.test(content) ? (match?.[1] ?? content) : '';
+  // The YAML tree identifies actual top-level keys, including recoverable malformed headers.
+  // Searching text for `bundle:` mistakes prose values and block scalars for declarations.
+  const document = parseDocument(header);
+  let declared = isMap(document.contents) && document.contents.items.some(item => isScalar(item.key) && item.key.value === 'bundle');
+  let front: unknown;
+  if (document.errors.length) {
+    // Recovery may nest later root keys under an earlier malformed value. Only
+    // inspect the root key column, never strings or indented scalar contents.
+    const indent = /^([ \t]*)[\w"'][^\r\n]*?:/m.exec(header)?.[1] ?? '';
+    declared ||= header.split(/\r?\n/).some(line => line.startsWith(indent) && /^(?:bundle|"bundle"|'bundle')[ \t]*:/.test(line.slice(indent.length)));
+    if (strict || declared) throw document.errors[0];
+  } else front = document.toJS();
   const value = front && typeof front === 'object' && !Array.isArray(front) ? front as Record<string, unknown> : {};
-  if (strict || value.bundle !== undefined) {
+  if (strict || declared) {
+    text(content, 'SKILL.md', BUNDLE_LIMITS.documentBytes);
     if (!match || value.name !== name || typeof value.description !== 'string' || !value.description.trim() || !match[2]!.trim()) throw new Error('Invalid skill: matching name, description and nonempty body are required.');
   }
-  return { bundle: BundleMetadataSchema.parse(value.bundle ?? {}), declared: value.bundle !== undefined };
+  return { bundle: BundleMetadataSchema.parse(value.bundle ?? {}), declared };
+}
+
+/** Prose link inference deliberately ignores fenced and inline code examples. */
+function prose(content: string): string {
+  let fence: string | undefined;
+  return content.split(/\r?\n/).map(line => {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker) { if (!fence) fence = marker; else if (marker[0] === fence[0] && marker.length >= fence.length) fence = undefined; return ''; }
+    return fence ? '' : line.replace(/(`+)[\s\S]*?\1/g, '');
+  }).join('\n');
 }
 
 export async function validateSkillBundle(input: { name: string; content: string; files?: Record<string, string> }, options: BundleOptions = {}): Promise<SkillBundle> {
@@ -95,15 +127,15 @@ export async function validateSkillBundle(input: { name: string; content: string
     files.push({ path, content, sha256 });
   }
   for (const a of names) for (const b of names) if (a !== b && b.startsWith(a + '/')) throw new Error(`Bundle file conflicts with parent path: ${a}`);
-  if (bytes > BUNDLE_LIMITS.totalBytes) throw new Error('Bundle exceeds total byte limit.');
+  if ((declared || options.strictDocument) && bytes > BUNDLE_LIMITS.totalBytes) throw new Error('Bundle exceeds total byte limit.');
   for (const path of Object.keys(input.files ?? {})) if (!meta.files.some(file => file.path === path)) throw new Error(`Undeclared bundle file: ${path}`);
-  const references = [...meta.references, ...(declared ? Array.from(input.content.matchAll(/\]\(([^\s)]+)\)/g), m => m[1]!) : [])].filter(path => !/^(?:[a-z]+:|#)/i.test(path));
+  const references = [...meta.references, ...(declared ? Array.from(prose(input.content).matchAll(/\]\(([^\s)]+)\)/g), m => m[1]!) : [])].filter(path => !/^(?:[a-z]+:|#)/i.test(path));
   for (const reference of references) {
     const path = portablePath(reference.replace(/^\.\//, '').split('#')[0]!);
     if (!files.some(file => file.path === path)) throw new Error(`Missing declared bundle reference: ${reference}`);
   }
   if (options.host && meta.hosts && !meta.hosts.includes(options.host)) throw new Error(`Skill ${input.name} does not support host ${options.host}`);
-  for (const requirement of meta.requires) if (!await (options.hasCommand ?? commandAvailable)(requirement)) throw new Error(`Missing bundle requirement: ${requirement}`);
+  for (const requirement of options.checkRequirements === false ? [] : meta.requires) if (!await (options.hasCommand ?? commandAvailable)(requirement)) throw new Error(`Missing bundle requirement: ${requirement}`);
   return { name: input.name, metadata: meta, files };
 }
 
@@ -111,9 +143,10 @@ export async function readSkillBundle(directory: string, name: string, options: 
   const read = async (path: string): Promise<string> => {
     await assertContained(options.anchor ?? directory, join(directory, path));
     const file = join(directory, path), stat = await lstat(file);
-    if (!stat.isFile() || stat.size > BUNDLE_LIMITS.fileBytes) throw new Error(`Non-regular or oversized bundle file: ${file}`);
+    if (!stat.isFile() || (path !== 'SKILL.md' && stat.size > BUNDLE_LIMITS.fileBytes)) throw new Error(`Non-regular or oversized bundle file: ${file}`);
     const bytes = await readFile(file);
-    return text(new TextDecoder('utf-8', { fatal: true }).decode(bytes), path);
+    const value = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return path === 'SKILL.md' ? value : text(value, path);
   };
   const content = await read('SKILL.md'), { bundle: meta } = metadata(name, content, options.strictDocument);
   const files: Record<string, string> = {};

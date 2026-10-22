@@ -32,7 +32,7 @@ export interface SetupPlan extends SetupOptions {
   alreadyInstalled: CliId[];
 }
 export interface ApplySetupOptions { runner?: SetupRunner; templatesDir?: string; detected?: CliId[]; lang?: 'en' | 'es'; brainRoot?: string; platform?: NodeJS.Platform }
-export interface SetupReport { installed: CliId[]; fallback: CliId[]; alreadyInstalled: CliId[]; failed: Array<{ cli: CliId; message: string }> }
+export interface SetupReport { installed: CliId[]; fallback: CliId[]; alreadyInstalled: CliId[]; failed: Array<{ cli: CliId; message: string }>; notes?: string[] }
 
 interface SetupManifest { version: 1; packageRoot: string; native: CliId[]; fallback: CliId[]; adapterManifestPath?: string }
 
@@ -301,6 +301,7 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
   const scopes = [{ scope: 'global' as const, root: plan.packageRoot },
     ...(await readProjects(brainRoot)).projects.map(p => ({ scope: 'project' as const, root: p.root }))];
   const upgrades: InstallPlan[] = [];
+  const notes: string[] = [];
   for (const scope of scopes) {
     const changed: PlannedAction[] = [];
     const actions = plan.clis.flatMap(cli => instructionActions(cli, scope.scope, scope.root, { home: plan.home, templatesDir, brainRoot }));
@@ -317,7 +318,7 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
     if (!Array.isArray(owned)) throw new Error(`Invalid adapter manifest: ${scopedManifestPath}`);
     const bundleActions: PlannedAction[] = [];
     for (const cli of plan.clis) {
-      for (const action of await skillActions(cli, scope.scope, scope.root, { home: plan.home, templatesDir })) {
+      for (const action of await skillActions(cli, scope.scope, scope.root, { home: plan.home, templatesDir, selectedHosts: plan.clis, notes })) {
         const prior = owned.find(a => a.kind === 'file' && a.path === action.path && (a.clis ?? [a.cli]).includes(cli));
         const document = action.bundle ? owned.find(a => a.kind === 'file' && a.path === join(action.bundle!.root, 'SKILL.md') && (a.clis ?? [a.cli]).includes(cli)) : undefined;
         if (!prior && !document) continue; // A name/prefix is not proof of ownership.
@@ -386,7 +387,7 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
     for (const upgrade of upgrades) await applyInstall(upgrade);
   }
 
-  return { installed: [], fallback: previous?.fallback ?? [], alreadyInstalled: [...new Set([...plan.alreadyInstalled, ...(previous?.native ?? [])])], failed: [] };
+  return { installed: [], fallback: previous?.fallback ?? [], alreadyInstalled: [...new Set([...plan.alreadyInstalled, ...(previous?.native ?? [])])], failed: [], ...(notes.length ? { notes } : {}) };
 }
 
 export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {}): Promise<SetupReport> {
@@ -415,7 +416,7 @@ export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {
 
   let adapterPlan: InstallPlan | undefined;
   if (pending.size) {
-    adapterPlan = await planInstall({ clis: [...pending], scope: 'global', root: plan.packageRoot, home: plan.home, templatesDir: options.templatesDir ?? join(plan.packageRoot, 'templates') });
+    adapterPlan = await planInstall({ clis: [...pending], selectedHosts: plan.clis, scope: 'global', root: plan.packageRoot, home: plan.home, templatesDir: options.templatesDir ?? join(plan.packageRoot, 'templates') });
     if (pending.has('opencode')) await appendOpenCodeAssets(adapterPlan, plan.packageRoot);
     report.fallback.push(...pending);
   }
@@ -437,6 +438,7 @@ export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {
 
   let adapterManifestPath: string | undefined;
   if (adapterPlan) {
+    if (adapterPlan.notes.length) report.notes = adapterPlan.notes;
     await applyInstall(adapterPlan);
     adapterManifestPath = getManifestPath('global', plan.packageRoot, plan.home);
   }

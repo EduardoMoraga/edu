@@ -1,5 +1,5 @@
-import { assertContained, readSkillBundle } from '../skills/bundle.js';
-import { access, readdir, readFile, stat } from 'node:fs/promises';
+import { assertContained, readSkillBundle, UnsupportedSkillPathError } from '../skills/bundle.js';
+import { access, readdir, readFile, stat, lstat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import type { CliId, InstallScope } from '../core/contracts.js';
@@ -33,23 +33,36 @@ export function instructionActions(cli: CliId, scope: InstallScope, root: string
   }));
 }
 
-async function exists(path: string): Promise<boolean> {
-  try { await access(path); return true; } catch { return false; }
-}
-
 export async function skillActions(cli: CliId, scope: InstallScope, root: string, options: IntegrationOptions): Promise<PlannedAction[]> {
   const destination = pathsFor(cli, scope, root, options.home).skills;
   const brain = join(scope === 'project' ? root : options.home, '.edu/skills');
-  const sources = [{ root: join(options.templatesDir, 'skills'), anchor: options.templatesDir }, { root: brain, anchor: scope === 'project' ? root : options.home }];
+  const sources = [{ root: join(options.templatesDir, 'skills'), anchor: options.templatesDir }, { root: brain, custom: true, anchor: scope === 'project' ? root : options.home }];
   const skills = new Map<string, PlannedAction[]>();
   for (const source of sources) {
-    if (!await exists(source.root)) continue;
-    await assertContained(source.anchor, source.root);
+    try { await lstat(source.root); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
+    try { await assertContained(source.anchor, source.root); if (!(await lstat(source.root)).isDirectory()) throw new UnsupportedSkillPathError(`Non-directory skill source: ${source.root}`); }
+    catch (error) {
+      if (!source.custom || !(error instanceof UnsupportedSkillPathError)) throw error;
+      skills.clear(); options.notes?.push(`Skipped custom skill source ${source.root}: ${error.message}; builtin skills also skipped because overrides cannot be inspected.`); continue;
+    }
     for (const name of (await readdir(source.root)).sort()) {
       if (!/^[a-zA-Z0-9][\w-]*$/.test(name)) continue;
       const directory = join(source.root, name), file = join(directory, 'SKILL.md');
-      if (!await exists(file)) continue;
-      const bundle = await readSkillBundle(directory, name, { anchor: source.anchor, host: cli, hasCommand: options.detectBinary });
+      if (source.custom) {
+        try { await assertContained(source.anchor, directory); await assertContained(source.anchor, file);
+          try { if (!(await lstat(file)).isFile()) throw new UnsupportedSkillPathError(`Non-regular skill document: ${file}`); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        }
+        catch (error) {
+          if (!(error instanceof UnsupportedSkillPathError)) throw error;
+          skills.delete(name); options.notes?.push(`Skipped custom skill ${name}: ${error.message}; builtin override remains suppressed.`); continue;
+        }
+      }
+      try { await lstat(file); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
+      const bundle = await readSkillBundle(directory, name, { anchor: source.anchor, hasCommand: options.detectBinary });
+      if (bundle.metadata.hosts && !bundle.metadata.hosts.includes(cli)) {
+        if ((options.selectedHosts?.length ?? 1) < 2) throw new Error(`Skill ${name} does not support host ${cli}`);
+        skills.delete(name); options.notes?.push(`Skipped skill ${name} for unsupported host ${cli}.`); continue;
+      }
       skills.set(name, bundle.files.map(file => ({
         cli, kind: 'file', path: join(destination, name, file.path), description: `Install ${name} skill bundle ${file.path}`, content: file.content,
         bundle: { name, root: join(destination, name), anchor: scope === 'project' ? root : options.home, scope, relative: file.path,

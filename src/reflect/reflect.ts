@@ -158,7 +158,7 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
     });
     for (const skill of skills) if (skill.files || skill.hashes || skill.evidence || skill.checks || /(?:^|\n)bundle\s*:/.test(skill.content ?? '')) {
       if (!skill.content) throw new Error('Bundle proposals require a full skill document.');
-      const bundle = await validateSkillBundle({ name: skill.name, content: skill.content, files: skill.files }, { strictDocument: true });
+      const bundle = await validateSkillBundle({ name: skill.name, content: skill.content, files: skill.files }, { strictDocument: true, checkRequirements: false });
       for (const id of bundle.metadata.evidence) if (!allowed.has(id)) throw new Error(`Invalid reflection skill evidence ID: ${id}`);
       for (const [path, expected] of Object.entries(skill.hashes ?? {})) if (!bundle.files.some(file => file.path === path && file.sha256 === expected)) throw new Error(`Proposal hash mismatch: ${path}`);
     }

@@ -105,3 +105,69 @@ it('preserves legacy document-only prose links without reading or copying their 
   expect(await fs.readFile(join(f.destination, 'SKILL.md'), 'utf8')).toBe(legacy);
   expect(await fs.readdir(f.destination)).toEqual(['SKILL.md']);
 });
+it.each(['global', 'project'] as const)('supports a trusted %s directory alias while rejecting symlink descendants', async scope => {
+  const f = await fixture(); const original = scope === 'global' ? f.home : f.root;
+  const alias = join(f.base, `${scope}-alias`); await fs.symlink(original, alias, 'junction');
+  const home = scope === 'global' ? alias : f.home, root = scope === 'project' ? alias : f.root;
+  const plan: InstallPlan = { scope, root, home, templatesDir: f.source, notes: [], actions: await skillActions('codex', scope, root, { home, templatesDir: join(f.base, 'templates') }) };
+  await applyInstall(plan);
+  const target = scope === 'global' ? join(home, '.agents/skills/fixture') : join(root, '.agents/skills/fixture');
+  expect(await fs.readFile(join(target, 'scripts/helper.mjs'), 'utf8')).toContain('bundle-ok');
+  const manifest = await fs.readFile(getManifestPath(scope, root, home));
+  await fs.unlink(join(target, 'scripts/helper.mjs'));
+  await fs.symlink(join(f.base, 'outside'), join(target, 'scripts/helper.mjs'));
+  await expect(applyInstall(plan)).rejects.toThrow(/symlink/i);
+  expect(await fs.readFile(getManifestPath(scope, root, home))).toEqual(manifest);
+});
+it('copies malformed and large raw legacy documents without applying bundle YAML or size rules', async () => {
+  const f = await fixture();
+  for (const content of ['---\nname: fixture\ndescription: use this: now\n---\nOld prose.', 'x'.repeat(300 * 1024)]) {
+    await fs.writeFile(join(f.source, 'SKILL.md'), content);
+    await applyInstall(await f.plan());
+    expect(await fs.readFile(join(f.destination, 'SKILL.md'), 'utf8')).toBe(content);
+  }
+});
+it('skips a symlinked custom override visibly without reading it or installing the builtin underneath', async () => {
+  const f = await fixture(); const custom = join(f.home, '.edu/skills'); await fs.mkdir(custom, { recursive: true });
+  const external = join(f.base, 'external'); await fs.mkdir(external); await fs.writeFile(join(external, 'SKILL.md'), 'PRIVATE');
+  await fs.symlink(external, join(custom, 'fixture'), 'junction');
+  await fs.mkdir(join(custom, 'good')); await fs.writeFile(join(custom, 'good/SKILL.md'), 'Good legacy skill');
+  const { planInstall } = await import('./installer.js');
+  const plan = await planInstall({ clis: ['codex'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') });
+  expect(plan.notes.join(' ')).toMatch(/skip.*fixture.*symlink/i);
+  expect(plan.actions.some(action => action.path.startsWith(f.destination))).toBe(false);
+  await applyInstall(plan);
+  expect(await fs.readFile(join(f.home, '.agents/skills/good/SKILL.md'), 'utf8')).toBe('Good legacy skill');
+  expect(await fs.lstat(join(custom, 'fixture')).then(s => s.isSymbolicLink())).toBe(true);
+});
+it('installs a host-restricted bundle only into compatible hosts of a multi-host plan with notes', async () => {
+  const f = await fixture();
+  await fs.mkdir(join(f.base, 'templates/agents')); await fs.writeFile(join(f.base, 'templates/EDU.md'), '# Fixture identity');
+  await fs.writeFile(join(f.source, 'SKILL.md'), f.document(['scripts/helper.mjs']).replace('bundle:\n', 'bundle:\n  hosts: [codex]\n'));
+  const { planInstall } = await import('./installer.js');
+  const plan = await planInstall({ clis: ['claude', 'codex'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') });
+  expect(plan.notes.join(' ')).toMatch(/skip.*fixture.*claude/i);
+  await applyInstall(plan);
+  expect(await fs.readFile(join(f.destination, 'scripts/helper.mjs'), 'utf8')).toContain('bundle-ok');
+  await expect(fs.readFile(join(f.home, '.claude/skills/fixture/SKILL.md'))).rejects.toThrow();
+});
+it('skips a dangling or directory custom document without falling back to its builtin', async () => {
+  const f = await fixture(); const custom = join(f.home, '.edu/skills/fixture'); await fs.mkdir(custom, { recursive: true });
+  const { planInstall } = await import('./installer.js');
+  const options = { clis: ['codex'] as const, scope: 'global' as const, root: f.root, home: f.home, templatesDir: join(f.base, 'templates') };
+  await fs.mkdir(join(custom, 'SKILL.md'));
+  let plan = await planInstall({ ...options, clis: [...options.clis] });
+  expect(plan.notes.join(' ')).toMatch(/skip.*fixture.*regular/i);
+  expect(plan.actions.some(a => a.path.startsWith(f.destination))).toBe(false);
+  await fs.rmdir(join(custom, 'SKILL.md')); await fs.symlink(join(f.base, 'absent'), join(custom, 'SKILL.md'));
+  plan = await planInstall({ ...options, clis: [...options.clis] });
+  expect(plan.notes.join(' ')).toMatch(/skip.*fixture.*symlink/i);
+});
+it('does not soften single-host errors or missing requirements when host filtering is available', async () => {
+  const f = await fixture(); await fs.mkdir(join(f.base, 'templates/agents')); await fs.writeFile(join(f.base, 'templates/EDU.md'), 'Identity');
+  const { planInstall } = await import('./installer.js');
+  await fs.writeFile(join(f.source, 'SKILL.md'), f.document([]).replace('bundle:\n', 'bundle:\n  hosts: [codex]\n'));
+  await expect(planInstall({ clis: ['claude'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') })).rejects.toThrow(/host claude/i);
+  await fs.writeFile(join(f.source, 'SKILL.md'), f.document([]).replace('bundle:\n', 'bundle:\n  hosts: [codex]\n').replace('node', 'edu-command-does-not-exist'));
+  await expect(planInstall({ clis: ['claude', 'codex'], scope: 'global', root: f.root, home: f.home, templatesDir: join(f.base, 'templates') })).rejects.toThrow(/requirement/i);
+});

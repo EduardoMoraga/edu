@@ -66,6 +66,7 @@ async function saveSharedRegistry(home: string, registry: SharedRegistry, transa
 
 export interface PlanInstallOptions {
   clis: CliId[] | 'all';
+  selectedHosts?: CliId[];
   scope: InstallScope;
   root: string;
   home?: string;
@@ -99,7 +100,8 @@ export async function planInstall(options: PlanInstallOptions): Promise<InstallP
   const templatesDir = resolve(options.templatesDir ?? resolveTemplatesDir());
   const clis = options.clis === 'all' ? CLI_IDS : [...new Set(options.clis)];
   for (const cli of clis) if (!CLI_IDS.includes(cli)) throw new Error(`Unknown CLI: ${cli}`);
-  const settings = { home, templatesDir };
+  const notes = clis.includes('agy') ? ['agy MCP: manual step'] : [];
+  const settings = { home, templatesDir, selectedHosts: options.selectedHosts ?? clis, notes };
   const integrations = {
     claude: createClaudeIntegration(settings), codex: createCodexIntegration(settings),
     pi: createPiIntegration(settings), opencode: createOpenCodeIntegration(settings), agy: createAgyIntegration(settings),
@@ -122,7 +124,7 @@ export async function planInstall(options: PlanInstallOptions): Promise<InstallP
       actions.push(action);
     }
   }
-  return { scope: options.scope, root, home, templatesDir, actions, notes: clis.includes('agy') ? ['agy MCP: manual step'] : [] };
+  return { scope: options.scope, root, home, templatesDir, actions, notes };
 }
 
 export function describePlan(plan: InstallPlan): string {
@@ -195,7 +197,7 @@ async function applyPreparedInstall(plan: InstallPlan, transaction: FileTransact
     paths.add(action.path);
     const before = await readTarget(action.path);
     const after = materialize(action, before);
-    if (action.bundle && before !== undefined && !existing.has(`${action.kind}:${action.path}`)) throw new Error(`Unowned bundle target collision: ${action.path}`);
+    if (action.bundle && before !== undefined && !existing.has(`${action.kind}:${action.path}`)) throw new Error(`Unowned bundle target collision: ${action.path}. Preserve the entire legacy skill directory in a user-selected backup outside skills/, retain its accepted proposal record, review the new proposal, then explicitly accept into the vacant name; keep the backup until verified. A new reviewed skill name also avoids replacement.`);
     const owner = shared.targets[action.path];
     if (isSharedTarget(action.path, plan.home) && owner) {
       if (!before || sha256(before) !== owner.sha256) throw new Error(`Edu installation drift: ${action.path}`);

@@ -271,3 +271,24 @@ it('upgrades a pristine owned skill with new declared helpers, retires old helpe
   expect(await readFile(join(destination, 'custom.mjs'), 'utf8')).toBe('CUSTOM');
   expect((await skillActions('claude', 'global', process.cwd(), { home, templatesDir })).some(a => a.path.endsWith('custom.mjs'))).toBe(true);
 });
+it('upgrades remaining owned documents while reporting a skipped custom symlink override', async () => {
+  const { symlink } = await import('node:fs/promises');
+  const { planInstall, applyInstall } = await import('../adapters/installer.js');
+  const { home, brainRoot } = await fixture();
+  const templatesDir = join(home, 'test-templates'); await mkdir(join(templatesDir, 'skills/safe'), { recursive: true });
+  await writeFile(join(templatesDir, 'skills/safe/SKILL.md'), 'Original legacy document');
+  const root = process.cwd();
+  await applyInstall(await planInstall({ clis: ['codex'], scope: 'global', root, home, templatesDir }));
+  await writeFile(join(home, '.edu/plugin-setup.json'), JSON.stringify({ version: 1, packageRoot: root, native: [], fallback: ['codex'] }));
+  await mkdir(join(templatesDir, 'skills/blocked'), { recursive: true }); await writeFile(join(templatesDir, 'skills/blocked/SKILL.md'), 'Builtin must not leak');
+  await mkdir(join(home, '.edu/skills'), { recursive: true });
+  await symlink(join(templatesDir, 'skills/blocked'), join(home, '.edu/skills/blocked'), 'junction');
+  const updated = '---\ndescription: old unquoted: colon\n---\n' + 'x'.repeat(70 * 1024);
+  await writeFile(join(templatesDir, 'skills/safe/SKILL.md'), updated);
+  const runner: SetupRunner = async () => ({ exitCode: 1 });
+  const plan = await planSetup({ home, packageRoot: root, clis: ['codex'], runner });
+  const result = await applySetup(plan, { runner, brainRoot, templatesDir, platform: 'linux' });
+  expect(result.notes?.join(' ')).toMatch(/skip.*blocked.*symlink/i);
+  expect(await readFile(join(home, '.agents/skills/safe/SKILL.md'), 'utf8')).toBe(updated);
+  await expect(readFile(join(home, '.agents/skills/blocked/SKILL.md'))).rejects.toThrow();
+});

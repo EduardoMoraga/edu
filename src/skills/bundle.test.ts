@@ -37,3 +37,21 @@ it('enforces file count/byte/UTF-8 limits and refuses symlinked ancestors', asyn
   await writeFile(join(root, 'SKILL.md'), doc({ files: [{ path: 'linked/data' }] }));
   await expect(readSkillBundle(root, 'fixture')).rejects.toThrow(/symlink/i);
 });
+it('never downgrades malformed explicitly declared bundles to raw legacy documents', async () => {
+  await expect(validateSkillBundle({ name: 'fixture', content: '---\nname: fixture\ndescription: invalid: colon\nbundle: {}\n---\nBody' })).rejects.toThrow();
+  await expect(validateSkillBundle({ name: 'fixture', content: doc({}) + 'x'.repeat(BUNDLE_LIMITS.documentBytes) })).rejects.toThrow(/oversized/i);
+});
+it('ignores fenced and inline code when finding implicit links but retains explicit reference checks', async () => {
+  const content = doc({}) + '\n```js\narr[i](x)\n```\nUse `arr[j](y)` as an example.\n';
+  expect((await validateSkillBundle({ name: 'fixture', content })).files).toHaveLength(1);
+  await expect(validateSkillBundle({ name: 'fixture', content: doc({ references: ['missing'] }) + content })).rejects.toThrow(/reference/i);
+});
+it.each([
+  'description: "Explain bundle: usage"',
+  'description: Explain bundle: usage',
+  'description: |\n  Explain bundle: usage\nother: malformed: colon',
+])('does not infer bundle declaration from legacy description %s', async description => {
+  const content = `---\nname: legacy\n${description}\n---\n[Guide](../../README.md)`;
+  const result = await validateSkillBundle({ name: 'legacy', content });
+  expect(result.files).toEqual([{ path: 'SKILL.md', content, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
+});

@@ -28,6 +28,8 @@ export interface RetiredAction { kind: PlannedAction['kind']; path: string; json
 export interface IntegrationOptions {
   home: string;
   templatesDir: string;
+  selectedHosts?: CliId[];
+  notes?: string[];
   detectBinary?: (binary: string) => Promise<boolean>;
 }
 

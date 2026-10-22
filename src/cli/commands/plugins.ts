@@ -54,6 +54,7 @@ export async function runPluginSetup(ctx: CliContext, g: Resolved, options: { cl
   }
   const report = await applySetup(plan, { templatesDir: packageTemplatesDir(), detected: clis, lang: g.lang, brainRoot: globalHome(ctx) });
   if (!g.json) {
+    for (const note of report.notes ?? []) ctx.out(`! ${note}`);
     for (const cli of clis) {
       const marker = report.installed.includes(cli) || report.alreadyInstalled.includes(cli) ? '✓' : report.fallback.includes(cli) ? '!' : '✗';
       ctx.out(`${marker} ${cli}${report.fallback.includes(cli) ? (g.lang === 'es' ? ' (integración administrada)' : ' (managed-file integration)') : ''}`);
