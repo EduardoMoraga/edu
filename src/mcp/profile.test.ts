@@ -19,14 +19,16 @@ it('offers an explicit smaller memory surface while keeping full as the compatib
     };
     const full = await connect(); const memory = await connect('memory');
     const a = (await full.listTools()).tools, b = (await memory.listTools()).tools;
-    expect(a).toHaveLength(18); expect(b).toHaveLength(12);
+    expect(a).toHaveLength(19); expect(b).toHaveLength(12);
+    expect(a.map(tool => tool.name)).toContain('edu_crew_artifact');
+    expect(b.map(tool => tool.name)).not.toContain('edu_crew_artifact');
     expect(b.map(tool => tool.name)).toContain('edu_session_close');
     expect(b.map(tool => tool.name)).toContain('edu_capabilities');
     expect(b.every(tool => !tool.name.startsWith('edu_crew_') && tool.name !== 'edu_orchestrate')).toBe(true);
     expect(JSON.stringify(b).length).toBeLessThan(JSON.stringify(a).length);
     const result = await memory.callTool({ name: 'edu_capabilities', arguments: {} });
     expect(result.isError).not.toBe(true);
-    expect(JSON.stringify(result)).toContain('memory profile');
+    expect(JSON.parse((result.content as { text: string }[])[0]!.text).toolProfile).toBe('memory');
     const explicit = await connect('full');
     expect((await explicit.listTools()).tools.map(tool => tool.name)).toEqual(a.map(tool => tool.name));
   } finally { await Promise.all(clients.map(client => client.close())); await rm(root, { recursive: true, force: true }); }

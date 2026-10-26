@@ -10,6 +10,17 @@ export const EduConfigSchema = z.object({
   playbook: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/i).default('default'),
   roles: z.array(RoleSchema).min(1), approvals: z.enum(['always-ask', 'ask-on-write', 'auto']),
   context: z.object({ budgetTokens: z.number().int().positive() }),
+  routing: z.object({
+    executor: z.object({ cli: CliSchema, model: z.string().min(1).optional() }).optional(),
+    advisor: z.object({ cli: CliSchema, model: z.string().min(1).optional() }).optional(),
+    reviewer: z.object({ cli: CliSchema, model: z.string().min(1).optional() }).optional(),
+  }).strict().optional(),
+  execution: z.object({
+    maxSpawns: z.number().int().min(1).max(256).default(32),
+    maxConcurrency: z.number().int().min(1).max(8).default(3),
+    timeoutMs: z.number().int().min(1000).max(86_400_000).default(1_800_000),
+    maxAdvisorCalls: z.number().int().min(0).max(1).default(0),
+  }).strict().optional(),
   brain: z.object({ obsidianVault: z.string().optional() }), lang: z.enum(['en', 'es']),
   brainDir: z.string().min(1).optional(), sourcesDir: z.string().min(1).optional(),
   identity: z.object({ name: z.string().min(1), role: z.string().optional(), tone: z.string().optional(), summary: z.string().optional() }).optional(),

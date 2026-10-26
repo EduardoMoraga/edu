@@ -450,6 +450,17 @@ interface EduConfig {
     context: {
         budgetTokens: number;
     };
+    /** Explicit routes override solo/crew heuristics; unavailable routes fail closed. */
+    routing?: Partial<Record<'executor' | 'advisor' | 'reviewer', {
+        cli: CliId;
+        model?: string;
+    }>>;
+    execution?: {
+        maxSpawns: number;
+        maxConcurrency: number;
+        timeoutMs: number;
+        maxAdvisorCalls: number;
+    };
     brain: {
         obsidianVault?: string;
     };

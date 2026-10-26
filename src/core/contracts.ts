@@ -355,6 +355,9 @@ export interface EduConfig {
   roles: RoleSpec[];
   approvals: ApprovalPolicy;
   context: { budgetTokens: number };
+  /** Explicit routes override solo/crew heuristics; unavailable routes fail closed. */
+  routing?: Partial<Record<'executor' | 'advisor' | 'reviewer', { cli: CliId; model?: string }>>;
+  execution?: { maxSpawns: number; maxConcurrency: number; timeoutMs: number; maxAdvisorCalls: number };
   brain: { obsidianVault?: string };
   lang: 'en' | 'es';
   /** Brain folder relative to the workspace root (the folder holding `.edu/`). Default `.edu/brain`. */

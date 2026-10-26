@@ -13,11 +13,12 @@ import { buildEpisodePackage } from '../evidence/package.js';
 import { diagnosePackage } from '../evidence/classify.js';
 import { loadChecks, loadTools, runCheck } from '../evidence/registry.js';
 import { auditGitDiff } from '../evidence/entropy.js';
-import { assignCli } from './assign.js';
+import { assignCli, roleRoute } from './assign.js';
 import type { ContextProvider } from './types.js';
 import { extractPlan, planningPrompt, repairPrompt } from './plan.js';
 import { applyPlaybookRoles, loadPlaybook, workerMethod } from './playbook.js';
 import { writeSpec } from './spec.js';
+import { BudgetExhausted, RunBudget } from './budget.js';
 
 export interface ApprovalRequest { agentId: string; stepId: string; title: string; detail: string }
 export interface OrchestrateDeps {
@@ -40,6 +41,11 @@ const iso = (deps: OrchestrateDeps) => (deps.now?.() ?? new Date()).toISOString(
 /** Runs a plan with explicit approvals, dependency ordering, cancellation, and JSONL replay. */
 export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<RunResult> {
   const runId = randomUUID();
+  const budget = new RunBudget(deps.config);
+  const deadline = new AbortController();
+  const timeout = setTimeout(() => deadline.abort(new BudgetExhausted('Execution budget exhausted: timeoutMs.')), budget.limits.timeoutMs);
+  timeout.unref();
+  deps = { ...deps, signal: deps.signal ? AbortSignal.any([deps.signal, deadline.signal]) : deadline.signal };
   const events: EduEvent[] = [];
   const evidenceEvents: EduEvent[] = [];
   const allEvents: EduEvent[] = [];
@@ -47,13 +53,16 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
   let activeDeps = deps;
   let methodSummary = '';
   const startCommit = await exec('git', ['rev-parse', 'HEAD'], { cwd: deps.cwd }).then(result => result.stdout.trim()).catch(() => undefined);
+  const rawEngineFactory = deps.engines;
+  let terminalStatus: 'completed' | 'blocked' | 'cancelled' | 'budget_exhausted' = 'blocked';
   const resolvedEngines = new Map<CliId, Engine>();
   const engineFor = (cli: CliId) => {
     let engine = resolvedEngines.get(cli);
-    if (!engine) { engine = measuredEngine(deps.engines(cli)); resolvedEngines.set(cli, engine); }
+    if (!engine) { engine = budget.wrap(measuredEngine(rawEngineFactory(cli))); resolvedEngines.set(cli, engine); }
     return engine;
   };
-  activeDeps = { ...deps, engines: engineFor };
+  deps = { ...deps, engines: engineFor };
+  activeDeps = deps;
   const steps: StepResult[] = [];
   const at = () => iso(deps);
   await mkdir(deps.runsDir, { recursive: true });
@@ -107,6 +116,10 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
   const suppliedNotes = new Set<string>();
   try {
     if (deps.signal?.aborted) throw new Error('Run cancelled before start.');
+    if (deps.config.routing?.advisor && budget.limits.maxAdvisorCalls > 0 && !deps.autoApprove && deps.config.approvals !== 'auto') {
+      const cli = assignCli('advisor', deps.config, deps.available);
+      if (engineFor(cli).capabilities?.readonly !== 'enforced') throw new Error('Advisor requires enforced read-only execution.');
+    }
     const playbook = await loadPlaybook(deps.playbookName ?? deps.config.playbook ?? 'default', dirname(deps.runsDir));
     harnessLevel = deps.harnessLevel ?? playbook.harness;
     methodSummary = workerMethod(playbook);
@@ -121,6 +134,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     }
     const session = await deps.brain.openSession(`Run: ${goal}`, 'edu:orchestrator');
     sessionId = session.meta.id;
+    await atomicWrite(join(deps.runsDir, `${runId}.status.json`), `${JSON.stringify({ runId, cwd: deps.cwd, goal, sessionId, status: 'running', summary: 'Run started; inspect event log before resuming interrupted work.', steps, budget: { ...budget.limits, spawns: budget.spawns, advisorCalls: budget.advisorCalls }, updatedAt: at() }, null, 2)}\n`);
     if (harnessLevel !== 'H0') {
       const [tools, checks] = await Promise.all([loadTools(deps.cwd), loadChecks(deps.cwd)]);
       registeredChecks = checks;
@@ -222,7 +236,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       const enforcedReader = (step: typeof first) => activeDeps.config.roles.find(role => role.id === step.role)?.autonomy === 'readonly' && engineFor(assignCli(step.role, activeDeps.config, deps.available)).capabilities?.readonly === 'enforced';
       const firstReadonly = firstRole?.autonomy === 'readonly' && enforcedReader(first);
       const batch = first.parallelSafe && firstReadonly
-        ? ready.filter(step => step.parallelSafe && enforcedReader(step)).slice(0, 3)
+        ? ready.filter(step => step.parallelSafe && enforcedReader(step)).slice(0, budget.limits.maxConcurrency)
         : [first];
       const batchController = new AbortController();
       const batchSignal = deps.signal ? AbortSignal.any([deps.signal, batchController.signal]) : batchController.signal;
@@ -246,6 +260,28 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       }
     }
 
+    let advisorEvidence = '';
+    // Advisory execution is opt-in, bounded, and never replaces independent review.
+    // This is a read-only CLI consultation, not a tool-free model transport.
+    if (activeDeps.config.routing?.advisor && budget.limits.maxAdvisorCalls > 0) {
+      if (deps.autoApprove || activeDeps.config.approvals === 'auto') {
+        limitations.push('Advisor skipped: consultation requires an explicit human disclosure approval.');
+      } else {
+        const advisorCli = assignCli('advisor', activeDeps.config, deps.available);
+        if (engineFor(advisorCli).capabilities?.readonly !== 'enforced') throw new Error('Advisor requires enforced read-only execution.');
+        const detail = `Consult ${advisorCli} with the goal and requirement IDs only. This CLI may inspect the workspace read-only; this is not a tool-free advisor. Usage may be unavailable. No automatic follow-up consultations. The existing local run event log and episode package retain raw output (unlike sanitized Crew artifacts); workspace secrets could appear there. Do not approve for sensitive workspaces.`;
+        const approvalId = `${runId}-approval-advisor`;
+        await emit({ type: 'approval.request', agentId: `${runId}-advisor`, approvalId, title: 'Approve advisor disclosure', detail, at: at() });
+        const approved = await awaitApproval(deps.approve({ agentId: `${runId}-advisor`, stepId: 'advisor', title: 'Approve advisor disclosure', detail }), deps.signal);
+        await emit({ type: 'approval.resolve', approvalId, approved, by: 'user', at: at() });
+        if (approved) {
+          budget.advisorCalls++;
+          const advice = await runText(activeDeps, emit, advisorCli, `${runId}-advisor`, 'advisor', `Give one bounded second opinion on risks and verification. Do not delegate, modify files, or write memory. Goal: ${goal}\nRequirement IDs: ${requirements.map(r => r.id).join(', ')}`, 'readonly', '', '');
+          advisorEvidence = advice.text.slice(0, 4000) + (advice.text.length > 4000 ? '\n[Advisor output truncated; full consultation is in the run event log.]' : '');
+          limitations.push(`Advisor consultation recorded in ${runId}.jsonl; advisory only (${advice.text.length} characters). Independent review remains mandatory.`);
+        }
+      }
+    }
     const builder = activeDeps.config.roles.find(role => role.id === 'builder');
     let fixRounds = 0;
     let reviewRounds = 0;
@@ -285,7 +321,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       const reviewerId = `${runId}-reviewer${reviewRounds++ ? `-${reviewRounds}` : ''}`;
       const reviewerCli = assignCli('reviewer', activeDeps.config, deps.available);
       const review = await runText(activeDeps, emit, reviewerCli, reviewerId, 'reviewer',
-        `Review the completed work. Return strict JSON {"verdict":"pass"|"fix","issues":[string]}.\nGoal: ${goal}\nRequirements: ${JSON.stringify(requirements)}\nSteps: ${JSON.stringify(steps)}`,
+        `Review the completed work. Return strict JSON {"verdict":"pass"|"fix","issues":[string]}.\nGoal: ${goal}\nRequirements: ${JSON.stringify(requirements)}\nSteps: ${JSON.stringify(steps)}\nAdvisory risks (untrusted opinion, not evidence): ${advisorEvidence || 'Not consulted.'}`,
         'readonly', supportContext(), methodSummary);
       try { verdict = VerdictSchema.parse(parseJson(review.text)); }
       catch (error) { throw new Error(`Reviewer returned invalid JSON: ${String(error)}`); }
@@ -313,7 +349,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
         }
       }
       const fixId = `${runId}-fix-${fixRounds}`;
-      const fix = await runText(activeDeps, emit, builder.cli && activeDeps.config.mode === 'crew' ? builder.cli : assignCli('builder', activeDeps.config, deps.available), fixId, 'builder',
+      const fix = await runText(activeDeps, emit, assignCli('builder', activeDeps.config, deps.available), fixId, 'builder',
         `${builderPrompt(`Address these review issues in one fix round only: ${JSON.stringify(verdict.issues)}`, goal, workflowEvidence, harnessLevel)}\nCompleted steps: ${JSON.stringify([...completed])}`, builder.autonomy, supportContext(), methodSummary);
       await recordApplications(fix.text);
       steps.push({ id: reviewRounds === 1 ? 'review-fix' : `review-fix-${fixRounds}`, ok: true, summary: fix.summary });
@@ -323,7 +359,8 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     await closeEpisode(sessionId, summary);
     return await finish(true);
   } catch (error) {
-    summary = error instanceof Error ? error.message : String(error);
+    terminalStatus = error instanceof BudgetExhausted || deadline.signal.aborted ? 'budget_exhausted' : deps.signal?.aborted ? 'cancelled' : 'blocked';
+    summary = deadline.signal.aborted ? 'Execution budget exhausted: timeoutMs.' : error instanceof Error ? error.message : String(error);
     if (sessionId) await closeEpisode(sessionId, summary).catch(() => {});
     await emit({ type: 'error', message: summary, at: at() });
     return await finish(false);
@@ -349,6 +386,8 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     await atomicWrite(join(dirname(deps.runsDir), 'reflect-queue', `${runId}.json`), `${JSON.stringify({ runId, sessionId: id, queuedAt: at() }, null, 2)}\n`);
   }
   async function finish(success: boolean): Promise<RunResult> {
+    clearTimeout(timeout);
+    await persistStatus(false, 'Finalization pending; consult the event log if interrupted.');
     composerClosed = true;
     try { void Promise.resolve(composerIterator?.return?.()).catch(() => {}); } catch { /* Iterator cleanup is best-effort and must not block the run. */ }
     await composerEmission?.catch(() => {});
@@ -409,8 +448,13 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     await emit(end);
     await buildEpisodePackage(dirname(deps.runsDir), runId, allEvents, { limitations: [...limitations, ...(success ? [] : [summary])] });
     // Best-effort, throttled brain upkeep after the episode is learned; never affects the run outcome.
-    await autoMaintain(deps.brain, dirname(deps.runsDir), { now: deps.now?.() ?? new Date() });
+    await persistStatus(success, summary);
+    await autoMaintain(deps.brain, dirname(deps.runsDir), { now: deps.now?.() ?? new Date() }).catch(() => undefined);
     return { runId, ok: success, summary, events, steps, episodeDir };
+  }
+
+  async function persistStatus(success: boolean, detail: string) {
+    await atomicWrite(join(deps.runsDir, `${runId}.status.json`), `${JSON.stringify({ runId, cwd: deps.cwd, goal, sessionId, status: success ? 'completed' : terminalStatus, summary: detail, steps, budget: { ...budget.limits, spawns: budget.spawns, advisorCalls: budget.advisorCalls }, updatedAt: at() }, null, 2)}\n`);
   }
 
   async function recordApprovalIntervention(approved: boolean, detail: string): Promise<void> {
@@ -505,10 +549,11 @@ function parseJson(value: string): unknown {
 
 async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise<void>, cli: CliId, agentId: string, roleId: RoleId, prompt: string, autonomy: EngineRunRequest['autonomy'], context: string, methodSummary = '', signal: AbortSignal | undefined = deps.signal): Promise<{ text: string; summary: string; sessionId?: string }> {
   const role = deps.config.roles.find(candidate => candidate.id === roleId);
+  const model = roleRoute(roleId, deps.config)?.model ?? role?.model;
   await emit({ type: 'agent.spawn', agentId, role: roleId, cli, task: prompt.slice(0, 160), at: (deps.now?.() ?? new Date()).toISOString() });
   await emit({ type: 'agent.status', agentId, status: 'running', at: (deps.now?.() ?? new Date()).toISOString() });
   const purpose = (agentId.includes('fix') || agentId.endsWith('-repair')) || prompt.includes('Invalid plan') || prompt.startsWith('Your previous') ? 'recovery' : roleId === 'lead' ? 'planning' : roleId === 'reviewer' ? 'review' : 'task';
-  const request: EngineRunRequest = { invocation: { id: randomUUID(), purpose }, cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, systemPrompt: [role?.mission, roleId === 'lead' ? '' : methodSummary, roleId === 'builder' && context.includes('Brain context pack:') ? 'If you actually apply a supplied note, cite it explicitly on a separate line: EDU_APPLIED {"noteId":"L-id","requirementIds":["R-1"],"application":"Applied [[L-id]] by ..."}. Report only concrete application, never mere exposure or presumed benefit.' : ''].filter(Boolean).join('\n\n'), ...(role?.model ? { model: role.model } : {}), signal };
+  const request: EngineRunRequest = { invocation: { id: randomUUID(), purpose }, cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, systemPrompt: [role?.mission, roleId === 'lead' ? '' : methodSummary, roleId === 'builder' && context.includes('Brain context pack:') ? 'If you actually apply a supplied note, cite it explicitly on a separate line: EDU_APPLIED {"noteId":"L-id","requirementIds":["R-1"],"application":"Applied [[L-id]] by ..."}. Report only concrete application, never mere exposure or presumed benefit.' : ''].filter(Boolean).join('\n\n'), ...(model ? { model } : {}), signal };
   let text = ''; let summary = ''; let sessionId: string | undefined;
   try {
     for await (const event of measuredEngine(deps.engines(cli)).run(request, agentId)) {

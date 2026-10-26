@@ -10,6 +10,7 @@ import { brainDir, linkPath, linkState } from '../link.js';
 import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
 import { readProjects } from '../../vault/registry.js';
 import { scanContext } from '../../doctor/context.js';
+import { integrationPreflight } from '../../doctor/integrations.js';
 
 export const AUTH_HINTS: Record<CliId, string> = {
   claude: 'run `claude` once and sign in, or set ANTHROPIC_API_KEY',
@@ -37,9 +38,18 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
     .description('check Node, coding CLIs, integrations, brains and the Obsidian link')
     .option('--json', 'machine-readable output')
     .option('--context', 'measure startup instructions and competing integrations')
+    .option('--integrations', 'nonmutating optional integration policy and configuration preflight')
     .action(
-      action<{ json?: boolean; context?: boolean }>(ctx, async ({ g, opts }) => {
+      action<{ json?: boolean; context?: boolean; integrations?: boolean }>(ctx, async ({ g, opts }) => {
         const lang = g.lang;
+        if (opts.integrations) {
+          const report = await integrationPreflight(ctx.home, ctx.env);
+          if (g.json || opts.json) { printJson(ctx, report); return; }
+          ctx.out(report.diagnostic);
+          ctx.out(report.piToolDiscovery);
+          for (const item of report.integrations) ctx.out(`${item.id}: ${item.state}; license=${item.license}; registered=${item.registered}; compatibility=${item.runtimeCompatibility}. ${item.overlap}`);
+          return;
+        }
         if (opts.context) {
           const report = await scanContext({ home: ctx.home, env: ctx.env });
           if (g.json || opts.json) { printJson(ctx, report); return; }

@@ -9,6 +9,10 @@ import { estimateTokens } from '../context/index.js';
 import { packageVersion } from '../cli/package.js';
 import { createEduMcpServer } from './server.js';
 
+// These tests exercise a regular host even when the test runner itself was
+// launched by an Edu worker. Worker behavior is covered in crew.test.ts.
+const normalServer = (options: Parameters<typeof createEduMcpServer>[0]) => createEduMcpServer({ env: {}, ...options });
+
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
@@ -19,7 +23,7 @@ describe('Edu MCP tools', () => {
     const location = { scope: 'project' as const, root };
     const brain = openBrain([location]);
     await brain.init(location);
-    const server = createEduMcpServer({ locations: [location], now: new Date('2026-10-08T00:00:00Z') });
+    const server = normalServer({ locations: [location], now: new Date('2026-10-08T00:00:00Z') });
     const client = new Client({ name: 'edu-test', version: '1.0.0' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
@@ -90,7 +94,7 @@ describe('workspace binding', () => {
     const location = { scope: 'project' as const, root };
     await openBrain([location]).init(location);
     let binds = 0;
-    const server = createEduMcpServer({ locations: [location], resolveLocations: async () => {
+    const server = normalServer({ locations: [location], resolveLocations: async () => {
       binds++;
       await new Promise(resolve => setTimeout(resolve, 10));
       return [location];
@@ -121,7 +125,7 @@ describe('workspace binding', () => {
     const projectBrain = openBrain([right]);
     await projectBrain.init(right);
     await projectBrain.write({ title: 'Prefer small pull requests', body: 'Small PRs', tier: 'transitive', kind: 'lesson' });
-    const server = createEduMcpServer({
+    const server = normalServer({
       locations: [wrong],
       resolveLocations: async (mcp) => {
         const { roots: listed } = await mcp.server.listRoots();
@@ -151,7 +155,7 @@ describe('tool annotations', () => {
     expect(TOOL_ANNOTATIONS.edu_crew_dispatch).toMatchObject({ destructiveHint: true, openWorldHint: true });
     const root = await mkdtemp(join(tmpdir(), 'edu-ann-'));
     roots.push(root);
-    const server = createEduMcpServer({ locations: [{ scope: 'project', root }] });
+    const server = normalServer({ locations: [{ scope: 'project', root }] });
     const client = new Client({ name: 'edu-test', version: '1.0.0' });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await server.connect(b);
@@ -175,7 +179,7 @@ describe('caller detection', () => {
 });
 
 async function connected(location: { scope: 'project'; root: string }, extra: Partial<Parameters<typeof createEduMcpServer>[0]> = {}) {
-  const server = createEduMcpServer({ locations: [location], ...extra });
+  const server = normalServer({ locations: [location], ...extra });
   const client = new Client({ name: 'edu-test', version: '1.0.0' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(b);
@@ -190,7 +194,7 @@ describe('session id recovery', () => {
     const location = { scope: 'project' as const, root };
     const brain = openBrain([location]);
     await brain.init(location);
-    const server = createEduMcpServer({ locations: [location] });
+    const server = normalServer({ locations: [location] });
     const client = new Client({ name: 'edu-test', version: '1.0.0' });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await server.connect(b);
@@ -220,7 +224,7 @@ describe('session id recovery', () => {
     const brain = openBrain([location]);
     await brain.init(location);
     await brain.write({ title: 'Late promise', body: '', tier: 'transitive', kind: 'commitment', due: '2020-01-01' });
-    const server = createEduMcpServer({ locations: [location] });
+    const server = normalServer({ locations: [location] });
     const client = new Client({ name: 'edu-test', version: '1.0.0' });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await server.connect(b);
@@ -443,7 +447,7 @@ describe('edu_capabilities and advisory feedback', () => {
     const plain = await connected(location);
     try {
       const text = ((await plain.client.callTool({ name: 'edu_capabilities', arguments: {} })).content as { text: string }[])[0]!.text;
-      expect(text).toContain(`Edu ${packageVersion()} (MCP`);
+      expect(JSON.parse(text)).toMatchObject({ version: packageVersion(), toolProfile: 'full', restartRequired: true });
       const spoof = ((await plain.client.callTool({ name: 'edu_capabilities', arguments: { version: '999.0.0', wantedVersion: '999.0.0' } })).content as { text: string }[])[0]!.text;
       expect(spoof).toBe(text);
       expect(spoof).not.toContain('999');
@@ -453,7 +457,7 @@ describe('edu_capabilities and advisory feedback', () => {
     const injected = await connected(location, { capabilities: () => `caps for ${packageVersion()}` });
     try {
       const text = ((await injected.client.callTool({ name: 'edu_capabilities', arguments: { version: '2.0.0' } })).content as { text: string }[])[0]!.text;
-      expect(text).toBe(`caps for ${packageVersion()}`);
+      expect(JSON.parse(text)).toMatchObject({ version: packageVersion(), features: [`caps for ${packageVersion()}`] });
     } finally { await injected.close(); }
   });
 

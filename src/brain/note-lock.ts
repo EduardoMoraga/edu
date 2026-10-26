@@ -17,9 +17,21 @@ export async function withUsageLock<T>(root: string, body: () => Promise<T>): Pr
   await mkdir(locks, { recursive: true });
   const deadline = Date.now() + WAIT_MS;
   for (;;) {
-    try { await mkdir(dir); await writeFile(join(dir, 'owner'), String(process.pid)); break; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-    if (await stale(dir)) {
+    let acquired = false;
+    let contention: unknown;
+    try { await mkdir(dir); acquired = true; }
+    catch (error) {
+      contention = error;
+      // Windows can report EPERM while the previous owner's directory is delete-pending.
+      // Retry within the same deadline; a permission error is never evidence of a stale owner.
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' && !transientDirectoryError(error)) throw error;
+    }
+    if (acquired) {
+      try { await writeFile(join(dir, 'owner'), String(process.pid)); }
+      catch (error) { await removeOwnedLock(dir); throw error; }
+      break;
+    }
+    if ((contention as NodeJS.ErrnoException)?.code === 'EEXIST' && await stale(dir)) {
       const claimed = `${dir}.stale-${process.pid}-${Date.now()}`;
       try { await rename(dir, claimed); await rm(claimed, { recursive: true, force: true }); } catch { /* another contender won */ }
       continue;
@@ -28,7 +40,23 @@ export async function withUsageLock<T>(root: string, body: () => Promise<T>): Pr
     await pause(10);
   }
   try { return await body(); }
-  finally { await rm(dir, { recursive: true, force: true }); }
+  finally { await removeOwnedLock(dir); }
+}
+
+function transientDirectoryError(error: unknown): boolean {
+  return ['EPERM', 'EBUSY', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '');
+}
+
+/** Retry only cleanup of a directory this invocation acquired, never replay the body. */
+async function removeOwnedLock(dir: string): Promise<void> {
+  const deadline = Date.now() + 1000;
+  for (;;) {
+    try { await rm(dir, { recursive: true, force: true }); return; }
+    catch (error) {
+      if (!transientDirectoryError(error) || Date.now() >= deadline) throw error;
+      await pause(10);
+    }
+  }
 }
 
 async function stale(dir: string): Promise<boolean> {

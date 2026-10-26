@@ -1,6 +1,6 @@
 // Edu for Pi: MCP server, identity at agent start, and the live Edu Deck (header, crew widget, footer,
 // /edu-deck overlay). Generated into plugins/pi/extensions by scripts/build-plugins.ts.
-import { execFile } from 'node:child_process';
+import { execFile, type ChildProcess } from 'node:child_process';
 import { basename } from 'node:path';
 import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-coding-agent';
 import { Key, matchesKey, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
@@ -20,6 +20,72 @@ const REFRESH_MS = 3000;
 const DECK_TIMEOUT_MS = 1500;
 /** Safety margin for `edu hook session-start`: large imported brains on slow Windows disks. */
 const BRIEF_TIMEOUT_MS = 15000;
+const CLEANUP_TIMEOUT_MS = 2000;
+type CancelChild = () => Promise<void>;
+
+/**
+ * Own the shell PID so a timeout can stop its Windows descendants, not just cmd.exe.
+ * This is best effort: a child that detaches or is reparented before taskkill runs
+ * may escape the tree. Never scan for or kill unrelated edu processes.
+ */
+async function stopChildTree(child: ChildProcess): Promise<void> {
+  if (!child.pid || child.exitCode !== null) return;
+  if (!windows) { child.kill('SIGKILL'); return; }
+  await Promise.race([
+    new Promise<void>(resolve => {
+      try {
+        execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'],
+          { windowsHide: true, timeout: CLEANUP_TIMEOUT_MS }, () => resolve());
+      } catch { resolve(); }
+    }),
+    new Promise<void>(resolve => { const timer = setTimeout(resolve, CLEANUP_TIMEOUT_MS); timer.unref?.(); }),
+  ]);
+  if (child.exitCode === null) await Promise.race([
+    new Promise<void>(resolve => { child.once('close', () => resolve()); }),
+    new Promise<void>(resolve => { const timer = setTimeout(resolve, 500); timer.unref?.(); }),
+  ]);
+}
+
+/** Callback completion and the deadline share one settlement path; cleanup is bounded. */
+export function runEduCommand(args: string[], cwd: string, timeoutMs: number, input?: string, active?: Set<CancelChild>): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    let child: ChildProcess;
+    let settled = false;
+    let stopping = false;
+    let stopPromise: Promise<void> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (error?: Error, stdout = '', stderr = '') => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      active?.delete(cancel);
+      if (error) reject(error);
+      else resolve({ stdout, stderr });
+    };
+    const cancel: CancelChild = () => {
+      if (settled) return Promise.resolve();
+      if (stopPromise) return stopPromise;
+      stopping = true;
+      if (timer) clearTimeout(timer);
+      stopPromise = stopChildTree(child).catch(() => {}).then(() => {
+        finish(new Error(`Edu child stopped after ${timeoutMs} ms or session shutdown`));
+      });
+      return stopPromise;
+    };
+    try {
+      child = execFile(EDU, args, {
+        cwd, shell: windows, windowsHide: true, encoding: 'utf8', maxBuffer: 1 << 20,
+      }, (error, stdout, stderr) => {
+        if (stopping) return;
+        finish(error ? new Error(stderr.trim() || error.message) : undefined, stdout, stderr);
+      });
+      active?.add(cancel);
+      child.stdin?.end(input);
+      timer = setTimeout(() => { void cancel(); }, timeoutMs);
+      timer.unref?.();
+    } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
+  });
+}
 
 /** `edu deck --json` contract, version 1. Everything is optional here: an older edu degrades to identity only. */
 interface DeckJob { id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number; tokensKnown?: boolean }
@@ -99,14 +165,12 @@ function parseDeck(stdout: string): Deck | undefined {
 }
 
 /** Never throws, never blocks the TUI: resolves undefined when edu is missing, old, slow or failing. */
-function fetchDeck(cwd: string): Promise<Deck | undefined> {
-  return new Promise(resolve => {
-    try {
-      const args = windows ? ['deck', '--json'] : ['deck', '--json', '--cwd', cwd];
-      execFile(EDU, args, { cwd, timeout: DECK_TIMEOUT_MS, shell: windows, windowsHide: true, encoding: 'utf8', maxBuffer: 1 << 20 },
-        (error, stdout) => resolve(error ? undefined : parseDeck(stdout)));
-    } catch { resolve(undefined); }
-  });
+async function fetchDeck(cwd: string, active?: Set<CancelChild>): Promise<Deck | undefined> {
+  try {
+    const args = windows ? ['deck', '--json'] : ['deck', '--json', '--cwd', cwd];
+    const { stdout } = await runEduCommand(args, cwd, DECK_TIMEOUT_MS, undefined, active);
+    return parseDeck(stdout);
+  } catch { return undefined; }
 }
 
 /** Two-row block wordmark, drawn in the accent. */
@@ -150,6 +214,7 @@ function jobLine(job: DeckJob, t: Theme, width: number, now: number): string {
 }
 
 export default function (pi: ExtensionAPI): void {
+  const activeChildren = new Set<CancelChild>();
   const registerMcp = (workspace?: string) => pi.registerMcpServer('edu', {
     ...(windows ? { command: 'cmd', args: ['/c', EDU, 'mcp'] } : { command: EDU, args: ['mcp'] }),
     ...(workspace ? { cwd: workspace } : {}),
@@ -170,20 +235,18 @@ export default function (pi: ExtensionAPI): void {
     if (workspace !== mcpCwd) { registerMcp(workspace); mcpCwd = workspace; }
     return workspace;
   };
-  const loadBrief = (workspace: string, hostId: string): Promise<string> => new Promise((resolve, reject) => {
-    const child = execFile(EDU, ['hook', 'session-start'], {
-      cwd: workspace, encoding: 'utf8', timeout: BRIEF_TIMEOUT_MS, maxBuffer: 1 << 20,
-      shell: windows, windowsHide: true,
-    }, (error, stdout, stderr) => {
+  const loadBrief = async (workspace: string, hostId: string): Promise<string> => {
+    try {
+      // Pi's real session id lets the hook open/reuse the matching Edu episode.
+      const { stdout, stderr } = await runEduCommand(['hook', 'session-start'], workspace, BRIEF_TIMEOUT_MS,
+        JSON.stringify({ cwd: workspace, session_id: hostId, source: 'pi' }), activeChildren);
       // safeHook may report an internal error on stderr while exiting zero.
-      // Throw to Pi's error channel, including print/RPC mode, rather than hiding it in UI.
-      if (error || stderr.trim()) {
-        reject(new Error(`Edu brief unavailable (${workspace}): ${stderr.trim() || error?.message}. Retry with /edu-refresh.`));
-      } else resolve(stdout.trim());
-    });
-    // Pi's real session id lets the hook open/reuse the matching Edu episode.
-    child.stdin?.end(JSON.stringify({ cwd: workspace, session_id: hostId, source: 'pi' }));
-  });
+      if (stderr.trim()) throw new Error(stderr.trim());
+      return stdout.trim();
+    } catch (error) {
+      throw new Error(`Edu brief unavailable (${workspace}): ${error instanceof Error ? error.message : String(error)}. Retry with /edu-refresh.`);
+    }
+  };
   pi.on('before_agent_start', async (event, ctx) => {
     const workspace = workspaceFor(ctx);
     let pending = briefs.get(workspace);
@@ -244,7 +307,7 @@ export default function (pi: ExtensionAPI): void {
     if (inflight) return;
     inflight = true;
     try {
-      const next = await fetchDeck(cwd);
+      const next = await fetchDeck(cwd, activeChildren);
       // A failed refresh keeps the last good snapshot instead of flickering to empty.
       if (next || !deck) deck = next;
       syncWidget();
@@ -424,6 +487,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on('session_shutdown', async () => {
     if (timer) clearInterval(timer);
     timer = undefined;
+    await Promise.all([...activeChildren].map(cancel => cancel()));
     ui = undefined;
     briefs.clear();
     sessionId = undefined;
@@ -434,7 +498,7 @@ export default function (pi: ExtensionAPI): void {
     description: 'Open the Edu Deck: context, brain, spec, crew and recent notes',
     handler: async (_args: string, ctx: any) => {
       if (ctx.mode !== 'tui') {
-        const next = await fetchDeck(ctx.cwd || cwd);
+        const next = await fetchDeck(ctx.cwd || cwd, activeChildren);
         ctx.ui?.notify?.(next ? `Edu · ${next.project.name}: ${next.jobs.length} jobs, ${next.approvals} approvals` : 'Edu Deck needs `edu deck` (edu ≥ 0.6).', 'info');
         return;
       }

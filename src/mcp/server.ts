@@ -8,6 +8,7 @@ import { createCrew, type CrewOptions } from '../crew/index.js';
 import { packageVersion } from '../cli/package.js';
 import { closeWithLessons, lessonsInput } from './session-learning.js';
 import { withHostLock } from '../platform/file-lock.js';
+import { boundedCapabilities } from './capabilities.js';
 import { eduHomeOf, listWorkspaces, selectWorkspace } from './projects.js';
 
 export interface EduMcpOptions {
@@ -29,7 +30,7 @@ export interface EduMcpOptions {
   /** Memory-only omits orchestration/crew schemas; full remains the compatibility default. */
   toolProfile?: 'full' | 'memory';
   /**
-   * Text for edu_capabilities (e.g. `() => JSON.stringify(getCapabilities())`, wired in stdio). It takes no caller input,
+   * Capability JSON (or legacy text, wrapped as a feature) for edu_capabilities. It takes no caller input,
    * so a model cannot claim another version; without it the tool answers with a minimal built-in description.
    */
   capabilities?: () => string | Promise<string>;
@@ -53,7 +54,7 @@ const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 const BRAIN_WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const STARTS_AGENTS = { readOnlyHint: false, destructiveHint: true, openWorldHint: true } as const;
 export const TOOL_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean }> = {
-  edu_brief: READ, edu_recall: READ, edu_read: READ, edu_capabilities: READ, edu_commitments: READ, edu_crew_status: READ, edu_crew_result: READ,
+  edu_brief: READ, edu_recall: READ, edu_read: READ, edu_capabilities: READ, edu_commitments: READ, edu_crew_status: READ, edu_crew_result: READ, edu_crew_artifact: READ,
   edu_projects: READ,
   // Switching only changes which local brain this server process uses; nothing is written or deleted.
   edu_project_use: BRAIN_WRITE,
@@ -73,6 +74,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
   let brainRoot = opts.locations[0]!.root;
   const env = opts.env ?? process.env;
+  const workerProcess = Boolean(env.EDU_CREW_JOB?.trim() || env.ALBERT_CREW_JOB?.trim());
   // ~/.edu is the global brain even when found by walking up from a folder under HOME.
   const label = (locations: BrainLocation[]) => locations[0]!.scope === 'global' || resolve(locations[0]!.root) === eduHomeOf(env) ? 'global' : dirname(locations[0]!.root);
   let workspace = opts.workspace ?? label(opts.locations);
@@ -97,14 +99,15 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     use(locations);
     workspace = label(locations);
   })());
-  const respond = async (maxTokens: number | undefined, operation: () => Promise<string>) => {
+  const respond = async (maxTokens: number | undefined, operation: () => Promise<string>, jsonCapabilities = false) => {
     const limit = maxTokens ?? 800;
     try {
       await bind();
-      return { content: [{ type: 'text' as const, text: truncateToTokens(await operation(), limit) }] };
+      const text = await operation();
+      return { content: [{ type: 'text' as const, text: jsonCapabilities ? text : truncateToTokens(text, limit) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { content: [{ type: 'text' as const, text: truncateToTokens(`Error: ${message}`, limit) }], isError: true };
+      return { content: [{ type: 'text' as const, text: jsonCapabilities ? boundedCapabilities(JSON.stringify({ limitations: [`Error: ${message}`] }), SERVER_VERSION, profile, limit) : truncateToTokens(`Error: ${message}`, limit) }], isError: true };
     }
   };
 
@@ -125,10 +128,15 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
       const requested = (args as Record<string, unknown>).maxTokens;
       const maxTokens = typeof requested === 'number' && Number.isSafeInteger(requested) && requested > 0 ? requested : undefined;
       return respond(maxTokens, async () => {
+        // A delegated worker may inspect its workspace and retrieve evidence,
+        // but cannot mutate Edu memory or recursively dispatch more Edu agents.
+        if (workerProcess && TOOL_ANNOTATIONS[name]?.readOnlyHint !== true) {
+          throw new Error(`Edu worker cannot call ${name}; read and retrieval tools remain available`);
+        }
         const parsed = strict.safeParse(args);
         if (!parsed.success) throw new Error(`Invalid arguments: ${parsed.error.issues.map(issue => `${issue.path.join('.') || 'input'} ${issue.message}`).join('; ')}`);
         return operation(parsed.data);
-      });
+      }, name === 'edu_capabilities');
     });
   };
 
@@ -231,13 +239,13 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     });
   });
 
-  register('edu_capabilities', 'Describe what the installed Edu version can and cannot do, without claiming self-improvement or efficiency. Takes no version: it always reports the running binary', {
-    maxTokens: tokenLimit,
-  }, async () => opts.capabilities ? opts.capabilities() : [
+  register('edu_capabilities', 'Describe the running Edu version as valid bounded JSON. Drops complete array items with omitted counts; tiny hard budgets may return reduced identity, {} or 0 (insufficient budget, not no capabilities). Takes no caller version.', {
+    maxTokens: tokenLimit.describe('Estimated response token budget (default 800); a hard bound; tiny budgets return reduced identity, {} or 0 when identity cannot fit'),
+  }, async ({ maxTokens }) => boundedCapabilities(opts.capabilities ? await opts.capabilities() : [
     `Edu ${SERVER_VERSION} (MCP, ${profile} profile). Persistent notes, recall, sessions and feedback are available${profile === 'full' ? ', plus crew dispatch' : '; crew/orchestration tools are omitted'}.`,
     'Memory is stored notes, not model training; Edu does not guarantee better answers or lower cost.',
     'Feedback from edu_feedback is advisory and is never treated as externally verified.',
-  ].join('\n'));
+  ].join('\n'), SERVER_VERSION, profile, maxTokens ?? 800));
 
   register('edu_projects', 'List the registered Edu workspaces and their agent names, marking the active one', { maxTokens: tokenLimit },
     async () => {
@@ -275,6 +283,20 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   register('edu_crew_result', 'Wait for and read a crew job result', {
     jobId: z.string().min(1), waitSeconds: z.number().nonnegative().optional(), maxTokens: tokenLimit,
   }, async ({ jobId, waitSeconds }) => JSON.stringify(await crew.result(jobId, waitSeconds ?? 0)));
+
+  register('edu_crew_artifact', 'Read a page of a crew job sanitized full output or summary. Continue with nextOffset until null.', {
+    jobId: z.string().min(1), kind: z.enum(['output', 'summary']), offset: z.number().int().nonnegative().optional(),
+    maxBytes: z.number().int().min(1).max(4096).optional(), maxTokens: z.number().int().min(100).max(20000).optional(),
+  }, async ({ jobId, kind, offset, maxBytes, maxTokens }) => {
+    const limit = maxTokens ?? 800;
+    let pageBytes = Math.min(maxBytes ?? 1000, 4096);
+    while (true) {
+      const page = JSON.stringify(await crew.store.artifact(jobId, kind, offset, pageBytes));
+      if (estimateTokens(page) <= limit) return page;
+      if (pageBytes <= 4) throw new Error('Artifact page metadata exceeds maxTokens');
+      pageBytes = Math.max(4, Math.floor(pageBytes / 2));
+    }
+  });
 
   register('edu_orchestrate', 'Start a detached orchestration with a visible spec and crew job', {
     goal: z.string().min(1), playbook: z.string().optional(), mode: z.enum(['solo', 'crew']).optional(),

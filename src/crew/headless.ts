@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import type { BrainLocation, CliId, CrewJob, EduEvent, Engine, Usage } from '../core/contracts.js';
 import { openBrain } from '../brain/index.js';
 import { brief } from '../context/index.js';
+import { redactWorkerOutput } from '../context/artifacts.js';
 import { createEngine } from '../engine/index.js';
 import { createCrewStore, type CrewStore } from './store.js';
 import { runOrchestration } from './orchestration.js';
@@ -73,8 +74,7 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
     for await (const event of measuredEngine(engine).run({ invocation: { id: crypto.randomUUID(), purpose: 'task' }, cli: job.cli, prompt: job.task, cwd: job.cwd, autonomy: job.autonomy, systemPrompt }, job.id)) {
       const stamped = { ...event, at: event.at || iso(now) } as EduEvent;
       await store.appendEvent(job.id, stamped);
-      if (event.type === 'agent.text') summary += event.text;
-      else if (event.type === 'agent.end' || event.type === 'run.end') {
+      if (event.type === 'agent.end' || event.type === 'run.end') {
         summary = event.summary || summary;
         failed ||= !event.ok;
       } else if (event.type === 'error') {
@@ -84,13 +84,18 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
         usage = sumUsage([usage, event.usage]);
       }
     }
+    // Flush the incomplete line before reading a bounded preview. Only text
+    // already released by WorkerOutputFilter may enter the summary or brain.
+    await store.flushOutput(job.id);
+    const output = await store.artifact(job.id, 'output', 0, 900);
+    if (!summary) summary = output.text;
     const status = failed ? 'failed' : 'done';
-    const finalSummary = summary.trim() || (failed ? 'Worker failed without a summary.' : 'Worker completed without a summary.');
+    const finalSummary = `${summary.trim() || (failed ? 'Worker failed without a summary.' : 'Worker completed without a summary.')}${output.truncated ? `\n[stream preview truncated; full sanitized output: edu_crew_artifact jobId=${job.id} kind=output]` : ''}`;
     const endedAt = iso(now);
     const updated = await store.update(job.id, { status, endedAt, summary: finalSummary, usage });
     const episode = await brain.write({
-      tier: 'episodic', kind: 'session', status: 'closed', title: `Crew ${job.cli} ${status}: ${job.task.slice(0, 48)}`,
-      body: `Task: ${job.task}\n\nResult: ${finalSummary}`, source: 'edu:crew', tags: ['crew', job.cli],
+      tier: 'episodic', kind: 'session', status: 'closed', title: `Crew ${job.cli} ${updated.status}: ${job.task.slice(0, 48)}`,
+      body: `Task: ${job.task}\n\nResult: ${redactWorkerOutput(updated.summary)}\n\nFull sanitized output: crew artifact ${job.id} output`, source: 'edu:crew', tags: ['crew', job.cli],
     });
     await store.appendEvent(job.id, { type: 'brain.learn', noteId: episode.meta.id, kind: 'episode', title: episode.meta.title, at: endedAt });
     return updated;

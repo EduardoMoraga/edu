@@ -1,9 +1,9 @@
-import { mkdtemp, rm, mkdir, realpath, symlink } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openBrain } from '../brain/index.js';
 import type { CliId, EduEvent, Engine } from '../core/contracts.js';
 import { createCrew } from './index.js';
@@ -20,7 +20,7 @@ async function fixture() {
   await brain.init(location);
   return { root, location, store: createCrewStore(root) };
 }
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
 function engine(cli: CliId, events: EduEvent[], onRequest?: (request: Parameters<Engine['run']>[0]) => void): Engine {
   return {
@@ -57,6 +57,43 @@ describe('crew jobs', () => {
     expect(result.status).toBe('failed');
     expect(result.summary).toContain('openBrain requires at least one location');
     expect(result.endedAt).toBeTruthy();
+  });
+
+  it('does not leave a worker running when output artifact storage fails', async () => {
+    const f = await fixture();
+    const job = await f.store.create({ cli: 'codex', task: 'Check output', mode: 'headless', cwd: f.root, autonomy: 'ask' });
+    await rm(join(f.root, 'crew', 'artifacts'), { recursive: true, force: true });
+    await writeFile(join(f.root, 'crew', 'artifacts'), 'blocked');
+    const e = engine('codex', [{ type: 'agent.text', agentId: job.id, text: 'password=hiddenvalue\n', at: new Date().toISOString() }]);
+    const crew = createCrew({ brainRoot: f.root, locations: [f.location], store: f.store, engineFactory: () => e });
+    const result = await crew.runWorker(job.id);
+    expect(result.status).toBe('failed');
+    expect(result.endedAt).toBeTruthy();
+    expect(JSON.stringify(await f.store.get(job.id))).not.toContain('hiddenvalue');
+  });
+
+  it('derives a preview only from filtered output when secrets cross 900 characters', async () => {
+    const f = await fixture();
+    const envSecret = 'Q'.repeat(40);
+    vi.stubEnv('EDU_TEST_SECRET', envSecret);
+    for (const [raw, forbidden] of [
+      [`${'x'.repeat(890)} sk-${'A'.repeat(24)}`, 'sk-AAAA'],
+      [`${'x'.repeat(890)} ${envSecret}`, 'QQQQ'],
+    ]) {
+      const job = await f.store.create({ cli: 'codex', task: 'Inspect', mode: 'headless', cwd: f.root, autonomy: 'ask' });
+      const e = engine('codex', [
+        { type: 'agent.text', agentId: job.id, text: raw.slice(0, 895), at: new Date().toISOString() },
+        { type: 'agent.text', agentId: job.id, text: raw.slice(895), at: new Date().toISOString() },
+      ]);
+      const crew = createCrew({ brainRoot: f.root, locations: [f.location], store: f.store, engineFactory: () => e });
+      const result = await crew.runWorker(job.id);
+      expect(result.status).toBe('done');
+      const summaryArtifact = (await f.store.artifact(job.id, 'summary')).text;
+      const outputArtifact = (await f.store.artifact(job.id, 'output')).text;
+      expect([result.summary, summaryArtifact, outputArtifact].join('\n')).not.toContain(forbidden);
+      const episodes = await openBrain([f.location]).list({ kind: 'session' });
+      for (const note of episodes) expect(note.body).not.toContain(forbidden);
+    }
   });
 
   it('falls back to headless with an explicit note when no herdr server is reachable', async () => {
@@ -137,9 +174,10 @@ describe('crew jobs', () => {
     const options = { runner, store: f.store };
     const { refreshPane } = await import('./herdr.js');
     await refreshPane(running, options);
-    expect((await f.store.events(job.id)).some(e => e.type === 'agent.text' && e.text.includes('Working'))).toBe(true);
+    expect((await f.store.events(job.id)).some(e => e.type === 'agent.text' && e.text.includes('artifact'))).toBe(true);
     agentStatus = 'done';
     await refreshPane(await f.store.get(job.id) ?? running, options);
+    expect((await f.store.artifact(job.id, 'output')).text).toContain('Working');
     expect(calls).not.toContainEqual(['pane', 'close', 'pane-live']);
   });
 

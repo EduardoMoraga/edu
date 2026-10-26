@@ -26,6 +26,21 @@ async function wrapper(mode = 'ok') {
   await writeFile(script, `#!${process.execPath}\nconst fs=require('node:fs');\nfs.appendFileSync(${JSON.stringify(join(temp, 'calls'))}, JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),input:JSON.parse(fs.readFileSync(0,'utf8'))})+'\\n');\n${mode === 'error' ? "console.error('fixture broken');process.exit(9);" : mode === 'stderr' ? "console.error('edu hook: fixture swallowed error (ignored)');" : mode === 'empty' ? '' : "console.log('MEMORY:'+process.cwd());"}\n`, { mode: 0o755 });
   if (windows) await writeFile(bin, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
 }
+async function deckFixture(descendant = false) {
+  const script = windows ? join(temp, 'edu-fixture.cjs') : bin;
+  const marker = join(temp, 'descendant-survived');
+  const descendantCode = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'survived'), 2600)`;
+  await writeFile(script, `#!${process.execPath}\nconst fs=require('node:fs');const cp=require('node:child_process');\nfs.appendFileSync(${JSON.stringify(join(temp, 'calls'))}, JSON.stringify({args:process.argv.slice(2)})+'\\n');\n${descendant ? `cp.spawn(process.execPath, ['-e', ${JSON.stringify(descendantCode)}], {stdio:'ignore'});` : ''}\nsetTimeout(()=>{},10000);\n`, { mode: 0o755 });
+  if (windows) await writeFile(bin, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
+  return marker;
+}
+async function waitForCall() {
+  for (let i = 0; i < 30; i++) {
+    if ((await readFile(join(temp, 'calls'), 'utf8')).trim()) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error('Edu fixture did not start');
+}
 beforeEach(async () => {
   // macOS /var/folders may alias /private/var/folders; child cwd is physical.
   temp = await realpath(await mkdtemp(join(tmpdir(), 'edu-pi-protocol-')));
@@ -63,7 +78,7 @@ describe('Pi template runtime protocol', () => {
     });
     const diagnostics = ts.getPreEmitDiagnostics(program);
     expect(ts.formatDiagnostics(diagnostics, { getCanonicalFileName: f => f, getCurrentDirectory: () => process.cwd(), getNewLine: () => '\n' })).toBe('');
-  });
+  }, 60_000);
   it('uses the same EDU_BIN in MCP and hook and follows ctx.cwd, not host cwd', async () => {
     expect(await realpath(b)).not.toBe(await realpath(process.cwd()));
     await start(context(b));
@@ -128,4 +143,24 @@ describe('Pi template runtime protocol', () => {
     expect(await prompt(context(a))).toBeUndefined();
     expect(await calls()).toHaveLength(1);
   });
+  it('coalesces deck refresh triggers while one poll is pending', async () => {
+    await deckFixture();
+    const ctx = { ...context(a), mode: 'tui', ui: { setHeader: vi.fn(), setFooter: vi.fn(), setWidget: vi.fn() } };
+    await start(ctx);
+    await waitForCall();
+    await Promise.all([
+      extension.handlers.get('turn_end')[0]({}, ctx),
+      extension.handlers.get('agent_end')[0]({}, ctx),
+      extension.handlers.get('turn_end')[0]({}, ctx),
+    ]);
+    expect(await calls()).toHaveLength(1);
+  });
+  it.skipIf(!windows)('kills only its Windows shell tree when deck times out', async () => {
+    const marker = await deckFixture(true);
+    const notify = vi.fn();
+    await extension.commands.get('edu-deck').handler('', { ...context(a), ui: { notify } });
+    expect(notify).toHaveBeenCalled();
+    await new Promise(resolve => setTimeout(resolve, 1600));
+    await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  }, 10_000);
 });

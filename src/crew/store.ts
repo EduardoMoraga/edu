@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { atomicWrite } from '../brain/store.js';
+import { WorkerOutputFilter, boundedWorkerPreview, createCrewArtifacts, redactWorkerOutput } from '../context/artifacts.js';
 import type { Autonomy, CliId, CrewJob, CrewJobMode, CrewJobStatus, EduEvent } from '../core/contracts.js';
 
 export interface NewCrewJob extends Pick<CrewJob, 'cli' | 'task' | 'mode' | 'cwd' | 'autonomy'> {
@@ -17,9 +18,11 @@ export interface CrewStore {
   list(): Promise<CrewJob[]>;
   update(id: string, patch: CrewJobPatch): Promise<CrewJob>;
   appendEvent(id: string, event: EduEvent): Promise<void>;
+  flushOutput(id: string): Promise<void>;
   events(id: string): Promise<EduEvent[]>;
   decide(id: string, approve: boolean): Promise<void>;
   takeDecision(id: string): Promise<boolean | undefined>;
+  artifact(id: string, kind: 'output' | 'summary', offset?: number, maxBytes?: number): ReturnType<ReturnType<typeof createCrewArtifacts>['read']>;
 }
 
 const statuses = new Set<CrewJobStatus>(['queued', 'running', 'awaiting-approval', 'done', 'failed', 'cancelled']);
@@ -30,6 +33,20 @@ const safeId = (id: string) => {
 
 export function createCrewStore(brainRoot: string): CrewStore {
   const root = join(brainRoot, 'crew');
+  const artifacts = createCrewArtifacts(brainRoot);
+  const outputFilters = new Map<string, WorkerOutputFilter>();
+  const filterFor = (id: string) => {
+    let filter = outputFilters.get(id);
+    if (!filter) { filter = new WorkerOutputFilter(); outputFilters.set(id, filter); }
+    return filter;
+  };
+  const flushOutput = async (id: string) => {
+    const filter = outputFilters.get(id);
+    if (!filter) return;
+    const safe = filter.flush();
+    if (safe) await artifacts.append(id, 'output', safe);
+    outputFilters.delete(id);
+  };
   const metaPath = (id: string) => join(root, `${safeId(id)}.json`);
   const eventPath = (id: string) => join(root, `${safeId(id)}.jsonl`);
   const decisionPath = (id: string) => join(root, `${safeId(id)}.decision`);
@@ -43,7 +60,8 @@ export function createCrewStore(brainRoot: string): CrewStore {
   return {
     async create(input) {
       const now = new Date().toISOString();
-      const job: CrewJob = { ...input, id: randomUUID(), status: 'queued', createdAt: now, summary: '', usage: sumUsage([]) };
+      const job: CrewJob = { ...input, task: redactWorkerOutput(input.task), goal: input.goal ? redactWorkerOutput(input.goal) : undefined, id: randomUUID(), status: 'queued', createdAt: now, summary: '', usage: sumUsage([]) };
+      await artifacts.replace(job.id, 'output', '');
       await atomicJson(metaPath(job.id), job);
       await writeFile(eventPath(job.id), '', { flag: 'wx' });
       return job;
@@ -77,17 +95,50 @@ export function createCrewStore(brainRoot: string): CrewStore {
       const current = await this.get(id);
       if (!current) throw new Error(`Crew job not found: ${id}`);
       if (patch.status && !statuses.has(patch.status)) throw new Error(`Invalid crew job status: ${patch.status}`);
-      const updated = { ...current, ...patch };
+      const safePatch = { ...patch };
+      try {
+        if (patch.status && ['done', 'failed', 'cancelled'].includes(patch.status)) await flushOutput(current.id);
+        if (typeof patch.summary === 'string') {
+          await artifacts.replace(current.id, 'summary', patch.summary);
+          safePatch.summary = boundedWorkerPreview(redactWorkerOutput(patch.summary), current.id);
+        }
+      } catch {
+        // Preserve terminal state even when the artifact directory is unavailable.
+        // Never put the raw summary into metadata as a fallback.
+        safePatch.summary = '[summary unavailable: artifact persistence failed]';
+        safePatch.status = 'failed';
+        safePatch.endedAt ??= new Date().toISOString();
+      }
+      if (typeof patch.note === 'string') safePatch.note = redactWorkerOutput(patch.note);
+      const updated = { ...current, ...safePatch };
       await atomicJson(metaPath(id), updated);
       return updated;
     },
     async appendEvent(id, event) {
-      if (!await this.get(id)) throw new Error(`Crew job not found: ${id}`);
-      await appendFile(eventPath(id), `${JSON.stringify(event)}\n`, 'utf8');
+      const job = await this.get(id);
+      if (!job) throw new Error(`Crew job not found: ${id}`);
+      if (event.type === 'agent.text') {
+        const safe = filterFor(job.id).push(event.text);
+        if (safe) await artifacts.append(job.id, 'output', safe);
+      } else if (event.type === 'agent.end' || event.type === 'run.end' || event.type === 'error') {
+        await flushOutput(job.id);
+      }
+      const structural = new Set(['type', 'at', 'agentId', 'runId', 'approvalId', 'noteId', 'callId', 'sessionId', 'id']);
+      const safeEvent = JSON.parse(JSON.stringify(event, (key, value: unknown) =>
+        event.type === 'agent.text' && key === 'text' ? '[full stream in crew output artifact]'
+          : value !== null && typeof value !== 'number' && typeof value !== 'boolean' && /(?:password|secret|token|api[_-]?key|credential)/i.test(key) ? '[REDACTED]'
+            : typeof value === 'string' && !structural.has(key) ? redactWorkerOutput(value) : value)) as EduEvent;
+      await appendFile(eventPath(job.id), `${JSON.stringify(safeEvent)}\n`, 'utf8');
+    },
+    async flushOutput(id) {
+      const job = await this.get(id);
+      if (!job) throw new Error(`Crew job not found: ${id}`);
+      await flushOutput(job.id);
     },
     async events(id) {
-      if (!await this.get(id)) throw new Error(`Crew job not found: ${id}`);
-      const text = await readFile(eventPath(id), 'utf8');
+      const job = await this.get(id);
+      if (!job) throw new Error(`Crew job not found: ${id}`);
+      const text = await readFile(eventPath(job.id), 'utf8');
       return text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line) as EduEvent);
     },
     async decide(id, approve) {
@@ -107,6 +158,11 @@ export function createCrewStore(brainRoot: string): CrewStore {
       await this.update(id, { status: 'running' });
       await unlink(path);
       return value === 'approve';
+    },
+    async artifact(id, kind, offset, maxBytes) {
+      const job = await this.get(id);
+      if (!job) throw new Error(`Crew job not found: ${id}`);
+      return artifacts.read(job.id, kind, offset, maxBytes);
     },
   };
 }

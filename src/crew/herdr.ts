@@ -161,10 +161,14 @@ async function appendPaneOutput(job: CrewJob, store: CrewStore, options: HerdrOp
   if (!job.paneId) return;
   const text = await lastPaneLines(job.paneId, options).catch(() => '');
   if (!text) return;
-  const previous = (await store.events(job.id)).filter(event => event.type === 'agent.text').at(-1);
-  if (previous?.type === 'agent.text' && previous.text === text) return;
+  // Event text is deliberately replaced with an artifact pointer in the store.
+  // Compare the latest pane snapshot in memory instead of reading raw event text.
+  if (lastPaneSnapshots.get(job.id) === text) return;
   await store.appendEvent(job.id, { type: 'agent.text', agentId: job.id, text, at: (options.now ?? (() => new Date()))().toISOString() });
+  lastPaneSnapshots.set(job.id, text);
 }
+
+const lastPaneSnapshots = new Map<string, string>();
 
 async function agentState(name: string, options: HerdrOptions): Promise<{ status: string; seq?: number }> {
   const raw = parse((await (options.runner ?? defaultRunner)(['agent', 'get', name])).stdout);

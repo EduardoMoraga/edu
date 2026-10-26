@@ -2,7 +2,8 @@
 import type { Command } from 'commander';
 import type { EduEvent, HarnessLevel, OrchestrationMode } from '../../core/contracts.js';
 import { atomicWrite } from '../../brain/store.js';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { resumeGoal } from '../../orchestrator/resume.js';
 import { getGlyphs, renderBanner } from '../../identity/index.js';
 import type { CliContext, Resolved } from '../context.js';
 import { t, uiLang } from '../i18n.js';
@@ -12,7 +13,7 @@ import { createPlainFormatter } from '../run/plain.js';
 import { identityName, lessonCount, openWorkspace } from '../workspace.js';
 import { parseCli } from './setup.js';
 
-interface RunOpts { solo?: boolean; crew?: boolean; cli?: string; yes?: boolean; harness?: string; playbook?: string; detach?: boolean }
+interface RunOpts { resume?: string; solo?: boolean; crew?: boolean; cli?: string; yes?: boolean; harness?: string; playbook?: string; detach?: boolean }
 interface UiOpts { replay?: string; speed?: string }
 interface DemoOpts { speed?: string; save?: string }
 
@@ -60,7 +61,8 @@ export function registerLive(program: Command, ctx: CliContext): void {
   program
     .command('run')
     .description('run a goal: plan, approve, execute, review, learn')
-    .argument('<goal...>', 'what you want done')
+    .argument('[goal...]', 'what you want done (or use --resume)')
+    .option('--resume <runId>', 're-plan a persisted goal in this workspace with fresh approvals')
     .option('--solo', 'one CLI plays every role')
     .option('--crew', 'roles mapped to different CLIs')
     .option('--cli <cli>', 'CLI to use as the default engine')
@@ -73,7 +75,12 @@ export function registerLive(program: Command, ctx: CliContext): void {
         const mode = modeFrom(opts);
         const harnessLevel = harnessFrom(opts.harness);
         const cli = opts.cli ? parseCli(opts.cli) : undefined;
-        const text = (goal ?? '').trim();
+        let text = (goal ?? '').trim();
+        if (opts.resume) {
+          if (text) throw new Error('choose a goal or --resume, not both');
+          const ws = await openWorkspace(ctx, g.cwd);
+          text = await resumeGoal(join(ws.primary.root, 'runs'), opts.resume, g.cwd);
+        }
         if (!text) throw new Error('a goal is required');
         if (opts.detach) {
           const { createCrew } = await import('../../crew/index.js');

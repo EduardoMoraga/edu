@@ -19,7 +19,16 @@ them, hand work to the others and watch it happen.
 
 ---
 
-## Edu 2.1
+## Edu 3.0.0-rc.1 (tested candidate)
+
+Bounded Crew artifacts with paginated MCP retrieval, explicit builder/advisor/reviewer routing,
+run-local execution budgets, fresh-approval goal resume, optional-integration preflight, and
+Windows reliability fixes. No optional package is auto-installed; no global activation is implied.
+The release candidate was verified on Windows, macOS and Ubuntu before this public snapshot. Check the CI run in this repository for the published commit before installing or releasing it.
+
+[Migration and limits](docs/edu-3.0-migration.md) · [Verification and limits](docs/edu-3.0-verification.md)
+
+## Previous baseline: Edu 2.1
 
 Edu 2.1 includes the audited 2.0 memory/session work and adds honest usage completeness,
 capability-aware reader scheduling, declared skill bundles and explicitly approved experiments.
