@@ -125,6 +125,28 @@ describe('hooks', () => {
     expect(episode?.body).toContain('/tmp/t.jsonl');
   });
 
+  it('session-end closes the episode a Pi session-start opened, and leaves an agent-closed one untouched', async () => {
+    const pi = { cwd: '', session_id: 'pi-session-0001', source: 'pi' };
+    const c = await initialized(JSON.stringify(pi));
+    await runCli(c, ['hook', 'session-start']);
+    const [open] = await episodes(c);
+    expect(open?.meta.status).toBe('open-session');
+    expect(open?.meta.title).toBe('Pi session pi-sessi');
+    const end = async (reason: string) => {
+      const e = await captureContext({ stdin: JSON.stringify({ ...pi, reason }), detected: ['claude'] });
+      await runCli(e, ['--cwd', c.dirs.cwd, 'hook', 'session-end']);
+      expect(e.exitCode ?? 0).toBe(0);
+    };
+    await end('shutdown');
+    const [closed, ...rest] = await episodes(c);
+    expect(rest).toHaveLength(0);
+    expect(closed?.meta.id).toBe(open?.meta.id);
+    expect(closed?.meta.status).toBe('closed');
+    expect(closed?.body).toContain('Pi session pi-session-0001 ended (shutdown).');
+    await end('again');
+    expect((await episodes(c))[0]?.body).toBe(closed?.body);
+  });
+
   it('session-end and codex-notify auto-maintain the brain (stamp + index), throttled', async () => {
     const input = { session_id: 'abcdef1234567890', hook_event_name: 'SessionEnd' };
     const c = await initialized(JSON.stringify(input));

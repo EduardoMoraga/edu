@@ -46,6 +46,9 @@ describe('buildPlugins', () => {
     // Large imported brains on slow Windows disks need headroom: the hook timeout is in seconds.
     expect(claudeHooks.hooks.SessionStart[0].hooks[0].timeout).toBeGreaterThanOrEqual(30);
     expect(codexHooks.hooks.SessionStart[0].hooks[0].timeout).toBeGreaterThanOrEqual(30);
+    // Claude closes the episode it opened; Codex has no SessionEnd event and records turns through notify.
+    expect(claudeHooks.hooks.SessionEnd[0].hooks[0].command).toBe('edu hook session-end');
+    expect(codexHooks.hooks.SessionEnd).toBeUndefined();
     expect(await readFile(join(root, 'plugins/claude-code/skills/brief/SKILL.md'), 'utf8')).toContain('Brief skill.');
     expect(await readFile(join(root, 'plugins/opencode/commands/edu-brief.md'), 'utf8')).toContain('$ARGUMENTS');
     expect(await readFile(join(root, 'plugins/pi/prompts/edu-brief.md'), 'utf8')).toContain('$ARGUMENTS');

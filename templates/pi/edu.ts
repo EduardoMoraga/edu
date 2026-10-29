@@ -21,6 +21,8 @@ const DECK_TIMEOUT_MS = 1500;
 /** Safety margin for `edu hook session-start`: large imported brains on slow Windows disks. */
 const BRIEF_TIMEOUT_MS = 15000;
 const CLEANUP_TIMEOUT_MS = 2000;
+/** `edu hook session-end` at shutdown: closes the episode session-start opened, never blocks exit for long. */
+const END_TIMEOUT_MS = 10000;
 type CancelChild = () => Promise<void>;
 
 /**
@@ -228,6 +230,8 @@ export default function (pi: ExtensionAPI): void {
   // Cache both successful and failed attempts. No synchronous rebuild on each prompt;
   // /edu-refresh is the explicit retry/update boundary. Promises coalesce concurrent starts.
   const briefs = new Map<string, Promise<string>>();
+  // Pi session/workspace pairs whose session-start opened an Edu episode; session_shutdown closes them.
+  const started = new Map<string, { workspace: string; hostId: string }>();
   const workspaceFor = (ctx: ExtensionContext): string => {
     const id = ctx.sessionManager.getSessionId();
     if (id !== sessionId) { briefs.clear(); sessionId = id; }
@@ -242,6 +246,7 @@ export default function (pi: ExtensionAPI): void {
         JSON.stringify({ cwd: workspace, session_id: hostId, source: 'pi' }), activeChildren);
       // safeHook may report an internal error on stderr while exiting zero.
       if (stderr.trim()) throw new Error(stderr.trim());
+      if (stdout.trim()) started.set(`${hostId}\0${workspace}`, { workspace, hostId });
       return stdout.trim();
     } catch (error) {
       throw new Error(`Edu brief unavailable (${workspace}): ${error instanceof Error ? error.message : String(error)}. Retry with /edu-refresh.`);
@@ -485,6 +490,12 @@ export default function (pi: ExtensionAPI): void {
   pi.on('turn_end', async () => { if (ui) void refresh(); });
   pi.on('agent_end', async () => { if (ui) void refresh(); });
   pi.on('session_shutdown', async () => {
+    // Close first, outside activeChildren so the cancel below cannot stop it; an episode the agent
+    // already closed stays untouched, and a failure only leaves it open as before.
+    const ending = [...started.values()].map(({ workspace, hostId }) => runEduCommand(['hook', 'session-end'], workspace, END_TIMEOUT_MS,
+      JSON.stringify({ cwd: workspace, session_id: hostId, source: 'pi', reason: 'shutdown' })).catch(() => undefined));
+    started.clear();
+    await Promise.all(ending);
     if (timer) clearInterval(timer);
     timer = undefined;
     await Promise.all([...activeChildren].map(cancel => cancel()));

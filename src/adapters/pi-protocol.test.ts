@@ -89,6 +89,21 @@ describe('Pi template runtime protocol', () => {
     expect((await prompt(context(b))).systemPrompt).toContain(`MEMORY:${b}`);
     expect(await calls()).toEqual([{ cwd: b, args: ['hook', 'session-start'], input: { cwd: b, session_id: 'session-1', source: 'pi' } }]);
   });
+  it('closes the opened Edu episode at shutdown, once, with the same Pi session id', async () => {
+    await prompt(context(b));
+    await extension.handlers.get('session_shutdown')[0]({});
+    await extension.handlers.get('session_shutdown')[0]({});
+    expect(await calls()).toEqual([
+      { cwd: b, args: ['hook', 'session-start'], input: { cwd: b, session_id: 'session-1', source: 'pi' } },
+      { cwd: b, args: ['hook', 'session-end'], input: { cwd: b, session_id: 'session-1', source: 'pi', reason: 'shutdown' } },
+    ]);
+  });
+  it('does not close an episode that was never opened (failed or no-brain brief)', async () => {
+    await wrapper('empty');
+    await prompt(context(a));
+    await extension.handlers.get('session_shutdown')[0]({});
+    expect((await calls()).map(call => call.args[1])).toEqual(['session-start']);
+  });
   it('emits optional bounded session lessons without claiming proof or dispatching reflection', async () => {
     const result = await prompt(context(a));
     for (const required of ['lessons?: [{title, body, evidence?: [ids]}]', 'max 3', 'candidate/inferred', 'omit if none', 'no secrets', 'not proof', 'current model', 'no second reflection LLM', 'substantial changes', 'no automatic crew for trivial tasks']) {

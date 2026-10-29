@@ -94,13 +94,15 @@ export async function sessionEnd(ctx: CliContext, cwd: string): Promise<void> {
   if (!input || !sessionId) throw new Error('expected Claude SessionEnd JSON with session_id on stdin');
   const ws = await initializedWorkspace(ctx, str(input.cwd) ?? cwd);
   if (!ws) return;
+  // Same attribution as session-start: Pi names itself; Claude's `source` is never a host name here.
+  const host = str(input.source) === 'pi' ? { source: 'pi', label: 'Pi' } : { source: 'claude', label: 'Claude Code' };
   const transcript = str(input.transcript_path);
   const reason = str(input.reason);
   const summary = [
-    `Claude Code session ${sessionId} ended${reason ? ` (${reason})` : ''}.`,
+    `${host.label} session ${sessionId} ended${reason ? ` (${reason})` : ''}.`,
     transcript ? `Transcript: ${transcript} (path only; its content was not read or summarized).` : 'Transcript: not reported.',
   ].join('\n');
-  await hostSession(ws.primary.root, ws.brain, 'claude', sessionId, `Claude Code session ${short(sessionId)}`, summary);
+  await hostSession(ws.primary.root, ws.brain, host.source, sessionId, `${host.label} session ${short(sessionId)}`, summary);
   await autoMaintain(ws.brain, ws.primary.root);
 }
 

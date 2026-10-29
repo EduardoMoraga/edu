@@ -34,6 +34,8 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   const add = (path: string, content: string) => generated.set(path, `${content.replace(/\r\n/g, '\n').replace(/\s*$/, '')}\n`);
   const mcp = { command: 'edu', args: ['mcp'] };
   const hook = { hooks: { SessionStart: [{ matcher: 'startup|resume|clear|fork', hooks: [{ type: 'command', command: 'edu hook session-start', timeout: 30 }] }] } };
+  // Claude also closes the episode SessionStart opened; without it every unclosed session stays an empty open-session note.
+  const claudeHook = { hooks: { ...hook.hooks, SessionEnd: [{ matcher: '*', hooks: [{ type: 'command', command: 'edu hook session-end', timeout: 30 }] }] } };
 
   add('.claude-plugin/marketplace.json', json({
     name: 'edu', description: DESCRIPTION, owner: AUTHOR,
@@ -47,7 +49,7 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   add('plugins/claude-code/.claude-plugin/plugin.json', json({ name: 'edu', version: pkg.version, description: DESCRIPTION, author: AUTHOR, ...(deck ? { types: './types/index.d.ts' } : {}) }));
   add('plugins/claude-code/.mcp.json', json({ edu: mcp }));
   // Command hooks (identity at session start) plus the Edu Deck pane module, in one plugin.
-  add('plugins/claude-code/hooks/hooks.json', json(deck ? { ...hook, modules: ['./deck.tsx'] } : hook));
+  add('plugins/claude-code/hooks/hooks.json', json(deck ? { ...claudeHook, modules: ['./deck.tsx'] } : claudeHook));
   if (deck) {
     add('plugins/claude-code/hooks/deck.tsx', deck.deckModule);
     add('plugins/claude-code/types/index.d.ts', deck.deckState);
