@@ -202,6 +202,15 @@ lista como advertencia. Reimportar omite lo ya importado.
 `edu reflect` propone lecciones y cambios de skills a partir del trabajo reciente; nada se
 vuelve verdad hasta que usted ejecuta `edu proposals accept <id>`.
 
+**Se limpia (4.0).** El mantenimiento automático promueve y retira lecciones, marca compromisos
+vencidos y reconstruye el índice. Lo que nunca tocaba lo cubre `edu brain tidy`: escribe un plan
+con las sesiones que quedaron abiertas y vacías, las hipótesis abiertas hace más de 30 días
+(`--stale-days`) y los enlaces rotos escritos con el nombre original de una nota importada. Usted
+revisa el plan (borra lo que no quiera) y `edu brain tidy --apply` lo aplica a través del ciclo de
+vida del cerebro, con respaldo de cada archivo que cambia. Una hipótesis vieja pasa a
+`no-evidence`, nunca a `confirmed` ni `refuted`: eso exige evidencia que un script no tiene. Desde
+4.0, Claude Code y Pi cierran al salir la sesión que abrieron al empezar.
+
 ## Obsidian: una ventana, no una segunda memoria
 
 Ejecute `edu init` en cada proyecto y después `edu vault`. Edu crea `~/EduVault`, enlaza

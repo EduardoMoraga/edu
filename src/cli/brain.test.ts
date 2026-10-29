@@ -30,6 +30,35 @@ describe('edu brain', () => {
     expect(status.byTier.transitive).toBe(1);
   });
 
+  it('tidy plans, saves the plan, applies it with a backup and validates --only', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'tidy', '--apply']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('edu brain tidy');
+    c.exitCode = undefined; c.stderr.length = 0;
+
+    const opened = await openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]).openSession('Abandoned', 'claude');
+    await runCli(c, ['brain', 'tidy', '--json']);
+    // Opened just now: inside the grace period, so it is not proposed.
+    expect(JSON.parse(out(c)).sessions).toEqual([]);
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'tidy']);
+    expect(out(c)).toContain('Nothing to tidy.');
+    c.stdout.length = 0;
+
+    await runCli(c, ['brain', 'tidy', '--apply', '--only', 'sessions,rumors']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('--only');
+    c.exitCode = undefined; c.stderr.length = 0;
+
+    await runCli(c, ['brain', 'tidy', '--apply', '--json']);
+    expect(c.exitCode ?? 0).toBe(0);
+    const result = JSON.parse(out(c));
+    expect(result).toMatchObject({ sessions: 0, hypotheses: 0, aliases: 0 });
+    expect(result.backup).toContain(join('.edu', 'backups', 'tidy-'));
+    expect(await openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]).read(opened.meta.id)).toBeDefined();
+  });
+
   it('refuses to write without a brain and validates --kind', async () => {
     const c = await captureContext();
     await runCli(c, ['brain', 'remember', 'x']);

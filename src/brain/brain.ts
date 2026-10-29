@@ -70,6 +70,11 @@ export interface Brain {
    */
   rejectCanonical(id: string, reason?: string): Promise<Note>;
   maintain(now?: Date): Promise<MaintenanceReport>;
+  /**
+   * Deletes a session episode that is still open and has no body: nothing was ever recorded in it, so nothing is lost.
+   * Re-checked under the root lock; any other note (closed, with content, not a session) is left untouched and returns false.
+   */
+  discardEmptySession(id: string): Promise<boolean>;
   rebuildIndex(): Promise<void>;
   stats(): Promise<BrainStats>;
 }
@@ -350,6 +355,15 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       const quoted = note.body.trim().split('\n').slice(0, 12).map(line => `> ${line}`);
       await this.closeSession(record.meta.id, [`Rejected ${id} (${note.meta.band ?? 'inferred'}, source ${note.meta.source ?? 'unknown'}).`, ...(reason ? [`Reason: ${reason}`] : []), '', ...quoted].join('\n'));
       return note;
+    },
+    async discardEmptySession(id) {
+      const seen = await find(id); if (!seen) return false;
+      return withRoots([rootOf(seen.path)], async () => {
+        const current = await readNote(seen.path);
+        if (!current || current.meta.id !== id || current.meta.tier !== 'episodic' || current.meta.kind !== 'session' || current.meta.status !== 'open-session' || current.body.trim()) return false;
+        await rm(current.path, { force: true });
+        return true;
+      });
     },
     async maintain(now = new Date()) {
       const report: MaintenanceReport = { changed: [], promoted: [], retired: [], overdue: [], indexRebuilt: false };

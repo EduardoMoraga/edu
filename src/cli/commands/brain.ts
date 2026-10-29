@@ -1,8 +1,9 @@
-/** `edu brain status|recall|remember|maintain|import|link|proposals|approve`. */
+/** `edu brain status|recall|remember|maintain|tidy|import|link|proposals|approve`. */
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { autoMaintain } from '../../brain/auto-maintain.js';
 import { listCanonicalProposals, reviewCanonicalProposals } from '../../brain/proposals.js';
+import { TIDY_KINDS, applyTidy, loadTidyPlan, planTidy, saveTidyPlan } from '../../brain/tidy.js';
 import type { ClaimBand, TransitiveKind } from '../../core/contracts.js';
 import type { CliContext } from '../context.js';
 import { t, type Lang } from '../i18n.js';
@@ -172,6 +173,39 @@ export function registerBrain(program: Command, ctx: CliContext): void {
         const { report } = result;
         if (g.json || opts.json) return printJson(ctx, report);
         ctx.out(t(g.lang, 'brain.maintained', { changed: report.changed.length, promoted: report.promoted.length, retired: report.retired.length, overdue: report.overdue.length }));
+      }),
+    );
+
+  brain
+    .command('tidy')
+    .description('plan what maintenance never cleans (empty sessions, stale hypotheses, broken links with a known target); --apply runs the reviewed plan with a backup')
+    .option('--apply', 'apply the saved plan (edit it first to drop what you do not want)')
+    .option('--only <kinds>', `with --apply: comma list of ${TIDY_KINDS.join(', ')}`)
+    .option('--stale-days <n>', 'age in days after which an open hypothesis is proposed as no-evidence', '30')
+    .option('--json', 'machine-readable output')
+    .action(
+      action<{ apply?: boolean; only?: string; staleDays?: string; json?: boolean }>(ctx, async ({ g, opts }) => {
+        const ws = await writableWorkspace(ctx, g.cwd, g.lang);
+        if (opts.apply) {
+          const plan = await loadTidyPlan(ws.primary);
+          if (!plan) throw new Error(t(g.lang, 'brain.tidyNoPlan'));
+          const only = opts.only?.split(',').map(kind => oneOf(kind.trim(), TIDY_KINDS, '--only'));
+          const result = await applyTidy(ws.brain, ws.primary, plan, { only });
+          if (g.json || opts.json) return printJson(ctx, result);
+          ctx.out(t(g.lang, 'brain.tidyApplied', { sessions: result.sessions, hypotheses: result.hypotheses, aliases: result.aliases, skipped: result.skipped.length, backup: result.backup }));
+          for (const skip of result.skipped) ctx.out(`  - ${skip.id}: ${skip.reason}`);
+          return;
+        }
+        const staleDays = parseIntOption(opts.staleDays ?? '30', '--stale-days');
+        const plan = await planTidy(ws.brain, ws.primary, { staleDays });
+        const path = await saveTidyPlan(ws.primary, plan);
+        if (g.json || opts.json) return printJson(ctx, { ...plan, path });
+        if (!plan.sessions.length && !plan.hypotheses.length && !plan.aliases.length && !plan.manual.length) return ctx.out(t(g.lang, 'brain.tidyNothing'));
+        ctx.out(t(g.lang, 'brain.tidyPlan', { sessions: plan.sessions.length, hypotheses: plan.hypotheses.length, days: staleDays, aliases: plan.aliases.length, manual: plan.manual.length, unresolved: plan.unresolved }));
+        for (const h of plan.hypotheses) ctx.out(`  H ${h.created.slice(0, 10)} ${h.title}`);
+        for (const a of plan.aliases) ctx.out(`  A ${a.id} ← ${a.add.join(', ')}`);
+        for (const m of plan.manual) ctx.out(`  ! [[${m.link}]] → ${m.target} (${m.reason})`);
+        ctx.out(t(g.lang, 'brain.tidySaved', { path }));
       }),
     );
 

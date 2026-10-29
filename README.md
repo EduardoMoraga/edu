@@ -19,7 +19,21 @@ them, hand work to the others and watch it happen.
 
 ---
 
-## Edu 3.0.0-rc.1 (tested candidate)
+## Edu 4.0.0
+
+Brain hygiene that maintenance never did, and sessions that close themselves.
+
+- `edu brain tidy` writes a reviewable plan: empty sessions nobody filled, hypotheses open for more
+  than 30 days (`--stale-days`), and broken links written with an imported note's original name.
+  Edit the plan, then `edu brain tidy --apply` (optionally `--only sessions,hypotheses,aliases`)
+  applies it through the brain's lifecycle, with a backup of every changed file. Stale hypotheses
+  become `no-evidence`, never `confirmed` or `refuted`.
+- Claude Code (`SessionEnd`) and Pi (`session_shutdown`) now close the session episode they opened
+  at start. Before, every session the agent did not close stayed as an empty open note.
+
+[What changed and how it was verified](docs/edu-4.0.md)
+
+## Previous: Edu 3.0.0-rc.1 (tested candidate)
 
 Bounded Crew artifacts with paginated MCP retrieval, explicit builder/advisor/reviewer routing,
 run-local execution budgets, fresh-approval goal resume, optional-integration preflight, and

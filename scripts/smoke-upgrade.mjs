@@ -100,7 +100,7 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
   // runs its own published setup/migration order (0.10.2: setup first; RC: migration first).
   const fixture = join(temp, 'release-fixture.mjs');
   const nextVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
-  assert.equal(nextVersion, '3.0.0-rc.1', 'This release gate must test the 3.0.0-rc.1 candidate');
+  assert.equal(nextVersion, '4.0.0', 'This release gate must test the 4.0.0 release');
   await writeFile(fixture, `const original=globalThis.fetch; globalThis.fetch=async(url,opts)=>String(url).startsWith('https://api.github.com/repos/EduardoMoraga/edu/releases') ? new Response(JSON.stringify({tag_name:${JSON.stringify(`v${nextVersion}`)},name:'Local candidate fixture',body:'Local smoke only; not a published release.',assets:[{name:${JSON.stringify(`edu-agent-${nextVersion}.tgz`)},browser_download_url:${JSON.stringify(nextPackage)}}]}),{status:200,headers:{'content-type':'application/json'}}) : original(url,opts);`);
   const updateOutput = run(process.execPath, ['--import', pathToFileURL(fixture).href, entry, 'update', `v${nextVersion}`]);
   assert.equal(run(process.execPath, [entry, '--version']), nextVersion);
