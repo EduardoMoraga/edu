@@ -4,8 +4,8 @@ import {
   identityName,
   lessonCount,
   openWorkspace
-} from "./chunk-FIVNNCKI.js";
-import "./chunk-JEK37NC7.js";
+} from "./chunk-ZD27HUH4.js";
+import "./chunk-KQ7WE6FL.js";
 import "./chunk-K7L3WODK.js";
 import "./chunk-I6JWASFE.js";
 import "./chunk-Z4O66FDA.js";
@@ -17,4 +17,4 @@ export {
   lessonCount,
   openWorkspace
 };
-//# sourceMappingURL=workspace-BRXFQY3M.js.map
+//# sourceMappingURL=workspace-72L7QMAS.js.map

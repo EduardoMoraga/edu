@@ -2,8 +2,8 @@ import {
   eduHomeOf,
   listWorkspaces,
   selectWorkspace
-} from "./chunk-4X4Q6GEX.js";
-import "./chunk-JEK37NC7.js";
+} from "./chunk-ZENKLJBL.js";
+import "./chunk-KQ7WE6FL.js";
 import "./chunk-K7L3WODK.js";
 import "./chunk-I6JWASFE.js";
 import "./chunk-Z4O66FDA.js";
@@ -13,4 +13,4 @@ export {
   listWorkspaces,
   selectWorkspace
 };
-//# sourceMappingURL=projects-V6KCMN6G.js.map
+//# sourceMappingURL=projects-XKKEECIG.js.map

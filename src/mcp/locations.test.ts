@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { resolveBrainLocations } from './locations.js';
 
@@ -44,4 +45,19 @@ it('initializes a rebound workspace brain after a transient roots/list failure',
   expect(attempts).toBe(2);
   expect(locations?.[0]).toEqual({ scope: 'project', root: join(root, '.edu') });
   expect(await readFile(join(root, '.edu/EDU.md'), 'utf8')).toContain('Edu');
+});
+
+it('recognizes the global brain reached while walking ancestors instead of calling it a project', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'edu-global-ancestor-')); roots.push(home);
+  await mkdir(join(home, '.edu')); await mkdir(join(home, 'Projects', 'uninitialized'), { recursive: true });
+  const locations = await resolveBrainLocations(join(home, 'Projects', 'uninitialized'), { HOME: home });
+  expect(locations).toEqual([{ scope: 'global', root: join(home, '.edu') }]);
+});
+
+it('does not duplicate the global brain when a client root is HOME itself', async () => {
+  const { resolveReboundLocations } = await import('./stdio.js');
+  const home = await mkdtemp(join(tmpdir(), 'edu-rebound-home-')); roots.push(home);
+  await mkdir(join(home, '.edu'));
+  const locations = await resolveReboundLocations(join(home, 'plugin'), { HOME: home }, async () => [pathToFileURL(home).href]);
+  expect(locations).toEqual([{ scope: 'global', root: join(home, '.edu') }]);
 });

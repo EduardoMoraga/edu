@@ -74,7 +74,7 @@ export async function resolveReboundLocations(
   const dir = resolve(fileURLToPath(uri));
   if (dir === resolve(cwd)) return undefined;
   const locations = await resolveBrainLocations(dir, env);
-  if (locations[0]?.scope !== 'project') locations.unshift({ scope: 'project', root: join(dir, '.edu') });
+  if (locations[0]?.scope !== 'project' && !locations.some(location => location.root === join(dir, '.edu'))) locations.unshift({ scope: 'project', root: join(dir, '.edu') });
   await openBrain(locations).init(locations[0]!);
   return locations;
 }

@@ -7,7 +7,7 @@ import {
 import {
   createCrew,
   runWorker
-} from "./chunk-TIMIVBGF.js";
+} from "./chunk-7O54OXOJ.js";
 import {
   action,
   look,
@@ -16,7 +16,7 @@ import {
   printJson,
   registerPluginSetup,
   statusLine
-} from "./chunk-VFYXANBH.js";
+} from "./chunk-UTP625BJ.js";
 import {
   detectTheme,
   formatTokens,
@@ -43,7 +43,7 @@ import {
   editContent,
   editInstructions,
   ownerOf
-} from "./chunk-4HMNKJ3K.js";
+} from "./chunk-2XUKDFCV.js";
 import {
   UpdateError,
   compareVersions,
@@ -59,14 +59,14 @@ import {
 } from "./chunk-BXZ573JQ.js";
 import {
   initBrain
-} from "./chunk-CABWE2F6.js";
+} from "./chunk-I6YXL7CZ.js";
 import {
   effectiveConfig,
   exists,
   identityName,
   lessonCount,
   openWorkspace
-} from "./chunk-FIVNNCKI.js";
+} from "./chunk-ZD27HUH4.js";
 import {
   classifyPackage,
   loadChecks,
@@ -249,7 +249,7 @@ async function applyTidy(brain, primary, plan, opts = {}) {
 import { lstat, mkdir as mkdir2, readlink, realpath, symlink } from "fs/promises";
 import { basename as basename2, dirname as dirname2, join as join2, resolve } from "path";
 function linkName(location) {
-  return location.scope === "global" ? "global" : basename2(dirname2(location.root)) || "project";
+  return location.scope === "global" ? "_global" : basename2(dirname2(location.root)) || "project";
 }
 function brainDir(location) {
   return brainPath(location);
@@ -608,7 +608,7 @@ function registerSetup(program, ctx) {
       const scope = parseScope(opts.scope);
       const { uninstall, getManifestPath } = await import("./adapters-4HZOZD4X.js");
       if (scope === "global") {
-        const { setupManifestPath, uninstallSetup } = await import("./setup-BXF6ZXXU.js");
+        const { setupManifestPath, uninstallSetup } = await import("./setup-LO6DRPWK.js");
         if (await exists(await setupManifestPath(ctx.home))) {
           await uninstallSetup({ home: ctx.home, force: Boolean(opts.force) });
           ctx.out(t(g.lang, "uninstall.done", { scope }));
@@ -668,7 +668,7 @@ function modeLine(lang, mode) {
 }
 function registerCreate(program, ctx, deps = {}) {
   program.command("create").description("turn documents (.md .txt .docx .pdf) into a self-contained, Obsidian-ready workspace with a named agent").argument("[docs...]", "documents to learn from (never modified)").option("--name <agent>", "the agent's name, e.g. Albert (also the folder name)").option("--dir <parent>", "folder that will hold the workspace (default ~/Edu)").option("--lang <lang>", "folder and README language: es | en (default EDU_LANG, then locale, then es)").option("--cli <cli>", "CLI that extracts the knowledge: claude, codex, pi or opencode (default: first installed)").option("--no-llm", "deterministic extraction by headings, no LLM").option("--add", "add the documents to the workspace you are in").option("-y, --yes", "use the target folder even if it is not empty").option("--json", "machine-readable result").action(action(ctx, async ({ g, opts, cmd }) => {
-    const { addDocuments, createWorkspace } = await import("./create-6UMYM6AH.js");
+    const { addDocuments, createWorkspace } = await import("./create-QLWDNHFD.js");
     const { workspaceLang } = await import("./layout-MQUVI4CG.js");
     const docs = cmd.args.map((path) => resolve3(g.cwd, path));
     const lang = workspaceLang(opts.lang ?? cmd.optsWithGlobals().lang, ctx.env);
@@ -1011,7 +1011,7 @@ function registerConnect(program, ctx, deps = {}) {
     }
     if (!existsSync2(path)) throw new Error(es ? `No encontr\xE9 la configuraci\xF3n de Hermes en ${path}. Instala Hermes o usa --config.` : `Hermes config not found at ${path}. Install Hermes or pass --config.`);
     if (opts.project) {
-      const { selectWorkspace } = await import("./projects-V6KCMN6G.js");
+      const { selectWorkspace } = await import("./projects-XKKEECIG.js");
       await selectWorkspace(opts.project, { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home }, g.cwd);
     }
     const entry = hermesEntry(eduServiceMcpLaunch({ env: ctx.env }), opts.project);
@@ -2924,7 +2924,7 @@ function registerIntegrations(program, ctx) {
   );
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-WXX7RWZB.js");
+      const { runStdioServer } = await import("./stdio-FKBPQTII.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3045,7 +3045,7 @@ function registerMcpProject(program, ctx) {
   mcp.option("--project <name|path>", 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)').option("--profile <full|memory>", "tool surface: full (default) or memory only (env EDU_MCP_PROFILE)").action(
     action(ctx, async ({ g, opts }) => {
       if (opts.profile && opts.profile !== "full" && opts.profile !== "memory") throw new Error("Unknown MCP tool profile; use full or memory");
-      const { runStdioServer } = await import("./stdio-WXX7RWZB.js");
+      const { runStdioServer } = await import("./stdio-FKBPQTII.js");
       await runStdioServer({ cwd: g.cwd, project: opts.project, toolProfile: opts.profile, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3075,9 +3075,9 @@ function registerWatch(program, ctx) {
         }))
       };
       const id = jobId?.trim() || void 0;
-      const { watchInTui, watchPlain } = await import("./watch-AUZZNI7B.js");
+      const { watchInTui, watchPlain } = await import("./watch-UXDS56PX.js");
       if (!ctx.isTTY) return watchPlain(ctx, { source, jobId: id, lang: g.lang });
-      const { cliDispatch, selfRunner } = await import("./commands-2ICSJGTW.js");
+      const { cliDispatch, selfRunner } = await import("./commands-5YFTRAO6.js");
       const explicitLang = cmd.optsWithGlobals().lang !== void 0;
       await watchInTui({
         source,
@@ -3124,7 +3124,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-R5KQV6V2.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-6O3ZPU3A.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -3137,7 +3137,7 @@ async function openHome(ctx, g) {
   ctx.out(t(g.lang, "home.brain", { total: stats.total, lessons: lessonCount(stats.byStatus) }));
   ctx.out(clis.length ? t(g.lang, "home.clis", { clis: clis.join(", ") }) : t(g.lang, "home.noClis"));
   ctx.out(t(g.lang, "home.hint"));
-  const { runHome } = await import("./live-GEMGSNAB.js");
+  const { runHome } = await import("./live-RJNR4KED.js");
   await runHome(ctx, { cwd: g.cwd, lang: g.lang, name });
 }
 function modeFrom(opts) {
@@ -3164,7 +3164,7 @@ function registerLive(program, ctx) {
       }
       if (!text) throw new Error("a goal is required");
       if (opts.detach) {
-        const { createCrew: createCrew2 } = await import("./crew-IRS6NLJZ.js");
+        const { createCrew: createCrew2 } = await import("./crew-76KESAYE.js");
         const ws = await openWorkspace(ctx, g.cwd);
         const job = await createCrew2({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
           goal: text,
@@ -3180,7 +3180,7 @@ function registerLive(program, ctx) {
       }
       if (ctx.isTTY) {
         const ws = await openWorkspace(ctx, g.cwd);
-        const { runInTui } = await import("./live-GEMGSNAB.js");
+        const { runInTui } = await import("./live-RJNR4KED.js");
         const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, playbook: opts.playbook, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
         if (result) ctx.out(t(g.lang, "run.done", { status: t(g.lang, result.ok ? "run.ok" : "run.failed"), summary: result.summary }));
         if (!result?.ok) ctx.setExitCode(1);
@@ -3201,7 +3201,7 @@ function registerLive(program, ctx) {
       const run = await loadRun(opts.replay);
       for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
       if (!ctx.isTTY) return printPlain(ctx, run.events);
-      const { playInTui } = await import("./live-GEMGSNAB.js");
+      const { playInTui } = await import("./live-RJNR4KED.js");
       await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2e3 }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -3216,7 +3216,7 @@ function registerLive(program, ctx) {
         ctx.out(t(g.lang, "demo.plain"));
         return printPlain(ctx, events);
       }
-      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-MTGKHMKG.js"), import("./live-GEMGSNAB.js")]);
+      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-MTGKHMKG.js"), import("./live-RJNR4KED.js")]);
       await playInTui(timedEvents(events, { speed }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -3225,7 +3225,7 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes) {
   const available = ctx.availableClis ?? await ctx.detectClis();
   if (!available.length) throw new Error(t(g.lang, "run.noCli"));
   if (!yes && !ctx.stdinIsTTY) throw new Error("Plain runs require --yes when stdin is not a TTY");
-  const { executeRun } = await import("./session-ELZ3UYYN.js");
+  const { executeRun } = await import("./session-PBYYNMZY.js");
   const format = createPlainFormatter(getGlyphs(ctx.env));
   const abort = new AbortController();
   const onSigint = () => {
@@ -3822,4 +3822,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-DH3KIBAW.js.map
+//# sourceMappingURL=chunk-KXK62N4N.js.map
