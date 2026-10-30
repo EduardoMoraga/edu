@@ -32,6 +32,18 @@ describe('edu vault command', () => {
     expect(JSON.parse(out(c)).vault.state).toBe('ok');
   });
 
+  it('doctor uses the global vault link outside an initialized project', async () => {
+    const c = await captureContext();
+    await runCli(c, ['init', '--global']);
+    await runCli(c, ['vault', '--no-register']);
+    c.stdout.length = 0;
+    await runCli(c, ['doctor', '--json']);
+    const report = JSON.parse(out(c));
+    expect(report.vault).toEqual({ link: join(c.dirs.home, 'EduVault', 'Edu', '_global'), state: 'ok' });
+    expect(report.brains).toHaveLength(1);
+    expect(report.brains[0].scope).toBe('global');
+  });
+
   it('doctor reports a missing registered project without pruning it', async () => {
     const c = await captureContext();
     await runCli(c, ['init']);

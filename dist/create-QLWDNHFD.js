@@ -4,13 +4,13 @@ import {
 } from "./chunk-MRXNEYBJ.js";
 import {
   initBrain
-} from "./chunk-CABWE2F6.js";
+} from "./chunk-I6YXL7CZ.js";
 import {
   identityName
-} from "./chunk-FIVNNCKI.js";
+} from "./chunk-ZD27HUH4.js";
 import {
   resolveBrainLocations
-} from "./chunk-JEK37NC7.js";
+} from "./chunk-KQ7WE6FL.js";
 import {
   upsertManagedBlock
 } from "./chunk-DGIFDAPF.js";
@@ -767,7 +767,7 @@ async function addDocuments(opts, deps) {
   if (project?.scope !== "project") throw new Error("No Edu workspace here: run `edu create <docs> --name <Agent>` first, or cd into a workspace");
   const workspace = resolve(project.root, "..");
   const settings = await readWorkspaceSettings(project.root);
-  const { effectiveConfig } = await import("./workspace-BRXFQY3M.js");
+  const { effectiveConfig } = await import("./workspace-72L7QMAS.js");
   const config = await effectiveConfig(project.root, deps.detected);
   const lang = config.lang;
   const sourcesDir = resolve(workspace, settings.sourcesDir ?? relative(workspace, join4(brainPath(project), "sources")));
@@ -785,4 +785,4 @@ export {
   extractKnowledge,
   readDocuments
 };
-//# sourceMappingURL=create-6UMYM6AH.js.map
+//# sourceMappingURL=create-QLWDNHFD.js.map

@@ -1,6 +1,6 @@
 import {
   resolveBrainLocations
-} from "./chunk-JEK37NC7.js";
+} from "./chunk-KQ7WE6FL.js";
 import {
   openBrain
 } from "./chunk-K7L3WODK.js";
@@ -58,7 +58,7 @@ async function selectWorkspace(selector, env, cwd = process.cwd()) {
     label = match.name;
   }
   const locations = await resolveBrainLocations(root, env);
-  if (locations[0]?.scope !== "project") locations.unshift({ scope: "project", root: join(root, ".edu") });
+  if (locations[0]?.scope !== "project" && !locations.some((location) => location.root === join(root, ".edu"))) locations.unshift({ scope: "project", root: join(root, ".edu") });
   await openBrain(locations).init(locations[0]);
   return { label, root: dirname(locations[0].root), locations };
 }
@@ -68,4 +68,4 @@ export {
   listWorkspaces,
   selectWorkspace
 };
-//# sourceMappingURL=chunk-4X4Q6GEX.js.map
+//# sourceMappingURL=chunk-ZENKLJBL.js.map

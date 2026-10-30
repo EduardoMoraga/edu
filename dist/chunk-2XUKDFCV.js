@@ -5,7 +5,7 @@ import {
 } from "./chunk-FWZJC5KV.js";
 import {
   initBrain
-} from "./chunk-CABWE2F6.js";
+} from "./chunk-I6YXL7CZ.js";
 import {
   UNION,
   applyInstall,
@@ -333,7 +333,6 @@ async function planCodexRefresh(options) {
       throw new Error("installed plugin identity or local provenance is unknown");
     }
     const host = await command(["--version"]);
-    if (host.exitCode !== 0 || host.stdout?.trim() !== "codex-cli 0.163.0") throw new Error("only Codex 0.163.0 cache semantics are verified");
     checkProvenance = await captureNativeProvenance({ host: "codex", home, packageRoot, runner, expectedRegistration: JSON.stringify([entry]) });
     const marketplace = JSON.parse(await readFile4(join4(packageRoot, ".agents/plugins/marketplace.json"), "utf8"));
     const plugins = marketplace.plugins?.filter((p) => p.name === "edu");
@@ -348,6 +347,7 @@ async function planCodexRefresh(options) {
     const expectedCurrent = Object.fromEntries(Object.entries(candidate).map(([p, hash]) => [`${nextVersion}/${p}`, hash]));
     if (installedVersion === nextVersion && equal(before, expectedCurrent)) return async () => {
     };
+    if (host.exitCode !== 0 || host.stdout?.trim() !== "codex-cli 0.163.0") throw new Error("only Codex 0.163.0 cache semantics are verified");
     const baseline = codexBaselineForVersion(installedVersion, options.platform ?? process.platform);
     const expectedOld = baseline && Object.fromEntries(Object.entries(baseline).map(([p, hash]) => [`${installedVersion}/${p}`, hash]));
     if (!expectedOld || !equal(before, expectedOld)) throw new Error("cache differs from an exact published baseline (unknown version, custom, missing or extra files)");
@@ -1157,4 +1157,4 @@ export {
   uninstallSetup,
   needsFirstRunSetup
 };
-//# sourceMappingURL=chunk-4HMNKJ3K.js.map
+//# sourceMappingURL=chunk-2XUKDFCV.js.map

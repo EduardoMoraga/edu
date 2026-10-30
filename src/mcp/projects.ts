@@ -69,7 +69,7 @@ export async function selectWorkspace(selector: string, env: NodeJS.ProcessEnv, 
   }
   const locations = await resolveBrainLocations(root, env);
   // A folder inside a workspace uses that workspace; a folder outside any gets its own brain.
-  if (locations[0]?.scope !== 'project') locations.unshift({ scope: 'project', root: join(root, '.edu') });
+  if (locations[0]?.scope !== 'project' && !locations.some(location => location.root === join(root, '.edu'))) locations.unshift({ scope: 'project', root: join(root, '.edu') });
   await openBrain(locations).init(locations[0]!);
   return { label, root: dirname(locations[0]!.root), locations };
 }

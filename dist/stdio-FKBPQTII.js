@@ -2,14 +2,14 @@ import {
   eduHomeOf,
   listWorkspaces,
   selectWorkspace
-} from "./chunk-4X4Q6GEX.js";
+} from "./chunk-ZENKLJBL.js";
 import {
   withHostLock
 } from "./chunk-UPSPAYW3.js";
 import {
   createCrew
-} from "./chunk-TIMIVBGF.js";
-import "./chunk-BYO2PQ3H.js";
+} from "./chunk-7O54OXOJ.js";
+import "./chunk-YMJAPHFI.js";
 import "./chunk-VXRMRQCF.js";
 import "./chunk-PGQM5MLC.js";
 import "./chunk-QNEUTXM7.js";
@@ -19,11 +19,11 @@ import {
 import {
   packageVersion
 } from "./chunk-BXZ573JQ.js";
-import "./chunk-CABWE2F6.js";
-import "./chunk-FIVNNCKI.js";
+import "./chunk-I6YXL7CZ.js";
+import "./chunk-ZD27HUH4.js";
 import {
   resolveBrainLocations
-} from "./chunk-JEK37NC7.js";
+} from "./chunk-KQ7WE6FL.js";
 import {
   brief
 } from "./chunk-RHUHDDSE.js";
@@ -585,7 +585,7 @@ async function resolveReboundLocations(cwd, env, listRoots) {
   const dir = resolve2(fileURLToPath(uri));
   if (dir === resolve2(cwd)) return void 0;
   const locations = await resolveBrainLocations(dir, env);
-  if (locations[0]?.scope !== "project") locations.unshift({ scope: "project", root: join3(dir, ".edu") });
+  if (locations[0]?.scope !== "project" && !locations.some((location) => location.root === join3(dir, ".edu"))) locations.unshift({ scope: "project", root: join3(dir, ".edu") });
   await openBrain(locations).init(locations[0]);
   return locations;
 }
@@ -600,4 +600,4 @@ export {
   resolveReboundLocations,
   runStdioServer
 };
-//# sourceMappingURL=stdio-WXX7RWZB.js.map
+//# sourceMappingURL=stdio-FKBPQTII.js.map

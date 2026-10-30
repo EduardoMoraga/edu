@@ -10,9 +10,9 @@ import { brainPath } from '../brain/location.js';
 
 export type LinkState = 'ok' | 'missing' | 'conflict';
 
-/** Folder name inside `<vault>/Edu/`: the project directory name, or "global". */
+/** Folder name inside `<vault>/Edu/`: the project directory name, or "_global". */
 export function linkName(location: BrainLocation): string {
-  return location.scope === 'global' ? 'global' : basename(dirname(location.root)) || 'project';
+  return location.scope === 'global' ? '_global' : basename(dirname(location.root)) || 'project';
 }
 
 export function brainDir(location: BrainLocation): string {

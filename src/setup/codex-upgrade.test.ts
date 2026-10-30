@@ -70,6 +70,17 @@ it('refreshes a pristine public cache with backup and candidate validation; repe
   expect(JSON.parse(await readFile(join(f.nextRoot, '.mcp.json'), 'utf8'))).toEqual({ mcpServers: { edu: launch } });
   await f.run(); expect(f.calls.filter(c => c === 'plugin add edu@edu --json')).toHaveLength(1);
 });
+it('accepts an exact current cache on a newer host without invoking native install again', async () => {
+  const f = await fixture(); await f.run();
+  const backups = await readdir(join(f.brainRoot, 'backups'));
+  f.setMode('unsupported');
+  await f.run();
+  expect(f.calls.filter(c => c === 'plugin add edu@edu --json')).toHaveLength(1);
+  expect(await readdir(join(f.brainRoot, 'backups'))).toEqual(backups);
+  await writeFile(join(f.nextRoot, 'skills/edu-brief/SKILL.md'), 'CUSTOM');
+  await expect(f.run()).rejects.toThrow(/manual conflict/i);
+  expect(await readFile(join(f.nextRoot, 'skills/edu-brief/SKILL.md'), 'utf8')).toBe('CUSTOM');
+});
 it.each(['edited', 'extra', 'missing', 'symlink', 'origin', 'unsupported', 'unknown-version', 'unknown-directory', 'empty-directory'])('preserves custom/unknown cache (%s) without invoking install', async mode => {
   const f = await fixture(); f.setMode(mode);
   const path = join(f.oldRoot, 'skills/edu-brief/SKILL.md');

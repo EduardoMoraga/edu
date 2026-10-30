@@ -56,6 +56,16 @@ describe('workspace selection', () => {
     await expect(selectWorkspace('bob', r.env)).rejects.toThrow('Unknown workspace "bob". Registered: albert-ops (Albert), notes (Edu)');
   });
 
+  it('selects HOME as one global brain and initializes a separate brain for an uninitialized child', async () => {
+    const r = await registry();
+    expect((await selectWorkspace(r.base, r.env)).locations).toEqual([{ scope: 'global', root: r.eduHome }]);
+    const child = join(r.base, 'new-project'); await mkdir(child);
+    const selected = await selectWorkspace(child, r.env);
+    expect(selected.locations).toEqual([
+      { scope: 'project', root: join(child, '.edu') }, { scope: 'global', root: r.eduHome },
+    ]);
+  });
+
   it('refuses an agent name shared by several workspaces', async () => {
     const r = await registry();
     await writeFile(join(r.base, 'notes', '.edu', 'config.json'), JSON.stringify({ identity: { name: 'Albert' } }));
