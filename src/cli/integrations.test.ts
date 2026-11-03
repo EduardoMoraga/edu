@@ -75,7 +75,7 @@ describe('edu brief', () => {
     const other = await captureContext();
     await runCli(other, ['brief', '--cwd', c.dirs.cwd, '--json', 'small', 'PRs']);
     const parsed = JSON.parse(out(other));
-    expect(parsed.text).toContain('the contract');
+    expect(parsed.text).toContain('# You are Edu');
     expect(parsed.hits.map((h: { id: string }) => h.id)).toContain('L-prefer-small-prs');
     const plain = await captureContext();
     await runCli(plain, ['--cwd', c.dirs.cwd, 'brief', 'small PRs']);
@@ -95,7 +95,7 @@ describe('hooks', () => {
     const c = await initialized('{"session_id":"abc","source":"startup"}');
     await runCli(c, ['hook', 'session-start']);
     expect(c.exitCode ?? 0).toBe(0);
-    expect(out(c)).toContain('the contract');
+    expect(out(c)).toContain('# You are Edu');
   });
 
   it('session-start stays silent without a brain', async () => {

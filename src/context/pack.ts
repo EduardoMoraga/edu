@@ -1,5 +1,6 @@
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { access, readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { readWorkspaceSettings } from '../brain/location.js';
 import type { Brain } from '../brain/index.js';
 import { learnedWeight } from '../brain/index.js';
@@ -20,9 +21,12 @@ function bodyPassage(note: Note, query: string | undefined, limit: number): stri
 }
 
 /** "You are Albert, this workspace's agent, powered by Edu…" when `.edu/config.json` names the agent. */
-export async function agentIntro(eduRoot: string): Promise<string> {
+export async function agentIntro(eduRoot: string, source?: string): Promise<string> {
   const identity = (await readWorkspaceSettings(eduRoot)).identity;
-  if (!identity) return '';
+  if (!identity) {
+    // With an EDU.md the heading itself becomes the intro (see identityCore); no extra tokens.
+    return source === undefined ? 'You are **Edu**; introduce yourself as Edu.' : '';
+  }
   return [
     `You are **${identity.name}**, this workspace's agent, powered by Edu. Introduce yourself as ${identity.name}.`,
     identity.role ? `Role: ${identity.role}` : '',
@@ -31,21 +35,37 @@ export async function agentIntro(eduRoot: string): Promise<string> {
   ].filter(Boolean).join('\n');
 }
 
-async function identityCore(path?: string): Promise<string> {
-  if (!path) return '';
-  const intro = await agentIntro(dirname(path));
-  try {
-    const source = await readFile(path, 'utf8');
+function headingName(source?: string): string | undefined {
+  const heading = source ? /^#\s+(.+?)(?:\s+[—-]\s+.*)?$/m.exec(source)?.[1]?.trim() : undefined;
+  return heading && heading !== '{{name}}' ? heading : undefined;
+}
+
+/** Workspace `.edu/EDU.md` when present, else the global `$EDU_HOME/EDU.md` (`~/.edu`). */
+async function resolveEduMd(path: string): Promise<string> {
+  try { await access(path); return path; } catch { /* fall back to global */ }
+  const globalPath = join(resolve(process.env.EDU_HOME || join(homedir(), '.edu')), 'EDU.md');
+  try { await access(globalPath); return globalPath; } catch { return path; }
+}
+
+async function identityCore(requested?: string): Promise<string> {
+  if (!requested) return '';
+  const path = await resolveEduMd(requested);
+  let source: string | undefined;
+  try { source = await readFile(path, 'utf8'); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  const intro = await agentIntro(dirname(path), source);
+  if (source === undefined) return intro;
+  {
     const beforeMarker = source.split('<!-- edu:extended -->', 1)[0] ?? '';
     const protocolStart = beforeMarker.indexOf('<!-- edu:core -->');
     const protocolEnd = beforeMarker.indexOf('<!-- /edu:core -->', protocolStart);
     const core = (protocolStart >= 0
       ? beforeMarker.slice(0, protocolEnd >= 0 ? protocolEnd + '<!-- /edu:core -->'.length : protocolStart)
       : beforeMarker === source ? source.split('\n').slice(0, 40).join('\n') : beforeMarker).trim();
-    return intro ? `${intro}\n\n${core}` : core;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return intro;
-    throw error;
+    const name = headingName(source);
+    const named = !intro && name ? core.replace(/^#\s+.+$/m, `# You are ${name}`) : core;
+    return intro ? `${intro}\n\n${named}` : named;
   }
 }
 

@@ -3,7 +3,7 @@ import {
 } from "./chunk-O4VCB4FG.js";
 import {
   executeRun
-} from "./chunk-YMJAPHFI.js";
+} from "./chunk-VZA4DCG7.js";
 import {
   t,
   uiLang
@@ -177,7 +177,7 @@ async function runInTui(ctx, opts) {
 }
 async function runHome(ctx, opts) {
   const { renderTui } = await import("./tui-ARMAQGB6.js");
-  const { respond } = await import("./respond-AXKIYTKG.js");
+  const { respond } = await import("./respond-FNHV3COM.js");
   const { createEngine } = await import("./engine-PGCKKQC2.js");
   const channel = createChannel();
   const bridge = new ApprovalBridge();
@@ -267,4 +267,4 @@ export {
   runHome,
   runInTui
 };
-//# sourceMappingURL=live-RJNR4KED.js.map
+//# sourceMappingURL=live-UAJGPDZY.js.map

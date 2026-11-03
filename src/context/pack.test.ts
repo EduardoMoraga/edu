@@ -22,6 +22,22 @@ async function fixture() {
 }
 
 describe('context packs', () => {
+  it('falls back to the global EDU.md and names the agent when the workspace has no .edu', async () => {
+    const { root, brain } = await fixture();
+    const home = await mkdtemp(join(tmpdir(), 'edu-home-'));
+    roots.push(home);
+    await writeFile(join(home, 'EDU.md'), '# Edu — the contract\nBe direct.');
+    const previous = process.env.EDU_HOME;
+    process.env.EDU_HOME = home;
+    try {
+      const text = await brief(brain, 400, { eduMdPath: join(root, 'missing', 'EDU.md') });
+      expect(text).toContain('# You are Edu');
+      expect(text).toContain('Be direct.');
+    } finally {
+      if (previous === undefined) delete process.env.EDU_HOME; else process.env.EDU_HOME = previous;
+    }
+  });
+
   it('opens the identity core with the workspace agent name from config.json', async () => {
     const { root, brain, eduMdPath } = await fixture();
     await writeFile(join(root, 'config.json'), JSON.stringify({ identity: { name: 'Albert', role: 'Trade marketing analyst' } }));

@@ -13,8 +13,9 @@ import {
 } from "./chunk-YPR7PZSQ.js";
 
 // src/context/pack.ts
-import { readFile } from "fs/promises";
-import { dirname, join } from "path";
+import { access, readFile } from "fs/promises";
+import { homedir } from "os";
+import { dirname, join, resolve } from "path";
 function byNewest(a, b) {
   return b.meta.created.localeCompare(a.meta.created) || a.meta.id.localeCompare(b.meta.id);
 }
@@ -22,9 +23,11 @@ function bodyPassage(note, query, limit) {
   const passage = query ? relevantPassage(note.body, query, Math.min(480, Math.floor(limit * 3))) : note.body;
   return truncateToTokens(passage.replace(/\s+/g, " ").trim(), limit);
 }
-async function agentIntro(eduRoot) {
+async function agentIntro(eduRoot, source) {
   const identity = (await readWorkspaceSettings(eduRoot)).identity;
-  if (!identity) return "";
+  if (!identity) {
+    return source === void 0 ? "You are **Edu**; introduce yourself as Edu." : "";
+  }
   return [
     `You are **${identity.name}**, this workspace's agent, powered by Edu. Introduce yourself as ${identity.name}.`,
     identity.role ? `Role: ${identity.role}` : "",
@@ -32,21 +35,45 @@ async function agentIntro(eduRoot) {
     identity.tone ? `Tone: ${identity.tone}` : ""
   ].filter(Boolean).join("\n");
 }
-async function identityCore(path) {
-  if (!path) return "";
-  const intro = await agentIntro(dirname(path));
+function headingName(source) {
+  const heading = source ? /^#\s+(.+?)(?:\s+[—-]\s+.*)?$/m.exec(source)?.[1]?.trim() : void 0;
+  return heading && heading !== "{{name}}" ? heading : void 0;
+}
+async function resolveEduMd(path) {
   try {
-    const source = await readFile(path, "utf8");
+    await access(path);
+    return path;
+  } catch {
+  }
+  const globalPath = join(resolve(process.env.EDU_HOME || join(homedir(), ".edu")), "EDU.md");
+  try {
+    await access(globalPath);
+    return globalPath;
+  } catch {
+    return path;
+  }
+}
+async function identityCore(requested) {
+  if (!requested) return "";
+  const path = await resolveEduMd(requested);
+  let source;
+  try {
+    source = await readFile(path, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const intro = await agentIntro(dirname(path), source);
+  if (source === void 0) return intro;
+  {
     const beforeMarker = source.split("<!-- edu:extended -->", 1)[0] ?? "";
     const protocolStart = beforeMarker.indexOf("<!-- edu:core -->");
     const protocolEnd = beforeMarker.indexOf("<!-- /edu:core -->", protocolStart);
     const core = (protocolStart >= 0 ? beforeMarker.slice(0, protocolEnd >= 0 ? protocolEnd + "<!-- /edu:core -->".length : protocolStart) : beforeMarker === source ? source.split("\n").slice(0, 40).join("\n") : beforeMarker).trim();
+    const name = headingName(source);
+    const named = !intro && name ? core.replace(/^#\s+.+$/m, `# You are ${name}`) : core;
     return intro ? `${intro}
 
-${core}` : core;
-  } catch (error) {
-    if (error.code === "ENOENT") return intro;
-    throw error;
+${named}` : named;
   }
 }
 async function assembleContext(brain, req, opts, trackUsage) {
@@ -184,4 +211,4 @@ export {
   buildContext,
   brief
 };
-//# sourceMappingURL=chunk-RHUHDDSE.js.map
+//# sourceMappingURL=chunk-QENMIZK4.js.map
