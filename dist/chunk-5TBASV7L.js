@@ -7,7 +7,7 @@ import {
 import {
   createCrew,
   runWorker
-} from "./chunk-7O54OXOJ.js";
+} from "./chunk-7AOPZPTN.js";
 import {
   action,
   look,
@@ -2841,7 +2841,7 @@ var SESSION_BRIEF_TOKENS = 1500;
 async function workspaceBrief(ctx, cwd) {
   const ws = await initializedWorkspace(ctx, cwd);
   if (!ws) return void 0;
-  const { brief } = await import("./context-O2LNE6RN.js");
+  const { brief } = await import("./context-X5UOOFHW.js");
   return { ws, text: await brief(ws.brain, SESSION_BRIEF_TOKENS, { eduMdPath: join17(ws.primary.root, "EDU.md") }) };
 }
 var hostTag = (source, key2) => `host:${source}:${key2}`;
@@ -2924,7 +2924,7 @@ function registerIntegrations(program, ctx) {
   );
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-FKBPQTII.js");
+      const { runStdioServer } = await import("./stdio-DWT6WLFJ.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -2971,7 +2971,7 @@ function registerLearn(program, ctx) {
       const ws = await openWorkspace(ctx, g.cwd);
       const config = await effectiveConfig(ws.primary.root, []);
       const budgetTokens = opts.budget ? parseIntOption(opts.budget, "--budget") : config.context.budgetTokens;
-      const { buildContext } = await import("./context-O2LNE6RN.js");
+      const { buildContext } = await import("./context-X5UOOFHW.js");
       const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join18(ws.primary.root, "EDU.md"), trackUsage: false });
       if (g.json || opts.json) return printJson(ctx, pack);
       const { glyphs } = look(ctx);
@@ -3045,7 +3045,7 @@ function registerMcpProject(program, ctx) {
   mcp.option("--project <name|path>", 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)').option("--profile <full|memory>", "tool surface: full (default) or memory only (env EDU_MCP_PROFILE)").action(
     action(ctx, async ({ g, opts }) => {
       if (opts.profile && opts.profile !== "full" && opts.profile !== "memory") throw new Error("Unknown MCP tool profile; use full or memory");
-      const { runStdioServer } = await import("./stdio-FKBPQTII.js");
+      const { runStdioServer } = await import("./stdio-DWT6WLFJ.js");
       await runStdioServer({ cwd: g.cwd, project: opts.project, toolProfile: opts.profile, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3137,7 +3137,7 @@ async function openHome(ctx, g) {
   ctx.out(t(g.lang, "home.brain", { total: stats.total, lessons: lessonCount(stats.byStatus) }));
   ctx.out(clis.length ? t(g.lang, "home.clis", { clis: clis.join(", ") }) : t(g.lang, "home.noClis"));
   ctx.out(t(g.lang, "home.hint"));
-  const { runHome } = await import("./live-RJNR4KED.js");
+  const { runHome } = await import("./live-UAJGPDZY.js");
   await runHome(ctx, { cwd: g.cwd, lang: g.lang, name });
 }
 function modeFrom(opts) {
@@ -3164,7 +3164,7 @@ function registerLive(program, ctx) {
       }
       if (!text) throw new Error("a goal is required");
       if (opts.detach) {
-        const { createCrew: createCrew2 } = await import("./crew-76KESAYE.js");
+        const { createCrew: createCrew2 } = await import("./crew-C57RHIPB.js");
         const ws = await openWorkspace(ctx, g.cwd);
         const job = await createCrew2({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
           goal: text,
@@ -3180,7 +3180,7 @@ function registerLive(program, ctx) {
       }
       if (ctx.isTTY) {
         const ws = await openWorkspace(ctx, g.cwd);
-        const { runInTui } = await import("./live-RJNR4KED.js");
+        const { runInTui } = await import("./live-UAJGPDZY.js");
         const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, playbook: opts.playbook, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
         if (result) ctx.out(t(g.lang, "run.done", { status: t(g.lang, result.ok ? "run.ok" : "run.failed"), summary: result.summary }));
         if (!result?.ok) ctx.setExitCode(1);
@@ -3201,7 +3201,7 @@ function registerLive(program, ctx) {
       const run = await loadRun(opts.replay);
       for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
       if (!ctx.isTTY) return printPlain(ctx, run.events);
-      const { playInTui } = await import("./live-RJNR4KED.js");
+      const { playInTui } = await import("./live-UAJGPDZY.js");
       await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2e3 }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -3216,7 +3216,7 @@ function registerLive(program, ctx) {
         ctx.out(t(g.lang, "demo.plain"));
         return printPlain(ctx, events);
       }
-      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-MTGKHMKG.js"), import("./live-RJNR4KED.js")]);
+      const [{ timedEvents }, { playInTui }] = await Promise.all([import("./replay-MTGKHMKG.js"), import("./live-UAJGPDZY.js")]);
       await playInTui(timedEvents(events, { speed }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
@@ -3225,7 +3225,7 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes) {
   const available = ctx.availableClis ?? await ctx.detectClis();
   if (!available.length) throw new Error(t(g.lang, "run.noCli"));
   if (!yes && !ctx.stdinIsTTY) throw new Error("Plain runs require --yes when stdin is not a TTY");
-  const { executeRun } = await import("./session-PBYYNMZY.js");
+  const { executeRun } = await import("./session-EAEFYJ3E.js");
   const format = createPlainFormatter(getGlyphs(ctx.env));
   const abort = new AbortController();
   const onSigint = () => {
@@ -3822,4 +3822,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-KXK62N4N.js.map
+//# sourceMappingURL=chunk-5TBASV7L.js.map
