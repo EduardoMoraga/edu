@@ -19,7 +19,14 @@ them, hand work to the others and watch it happen.
 
 ---
 
-## Edu 4.0.0
+## Edu 4.1.0
+
+One brain on every machine. `edu sync` replaces hand-made sync scripts: files Edu regenerates
+and counter-only differences never stop it, and a real conflict goes to a `sync-conflict/` branch
+while the machine keeps syncing. `edu sync --install` schedules it every 5 minutes; `edu sync
+--status` and `edu doctor` show the last run. See [One brain on every machine](#one-brain-on-every-machine-edu-sync).
+
+## Previous: Edu 4.0.0
 
 Brain hygiene that maintenance never did, and sessions that close themselves.
 

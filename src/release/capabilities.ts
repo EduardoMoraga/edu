@@ -5,6 +5,8 @@ export function getCapabilities(version = packageVersion()) {
   return {
     version,
     features: [
+      'edu sync: one Git sync for every machine; generated files and counter-only conflicts never block, real conflicts go to a sync-conflict branch',
+      'edu sync --install schedules it (systemd user timer or macOS LaunchAgent); --status and edu doctor report the last run',
       'edu brain tidy: a reviewable plan for empty sessions, stale hypotheses and broken links with a known target, applied with a backup',
       'Claude (SessionEnd) and Pi (session_shutdown) close the session episode they opened',
       'Bounded sanitized Crew previews with paginated local MCP artifact retrieval',
@@ -28,6 +30,7 @@ export function getCapabilities(version = packageVersion()) {
       'Explicitly approved baseline/candidate experiments retain frozen-input and artifact evidence',
     ],
     limitations: [
+      'edu sync resolves only generated files and counter-only differences; other conflicts wait on a sync-conflict branch for a person or agent to merge.',
       '4.0.0 builds on the 3.0 candidate; what was verified and what was not is in docs/edu-4.0.md.',
       'edu brain tidy never confirms or refutes a hypothesis: stale ones become no-evidence; accepted canonical notes and closed episodes are reported, not edited.',
       'Crew redaction is best effort and may withhold long lines; run logs retain raw local evidence.',
@@ -44,7 +47,7 @@ export function getCapabilities(version = packageVersion()) {
       'Experiments run only trusted approved commands; artifact matches do not prove general quality or causal benefit.',
       'Experiments do not automatically invoke models, adopt candidates or grant verified learning credit.',
     ],
-    commands: ['edu doctor --integrations --json', 'edu run --resume <runId>', 'edu --version', 'edu capabilities --json', 'edu brief', 'edu brain recall', 'edu brain tidy', 'edu brain tidy --apply', 'edu reflect --since 7d', 'edu eval suite --json', 'edu experiment inspect <manifest>', 'edu experiment run <manifest> --approve <sha256> --evidence <directory>', 'edu update --check', 'edu internal migrate-workspaces --json'],
+    commands: ['edu doctor --integrations --json', 'edu run --resume <runId>', 'edu --version', 'edu capabilities --json', 'edu brief', 'edu brain recall', 'edu brain tidy', 'edu brain tidy --apply', 'edu sync', 'edu sync --status', 'edu sync --install', 'edu reflect --since 7d', 'edu eval suite --json', 'edu experiment inspect <manifest>', 'edu experiment run <manifest> --approve <sha256> --evidence <directory>', 'edu update --check', 'edu internal migrate-workspaces --json'],
     restartRequired: true,
   };
 }

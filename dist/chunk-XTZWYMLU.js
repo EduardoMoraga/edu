@@ -16,7 +16,7 @@ import {
   printJson,
   registerPluginSetup,
   statusLine
-} from "./chunk-UTP625BJ.js";
+} from "./chunk-WXWOJP7W.js";
 import {
   detectTheme,
   formatTokens,
@@ -43,16 +43,16 @@ import {
   editContent,
   editInstructions,
   ownerOf
-} from "./chunk-2XUKDFCV.js";
+} from "./chunk-WSSCIWBP.js";
 import {
   UpdateError,
   compareVersions,
   fetchRelease,
   whatsNew
-} from "./chunk-FWZJC5KV.js";
+} from "./chunk-RHX2NAT6.js";
 import {
   getCapabilities
-} from "./chunk-U372I66A.js";
+} from "./chunk-7I5CB5XH.js";
 import {
   packageTemplatesDir,
   packageVersion
@@ -608,7 +608,7 @@ function registerSetup(program, ctx) {
       const scope = parseScope(opts.scope);
       const { uninstall, getManifestPath } = await import("./adapters-4HZOZD4X.js");
       if (scope === "global") {
-        const { setupManifestPath, uninstallSetup } = await import("./setup-LO6DRPWK.js");
+        const { setupManifestPath, uninstallSetup } = await import("./setup-TEIZQHTB.js");
         if (await exists(await setupManifestPath(ctx.home))) {
           await uninstallSetup({ home: ctx.home, force: Boolean(opts.force) });
           ctx.out(t(g.lang, "uninstall.done", { scope }));
@@ -3221,7 +3221,7 @@ function registerIntegrations(program, ctx) {
   );
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-FKBPQTII.js");
+      const { runStdioServer } = await import("./stdio-3TGAS5C4.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3342,7 +3342,7 @@ function registerMcpProject(program, ctx) {
   mcp.option("--project <name|path>", 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)').option("--profile <full|memory>", "tool surface: full (default) or memory only (env EDU_MCP_PROFILE)").action(
     action(ctx, async ({ g, opts }) => {
       if (opts.profile && opts.profile !== "full" && opts.profile !== "memory") throw new Error("Unknown MCP tool profile; use full or memory");
-      const { runStdioServer } = await import("./stdio-FKBPQTII.js");
+      const { runStdioServer } = await import("./stdio-3TGAS5C4.js");
       await runStdioServer({ cwd: g.cwd, project: opts.project, toolProfile: opts.profile, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3421,7 +3421,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-6O3ZPU3A.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-I6Z5ASZ6.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -3796,7 +3796,7 @@ function registerUpdate(program, ctx, overrides = {}) {
   const internal = program.command("internal", { hidden: true }).description("internal hooks used by edu update");
   internal.command("migrate-workspaces").description("back up and migrate managed contracts in global and registered project brains; preserves memory").option("--json", "machine-readable output").action(
     action(ctx, async ({ g, opts }) => {
-      const { migrateWorkspaces } = await import("./migrate-3ZOJVJWG.js");
+      const { migrateWorkspaces } = await import("./migrate-LKXTSOKY.js");
       const results = await migrateWorkspaces(globalHome(ctx));
       if (results.some((r) => r.status !== "migrated")) ctx.setExitCode(1);
       if (g.json || opts.json) return printJson(ctx, results);
@@ -4120,4 +4120,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-QYWVNSQF.js.map
+//# sourceMappingURL=chunk-XTZWYMLU.js.map
