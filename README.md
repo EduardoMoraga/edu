@@ -264,6 +264,24 @@ also gets `00-START/Dashboard.md` (es: `00-INICIO/Panel.md`), which embeds those
 and links each registered workspace. Edu rewrites that note only while its frontmatter
 says `generated_by: edu`; delete that line to make it yours.
 
+## One brain on every machine: `edu sync`
+
+Keep the brain in a Git repository (for example `~/Edu`, with `~/.edu/brain` linked to its
+`01-CONOCIMIENTO`) and run the same sync everywhere:
+
+```bash
+edu sync            # commit, rebase on GitHub, push (never force)
+edu sync --install  # every 5 min: systemd user timer (Linux) or LaunchAgent (macOS)
+edu sync --status   # last result on this machine; `edu doctor` shows it too
+edu sync --cloud    # cloud sandboxes: keep usage counters and Obsidian bases local
+```
+
+Files Edu regenerates (`0-index/`, `Panel.md`, `*.base`) and conflicts that differ only in
+usage counters never stop the sync: the GitHub copy wins and Edu rewrites them. Any other
+conflict pushes this machine's commits to `sync-conflict/<host>-<sha>`, moves the vault to
+GitHub's version and keeps syncing; you get a desktop notification and merge the branch when
+convenient. Nothing is lost and no machine stays stuck.
+
 ## Evidence and metrics
 
 A change counts when it is verified, not when it looks right. Edu records context, tool,

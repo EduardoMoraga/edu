@@ -11,6 +11,8 @@ import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
 import { readProjects } from '../../vault/registry.js';
 import { scanContext } from '../../doctor/context.js';
 import { integrationPreflight } from '../../doctor/integrations.js';
+import { readSyncState } from '../../vault/sync.js';
+import { describeSync } from './sync.js';
 
 export const AUTH_HINTS: Record<CliId, string> = {
   claude: 'run `claude` once and sign in, or set ANTHROPIC_API_KEY',
@@ -119,8 +121,15 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         else if (vault.state === 'ok') lines.push({ level: 'ok', text: t(lang, 'doctor.vaultOk', { link: vault.link! }) });
         else lines.push({ level: 'fail', text: t(lang, 'doctor.vaultBroken', { link: vault.link! }) });
 
+        const sync = await readSyncState(globalHome(ctx));
+        if (sync) {
+          const stale = Date.now() - Date.parse(sync.at) > 30 * 60_000;
+          const level: Level = sync.state === 'conflict' || sync.state === 'error' ? 'fail' : stale || sync.state !== 'ok' ? 'warn' : 'ok';
+          lines.push({ level, text: `${lang === 'es' ? 'Sync del cerebro' : 'Brain sync'}: ${describeSync(sync)}${sync.branch ? ` [${sync.branch}]` : ''}` });
+        }
+
         if (g.json || opts.json) {
-          printJson(ctx, { node: process.version, clis, projects: projects.projects, brains, vault, lines });
+          printJson(ctx, { node: process.version, clis, projects: projects.projects, brains, vault, sync: sync ?? null, lines });
           return;
         }
         const style = look(ctx);
