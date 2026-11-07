@@ -16,7 +16,7 @@ import {
   printJson,
   registerPluginSetup,
   statusLine
-} from "./chunk-UTP625BJ.js";
+} from "./chunk-WXWOJP7W.js";
 import {
   detectTheme,
   formatTokens,
@@ -43,16 +43,16 @@ import {
   editContent,
   editInstructions,
   ownerOf
-} from "./chunk-2XUKDFCV.js";
+} from "./chunk-WSSCIWBP.js";
 import {
   UpdateError,
   compareVersions,
   fetchRelease,
   whatsNew
-} from "./chunk-FWZJC5KV.js";
+} from "./chunk-RHX2NAT6.js";
 import {
   getCapabilities
-} from "./chunk-U372I66A.js";
+} from "./chunk-7I5CB5XH.js";
 import {
   packageTemplatesDir,
   packageVersion
@@ -608,7 +608,7 @@ function registerSetup(program, ctx) {
       const scope = parseScope(opts.scope);
       const { uninstall, getManifestPath } = await import("./adapters-4HZOZD4X.js");
       if (scope === "global") {
-        const { setupManifestPath, uninstallSetup } = await import("./setup-LO6DRPWK.js");
+        const { setupManifestPath, uninstallSetup } = await import("./setup-TEIZQHTB.js");
         if (await exists(await setupManifestPath(ctx.home))) {
           await uninstallSetup({ home: ctx.home, force: Boolean(opts.force) });
           ctx.out(t(g.lang, "uninstall.done", { scope }));
@@ -964,7 +964,7 @@ async function undoHermes(eduHome, input = {}) {
 }
 
 // src/cli/commands/connect.ts
-var defaultRunner = (bin, args, env) => new Promise((resolve15) => {
+var defaultRunner = (bin, args, env) => new Promise((resolve16) => {
   let output = "";
   const child = spawnCli(bin, args, { env, stdio: ["ignore", "pipe", "pipe"] });
   const collect2 = (chunk) => {
@@ -975,18 +975,18 @@ var defaultRunner = (bin, args, env) => new Promise((resolve15) => {
   const timer = setTimeout(() => child.kill(), 12e4);
   child.on("error", (error) => {
     clearTimeout(timer);
-    resolve15({ ok: false, output: output || error.message });
+    resolve16({ ok: false, output: output || error.message });
   });
   child.on("close", (code) => {
     clearTimeout(timer);
-    resolve15({ ok: code === 0, output: output || (code === 0 ? "" : `hermes exited with ${code ?? "a signal"}`) });
+    resolve16({ ok: code === 0, output: output || (code === 0 ? "" : `hermes exited with ${code ?? "a signal"}`) });
   });
 });
 var sha2562 = (data) => createHash2("sha256").update(data).digest("hex");
-var tail = (text, lines = 8) => {
+var tail = (text, lines2 = 8) => {
   const all = text.replace(/\x1b\[[0-9;]*m/g, "").trim().split("\n").map((line) => line.trim()).filter(Boolean);
   const verdict = all.filter((line) => /Transport:|Connected|Tools discovered|failed|not found|error/i.test(line));
-  return (verdict.length ? verdict : all.slice(-lines)).map((line) => `    ${line}`).join("\n");
+  return (verdict.length ? verdict : all.slice(-lines2)).map((line) => `    ${line}`).join("\n");
 };
 function registerConnect(program, ctx, deps = {}) {
   const runner = deps.runner ?? defaultRunner;
@@ -1259,7 +1259,7 @@ function registerDeck(program, ctx) {
 }
 
 // src/cli/commands/doctor.ts
-import { join as join11 } from "path";
+import { join as join13 } from "path";
 
 // src/doctor/context.ts
 import { lstat as lstat2, readFile as readFile5, readdir as readdir3, realpath as realpath2 } from "fs/promises";
@@ -1535,6 +1535,297 @@ async function integrationPreflight(home, env = {}) {
   };
 }
 
+// src/vault/sync.ts
+import { execFile } from "child_process";
+import { access, mkdir as mkdir4, readFile as readFile7, realpath as realpath3, writeFile as writeFile2 } from "fs/promises";
+import { hostname } from "os";
+import { join as join11, resolve as resolve7 } from "path";
+var COUNTER = /^\s*(usage|uses|wins|losses|lastUsed|updated):/;
+function isGenerated(path) {
+  return /(^|\/)0-index\//.test(path) || /(^|\/)00-INICIO\/Panel\.md$/.test(path) || path.endsWith(".base");
+}
+function withoutCounters(text) {
+  const lines2 = text.split("\n");
+  if (lines2[0] !== "---") return text;
+  const end = lines2.indexOf("---", 1);
+  if (end < 0) return text;
+  return [...lines2.slice(0, end).filter((line) => !COUNTER.test(line)), ...lines2.slice(end)].join("\n");
+}
+function isEmptySession(text) {
+  const parts = text.split(/^---$/m);
+  if (parts.length < 3) return false;
+  return parts.slice(2).join("---").split("\n").every((line) => !line.trim() || /^Transcript: /.test(line) || / session .* ended \(.*\)\.$/.test(line));
+}
+function git(cwd, args, env) {
+  return new Promise((resolve16) => {
+    execFile("git", args, {
+      cwd,
+      maxBuffer: 64 * 1024 * 1024,
+      env: { ...env ?? process.env, GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true", GIT_MERGE_AUTOEDIT: "no" }
+    }, (error, stdout, stderr) => {
+      const code = error ? typeof error.code === "number" ? error.code : 1 : 0;
+      resolve16({ code, out: String(stdout), err: String(stderr) });
+    });
+  });
+}
+var lines = (text) => text.split("\n").map((line) => line.trim()).filter(Boolean);
+async function findVault(eduHome, env) {
+  const brain = await realpath3(join11(eduHome, "brain")).catch(() => join11(eduHome, "brain"));
+  const top = await git(brain, ["rev-parse", "--show-toplevel"], env);
+  if (top.code !== 0) throw new Error(`the brain (${brain}) is not inside a Git repository`);
+  return top.out.trim();
+}
+function statePath(eduHome) {
+  return join11(eduHome, "state", "sync.json");
+}
+async function readSyncState(eduHome) {
+  try {
+    return JSON.parse(await readFile7(statePath(eduHome), "utf8"));
+  } catch {
+    return void 0;
+  }
+}
+async function syncBrain(options) {
+  const env = options.env ?? process.env;
+  const at = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
+  const reason = options.reason ?? "manual";
+  const base = { resolved: [], reason, at };
+  let vault;
+  try {
+    vault = options.vault ?? await findVault(options.eduHome, env);
+  } catch (error) {
+    return { ...base, state: "error", message: error.message };
+  }
+  const host = options.host ?? `${options.cloud ? "cloud-" : ""}${hostname().split(".")[0]}`;
+  try {
+    return await withHostLock(options.eduHome, "sync", vault, () => run(vault, host, Boolean(options.cloud), env, base), 3e3);
+  } catch (error) {
+    const busy = /timed out waiting/.test(error.message);
+    return { ...base, vault, state: busy ? "busy" : "error", message: busy ? "another sync is running" : error.message };
+  }
+}
+async function run(vault, host, cloud, env, base) {
+  const g = (...args) => git(vault, args, env);
+  const done = async (state, message, extra = {}) => ({ ...base, vault, state, message, head: (await g("rev-parse", "--short", "HEAD")).out.trim() || void 0, ...extra });
+  if (await rebasing(vault)) await g("rebase", "--abort");
+  const branch = (await g("symbolic-ref", "--short", "HEAD")).out.trim();
+  if (!branch) return done("error", "the vault is not on a branch");
+  if (cloud) {
+    const exclude = resolve7(vault, (await g("rev-parse", "--git-path", "info/exclude")).out.trim());
+    const rules = await readFile7(exclude, "utf8").catch(() => "");
+    if (!rules.split("\n").includes("*.base")) {
+      await mkdir4(resolve7(exclude, ".."), { recursive: true });
+      await writeFile2(exclude, `${rules}${rules && !rules.endsWith("\n") ? "\n" : ""}*.base
+`);
+    }
+    await g("restore", "--source=HEAD", "--staged", "--worktree", "--", ":(glob)**/*.base");
+    for (const file of lines((await g("-c", "core.quotepath=off", "diff", "--name-only", "--", "*.md")).out)) {
+      const before = (await g("show", `HEAD:${file}`)).out;
+      const now = await readFile7(join11(vault, file), "utf8").catch(() => void 0);
+      if (now !== void 0 && withoutCounters(before) === withoutCounters(now)) await g("restore", "--", file);
+    }
+  }
+  await g("add", "-A");
+  for (const file of lines((await g("-c", "core.quotepath=off", "diff", "--cached", "--name-only", "--diff-filter=A")).out)) {
+    if (!/(^|\/)2-episodic\/[^/]+\.md$/.test(file)) continue;
+    const text = await readFile7(join11(vault, file), "utf8").catch(() => "");
+    if (isEmptySession(text)) await g("reset", "-q", "--", file);
+  }
+  if ((await g("diff", "--cached", "--quiet")).code !== 0) {
+    const commit = await g("commit", "-q", "--no-verify", "-m", `chore: auto-sync from ${host} ${base.at.slice(0, 19).replace("T", " ")}`);
+    if (commit.code !== 0) return done("error", `commit failed: ${commit.err.trim()}`);
+  }
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const fetch = await g("fetch", "-q", "origin", branch);
+    if (fetch.code !== 0) return done("offline", `cannot reach origin: ${fetch.err.trim().split("\n").pop() ?? ""}`);
+    const upstream = `origin/${branch}`;
+    if ((await g("rebase", "-q", "--autostash", upstream)).code !== 0) {
+      const outcome = await settle(vault, env, base.resolved);
+      if (outcome === "conflict") return conflict(vault, host, branch, upstream, env, done);
+      if (outcome === "error") {
+        await g("rebase", "--abort");
+        return done("error", "rebase failed");
+      }
+    }
+    if ((await g("rev-list", "--count", `${upstream}..HEAD`)).out.trim() === "0") return done("ok", "up to date");
+    if ((await g("push", "-q", "origin", `HEAD:${branch}`)).code === 0) return done("ok", "pushed");
+    await new Promise((resolve16) => setTimeout(resolve16, attempt * 500));
+  }
+  return done("error", "push rejected three times");
+}
+async function rebasing(vault) {
+  for (const name of ["rebase-merge", "rebase-apply"]) {
+    const path = (await git(vault, ["rev-parse", "--git-path", name])).out.trim();
+    if (path && await access(resolve7(vault, path)).then(() => true, () => false)) return true;
+  }
+  return false;
+}
+async function settle(vault, env, resolved) {
+  const g = (...args) => git(vault, args, env);
+  for (let step = 0; step < 500 && await rebasing(vault); step++) {
+    const conflicted = lines((await g("-c", "core.quotepath=off", "diff", "--name-only", "--diff-filter=U")).out);
+    if (!conflicted.length) return "error";
+    for (const file of conflicted) {
+      const upstream = await g("show", `:2:${file}`);
+      const local = await g("show", `:3:${file}`);
+      const counterOnly = upstream.code === 0 && local.code === 0 && withoutCounters(upstream.out) === withoutCounters(local.out);
+      if (!isGenerated(file) && !counterOnly) return "conflict";
+    }
+    for (const file of conflicted) {
+      if ((await g("checkout", "--ours", "--", file)).code !== 0) await g("rm", "-q", "--", file);
+      else await g("add", "--", file);
+      if (!resolved.includes(file)) resolved.push(file);
+    }
+    const next = await g("-c", "core.editor=true", "rebase", "--continue");
+    if (next.code !== 0 && !await rebasing(vault)) return "error";
+    if (next.code !== 0 && /nothing to commit|no changes/i.test(next.out + next.err)) await g("rebase", "--skip");
+  }
+  return await rebasing(vault) ? "error" : "done";
+}
+async function conflict(vault, host, branch, upstream, env, done) {
+  const g = (...args) => git(vault, args, env);
+  await g("rebase", "--abort");
+  const head = (await g("rev-parse", "--short", "HEAD")).out.trim();
+  const saved = `sync-conflict/${host}-${head}`;
+  await g("branch", "-f", saved, "HEAD");
+  if ((await g("push", "-q", "origin", `HEAD:refs/heads/${saved}`)).code !== 0) {
+    return done("error", `conflict with ${upstream}; the changes are kept on the local branch ${saved} (push failed)`, { branch: saved });
+  }
+  if ((await g("-c", "core.quotepath=off", "status", "--porcelain", "--untracked-files=no")).out.trim()) {
+    return done("conflict", `conflict with ${upstream}; changes saved on ${saved}; the vault has uncommitted edits and stays where it is`, { branch: saved });
+  }
+  await g("reset", "-q", "--keep", upstream);
+  return done("conflict", `conflict with ${upstream}; this machine's changes are on the branch ${saved}; the vault now follows upstream and keeps syncing`, { branch: saved });
+}
+async function writeSyncState(eduHome, result) {
+  const previous = await readSyncState(eduHome);
+  await mkdir4(join11(eduHome, "state"), { recursive: true });
+  await writeFile2(statePath(eduHome), `${JSON.stringify(result, null, 2)}
+`);
+  return previous;
+}
+
+// src/cli/commands/sync.ts
+import { realpathSync } from "fs";
+
+// src/vault/sync-service.ts
+import { execFile as execFile2 } from "child_process";
+import { mkdir as mkdir5, writeFile as writeFile3 } from "fs/promises";
+import { join as join12 } from "path";
+var run2 = (cmd, args) => new Promise((done) => execFile2(cmd, args, { timeout: 1e4 }, (error) => done(error ? 1 : 0)));
+async function notify(title, body, platform = process.platform) {
+  if (platform === "darwin") {
+    const quote = (s) => JSON.stringify(s);
+    await run2("osascript", ["-e", `display notification ${quote(body)} with title ${quote(title)}`]);
+  } else if (platform === "linux" && whichSync("notify-send")) {
+    await run2("notify-send", ["-u", "critical", "-a", "Edu", title, body]);
+  }
+}
+async function installSchedule(options) {
+  const platform = options.platform ?? process.platform;
+  const minutes = options.minutes ?? 5;
+  const path = options.path ?? process.env.PATH ?? "/usr/bin:/bin";
+  if (platform === "linux") {
+    const dir = join12(options.home, ".config", "systemd", "user");
+    await mkdir5(dir, { recursive: true });
+    const service = join12(dir, "edu-sync.service");
+    const timer = join12(dir, "edu-sync.timer");
+    await writeFile3(service, [
+      "[Unit]",
+      "Description=Edu: sync the shared brain with GitHub",
+      "",
+      "[Service]",
+      "Type=oneshot",
+      `Environment=PATH=${path}`,
+      `ExecStart=${options.node} ${options.cli} sync --reason timer`,
+      ""
+    ].join("\n"));
+    await writeFile3(timer, [
+      "[Unit]",
+      `Description=Edu: sync the shared brain every ${minutes} minutes`,
+      "",
+      "[Timer]",
+      "OnBootSec=1min",
+      `OnUnitActiveSec=${minutes}min`,
+      "Persistent=true",
+      "",
+      "[Install]",
+      "WantedBy=timers.target",
+      ""
+    ].join("\n"));
+    const started = await run2("systemctl", ["--user", "daemon-reload"]) === 0 && await run2("systemctl", ["--user", "enable", "--now", "edu-sync.timer"]) === 0;
+    return { kind: "systemd", files: [service, timer], started };
+  }
+  if (platform === "darwin") {
+    const dir = join12(options.home, "Library", "LaunchAgents");
+    await mkdir5(dir, { recursive: true });
+    const plist = join12(dir, "dev.edu.sync.plist");
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    await writeFile3(plist, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>dev.edu.sync</string>
+  <key>ProgramArguments</key><array>
+    <string>${esc(options.node)}</string><string>${esc(options.cli)}</string>
+    <string>sync</string><string>--reason</string><string>timer</string>
+  </array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>${esc(path)}</string></dict>
+  <key>StartInterval</key><integer>${minutes * 60}</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/dev/null</string>
+  <key>StandardErrorPath</key><string>/dev/null</string>
+</dict></plist>
+`);
+    await run2("launchctl", ["unload", plist]);
+    const started = await run2("launchctl", ["load", "-w", plist]) === 0;
+    return { kind: "launchd", files: [plist], started };
+  }
+  throw new Error(`scheduled sync is not supported on ${platform}; run \`edu sync\` from your own scheduler`);
+}
+
+// src/cli/commands/sync.ts
+var ALERT = /* @__PURE__ */ new Set(["conflict", "error"]);
+function describeSync(result, now = Date.now()) {
+  if (!result) return "never synced on this machine";
+  const minutes = Math.round((now - Date.parse(result.at)) / 6e4);
+  const age = minutes < 1 ? "just now" : minutes < 120 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`;
+  return `${result.state} ${age}: ${result.message}${result.head ? ` (${result.head})` : ""}`;
+}
+function registerSync(program, ctx) {
+  program.command("sync").description("sync the shared brain with GitHub: generated files never block, conflicts go to a branch").option("--status", "show the last sync on this machine").option("--install", "run the sync on a schedule (systemd user timer or macOS LaunchAgent)").option("--minutes <n>", "schedule interval with --install", "5").option("--cloud", "cloud sandbox: keep usage counters and Obsidian bases local").option("--host <name>", "machine label in commit messages and conflict branches").option("--vault <dir>", "vault repository (default: the repository holding ~/.edu/brain)").option("--reason <why>", "what triggered the sync (timer, start, stop...)", "manual").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }) => {
+    const eduHome = globalHome(ctx);
+    const json2 = g.json || opts.json;
+    if (opts.status) {
+      const last = await readSyncState(eduHome);
+      if (json2) return printJson(ctx, last ?? null);
+      ctx.out(`Sync: ${describeSync(last)}`);
+      if (last?.branch) ctx.out(`Conflict branch: ${last.branch}`);
+      if (!last || ALERT.has(last.state)) ctx.setExitCode(1);
+      return;
+    }
+    if (opts.install) {
+      const minutes = Number(opts.minutes);
+      if (!Number.isInteger(minutes) || minutes < 1) throw new Error("--minutes must be a whole number of minutes");
+      const result2 = await installSchedule({ home: ctx.home, node: process.execPath, cli: realpathSync(process.argv[1] ?? ""), minutes, path: ctx.env.PATH });
+      if (json2) return printJson(ctx, result2);
+      ctx.out(`Scheduled sync (${result2.kind}, every ${minutes} min): ${result2.files.join(", ")}`);
+      if (!result2.started) ctx.err("The schedule files are written but could not be started; start them by hand.");
+      ctx.out("Remove any older hand-made sync job (for example edu-vault-sync.timer) so only this one runs.");
+      return;
+    }
+    const cloud = Boolean(opts.cloud) || ctx.env.EDU_SYNC_CLOUD === "1";
+    const result = await syncBrain({ eduHome, vault: opts.vault, host: opts.host, cloud, reason: opts.reason, env: ctx.env });
+    const previous = await writeSyncState(eduHome, result);
+    if (!cloud && ALERT.has(result.state) && (previous?.state !== result.state || previous?.branch !== result.branch)) {
+      await notify(result.state === "conflict" ? "Edu: conflicto de sincronizaci\xF3n" : "Edu: el sync fall\xF3", result.message);
+    }
+    if (json2) return printJson(ctx, result);
+    ctx.out(`Sync: ${describeSync(result)}`);
+    for (const file of result.resolved) ctx.out(`  kept upstream: ${file}`);
+    if (ALERT.has(result.state)) ctx.setExitCode(1);
+  }));
+}
+
 // src/cli/commands/doctor.ts
 var AUTH_HINTS = {
   claude: "run `claude` once and sign in, or set ANTHROPIC_API_KEY",
@@ -1580,35 +1871,35 @@ function registerDoctor(program, ctx) {
         }
         return;
       }
-      const lines = [nodeLine(process.version, lang)];
+      const lines2 = [nodeLine(process.version, lang)];
       const { diagnose } = await import("./adapters-4HZOZD4X.js");
       const clis = await diagnose({ root: g.cwd, home: process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env });
       for (const d of clis) {
-        if (!d.installed) lines.push({ level: "warn", text: t(lang, "doctor.cliMissing", { cli: d.cli }) });
-        else if (d.drift) lines.push({ level: "fail", text: t(lang, "doctor.cliDrift", { cli: d.cli }) });
-        else if (d.integrated) lines.push({ level: "ok", text: t(lang, "doctor.cliReady", { cli: d.cli, scopes: [...d.scopes, ...d.native].join(", ") }) });
-        else lines.push({ level: "warn", text: t(lang, "doctor.cliNotIntegrated", { cli: d.cli }) });
-        for (const note of d.notes) lines.push({ level: "warn", text: note });
-        if (d.installed) lines.push({ level: "ok", text: t(lang, "doctor.auth", { hint: AUTH_HINTS[d.cli] }) });
+        if (!d.installed) lines2.push({ level: "warn", text: t(lang, "doctor.cliMissing", { cli: d.cli }) });
+        else if (d.drift) lines2.push({ level: "fail", text: t(lang, "doctor.cliDrift", { cli: d.cli }) });
+        else if (d.integrated) lines2.push({ level: "ok", text: t(lang, "doctor.cliReady", { cli: d.cli, scopes: [...d.scopes, ...d.native].join(", ") }) });
+        else lines2.push({ level: "warn", text: t(lang, "doctor.cliNotIntegrated", { cli: d.cli }) });
+        for (const note of d.notes) lines2.push({ level: "warn", text: note });
+        if (d.installed) lines2.push({ level: "ok", text: t(lang, "doctor.auth", { hint: AUTH_HINTS[d.cli] }) });
       }
       const ws = await openWorkspace(ctx, g.cwd);
       const projects = await readProjects(globalHome(ctx));
       for (const project of projects.projects) {
         const ready = await exists(project.root) && await exists(project.brain);
-        lines.push({ level: ready ? "ok" : "warn", text: t(lang, ready ? "doctor.project" : "doctor.projectMissing", { name: project.name, root: project.root }) });
+        lines2.push({ level: ready ? "ok" : "warn", text: t(lang, ready ? "doctor.project" : "doctor.projectMissing", { name: project.name, root: project.root }) });
       }
       const locations = ws.locations.some((l) => l.scope === "global") ? ws.locations : [...ws.locations, { scope: "global", root: globalHome(ctx) }];
       const brains = [];
       for (const loc of locations) {
-        const ready = await exists(join11(loc.root, "EDU.md"));
+        const ready = await exists(join13(loc.root, "EDU.md"));
         const total = ready ? (await openBrain([loc]).stats()).total : 0;
         brains.push({ ...loc, ready, total });
-        lines.push(
+        lines2.push(
           ready ? { level: "ok", text: t(lang, "doctor.brain", { scope: loc.scope, root: loc.root, total }) } : { level: "warn", text: t(lang, "doctor.brainMissing", { scope: loc.scope, root: loc.root, flag: loc.scope === "global" ? " --global" : "" }) }
         );
       }
       let vault = { state: "none" };
-      if (await exists(join11(ws.primary.root, "config.json"))) {
+      if (await exists(join13(ws.primary.root, "config.json"))) {
         const config = await effectiveConfig(ws.primary.root, []);
         if (config.brain.obsidianVault) {
           const link = linkPath(config.brain.obsidianVault, ws.primary);
@@ -1616,22 +1907,28 @@ function registerDoctor(program, ctx) {
         }
       }
       if (vault.state === "none") {
-        const defaultVault = join11(process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home, "EduVault");
-        if (await exists(join11(defaultVault, "Home.md"))) {
+        const defaultVault = join13(process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home, "EduVault");
+        if (await exists(join13(defaultVault, "Home.md"))) {
           const link = linkPath(defaultVault, ws.primary);
           vault = { link, state: await linkState(link, brainDir(ws.primary)) };
         }
       }
-      if (vault.state === "none") lines.push({ level: "warn", text: t(lang, "doctor.vaultNone") });
-      else if (vault.state === "ok") lines.push({ level: "ok", text: t(lang, "doctor.vaultOk", { link: vault.link }) });
-      else lines.push({ level: "fail", text: t(lang, "doctor.vaultBroken", { link: vault.link }) });
+      if (vault.state === "none") lines2.push({ level: "warn", text: t(lang, "doctor.vaultNone") });
+      else if (vault.state === "ok") lines2.push({ level: "ok", text: t(lang, "doctor.vaultOk", { link: vault.link }) });
+      else lines2.push({ level: "fail", text: t(lang, "doctor.vaultBroken", { link: vault.link }) });
+      const sync = await readSyncState(globalHome(ctx));
+      if (sync) {
+        const stale = Date.now() - Date.parse(sync.at) > 30 * 6e4;
+        const level = sync.state === "conflict" || sync.state === "error" ? "fail" : stale || sync.state !== "ok" ? "warn" : "ok";
+        lines2.push({ level, text: `${lang === "es" ? "Sync del cerebro" : "Brain sync"}: ${describeSync(sync)}${sync.branch ? ` [${sync.branch}]` : ""}` });
+      }
       if (g.json || opts.json) {
-        printJson(ctx, { node: process.version, clis, projects: projects.projects, brains, vault, lines });
+        printJson(ctx, { node: process.version, clis, projects: projects.projects, brains, vault, sync: sync ?? null, lines: lines2 });
         return;
       }
       const style = look(ctx);
       ctx.out(t(lang, "doctor.title"));
-      for (const line of lines) {
+      for (const line of lines2) {
         ctx.out(line.text.startsWith("  ") ? `  ${line.text.trim()}` : statusLine(style, line.level, line.text));
       }
     })
@@ -1640,16 +1937,16 @@ function registerDoctor(program, ctx) {
 
 // src/detach/engine.ts
 import { createHash as createHash3, randomUUID as randomUUID2 } from "crypto";
-import { lstat as lstat3, mkdir as mkdir4, readFile as readFile7, readdir as readdir4, rename as rename2, stat as stat3, writeFile as writeFile2 } from "fs/promises";
-import { dirname as dirname6, join as join12, relative as relative4, resolve as resolve7, sep as sep2 } from "path";
+import { lstat as lstat3, mkdir as mkdir6, readFile as readFile8, readdir as readdir4, rename as rename2, stat as stat3, writeFile as writeFile4 } from "fs/promises";
+import { dirname as dirname6, join as join14, relative as relative4, resolve as resolve8, sep as sep2 } from "path";
 var hash = (bytes) => createHash3("sha256").update(bytes).digest("hex");
-var backupRoot2 = (home) => join12(home, ".edu", "backups");
+var backupRoot2 = (home) => join14(home, ".edu", "backups");
 async function existingFile(path) {
   try {
     const info = await lstat3(path);
     if (info.isSymbolicLink()) throw new Error(`Refusing symlinked host configuration: ${path}`);
     if (!info.isFile()) return void 0;
-    return await readFile7(path);
+    return await readFile8(path);
   } catch (error) {
     if (error.code === "ENOENT") return void 0;
     throw error;
@@ -1661,7 +1958,7 @@ async function referencedTokens(home, config, changes) {
     if (!changes.includes(`config: ${key2}`)) continue;
     const value = new RegExp(`^\\s*${key2}\\s*=\\s*["']([^"']+)["']`, "m").exec(config)?.[1];
     if (!value) continue;
-    const path = value.startsWith("~/") ? join12(home, value.slice(2)) : resolve7(home, value);
+    const path = value.startsWith("~/") ? join14(home, value.slice(2)) : resolve8(home, value);
     try {
       inside(home, path);
       const bytes = await existingFile(path);
@@ -1672,14 +1969,14 @@ async function referencedTokens(home, config, changes) {
   return tokens;
 }
 function inside(home, path) {
-  const rel = relative4(resolve7(home), resolve7(path));
+  const rel = relative4(resolve8(home), resolve8(path));
   if (!rel || rel === ".." || rel.startsWith(`..${sep2}`) || rel.startsWith(sep2)) throw new Error(`Host file is outside the supplied home: ${path}`);
   return rel;
 }
 async function createDetachPlan(input) {
   const tools = assertDetachable(input.tools);
   if (!tools.length) throw new Error("Name at least one tool to detach.");
-  const home = resolve7(input.env.USERPROFILE || input.home);
+  const home = resolve8(input.env.USERPROFILE || input.home);
   const files2 = [];
   for (const file of hostFiles(home, input.env, input.hosts)) {
     const rel = inside(home, file.path);
@@ -1694,10 +1991,10 @@ async function createDetachPlan(input) {
   return { home, hosts: input.hosts, tools, files: files2, tokensSaved: files2.reduce((n, file) => n + file.tokensSaved, 0) };
 }
 async function atomicWrite3(path, bytes) {
-  const temp = join12(dirname6(path), `.edu-detach-${randomUUID2()}.tmp`);
+  const temp = join14(dirname6(path), `.edu-detach-${randomUUID2()}.tmp`);
   const mode = (await stat3(path)).mode;
   try {
-    await writeFile2(temp, bytes, { mode });
+    await writeFile4(temp, bytes, { mode });
     await rename2(temp, path);
   } catch (error) {
     await import("fs/promises").then((fs) => fs.rm(temp, { force: true }));
@@ -1708,7 +2005,7 @@ async function applyDetach(plan) {
   if (!plan.files.length) throw new Error("No matching integrations found; nothing to detach.");
   for (const file of plan.files) if (hash(await existingFile(file.path) ?? Buffer.alloc(0)) !== file.sha256Before) throw new Error(`Host configuration changed since planning: ${file.path}`);
   const id = `detach-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${randomUUID2().slice(0, 8)}`;
-  const root = join12(backupRoot2(plan.home), id);
+  const root = join14(backupRoot2(plan.home), id);
   const manifest2 = {
     id,
     createdAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -1717,11 +2014,11 @@ async function applyDetach(plan) {
     files: plan.files.map((file) => ({ host: file.host, path: file.relative, sha256Before: file.sha256Before, sha256After: file.sha256After, changes: file.changes }))
   };
   for (const file of plan.files) {
-    const backup = join12(root, file.relative);
-    await mkdir4(dirname6(backup), { recursive: true });
-    await writeFile2(backup, file.before);
+    const backup = join14(root, file.relative);
+    await mkdir6(dirname6(backup), { recursive: true });
+    await writeFile4(backup, file.before);
   }
-  await writeFile2(join12(root, "manifest.json"), `${JSON.stringify(manifest2, null, 2)}
+  await writeFile4(join14(root, "manifest.json"), `${JSON.stringify(manifest2, null, 2)}
 `);
   const applied = [];
   try {
@@ -1741,7 +2038,7 @@ async function listDetachBackups(home) {
     const active = [];
     for (const id of ids) {
       try {
-        const manifest2 = JSON.parse(await readFile7(join12(backupRoot2(home), id, "manifest.json"), "utf8"));
+        const manifest2 = JSON.parse(await readFile8(join14(backupRoot2(home), id, "manifest.json"), "utf8"));
         if (!manifest2.undoneAt) active.push(id);
       } catch {
       }
@@ -1755,14 +2052,14 @@ async function listDetachBackups(home) {
 async function undoDetach(input) {
   const id = input.id ?? (await listDetachBackups(input.home))[0];
   if (!id || !/^detach-[\w-]+$/.test(id)) throw new Error("No matching detach backup found.");
-  const root = join12(backupRoot2(input.home), id);
-  const manifest2 = JSON.parse(await readFile7(join12(root, "manifest.json"), "utf8"));
+  const root = join14(backupRoot2(input.home), id);
+  const manifest2 = JSON.parse(await readFile8(join14(root, "manifest.json"), "utf8"));
   if (manifest2.id !== id || manifest2.undoneAt) throw new Error("Detach backup is invalid or already restored.");
   const restore = [];
   for (const file of manifest2.files) {
-    const path = join12(input.home, file.path);
+    const path = join14(input.home, file.path);
     inside(input.home, path);
-    const before = await readFile7(join12(root, file.path));
+    const before = await readFile8(join14(root, file.path));
     if (hash(before) !== file.sha256Before) throw new Error(`Backup checksum mismatch: ${file.path}`);
     const current = await existingFile(path);
     if (!current || !input.force && hash(current) !== file.sha256After) throw new Error(`Refusing drifted file: ${file.path}; use --force to overwrite`);
@@ -1770,7 +2067,7 @@ async function undoDetach(input) {
   }
   for (const file of restore) await atomicWrite3(file.path, file.before);
   manifest2.undoneAt = (/* @__PURE__ */ new Date()).toISOString();
-  await writeFile2(join12(root, "manifest.json"), `${JSON.stringify(manifest2, null, 2)}
+  await writeFile4(join14(root, "manifest.json"), `${JSON.stringify(manifest2, null, 2)}
 `);
   return { id, restored: manifest2.files.map((file) => file.path) };
 }
@@ -1821,8 +2118,8 @@ function registerDetach(program, ctx) {
 }
 
 // src/cli/commands/evidence.ts
-import { readdir as readdir5, readFile as readFile8 } from "fs/promises";
-import { join as join13 } from "path";
+import { readdir as readdir5, readFile as readFile9 } from "fs/promises";
+import { join as join15 } from "path";
 
 // src/evidence/metrics.ts
 var resourceKeys = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "costUsd", "elapsedMs"];
@@ -1885,7 +2182,7 @@ function registerEvidence(program, ctx) {
     const by = oneOf2(opts.by ?? "cli", ["cli", "role", "level"], "--by");
     const since = parseSince(opts.since ?? "30d");
     const ws = await openWorkspace(ctx, g.cwd);
-    const episodes = await readEpisodes(join13(ws.primary.root, "runs"));
+    const episodes = await readEpisodes(join15(ws.primary.root, "runs"));
     const projected = episodes.map((episode) => ({ ...episode, cli: by === "cli" ? episode.cli : void 0, role: by === "role" ? episode.role : void 0, level: by === "level" ? episode.level : void 0 }));
     const rows = aggregateMetrics(projected, { since }).map((group) => ({
       group: group.group[by],
@@ -1949,18 +2246,18 @@ async function readEpisodes(root) {
   const summaries = [];
   for (const item of entries.filter((value) => value.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
     const entry = item.name;
-    const dir = join13(root, entry);
+    const dir = join15(root, entry);
     const [task, outcome, interventions, verifications, attributions, tools, entropy] = await Promise.all([
-      json(join13(dir, "task.json")),
-      json(join13(dir, "outcome.json")),
-      jsonl(join13(dir, "intervention.jsonl")),
-      jsonl(join13(dir, "verification.jsonl")),
-      jsonl(join13(dir, "attribution.jsonl")),
-      jsonl(join13(dir, "tool.jsonl")),
-      json(join13(dir, "entropy.json"))
+      json(join15(dir, "task.json")),
+      json(join15(dir, "outcome.json")),
+      jsonl(join15(dir, "intervention.jsonl")),
+      jsonl(join15(dir, "verification.jsonl")),
+      jsonl(join15(dir, "attribution.jsonl")),
+      jsonl(join15(dir, "tool.jsonl")),
+      json(join15(dir, "entropy.json"))
     ]);
     const metrics = object2(outcome.metrics);
-    const actions = await jsonl(join13(dir, "action.jsonl"));
+    const actions = await jsonl(join15(dir, "action.jsonl"));
     const start = actions.find((event) => event.type === "run.start");
     if (!start) continue;
     const label = await classifyPackage(dir);
@@ -2030,7 +2327,7 @@ function countRecoveredTools(events) {
 }
 async function json(path) {
   try {
-    return object2(JSON.parse(await readFile8(path, "utf8")));
+    return object2(JSON.parse(await readFile9(path, "utf8")));
   } catch (error) {
     if (error instanceof SyntaxError || error.code === "ENOENT") return {};
     throw error;
@@ -2038,7 +2335,7 @@ async function json(path) {
 }
 async function jsonl(path) {
   try {
-    return (await readFile8(path, "utf8")).split(/\r?\n/).filter((line) => line.trim()).map((line) => {
+    return (await readFile9(path, "utf8")).split(/\r?\n/).filter((line) => line.trim()).map((line) => {
       try {
         return object2(JSON.parse(line));
       } catch {
@@ -2077,14 +2374,14 @@ function pct(value) {
 }
 
 // src/cli/commands/experiment.ts
-import { lstat as lstat5, readFile as readFile10 } from "fs/promises";
-import { resolve as resolve9 } from "path";
+import { lstat as lstat5, readFile as readFile11 } from "fs/promises";
+import { resolve as resolve10 } from "path";
 
 // src/experiment/run.ts
 import { spawn } from "child_process";
-import { mkdtemp, mkdir as mkdir6, rm as rm2, writeFile as writeFile4, rename as rename3 } from "fs/promises";
+import { mkdtemp, mkdir as mkdir8, rm as rm2, writeFile as writeFile6, rename as rename3 } from "fs/promises";
 import { tmpdir } from "os";
-import { dirname as dirname7, join as join15, relative as relative5, resolve as resolve8, isAbsolute as isAbsolute3 } from "path";
+import { dirname as dirname7, join as join17, relative as relative5, resolve as resolve9, isAbsolute as isAbsolute3 } from "path";
 
 // src/experiment/contract.ts
 import { createHash as createHash4 } from "crypto";
@@ -2153,8 +2450,8 @@ function protectedPath(path, spec) {
 }
 
 // src/experiment/workspace.ts
-import { lstat as lstat4, readdir as readdir6, readFile as readFile9, mkdir as mkdir5, writeFile as writeFile3, chmod as chmod2 } from "fs/promises";
-import { join as join14 } from "path";
+import { lstat as lstat4, readdir as readdir6, readFile as readFile10, mkdir as mkdir7, writeFile as writeFile5, chmod as chmod2 } from "fs/promises";
+import { join as join16 } from "path";
 var excluded = (name) => /^(?:\.git|\.edu|\.cloudroom|\.codex|\.claude|\.pi|\.gemini|node_modules|\.ssh|\.aws|\.azure|\.gcloud|\.config|\.npm|\.gnupg|\.kube|credentials?|secrets?)(?:$|\.)/i.test(name) || /^\.env(?:$|\.)/i.test(name) || /\.(?:pem|key|p12|pfx)$/i.test(name) || /^(?:id_rsa|id_ed25519|\.netrc|\.npmrc|\.pypirc|\.mcp\.json)$/i.test(name);
 var entryDigest = (entry) => entry.kind === "directory" ? { kind: entry.kind } : { kind: entry.kind, sha256: sha2563(entry.bytes), executable: entry.executable };
 var snapshotDigests = (files2) => Object.fromEntries([...files2].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, entry]) => [path, entryDigest(entry)]));
@@ -2172,7 +2469,7 @@ async function snapshot(root, limits, source = false, monitor = false) {
       if (names.has(pathKey(path))) throw new Error(`Workspace case/Unicode collision: ${path}`);
       names.add(pathKey(path));
       if (++entries > limits.files) throw new Error("Workspace file/entry limit exceeded");
-      const target = join14(root, path);
+      const target = join16(root, path);
       try {
         await assertContained(root, target);
         const stat4 = await lstat4(target);
@@ -2183,7 +2480,7 @@ async function snapshot(root, limits, source = false, monitor = false) {
           bytes += stat4.size;
           if (bytes > limits.workspaceBytes) throw new Error("Workspace byte limit exceeded");
           if (monitor) continue;
-          const value = await readFile9(target);
+          const value = await readFile10(target);
           if (value.length !== stat4.size) throw new Error(`Workspace changed during snapshot: ${path}`);
           files2.set(path, { kind: "file", bytes: value, executable: process.platform === "win32" ? 0 : stat4.mode & 73 });
         } else throw new Error(`Refusing symlink or special workspace file: ${path}`);
@@ -2196,13 +2493,13 @@ async function snapshot(root, limits, source = false, monitor = false) {
   return files2;
 }
 async function materialize(root, files2) {
-  await mkdir5(root, { recursive: true });
+  await mkdir7(root, { recursive: true });
   for (const [path, entry] of files2) {
-    await assertContained(root, join14(root, path));
-    if (entry.kind === "directory") await mkdir5(join14(root, path), { recursive: true });
+    await assertContained(root, join16(root, path));
+    if (entry.kind === "directory") await mkdir7(join16(root, path), { recursive: true });
     else {
-      await writeFile3(join14(root, path), entry.bytes, { flag: "wx", mode: 420 | entry.executable });
-      if (process.platform !== "win32") await chmod2(join14(root, path), 420 | entry.executable);
+      await writeFile5(join16(root, path), entry.bytes, { flag: "wx", mode: 420 | entry.executable });
+      if (process.platform !== "win32") await chmod2(join16(root, path), 420 | entry.executable);
     }
   }
 }
@@ -2256,13 +2553,13 @@ async function runExperiment(manifest2, deps) {
   const protectedInventory = (files2) => Object.fromEntries(Object.entries(snapshotDigests(files2)).filter(([path]) => protectedPath(path, spec)));
   const frozen = protectedInventory(initial);
   if (!deps.evidenceRoot) throw new Error("An explicit evidence directory outside the source is required");
-  const evidenceRoot = resolve8(deps.evidenceRoot);
+  const evidenceRoot = resolve9(deps.evidenceRoot);
   const rel = relative5(await canonicalAnchor(spec.sourceRoot), await canonicalAnchor(evidenceRoot));
   if (!rel || !rel.startsWith(".." + (process.platform === "win32" ? "\\" : "/")) && rel !== ".." && !isAbsolute3(rel)) {
     throw new Error("Evidence directory must be outside original source");
   }
-  const root = await mkdtemp(join15(tmpdir(), "edu-experiment-"));
-  const evidencePath = join15(evidenceRoot, `${root.split(/[\\/]/).at(-1)}.json`);
+  const root = await mkdtemp(join17(tmpdir(), "edu-experiment-"));
+  const evidencePath = join17(evidenceRoot, `${root.split(/[\\/]/).at(-1)}.json`);
   const result = {
     version: 1,
     state: "running",
@@ -2285,15 +2582,15 @@ async function runExperiment(manifest2, deps) {
     fallbackUsable: false
   };
   try {
-    await mkdir6(evidenceRoot, { recursive: true, mode: 448 });
+    await mkdir8(evidenceRoot, { recursive: true, mode: 448 });
     await assertContained(evidenceRoot, evidencePath);
-    await writeFile4(evidencePath, JSON.stringify(result, null, 2) + "\n", { flag: "wx", mode: 384 });
+    await writeFile6(evidencePath, JSON.stringify(result, null, 2) + "\n", { flag: "wx", mode: 384 });
   } catch (error) {
     await rm2(root, { recursive: true, force: true });
     throw error;
   }
   try {
-    for (const arm of ["baseline", "candidate"]) await materialize(join15(root, arm), initial);
+    for (const arm of ["baseline", "candidate"]) await materialize(join17(root, arm), initial);
     for (const arm of ["baseline", "candidate"]) {
       if (deps.signal?.aborted) {
         if (arm === "baseline") result.arms.baseline.status = "cancelled";
@@ -2301,14 +2598,14 @@ async function runExperiment(manifest2, deps) {
       }
       const outcome = result.arms[arm];
       outcome.initialSha256 = snapshotHash(initial);
-      const cwd = join15(root, arm);
+      const cwd = join17(root, arm);
       try {
         outcome.initialSha256 = snapshotHash(await snapshot(cwd, spec.limits));
         if (outcome.initialSha256 !== spec.sourceSha256) throw new Error("Initial workspace snapshot changed before execution");
         if (arm === "candidate") for (const [path, content] of Object.entries(spec.overlay)) {
-          await assertContained(cwd, join15(cwd, path));
-          await mkdir6(dirname7(join15(cwd, path)), { recursive: true });
-          await writeFile4(join15(cwd, path), content);
+          await assertContained(cwd, join17(cwd, path));
+          await mkdir8(dirname7(join17(cwd, path)), { recursive: true });
+          await writeFile6(join17(cwd, path), content);
         }
         const before = await snapshot(cwd, spec.limits);
         if (JSON.stringify(protectedInventory(before)) !== JSON.stringify(frozen)) throw new Error("Protected inventory changed before execution");
@@ -2338,11 +2635,11 @@ async function runExperiment(manifest2, deps) {
     result.endedAt = (/* @__PURE__ */ new Date()).toISOString();
     result.state = "complete";
     try {
-      await mkdir6(evidenceRoot, { recursive: true });
+      await mkdir8(evidenceRoot, { recursive: true });
       await assertContained(evidenceRoot, evidencePath);
       const staging = evidencePath + ".tmp";
       await assertContained(evidenceRoot, staging);
-      await writeFile4(staging, JSON.stringify(result, null, 2) + "\n", { flag: "wx", mode: 384 });
+      await writeFile6(staging, JSON.stringify(result, null, 2) + "\n", { flag: "wx", mode: 384 });
       await rename3(staging, evidencePath);
     } finally {
       await rm2(root, { recursive: true, force: true });
@@ -2456,12 +2753,12 @@ async function execute(command, cwd, limits, signal) {
 async function manifest(path) {
   const info = await lstat5(path);
   if (!info.isFile() || info.size > 2 * 1024 * 1024) throw new Error("Manifest must be a regular UTF-8 JSON file <= 2 MiB");
-  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await readFile10(path));
+  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await readFile11(path));
 }
 function registerExperiment(program, ctx) {
   const command = program.command("experiment").description("explicitly approved trusted commands in disposable workspace copies (no OS sandbox)");
   command.command("inspect").argument("<manifest>").description("read-only manifest, inventory and approval hash; prints JSON").action(action(ctx, async ({ g }, path) => {
-    printJson(ctx, await inspectExperiment(await manifest(resolve9(g.cwd, path))));
+    printJson(ctx, await inspectExperiment(await manifest(resolve10(g.cwd, path))));
   }));
   command.command("run").argument("<manifest>").description("run both approved arms; retain JSON evidence without activating changes").requiredOption("--approve <sha256>", "SHA-256 of the exact inspected manifest bytes").requiredOption("--evidence <directory>", "explicit retained evidence directory outside the original source tree").action(action(ctx, async ({ g, opts }, path) => {
     const controller = new AbortController();
@@ -2469,7 +2766,7 @@ function registerExperiment(program, ctx) {
     process.on("SIGINT", cancel);
     process.on("SIGTERM", cancel);
     try {
-      const result = await runExperiment(await manifest(resolve9(g.cwd, path)), { approve: opts.approve, evidenceRoot: resolve9(g.cwd, opts.evidence), signal: controller.signal });
+      const result = await runExperiment(await manifest(resolve10(g.cwd, path)), { approve: opts.approve, evidenceRoot: resolve10(g.cwd, opts.evidence), signal: controller.signal });
       printJson(ctx, result);
       if (Object.values(result.arms).some((arm) => arm.status !== "ok")) ctx.setExitCode(1);
     } finally {
@@ -2480,8 +2777,8 @@ function registerExperiment(program, ctx) {
 }
 
 // src/cli/commands/eval.ts
-import { readFile as readFile11 } from "fs/promises";
-import { resolve as resolve10 } from "path";
+import { readFile as readFile12 } from "fs/promises";
+import { resolve as resolve11 } from "path";
 
 // src/eval/contract.ts
 import { z as z2 } from "zod";
@@ -2654,7 +2951,7 @@ function aggregateTrials(input, options = {}) {
 // src/eval/suite.ts
 import { mkdtemp as mkdtemp2, rm as rm3 } from "fs/promises";
 import { tmpdir as tmpdir2 } from "os";
-import { join as join16 } from "path";
+import { join as join18 } from "path";
 var SUITE_MODEL = "rule-based-solver";
 var SUITE_HARNESS = "edu-eval-suite";
 var SUITE_ORACLE = "fixed-expected-answer";
@@ -2714,11 +3011,11 @@ async function runArm(arm, root) {
   return { steps, trials };
 }
 async function runMemorySuite() {
-  const dir = await mkdtemp2(join16(tmpdir2(), "edu-eval-"));
+  const dir = await mkdtemp2(join18(tmpdir2(), "edu-eval-"));
   try {
     const steps = [], trials = [];
     for (const arm of ["native-clean", "edu-cold", "memory-static", "memory-adaptive"]) {
-      const result = await runArm(arm, join16(dir, arm, ".edu"));
+      const result = await runArm(arm, join18(dir, arm, ".edu"));
       steps.push(...result.steps);
       trials.push(...result.trials);
     }
@@ -2751,7 +3048,7 @@ async function runMemorySuite() {
 function registerEvaluation(program, ctx) {
   const evaluation = program.command("eval").description("honest evaluation of memory: trial aggregation and a deterministic behaviour suite (no model calls)");
   evaluation.command("aggregate").description("aggregate recorded trials (native-clean, edu-cold, memory-static, memory-adaptive) for one model and harness").argument("<file>", 'JSON file: an array of trials or { "trials": [...] }').option("--min-trials <n>", "minimum trials per arm before a comparison is reported", String(DEFAULT_MIN_TRIALS)).option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, file) => {
-    const trials = parseTrials(JSON.parse(await readFile11(resolve10(g.cwd, file ?? ""), "utf8")));
+    const trials = parseTrials(JSON.parse(await readFile12(resolve11(g.cwd, file ?? ""), "utf8")));
     const report = aggregateTrials(trials, { minTrialsPerArm: parseIntOption(opts.minTrials ?? String(DEFAULT_MIN_TRIALS), "--min-trials") });
     if (opts.json || g.json) return printJson(ctx, report);
     ctx.out(`status: ${report.status}${report.reasons.length ? ` (${report.reasons.join(", ")})` : ""}`);
@@ -2773,7 +3070,7 @@ function registerEvaluation(program, ctx) {
 
 // src/cli/hooks.ts
 import { createHash as createHash5 } from "crypto";
-import { join as join17 } from "path";
+import { join as join19 } from "path";
 
 // src/cli/statusline.ts
 var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -2835,14 +3132,14 @@ async function safeHook(ctx, name, body) {
 }
 async function initializedWorkspace(ctx, cwd) {
   const ws = await openWorkspace(ctx, cwd);
-  return await exists(join17(ws.primary.root, "EDU.md")) ? ws : void 0;
+  return await exists(join19(ws.primary.root, "EDU.md")) ? ws : void 0;
 }
 var SESSION_BRIEF_TOKENS = 1500;
 async function workspaceBrief(ctx, cwd) {
   const ws = await initializedWorkspace(ctx, cwd);
   if (!ws) return void 0;
   const { brief } = await import("./context-O2LNE6RN.js");
-  return { ws, text: await brief(ws.brain, SESSION_BRIEF_TOKENS, { eduMdPath: join17(ws.primary.root, "EDU.md") }) };
+  return { ws, text: await brief(ws.brain, SESSION_BRIEF_TOKENS, { eduMdPath: join19(ws.primary.root, "EDU.md") }) };
 }
 var hostTag = (source, key2) => `host:${source}:${key2}`;
 async function findHostSession(brain, tag) {
@@ -2924,7 +3221,7 @@ function registerIntegrations(program, ctx) {
   );
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-FKBPQTII.js");
+      const { runStdioServer } = await import("./stdio-3TGAS5C4.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -2952,7 +3249,7 @@ function registerIntegrations(program, ctx) {
 }
 
 // src/cli/commands/learn.ts
-import { join as join18 } from "path";
+import { join as join20 } from "path";
 function tokenTable(pack, glyphs) {
   const width = Math.max(7, ...pack.sections.map((s) => s.title.length));
   const rule = glyphs.rule.repeat(width + 20);
@@ -2972,7 +3269,7 @@ function registerLearn(program, ctx) {
       const config = await effectiveConfig(ws.primary.root, []);
       const budgetTokens = opts.budget ? parseIntOption(opts.budget, "--budget") : config.context.budgetTokens;
       const { buildContext } = await import("./context-O2LNE6RN.js");
-      const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join18(ws.primary.root, "EDU.md"), trackUsage: false });
+      const pack = await buildContext(ws.brain, { budgetTokens, ...opts.query ? { query: opts.query } : {} }, { eduMdPath: join20(ws.primary.root, "EDU.md"), trackUsage: false });
       if (g.json || opts.json) return printJson(ctx, pack);
       const { glyphs } = look(ctx);
       ctx.out(t(g.lang, "context.title", { tokens: pack.tokens, budget: pack.budgetTokens }));
@@ -3045,7 +3342,7 @@ function registerMcpProject(program, ctx) {
   mcp.option("--project <name|path>", 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)').option("--profile <full|memory>", "tool surface: full (default) or memory only (env EDU_MCP_PROFILE)").action(
     action(ctx, async ({ g, opts }) => {
       if (opts.profile && opts.profile !== "full" && opts.profile !== "memory") throw new Error("Unknown MCP tool profile; use full or memory");
-      const { runStdioServer } = await import("./stdio-FKBPQTII.js");
+      const { runStdioServer } = await import("./stdio-3TGAS5C4.js");
       await runStdioServer({ cwd: g.cwd, project: opts.project, toolProfile: opts.profile, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3094,19 +3391,19 @@ function registerWatch(program, ctx) {
 }
 
 // src/cli/commands/live.ts
-import { join as join20, resolve as resolve12 } from "path";
+import { join as join22, resolve as resolve13 } from "path";
 
 // src/orchestrator/resume.ts
-import { readFile as readFile12 } from "fs/promises";
-import { join as join19, resolve as resolve11 } from "path";
+import { readFile as readFile13 } from "fs/promises";
+import { join as join21, resolve as resolve12 } from "path";
 import { z as z3 } from "zod";
 var Snapshot = z3.object({ runId: z3.string().uuid(), cwd: z3.string(), goal: z3.string().min(1).max(32e3), status: z3.enum(["running", "completed", "blocked", "cancelled", "budget_exhausted"]), summary: z3.string().max(32e3) });
 async function resumeGoal(runsDir, runId, cwd) {
   if (!z3.string().uuid().safeParse(runId).success) throw new Error("Invalid run ID.");
-  const raw = await readFile12(join19(runsDir, `${runId}.status.json`), "utf8");
+  const raw = await readFile13(join21(runsDir, `${runId}.status.json`), "utf8");
   if (Buffer.byteLength(raw) > 1048576) throw new Error("Run checkpoint exceeds the resume limit.");
   const prior = Snapshot.parse(JSON.parse(raw));
-  if (prior.runId !== runId || resolve11(prior.cwd) !== resolve11(cwd)) throw new Error("Run checkpoint belongs to another workspace or run.");
+  if (prior.runId !== runId || resolve12(prior.cwd) !== resolve12(cwd)) throw new Error("Run checkpoint belongs to another workspace or run.");
   if (prior.status === "running" || prior.status === "completed") throw new Error(`Cannot resume a ${prior.status} run; stop active work or start an explicit new goal.`);
   return `${prior.goal}
 
@@ -3124,7 +3421,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-6O3ZPU3A.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-I6Z5ASZ6.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -3160,7 +3457,7 @@ function registerLive(program, ctx) {
       if (opts.resume) {
         if (text) throw new Error("choose a goal or --resume, not both");
         const ws = await openWorkspace(ctx, g.cwd);
-        text = await resumeGoal(join20(ws.primary.root, "runs"), opts.resume, g.cwd);
+        text = await resumeGoal(join22(ws.primary.root, "runs"), opts.resume, g.cwd);
       }
       if (!text) throw new Error("a goal is required");
       if (opts.detach) {
@@ -3198,11 +3495,11 @@ function registerLive(program, ctx) {
       }
       const speed = parsePositive(opts.speed ?? "1", "--speed");
       const { loadRun, timedEvents } = await import("./replay-MTGKHMKG.js");
-      const run = await loadRun(opts.replay);
-      for (const issue of run.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
-      if (!ctx.isTTY) return printPlain(ctx, run.events);
+      const run3 = await loadRun(opts.replay);
+      for (const issue of run3.issues) ctx.err(`${opts.replay}:${issue.line}: ${issue.message} (skipped)`);
+      if (!ctx.isTTY) return printPlain(ctx, run3.events);
       const { playInTui } = await import("./live-RJNR4KED.js");
-      await playInTui(timedEvents(run.events, { speed, maxDelayMs: 2e3 }), "Edu", uiLang(g.lang, ctx.env));
+      await playInTui(timedEvents(run3.events, { speed, maxDelayMs: 2e3 }), "Edu", uiLang(g.lang, ctx.env));
     })
   );
   program.command("demo").description("watch a scripted crew in the live view (no LLM needed)").option("--speed <n>", "playback speed multiplier", "1").option("--save <file>", "save the demo event stream as JSONL for replay").action(
@@ -3210,7 +3507,7 @@ function registerLive(program, ctx) {
       const speed = parsePositive(opts.speed ?? "1", "--speed");
       const { demoEvents } = await import("./demo-WF3HATVH.js");
       const events = demoEvents();
-      if (opts.save) await atomicWrite(resolve12(g.cwd, opts.save), `${events.map((event) => JSON.stringify(event)).join("\n")}
+      if (opts.save) await atomicWrite(resolve13(g.cwd, opts.save), `${events.map((event) => JSON.stringify(event)).join("\n")}
 `);
       if (!ctx.isTTY) {
         ctx.out(t(g.lang, "demo.plain"));
@@ -3262,7 +3559,7 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes) {
 import { dirname as dirname8 } from "path";
 
 // src/update/update.ts
-import { access } from "fs/promises";
+import { access as access2 } from "fs/promises";
 import { posix, win32 as win322 } from "path";
 async function checkForUpdate(deps, tag) {
   const release = await fetchRelease({
@@ -3276,8 +3573,8 @@ async function checkForUpdate(deps, tag) {
 }
 var pathFor = (platform) => platform === "win32" ? win322 : posix;
 async function resolveNpm(deps) {
-  const { dirname: dirname10, join: join23 } = pathFor(deps.platform);
-  const candidate = join23(dirname10(deps.execPath), deps.platform === "win32" ? "npm.cmd" : "npm");
+  const { dirname: dirname10, join: join25 } = pathFor(deps.platform);
+  const candidate = join25(dirname10(deps.execPath), deps.platform === "win32" ? "npm.cmd" : "npm");
   return await deps.exists(candidate) ? candidate : "npm";
 }
 function installPrefix(packageRoot, platform) {
@@ -3287,10 +3584,10 @@ function installPrefix(packageRoot, platform) {
   if (platform === "win32") return dirname10(modules);
   return basename5(dirname10(modules)) === "lib" ? dirname10(dirname10(modules)) : void 0;
 }
-var tail2 = (text, lines = 8) => text.trim().split("\n").slice(-lines).join("\n");
+var tail2 = (text, lines2 = 8) => text.trim().split("\n").slice(-lines2).join("\n");
 async function performUpdate(deps, release, onStep = () => {
 }) {
-  const { join: join23 } = pathFor(deps.platform);
+  const { join: join25 } = pathFor(deps.platform);
   const steps = [];
   const done = (outcome) => ({ ...outcome, steps });
   const npm = await resolveNpm(deps);
@@ -3305,8 +3602,8 @@ async function performUpdate(deps, release, onStep = () => {
   steps.push({ step: "install", status: "ok", detail: `${npm}${prefix ? ` (prefix ${prefix})` : ""}` });
   onStep("verify");
   const root = await deps.run(npm, ["root", "-g", ...prefixArgs], { env: deps.env });
-  const modules = root.code === 0 && root.stdout.trim() ? root.stdout.trim().split("\n").at(-1).trim() : prefix ? deps.platform === "win32" ? join23(prefix, "node_modules") : join23(prefix, "lib", "node_modules") : "";
-  const cli = modules ? join23(modules, "edu-agent", "dist", "cli.js") : "";
+  const modules = root.code === 0 && root.stdout.trim() ? root.stdout.trim().split("\n").at(-1).trim() : prefix ? deps.platform === "win32" ? join25(prefix, "node_modules") : join25(prefix, "lib", "node_modules") : "";
+  const cli = modules ? join25(modules, "edu-agent", "dist", "cli.js") : "";
   if (!cli || !await deps.exists(cli)) {
     steps.push({ step: "verify", status: "failed", detail: `installed, but the new edu was not found${cli ? ` at ${cli}` : ""}` });
     return done({ ok: false, installed: true });
@@ -3350,7 +3647,7 @@ async function performUpdate(deps, release, onStep = () => {
 }
 async function fileExists(path) {
   try {
-    await access(path);
+    await access2(path);
     return true;
   } catch {
     return false;
@@ -3499,7 +3796,7 @@ function registerUpdate(program, ctx, overrides = {}) {
   const internal = program.command("internal", { hidden: true }).description("internal hooks used by edu update");
   internal.command("migrate-workspaces").description("back up and migrate managed contracts in global and registered project brains; preserves memory").option("--json", "machine-readable output").action(
     action(ctx, async ({ g, opts }) => {
-      const { migrateWorkspaces } = await import("./migrate-3ZOJVJWG.js");
+      const { migrateWorkspaces } = await import("./migrate-LKXTSOKY.js");
       const results = await migrateWorkspaces(globalHome(ctx));
       if (results.some((r) => r.status !== "migrated")) ctx.setExitCode(1);
       if (g.json || opts.json) return printJson(ctx, results);
@@ -3514,12 +3811,12 @@ function registerUpdate(program, ctx, overrides = {}) {
 }
 
 // src/cli/commands/vault.ts
-import { join as join22, resolve as resolve14 } from "path";
+import { join as join24, resolve as resolve15 } from "path";
 
 // src/vault/vault.ts
 import { randomBytes } from "crypto";
-import { access as access2, copyFile as copyFile2, mkdir as mkdir7, readFile as readFile13, readdir as readdir7, realpath as realpath3, writeFile as writeFile5 } from "fs/promises";
-import { basename as basename4, dirname as dirname9, join as join21, posix as posix2, resolve as resolve13, win32 as win323 } from "path";
+import { access as access3, copyFile as copyFile2, mkdir as mkdir9, readFile as readFile14, readdir as readdir7, realpath as realpath4, writeFile as writeFile7 } from "fs/promises";
+import { basename as basename4, dirname as dirname9, join as join23, posix as posix2, resolve as resolve14, win32 as win323 } from "path";
 var START = "<!-- edu:projects -->";
 var END = "<!-- /edu:projects -->";
 var IGNORED = ["runs/", "crew/", "proposals/", "backups/"];
@@ -3556,7 +3853,7 @@ function isTempPath(path) {
 }
 async function exists2(path) {
   try {
-    await access2(path);
+    await access3(path);
     return true;
   } catch {
     return false;
@@ -3567,7 +3864,7 @@ async function physicalCandidate(path) {
   const suffix = [];
   while (true) {
     try {
-      return resolve13(await realpath3(ancestor), ...suffix.reverse());
+      return resolve14(await realpath4(ancestor), ...suffix.reverse());
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
       const parent = dirname9(ancestor);
@@ -3617,54 +3914,54 @@ async function validatePath(path, home, platform) {
   const physicalReason = unsafeVaultPathReason(physical, physicalHome, platform);
   if (physicalReason) throw new Error(`Unsafe vault path (${physicalReason}): ${physical}`);
   if (await exists2(path)) {
-    if (await exists2(join21(path, ".edu"))) throw new Error("Unsafe vault path: this folder contains a project brain (.edu/)");
+    if (await exists2(join23(path, ".edu"))) throw new Error("Unsafe vault path: this folder contains a project brain (.edu/)");
   }
 }
 async function createVault(options) {
   const platform = options.platform ?? process.platform;
-  const path = resolve13(options.path);
+  const path = resolve14(options.path);
   await validatePath(path, options.home, platform);
   const projects = (await readProjects(options.eduHome)).projects;
   const current = await readdir7(path).catch((error) => {
     if (error.code === "ENOENT") return [];
     throw error;
   });
-  const homeFile = join21(path, "Home.md");
-  if (current.length && !(await exists2(homeFile) && (await readFile13(homeFile, "utf8")).includes(START))) {
+  const homeFile = join23(path, "Home.md");
+  if (current.length && !(await exists2(homeFile) && (await readFile14(homeFile, "utf8")).includes(START))) {
     throw new Error(`Folder is not empty and is not an Edu vault: ${path}`);
   }
-  await mkdir7(join21(path, ".obsidian"), { recursive: true });
-  await mkdir7(join21(path, "Edu"), { recursive: true });
-  await mkdir7(join21(path, "Notes"), { recursive: true });
-  const appFile = join21(path, ".obsidian", "app.json");
-  if (!await exists2(appFile)) await writeFile5(appFile, `${JSON.stringify({ userIgnoreFilters: IGNORED }, null, 2)}
+  await mkdir9(join23(path, ".obsidian"), { recursive: true });
+  await mkdir9(join23(path, "Edu"), { recursive: true });
+  await mkdir9(join23(path, "Notes"), { recursive: true });
+  const appFile = join23(path, ".obsidian", "app.json");
+  if (!await exists2(appFile)) await writeFile7(appFile, `${JSON.stringify({ userIgnoreFilters: IGNORED }, null, 2)}
 `);
-  const notesReadme = join21(path, "Notes", "README.md");
-  if (!await exists2(notesReadme)) await writeFile5(notesReadme, "# Notes\n\nKeep your own notes and drafts here. Edu does not write memory into this folder.\n");
+  const notesReadme = join23(path, "Notes", "README.md");
+  if (!await exists2(notesReadme)) await writeFile7(notesReadme, "# Notes\n\nKeep your own notes and drafts here. Edu does not write memory into this folder.\n");
   const name = options.name?.trim() || "Edu";
-  const original = await readFile13(homeFile, "utf8").catch((error) => {
+  const original = await readFile14(homeFile, "utf8").catch((error) => {
     if (error.code === "ENOENT") return void 0;
     throw error;
   });
   const nextHome = original === void 0 ? homePage(name, projects) : refreshProjects(original, projects);
-  if (nextHome !== original) await writeFile5(homeFile, nextHome);
+  if (nextHome !== original) await writeFile7(homeFile, nextHome);
   const linked = [];
   const conflicts = [];
   const missingProjects = [];
   const entries = [
-    ...projects.map((project) => ({ name: segment(project.name), target: project.brain, root: join21(project.root, ".edu"), project: true })),
-    { name: "_global", target: join21(options.eduHome, "brain"), root: options.eduHome, project: false }
+    ...projects.map((project) => ({ name: segment(project.name), target: project.brain, root: join23(project.root, ".edu"), project: true })),
+    { name: "_global", target: join23(options.eduHome, "brain"), root: options.eduHome, project: false }
   ];
   for (const entry of entries) {
     if (entry.project && !await exists2(entry.target)) {
       missingProjects.push(entry.name);
       continue;
     }
-    const link = join21(path, "Edu", entry.name);
+    const link = join23(path, "Edu", entry.name);
     try {
       await createVaultLink(link, entry.target, platform);
       linked.push(entry.name);
-      await openBrain([{ scope: entry.project ? "project" : "global", root: entry.root, ...entry.target === join21(entry.root, "brain") ? {} : { brainDir: entry.target } }]).rebuildIndex().catch(() => void 0);
+      await openBrain([{ scope: entry.project ? "project" : "global", root: entry.root, ...entry.target === join23(entry.root, "brain") ? {} : { brainDir: entry.target } }]).rebuildIndex().catch(() => void 0);
     } catch (error) {
       if (error.code !== "ELINKCONFLICT") throw error;
       conflicts.push(link);
@@ -3674,20 +3971,20 @@ async function createVault(options) {
   return { path, name, linked, conflicts, missingProjects, registration };
 }
 async function registerObsidianVault(vault, options) {
-  const config = options.platform === "win32" ? join21(options.env.APPDATA || join21(options.home, "AppData", "Roaming"), "obsidian") : options.platform === "darwin" ? join21(options.home, "Library", "Application Support", "obsidian") : join21(options.home, ".config", "obsidian");
-  const configFile = join21(config, "obsidian.json");
+  const config = options.platform === "win32" ? join23(options.env.APPDATA || join23(options.home, "AppData", "Roaming"), "obsidian") : options.platform === "darwin" ? join23(options.home, "Library", "Application Support", "obsidian") : join23(options.home, ".config", "obsidian");
+  const configFile = join23(config, "obsidian.json");
   if (!await exists2(configFile)) return "skipped (Obsidian not installed)";
-  const parsed = JSON.parse(await readFile13(configFile, "utf8"));
+  const parsed = JSON.parse(await readFile14(configFile, "utf8"));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid Obsidian obsidian.json");
   const data = parsed;
   if (data.vaults !== void 0 && (!data.vaults || typeof data.vaults !== "object" || Array.isArray(data.vaults))) throw new Error("Invalid Obsidian vault list");
   data.vaults ??= {};
-  if (Object.values(data.vaults).some((entry) => resolve13(entry.path ?? "") === resolve13(vault))) return "already registered";
+  if (Object.values(data.vaults).some((entry) => resolve14(entry.path ?? "") === resolve14(vault))) return "already registered";
   const now = options.now ?? /* @__PURE__ */ new Date();
   const stamp = now.toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "Z");
   await copyFile2(configFile, `${configFile}.${stamp}.${randomBytes(3).toString("hex")}.bak`);
-  data.vaults[randomBytes(8).toString("hex")] = { path: resolve13(vault), ts: now.getTime(), open: false };
-  await writeFile5(configFile, `${JSON.stringify(data, null, 2)}
+  data.vaults[randomBytes(8).toString("hex")] = { path: resolve14(vault), ts: now.getTime(), open: false };
+  await writeFile7(configFile, `${JSON.stringify(data, null, 2)}
 `);
   return "registered";
 }
@@ -3695,27 +3992,27 @@ async function countNotes(dir) {
   let count2 = 0;
   for (const entry of await readdir7(dir, { withFileTypes: true }).catch(() => [])) {
     if (entry.isDirectory() && entry.name === "0-index") continue;
-    if (entry.isDirectory()) count2 += await countNotes(join21(dir, entry.name));
+    if (entry.isDirectory()) count2 += await countNotes(join23(dir, entry.name));
     else if (entry.isFile() && entry.name.endsWith(".md")) count2++;
   }
   return count2;
 }
 async function checkVault(options) {
-  const path = resolve13(options.path);
+  const path = resolve14(options.path);
   const platform = options.platform ?? process.platform;
   const physical = await physicalCandidate(path).catch(() => path);
-  const unsafe = unsafeVaultPathReason(path, options.home, platform) ?? unsafeVaultPathReason(physical, await physicalCandidate(options.home).catch(() => options.home), platform) ?? (await exists2(join21(path, ".edu")) ? "contains a project brain" : void 0);
+  const unsafe = unsafeVaultPathReason(path, options.home, platform) ?? unsafeVaultPathReason(physical, await physicalCandidate(options.home).catch(() => options.home), platform) ?? (await exists2(join23(path, ".edu")) ? "contains a project brain" : void 0);
   const projects = (await readProjects(options.eduHome)).projects;
   const entries = [
     ...projects.map((project) => ({ name: segment(project.name), target: project.brain, project: true })),
-    { name: "_global", target: join21(options.eduHome, "brain"), project: false }
+    { name: "_global", target: join23(options.eduHome, "brain"), project: false }
   ];
   const links = [];
   const missingProjects = [];
   for (const entry of entries) {
     const present = await exists2(entry.target);
     if (!present && entry.project) missingProjects.push(entry.name);
-    const state = await linkState(join21(path, "Edu", entry.name), entry.target);
+    const state = await linkState(join23(path, "Edu", entry.name), entry.target);
     links.push({
       name: entry.name,
       state: state === "conflict" ? "conflict" : state === "missing" || !present ? "broken" : "ok",
@@ -3725,7 +4022,7 @@ async function checkVault(options) {
   const warnings = [];
   for (const entry of await readdir7(path, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isDirectory() || ["Edu", "Notes", ".obsidian"].includes(entry.name)) continue;
-    const notes = await countNotes(join21(path, entry.name));
+    const notes = await countNotes(join23(path, entry.name));
     if (notes >= 20) warnings.push(`${entry.name}/ contains ${notes} notes outside Edu/ and Notes/; another tool may be writing generated notes`);
   }
   return { path, unsafe, links, missingProjects, warnings };
@@ -3735,7 +4032,7 @@ async function checkVault(options) {
 function registerVault(program, ctx) {
   program.command("vault").description("create or check a safe Obsidian window onto registered project brains").argument("[path]", "vault directory (default ~/EduVault)").option("--name <name>", "vault title", "Edu").option("--no-register", "do not add the vault to Obsidian").option("--check", "report unsafe paths, broken links and note counts without writing").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, path) => {
     const home = process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home;
-    const vaultPath = path ? resolve14(g.cwd, path) : join22(home, "EduVault");
+    const vaultPath = path ? resolve15(g.cwd, path) : join24(home, "EduVault");
     const common = { path: vaultPath, home, eduHome: globalHome(ctx) };
     if (opts.check) {
       const report2 = await checkVault(common);
@@ -3752,7 +4049,7 @@ function registerVault(program, ctx) {
     if (g.json || opts.json) return printJson(ctx, report);
     ctx.out(`Edu vault: ${report.path}`);
     ctx.out(`Linked: ${report.linked.join(", ") || "none"}`);
-    for (const conflict of report.conflicts) ctx.err(`Link conflict (not replaced): ${conflict}`);
+    for (const conflict2 of report.conflicts) ctx.err(`Link conflict (not replaced): ${conflict2}`);
     for (const name of report.missingProjects) ctx.err(`Missing registered project (not removed): ${name}`);
     ctx.out(`Obsidian registration: ${report.registration}`);
     ctx.out(`Next: open Obsidian and choose the ${report.name} vault.`);
@@ -3761,7 +4058,7 @@ function registerVault(program, ctx) {
 
 // src/cli/program.ts
 var GROUPS = [
-  ["Get started:", ["create", "init", "vault", "install", "uninstall", "update", "doctor", "detach", "capabilities"]],
+  ["Get started:", ["create", "init", "vault", "sync", "install", "uninstall", "update", "doctor", "detach", "capabilities"]],
   ["Work:", ["run", "ui", "demo", "deck", "experiment"]],
   ["Brain:", ["brief", "brain", "context", "reflect", "proposals", "metrics", "checks", "eval"]],
   ["Integrations:", ["mcp", "connect", "statusline", "hook"]]
@@ -3795,6 +4092,7 @@ function createProgram(overrides = {}, options = {}) {
   registerSetup(program, ctx);
   registerCreate(program, ctx);
   registerVault(program, ctx);
+  registerSync(program, ctx);
   registerLive(program, ctx);
   registerBrain(program, ctx);
   registerLearn(program, ctx);
@@ -3822,4 +4120,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-KXK62N4N.js.map
+//# sourceMappingURL=chunk-XTZWYMLU.js.map

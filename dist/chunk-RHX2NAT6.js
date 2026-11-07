@@ -1,6 +1,6 @@
 import {
   getCapabilities
-} from "./chunk-U372I66A.js";
+} from "./chunk-7I5CB5XH.js";
 import {
   packageVersion
 } from "./chunk-BXZ573JQ.js";
@@ -244,4 +244,4 @@ export {
   backupUpgradeFiles,
   migrateWorkspaces
 };
-//# sourceMappingURL=chunk-FWZJC5KV.js.map
+//# sourceMappingURL=chunk-RHX2NAT6.js.map

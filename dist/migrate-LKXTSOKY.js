@@ -1,8 +1,8 @@
 import {
   backupUpgradeFiles,
   migrateWorkspaces
-} from "./chunk-FWZJC5KV.js";
-import "./chunk-U372I66A.js";
+} from "./chunk-RHX2NAT6.js";
+import "./chunk-7I5CB5XH.js";
 import "./chunk-BXZ573JQ.js";
 import "./chunk-I6JWASFE.js";
 import "./chunk-YPR7PZSQ.js";
@@ -10,4 +10,4 @@ export {
   backupUpgradeFiles,
   migrateWorkspaces
 };
-//# sourceMappingURL=migrate-3ZOJVJWG.js.map
+//# sourceMappingURL=migrate-LKXTSOKY.js.map

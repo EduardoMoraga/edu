@@ -19,7 +19,14 @@ them, hand work to the others and watch it happen.
 
 ---
 
-## Edu 4.0.0
+## Edu 4.1.0
+
+One brain on every machine. `edu sync` replaces hand-made sync scripts: files Edu regenerates
+and counter-only differences never stop it, and a real conflict goes to a `sync-conflict/` branch
+while the machine keeps syncing. `edu sync --install` schedules it every 5 minutes; `edu sync
+--status` and `edu doctor` show the last run. See [One brain on every machine](#one-brain-on-every-machine-edu-sync).
+
+## Previous: Edu 4.0.0
 
 Brain hygiene that maintenance never did, and sessions that close themselves.
 
@@ -263,6 +270,24 @@ orchestrator: its Bases span every workspace in the vault and add a Project colu
 also gets `00-START/Dashboard.md` (es: `00-INICIO/Panel.md`), which embeds those views
 and links each registered workspace. Edu rewrites that note only while its frontmatter
 says `generated_by: edu`; delete that line to make it yours.
+
+## One brain on every machine: `edu sync`
+
+Keep the brain in a Git repository (for example `~/Edu`, with `~/.edu/brain` linked to its
+`01-CONOCIMIENTO`) and run the same sync everywhere:
+
+```bash
+edu sync            # commit, rebase on GitHub, push (never force)
+edu sync --install  # every 5 min: systemd user timer (Linux) or LaunchAgent (macOS)
+edu sync --status   # last result on this machine; `edu doctor` shows it too
+edu sync --cloud    # cloud sandboxes: keep usage counters and Obsidian bases local
+```
+
+Files Edu regenerates (`0-index/`, `Panel.md`, `*.base`) and conflicts that differ only in
+usage counters never stop the sync: the GitHub copy wins and Edu rewrites them. Any other
+conflict pushes this machine's commits to `sync-conflict/<host>-<sha>`, moves the vault to
+GitHub's version and keeps syncing; you get a desktop notification and merge the branch when
+convenient. Nothing is lost and no machine stays stuck.
 
 ## Evidence and metrics
 

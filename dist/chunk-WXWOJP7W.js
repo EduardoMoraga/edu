@@ -13,7 +13,7 @@ import {
   applySetup,
   needsFirstRunSetup,
   planSetup
-} from "./chunk-2XUKDFCV.js";
+} from "./chunk-WSSCIWBP.js";
 import {
   packageTemplatesDir
 } from "./chunk-BXZ573JQ.js";
@@ -136,4 +136,4 @@ export {
   registerPluginSetup,
   shouldRunFirstSetup
 };
-//# sourceMappingURL=chunk-UTP625BJ.js.map
+//# sourceMappingURL=chunk-WXWOJP7W.js.map
