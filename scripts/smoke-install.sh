@@ -71,6 +71,16 @@ if [[ "$WINDOWS" == 0 ]]; then
   PATH="$TMP/node22:/usr/bin:/bin" EDU_DRY_RUN=1 EDU_LANG=es sh "$ROOT/scripts/install.sh" >"$TMP/dry.log"
   grep -q '\[dry-run\] npm install -g' "$TMP/dry.log" || { echo "install.sh did not plan the npm install" >&2; exit 1; }
   grep -q 'edu create <documento> --name <NombreDelAgente>' "$TMP/dry.log" || { echo "install.sh did not print the Spanish next steps" >&2; exit 1; }
+  # Cloud one-liner: limited hosts and a join, from env and from flags; a token in the URL is never printed.
+  PATH="$TMP/node22:/usr/bin:/bin" EDU_DRY_RUN=1 EDU_LANG=en EDU_YES=1 EDU_HOSTS=claude,codex \
+    EDU_JOIN='https://x-access-token:SECRET123@github.com/me/brain.git' sh "$ROOT/scripts/install.sh" </dev/null >"$TMP/cloud.log" 2>&1
+  grep -q '\[dry-run\] edu setup --yes --cli claude,codex' "$TMP/cloud.log" || { echo "install.sh ignored EDU_HOSTS" >&2; exit 1; }
+  grep -q '\[dry-run\] edu join https://\*\*\*@github.com/me/brain.git --cloud' "$TMP/cloud.log" || { echo "install.sh did not plan edu join --cloud" >&2; exit 1; }
+  if grep -q SECRET123 "$TMP/cloud.log"; then echo "install.sh printed a credential" >&2; exit 1; fi
+  PATH="$TMP/node22:/usr/bin:/bin" EDU_LANG=en sh "$ROOT/scripts/install.sh" --dry-run --yes --hosts pi --join https://github.com/me/brain.git </dev/null >"$TMP/flags.log" 2>&1
+  grep -q '\[dry-run\] edu setup --yes --cli pi' "$TMP/flags.log" || { echo "install.sh ignored --hosts" >&2; exit 1; }
+  grep -q '\[dry-run\] edu join https://github.com/me/brain.git --cloud' "$TMP/flags.log" || { echo "install.sh ignored --join" >&2; exit 1; }
+  if PATH="$TMP/node22:/usr/bin:/bin" sh "$ROOT/scripts/install.sh" --bogus </dev/null >/dev/null 2>&1; then echo "install.sh accepted an unknown option" >&2; exit 1; fi
 fi
 
 echo "Smoke install passed for edu-agent@$VERSION"

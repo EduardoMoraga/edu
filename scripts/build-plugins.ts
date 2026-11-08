@@ -69,7 +69,8 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   // Approval is driven by per-tool MCP annotations (src/mcp/server.ts): reads and local brain writes run,
   // tools that start other agents still ask. Never opt the whole server into auto-approval.
   add('plugins/codex/.mcp.json', json({ mcpServers: { edu: mcp } }));
-  add('plugins/codex/hooks/hooks.json', json(hook));
+  // `--host codex` attributes the session to Codex: its SessionStart `source` is a trigger, like Claude's.
+  add('plugins/codex/hooks/hooks.json', json({ hooks: { SessionStart: [{ ...hook.hooks.SessionStart[0]!, hooks: [{ ...hook.hooks.SessionStart[0]!.hooks[0]!, command: 'edu hook session-start --host codex' }] }] } }));
   for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('codex')) {
     for (const file of skill.files) addBundle(`plugins/codex/skills/${skill.name}/${file.path}`, file.content);
   }
@@ -94,11 +95,14 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
 
   add('plugins/agy/plugin.json', json({ name: 'edu', version: pkg.version, description: DESCRIPTION }));
   add('plugins/agy/mcp_config.json', json({ mcpServers: { edu: mcp } }));
-  add('plugins/agy/rules/edu.md', core);
+  // agy loads only plugin-root hooks.json (named hooks, flat SessionStart handler list) and rules with a trigger.
+  add('plugins/agy/hooks.json', json({ edu: { SessionStart: [{ type: 'command', command: 'edu hook agy-session-start', timeout: 30 }] } }));
+  add('plugins/agy/rules/edu.md', `---\ntrigger: always_on\n---\n\n${core}`);
   for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('agy')) {
     for (const file of skill.files) addBundle(`plugins/agy/skills/${skill.name}/${file.path}`, file.content);
   }
-  for (const agent of agents) add(`plugins/agy/agents/${agent.name}.md`, agent.content);
+  // agy skips agents without `name` and `description`; its `tools` is a list of agy tool names, so omit it.
+  for (const agent of agents) add(`plugins/agy/agents/${agent.name}.md`, agyAgent(agent));
 
   for (const path of ['.claude-plugin', '.agents/plugins', 'plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy', ...generated.keys()]) await assertContained(root, join(root, path));
   const changed = await findDrift(root, generated, exact);
@@ -207,6 +211,10 @@ function claudeAgent(agent: { name: string; content: string; frontmatter: Record
   const description = agent.frontmatter.mission ?? agent.frontmatter.title ?? agent.name;
   const tools = agent.frontmatter.autonomy === 'readonly' ? 'Read, Grep, Glob' : 'Read, Write, Edit, Bash, Grep, Glob';
   return `---\nname: ${agent.name}\ndescription: ${yamlValue(description)}\ntools: ${tools}\n---\n\n${agent.body}`;
+}
+
+function agyAgent(agent: { name: string; frontmatter: Record<string, string>; body: string }): string {
+  return `---\nname: ${agent.name}\ndescription: ${yamlValue(agent.frontmatter.mission ?? agent.frontmatter.title ?? agent.name)}\n---\n\n${agent.body}`;
 }
 
 function opencodeCommand(command: { frontmatter: Record<string, string>; body: string }): string {

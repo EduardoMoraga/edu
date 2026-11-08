@@ -60,10 +60,21 @@ if (-not $edu) { Say "Installed, but 'edu' is not on PATH. Add $prefix to PATH a
 Msg ("Edu " + (& edu --version) + ' installed.') ("Edu " + (& edu --version) + ' instalado.')
 Write-Host ''
 
-# 4. Connect Edu to every coding CLI found on this machine
-& edu setup --yes
-if ($LASTEXITCODE -ne 0) { Msg 'Setup did not finish; run: edu setup --yes' 'El setup no termino; ejecuta: edu setup --yes' }
+# 4. Connect Edu to every coding CLI found on this machine (or only EDU_HOSTS, e.g. claude,codex)
+$failed = $false
+if ($env:EDU_HOSTS) { & edu setup --yes --cli $env:EDU_HOSTS } else { & edu setup --yes }
+if ($LASTEXITCODE -ne 0) { $failed = $true; Msg 'Setup did not finish; run: edu setup --yes' 'El setup no termino; ejecuta: edu setup --yes' }
 Write-Host ''
+
+# 5. Optional shared brain (cloud sandboxes): EDU_JOIN=<repo url>. Credentials come from GH_TOKEN or a
+#    credential helper and are never printed.
+if ($env:EDU_JOIN) {
+  $shown = $env:EDU_JOIN -replace '//[^/@]*@', '//***@'
+  Msg "Joining the shared brain $shown..." "Uniendo el cerebro compartido $shown..."
+  & edu join $env:EDU_JOIN --cloud
+  if ($LASTEXITCODE -ne 0) { $failed = $true; Msg 'Join did not finish; check GH_TOKEN and run: edu join <url> --cloud' 'La union no termino; revisa GH_TOKEN y ejecuta: edu join <url> --cloud' }
+  Write-Host ''
+}
 if ($UseSpanish) {
   Say 'Listo. Siguientes pasos:'
   Say '  1. Crea tu primer espacio desde un documento:'
@@ -79,3 +90,5 @@ if ($UseSpanish) {
   Say '  3. Open it with your CLI (claude, codex, pi, opencode) and ask: "who are you?"'
   Say '  4. Stay current: edu update'
 }
+# Non-interactive callers (EDU_YES=1, cloud sandboxes, CI) need a failing status, not just a message.
+if ($failed -and $env:EDU_YES -eq '1') { exit 1 }

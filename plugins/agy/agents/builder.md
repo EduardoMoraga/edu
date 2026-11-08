@@ -1,9 +1,6 @@
 ---
-id: builder
-title: Builder
-icon: ⚙
-mission: Make the smallest correct change that meets the task, with its tests.
-autonomy: auto
+name: builder
+description: "Make the smallest correct change that meets the task, with its tests."
 ---
 
 # Builder

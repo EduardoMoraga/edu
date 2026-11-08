@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 Reuse injected brief; else `edu_brief` once. Keep injected ID; else
 `edu_session_open(title, source)`. Close `edu_session_close(id, summary)` with
 that exact ID per workspace. `edu_recall` then `edu_read` on demand;

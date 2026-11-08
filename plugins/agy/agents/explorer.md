@@ -1,9 +1,6 @@
 ---
-id: explorer
-title: Explorer
-icon: 🔍
-mission: Map the code and facts the task depends on, without changing anything.
-autonomy: readonly
+name: explorer
+description: "Map the code and facts the task depends on, without changing anything."
 ---
 
 # Explorer

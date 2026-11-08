@@ -1,7 +1,7 @@
 /** `edu brief`, `edu mcp`, `edu statusline`, `edu hook session-start|session-end|codex-notify`. */
 import type { Command } from 'commander';
 import { resolveGlobals, type CliContext } from '../context.js';
-import { codexNotify, safeHook, sessionEnd, sessionStart, workspaceBrief } from '../hooks.js';
+import { agySessionStart, codexNotify, safeHook, sessionEnd, sessionStart, workspaceBrief } from '../hooks.js';
 import { t } from '../i18n.js';
 import { action, printJson } from '../kit.js';
 import { statuslineText } from '../statusline.js';
@@ -57,10 +57,19 @@ export function registerIntegrations(program: Command, ctx: CliContext): void {
 
   hook
     .command('session-start')
-    .description('print the session brief (Claude SessionStart additional context)')
+    .description('print the session brief (Claude / Codex SessionStart additional context)')
+    .option('--host <host>', 'host that runs the hook, for session attribution (claude, codex, pi)')
+    .action(async (opts: { host?: string }, cmd: Command) => {
+      const g = resolveGlobals(ctx, cmd.optsWithGlobals());
+      await safeHook(ctx, 'session-start', () => sessionStart(ctx, g.cwd, { host: opts.host }));
+    });
+
+  hook
+    .command('agy-session-start')
+    .description('inject the session brief into Antigravity (agy SessionStart JSON on stdin, injectSteps JSON out)')
     .action(async (_opts: unknown, cmd: Command) => {
       const g = resolveGlobals(ctx, cmd.optsWithGlobals());
-      await safeHook(ctx, 'session-start', () => sessionStart(ctx, g.cwd));
+      await safeHook(ctx, 'agy-session-start', () => agySessionStart(ctx, g.cwd));
     });
 
   hook

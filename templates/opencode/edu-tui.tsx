@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/solid */
-// Edu for OpenCode 2: a brain/crew line in the home footer, a live deck in the session sidebar and
-// the /edu-deck command. OpenCode 2 TUI plugin contract: `export default { id, setup(context) }`,
+// Edu for OpenCode 2: a brain/crew line in the home footer, a live deck in the session sidebar, the
+// session brief attached to each new session, and the /edu-deck command.
+// OpenCode 2 TUI plugin contract: `export default { id, setup(context) }`,
 // UI placed with context.ui.slot({ append: '<slot path>', render }), commands with context.keymap.layer.
 // Generated into plugins/opencode/tui by scripts/build-plugins.ts and installed by `edu setup` as
 // ~/.config/opencode/plugins/edu-deck/tui.tsx (OpenCode 2 discovers TUI plugins as directories).
@@ -76,6 +77,49 @@ function fetchDeck(cwd) {
   })
 }
 
+/**
+ * The session brief, exactly what Claude's SessionStart hook injects. Read-only: no Edu session is opened
+ * (the agent opens one through MCP). Resolves '' when edu is missing, slow, or there is no brain.
+ */
+function fetchBrief(cwd) {
+  return new Promise((resolve) => {
+    try {
+      const args = windows ? ['hook', 'session-start'] : ['hook', 'session-start', '--cwd', cwd]
+      const child = execFile(EDU, args, { cwd, timeout: 15000, shell: windows, windowsHide: true, encoding: 'utf8', maxBuffer: 1 << 20 }, (error, stdout) => {
+        resolve(error ? '' : String(stdout ?? '').trim())
+      })
+      child.stdin?.end()
+    } catch { resolve('') }
+  })
+}
+
+/**
+ * OpenCode 2 has no session-start hook for plugins, but its API attaches durable instruction entries to a
+ * session (client.session.instructions.entry, announced at the next step). Attach the brief once per root
+ * session the TUI opens; an entry that is already there (a resumed session) is left as it is.
+ */
+const BRIEF_KEY = 'edu-brief'
+function briefSessions(context, cwd) {
+  const seen = new Set()
+  return async () => {
+    try {
+      const route = context.ui?.router?.current?.()
+      if (route?.type !== 'session' || !route.sessionID) return
+      const sessionID = context.data?.session?.root?.(route.sessionID) ?? route.sessionID
+      if (seen.has(sessionID)) return
+      seen.add(sessionID)
+      const client = context.client
+      const entry = client?.session?.instructions?.entry ?? client?.experimental?.session?.instructions?.entry
+      if (typeof entry?.put !== 'function') return
+      const listed = await entry.list?.({ sessionID }).catch(() => undefined)
+      const entries = [listed, listed?.data, listed?.entries].find(Array.isArray) ?? []
+      if (entries.some((item) => item?.key === BRIEF_KEY)) return
+      const text = await fetchBrief(cwd())
+      if (text) await entry.put({ sessionID, key: BRIEF_KEY, value: text })
+    } catch { /* Never disturb the TUI; the AGENTS.md block still tells the agent to call edu_brief. */ }
+  }
+}
+
 function summary(deck, cwd) {
   if (!deck) return `Edu · ${basename(cwd)}\nThe live deck needs \`edu deck\` (edu ≥ 0.6). Update edu, then reopen.`
   const b = deck.brain
@@ -128,6 +172,10 @@ function setup(context) {
   void refresh()
   const timer = setInterval(() => { void refresh() }, REFRESH_MS)
   timer.unref?.()
+  // A new session should get its brief before the first answer: watch the route every second.
+  const brief = briefSessions(context, cwd)
+  const briefTimer = setInterval(() => { void brief() }, 1000)
+  briefTimer.unref?.()
 
   const text = () => context.theme?.text?.base ?? '#CAD3F5'
   const muted = () => context.theme?.text?.muted ?? MUTED
@@ -247,7 +295,7 @@ function setup(context) {
     },
   })
 
-  return () => clearInterval(timer)
+  return () => { clearInterval(timer); clearInterval(briefTimer) }
 }
 
 export default { id, setup }

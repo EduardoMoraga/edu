@@ -1,8 +1,10 @@
 /**
  * Host CLI hooks written by `edu install`:
  *   Claude  SessionStart → `edu hook session-start` (stdout becomes additional context)
+ *   Codex   SessionStart → `edu hook session-start --host codex` (same contract as Claude)
  *   Claude  SessionEnd   → `edu hook session-end`   (hook JSON on stdin)
  *   Codex   notify       → `edu hook codex-notify '<json>'` (JSON as last argv)
+ *   agy     SessionStart → `edu hook agy-session-start` (camelCase JSON in, `{ injectSteps }` JSON out)
  * Hooks never fail the host: every error becomes a stderr note and exit 0.
  */
 import { createHash } from 'node:crypto';
@@ -71,21 +73,52 @@ async function hostSession(root: string, brain: Brain, source: string, key: stri
   });
 }
 
-export async function sessionStart(ctx: CliContext, cwd: string): Promise<void> {
+/** Hosts that share Claude's SessionStart contract and name themselves with `--host` (or Pi, via `source`). */
+const HOSTS: Record<string, { source: string; label: string }> = {
+  claude: { source: 'claude', label: 'Claude Code' },
+  codex: { source: 'codex', label: 'Codex' },
+  pi: { source: 'pi', label: 'Pi' },
+};
+
+export async function sessionStart(ctx: CliContext, cwd: string, options: { host?: string } = {}): Promise<void> {
   const input = parseJsonObject(await ctx.readStdin(500));
   const result = await workspaceBrief(ctx, str(input?.cwd) ?? cwd);
   if (!result) return;
   const hostId = str(input?.session_id);
   // Only a host that reports both its session id and the start source gets a session; a bare call stays read-only.
   const reported = str(input?.source);
-  // Claude's `source` is its start trigger (startup/resume/clear/compact), not a host name: only an explicit
-  // host name (Pi) changes attribution; every other trigger stays Claude Code.
-  const host = reported === 'pi' ? { source: 'pi', label: 'Pi' } : { source: 'claude', label: 'Claude Code' };
+  // Claude's and Codex's `source` is the start trigger (startup/resume/clear/compact), not a host name: the
+  // hook command names the host (`--host codex`); Pi names itself in `source`; anything else is Claude Code.
+  const host = HOSTS[options.host ?? ''] ?? (reported === 'pi' ? HOSTS.pi! : HOSTS.claude!);
   const session = hostId && reported
     ? await hostSession(result.ws.primary.root, result.ws.brain, host.source, hostId, `${host.label} session ${short(hostId)}`)
     : undefined;
   const text = [result.text.trim(), session ? `Edu session id: ${session.meta.id}` : ''].filter(Boolean).join('\n\n');
   if (text) ctx.out(text);
+}
+
+/**
+ * Antigravity (agy) SessionStart: the payload is camelCase JSON (`conversationId`, `workspacePaths`) and the
+ * hook runs in the plugin directory, so the workspace comes from the payload. Output is always one JSON
+ * object; the brief travels as an injected system message.
+ */
+export async function agySessionStart(ctx: CliContext, cwd: string): Promise<void> {
+  let text = '';
+  try {
+    const input = parseJsonObject(await ctx.readStdin(500));
+    const paths = Array.isArray(input?.workspacePaths) ? input.workspacePaths.filter((p): p is string => typeof p === 'string' && p.trim() !== '') : [];
+    const result = await workspaceBrief(ctx, paths[0] ?? cwd);
+    if (result) {
+      const conversation = str(input?.conversationId);
+      const session = conversation
+        ? await hostSession(result.ws.primary.root, result.ws.brain, 'agy', conversation, `Antigravity session ${short(conversation)}`)
+        : undefined;
+      text = [result.text.trim(), session ? `Edu session id: ${session.meta.id}` : ''].filter(Boolean).join('\n\n');
+    }
+  } finally {
+    // agy parses stdout as JSON: emit an object even when there is no brain or the brief failed.
+    ctx.out(JSON.stringify(text ? { injectSteps: [{ systemMessage: { systemMessage: text } }] } : {}));
+  }
 }
 
 export async function sessionEnd(ctx: CliContext, cwd: string): Promise<void> {

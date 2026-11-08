@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path';
 import type { Command } from 'commander';
 import type { CliId } from '../../core/contracts.js';
 import { applySetup, needsFirstRunSetup, planSetup } from '../../setup/index.js';
+import { formatHostTable, hostRows } from '../../setup/report.js';
+import { binaryOnPath } from '../../adapters/common.js';
 import type { CliContext } from '../context.js';
 import { globalHome, type Resolved } from '../context.js';
 import { action } from '../kit.js';
@@ -22,7 +24,7 @@ function parseClis(value: string): CliId[] {
 
 function promptFor(cli: CliId, lang: 'en' | 'es'): string {
   const command = cli === 'claude' ? '/edu:brief' : cli === 'pi' || cli === 'opencode' ? '/edu-brief' : 'edu-brief skill';
-  return lang === 'es' ? `Dentro de ${cli}, prueba: ${command}` : `Inside ${cli}, try: ${command}`;
+  return lang === 'es' ? `Prueba: ${command}` : `Try: ${command}`;
 }
 
 export async function runPluginSetup(ctx: CliContext, g: Resolved, options: { clis?: CliId[]; yes?: boolean; dryRun?: boolean } = {}): Promise<void> {
@@ -52,19 +54,24 @@ export async function runPluginSetup(ctx: CliContext, g: Resolved, options: { cl
     const question = g.lang === 'es' ? '¿Aplicar esta configuración?' : 'Apply this setup?';
     if (!(await ctx.confirm(question))) { ctx.out(g.lang === 'es' ? 'Cancelado. No se realizaron cambios.' : 'Cancelled. Nothing was changed.'); return; }
   }
-  const report = await applySetup(plan, { templatesDir: packageTemplatesDir(), detected: clis, lang: g.lang, brainRoot: globalHome(ctx) });
+  const report = await applySetup(plan, { templatesDir: packageTemplatesDir(), detected: clis, lang: g.lang, brainRoot: globalHome(ctx), addNew: options.clis !== undefined });
+  const rows = hostRows(report, clis, { eduOnPath: await binaryOnPath('edu') });
   if (!g.json) {
     for (const note of report.notes ?? []) ctx.out(`! ${note}`);
-    for (const cli of clis) {
-      const marker = report.installed.includes(cli) || report.alreadyInstalled.includes(cli) ? '✓' : report.fallback.includes(cli) ? '!' : '✗';
-      ctx.out(`${marker} ${cli}${report.fallback.includes(cli) ? (g.lang === 'es' ? ' (integración administrada)' : ' (managed-file integration)') : ''}`);
-      const failure = report.failed.find(f => f.cli === cli);
-      if (failure) ctx.out(`  ${g.lang === 'es' ? 'instalador nativo falló' : 'native installer failed'}: ${failure.message.split('\n').slice(-2).join(' ').slice(0, 240)}`);
-      ctx.out(`  ${promptFor(cli, g.lang)}`);
-    }
     if (!clis.length) ctx.out(g.lang === 'es' ? 'No se detectaron CLI; instale uno y ejecute edu setup.' : 'No CLIs detected; install one and run edu setup.');
+    else {
+      ctx.out('');
+      for (const line of formatHostTable(rows, g.lang)) ctx.out(line);
+      ctx.out('');
+      for (const row of rows) {
+        ctx.out(`${row.host}: ${g.lang === 'es' ? 'brief vía' : 'brief via'} ${row.via}. ${promptFor(row.host, g.lang)}`);
+        if (row.note) ctx.out(`  ! ${row.note}`);
+      }
+      if (rows.some(row => row.mcp === 'edu-missing')) ctx.out(g.lang === 'es' ? '! `edu` no está en el PATH: los hosts no podrán iniciar `edu mcp`. Agregue el bin global de npm al PATH.' : '! `edu` is not on PATH: hosts cannot start `edu mcp`. Add the npm global bin directory to PATH.');
+      if (rows.some(row => row.restart)) ctx.out(g.lang === 'es' ? 'Reinicie los hosts marcados para cargar Edu.' : 'Restart the marked hosts to load Edu.');
+    }
   }
-  if (g.json) ctx.out(JSON.stringify(report));
+  if (g.json) ctx.out(JSON.stringify({ ...report, hosts: rows }));
 }
 
 export function registerPluginSetup(program: Command, ctx: CliContext): void {
