@@ -8,8 +8,15 @@
 # Prerequisites: `npm run build` in this checkout, and Edu installed for each CLI (`edu install`), so the host
 # loads the Edu MCP server / hooks. HOME stays your real home so those installs are used; only EDU_HOME changes.
 #
+# CLIs without an Edu integration (copilot, omp) reach Edu through its MCP server only: Copilot via a
+# session-only MCP config, omp via a project `.mcp.json` written into the seeded project.
+#
+# Pi without its own login can use a GitHub Copilot subscription:
+#   COPILOT_GITHUB_TOKEN="$(gh auth token)" AGENT_MATRIX_PI_FLAGS="-p --no-session --model github-copilot/claude-sonnet-5.5"
+# (omp reads COPILOT_GITHUB_TOKEN the same way; see AGENT_MATRIX_OMP_FLAGS.)
+#
 # Usage:   scripts/agent-matrix.sh [out-dir]
-# Env:     AGENT_MATRIX_CLIS="claude codex pi opencode agy"   CLIs to try (default: all five)
+# Env:     AGENT_MATRIX_CLIS="claude codex pi opencode agy copilot omp"   CLIs to try (default: all)
 #          AGENT_MATRIX_TIMEOUT=600                           seconds per CLI
 #          AGENT_MATRIX_<CLI>_FLAGS="..."                     replace the default flags, e.g. AGENT_MATRIX_CODEX_FLAGS
 set -uo pipefail
@@ -18,7 +25,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 EDU=(node "$ROOT/dist/cli.js")
 OUT=${1:-$(mktemp -d)/agent-matrix}
 TIMEOUT=${AGENT_MATRIX_TIMEOUT:-600}
-CLIS=${AGENT_MATRIX_CLIS:-"claude codex pi opencode agy copilot"}
+CLIS=${AGENT_MATRIX_CLIS:-"claude codex pi opencode agy copilot omp"}
 
 if [[ ! -f "$ROOT/dist/cli.js" ]]; then
   echo "dist/cli.js not found: run npm run build first" >&2
@@ -39,10 +46,13 @@ default_flags() {
     pi) echo "-p --no-session" ;;
     # --auto approves tool permissions that are not explicitly denied (the project is a throwaway temp dir).
     opencode) echo "run --auto" ;;
-    # -p takes the prompt as its value, so it must be the last flag.
-    agy) echo "--print-timeout ${TIMEOUT}s -p" ;;
+    # -p takes the prompt as its value, so it must be the last flag. Headless agy cannot approve call_mcp_tool
+    # (settings allow-rules do not cover it), so permissions are skipped: the project is a throwaway temp dir.
+    agy) echo "--dangerously-skip-permissions --print-timeout ${TIMEOUT}s -p" ;;
     # Copilot has no Edu integration: Edu's MCP server is passed for this session only.
     copilot) echo "--allow-all-tools --no-color --additional-mcp-config @$COPILOT_MCP -p" ;;
+    # omp (oh-my-pi) has no Edu integration: it loads the project .mcp.json written below.
+    omp) echo "-p" ;;
   esac
 }
 
@@ -61,6 +71,9 @@ for cli in $CLIS; do
   project="$work/project"
   mkdir -p "$project" "$work/edu-home"
   prompt=$(EDU_HOME="$work/edu-home" "${EDU[@]}" bench activation --seed "$project")
+  if [[ "$cli" == omp ]]; then
+    printf '{"mcpServers":{"edu":{"command":"node","args":["%s","mcp"]}}}' "$ROOT/dist/cli.js" >"$project/.mcp.json"
+  fi
   var="AGENT_MATRIX_$(echo "$cli" | tr '[:lower:]' '[:upper:]')_FLAGS"
   read -r -a flags <<<"${!var:-$(default_flags "$cli")}"
   answer="$OUT/$cli.answer.txt"
