@@ -41,6 +41,13 @@ describe('activation grader', () => {
     expect(grade.score).toBe(5);
   });
 
+  it('accepts a heading that flags the stale hypothesis with its id on the next line, not a different note', () => {
+    const flagged = gradeActivation('## Hipótesis abierta que quedó obsoleta\n\n`H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos`\n\nSigue open.');
+    expect(flagged.checks.find(c => c.id === 'stale-note')?.passed).toBe(true);
+    const wrong = gradeActivation('## Nota obsoleta\n\n`D-usar-redis-con-bullmq-para-la-cola-de-trabajos`\n\n## Otro\n\nH-redis-aguanta-el-pico sigue abierta.');
+    expect(wrong.checks.find(c => c.id === 'stale-note')?.passed).toBe(false);
+  });
+
   it('gives 0 to an empty answer and to an echo of the prompt', () => {
     expect(gradeActivation('').score).toBe(0);
     expect(gradeActivation(ACTIVATION_PROMPT).score).toBe(0);

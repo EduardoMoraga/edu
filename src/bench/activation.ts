@@ -11,7 +11,7 @@ import { openBrain } from '../brain/index.js';
 import type { BrainLocation } from '../core/contracts.js';
 
 export const ACTIVATION_TOPIC = 'la cola de trabajos en segundo plano';
-export const ACTIVATION_PROMPT = `¿Cuál es la decisión vigente sobre ${ACTIVATION_TOPIC}, su evidencia, la opción descartada, qué nota está obsoleta y cuál es el siguiente paso seguro? Usa la memoria de Edu.`;
+export const ACTIVATION_PROMPT = `¿Cuál es la decisión vigente sobre ${ACTIVATION_TOPIC}, su evidencia, la opción descartada, qué hipótesis abierta está obsoleta y cuál es el siguiente paso seguro? Usa la memoria de Edu.`;
 
 const DAY = 86_400_000;
 
@@ -76,6 +76,17 @@ const NEXT_CUES = ['siguiente paso', 'proximo paso', 'next step', 'recomiendo', 
 const sentences = (text: string) => fold(text).split(/(?<=[.!?])\s+|\n+/).map(part => part.trim()).filter(Boolean);
 const sentenceWith = (parts: string[], anchors: readonly string[], cues: readonly string[]) =>
   parts.find(part => anyOf(part, anchors) && anyOf(part, cues));
+/** A Markdown heading carrying the cue, with the anchor in the section under it ("## Stale hypothesis" then its id). */
+const sectionWith = (text: string, anchors: readonly string[], cues: readonly string[]) => {
+  const lines = fold(text).split('\n');
+  for (const [i, line] of lines.entries()) {
+    if (!/^\s*#{1,6}\s/.test(line) || !anyOf(line, cues)) continue;
+    const end = lines.findIndex((next, j) => j > i && /^\s*#{1,6}\s/.test(next));
+    const body = lines.slice(i + 1, end === -1 ? undefined : end).join(' ');
+    if (anyOf(body, anchors)) return `${line.trim()} ${body.trim()}`;
+  }
+  return undefined;
+};
 
 /** Scores an answer 0-5: one point per check. The prompt is removed first, so echoing the question earns nothing. */
 export function gradeActivation(answer: string): ActivationGrade {
@@ -83,8 +94,9 @@ export function gradeActivation(answer: string): ActivationGrade {
   const parts = sentences(answer.split(ACTIVATION_PROMPT).join(' '));
   const active = anyOf(text, ACTIVE_ANCHORS);
   const evidence = anyOf(text, EVIDENCE_ANCHORS);
-  const rejected = sentenceWith(parts, REJECTED_ANCHORS, REJECTED_CUES);
-  const stale = sentenceWith(parts, STALE_ANCHORS, STALE_CUES);
+  const body = answer.split(ACTIVATION_PROMPT).join(' ');
+  const rejected = sentenceWith(parts, REJECTED_ANCHORS, REJECTED_CUES) ?? sectionWith(body, REJECTED_ANCHORS, REJECTED_CUES);
+  const stale = sentenceWith(parts, STALE_ANCHORS, STALE_CUES) ?? sectionWith(body, STALE_ANCHORS, STALE_CUES);
   const next = anyOf(text, NEXT_CUES);
   const checks: ActivationCheck[] = [
     { id: 'active-decision', passed: Boolean(active), detail: active ? `cites "${active}"` : 'active decision not cited (id, title or pg-boss)' },

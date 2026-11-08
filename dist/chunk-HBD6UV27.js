@@ -148,7 +148,7 @@ import { dirname, resolve } from "path";
 // src/bench/activation.ts
 import { join } from "path";
 var ACTIVATION_TOPIC = "la cola de trabajos en segundo plano";
-var ACTIVATION_PROMPT = `\xBFCu\xE1l es la decisi\xF3n vigente sobre ${ACTIVATION_TOPIC}, su evidencia, la opci\xF3n descartada, qu\xE9 nota est\xE1 obsoleta y cu\xE1l es el siguiente paso seguro? Usa la memoria de Edu.`;
+var ACTIVATION_PROMPT = `\xBFCu\xE1l es la decisi\xF3n vigente sobre ${ACTIVATION_TOPIC}, su evidencia, la opci\xF3n descartada, qu\xE9 hip\xF3tesis abierta est\xE1 obsoleta y cu\xE1l es el siguiente paso seguro? Usa la memoria de Edu.`;
 var DAY = 864e5;
 var ACTIVATION_NOTES = {
   rejected: {
@@ -198,13 +198,24 @@ var STALE_CUES = ["obsolet", "desactualiz", "stale", "outdated", "caduc", "venci
 var NEXT_CUES = ["siguiente paso", "proximo paso", "next step", "recomiendo", "sugiero", "recommend", "suggest", "propongo", "deberiamos", "should"];
 var sentences = (text) => fold(text).split(/(?<=[.!?])\s+|\n+/).map((part) => part.trim()).filter(Boolean);
 var sentenceWith = (parts, anchors, cues) => parts.find((part) => anyOf(part, anchors) && anyOf(part, cues));
+var sectionWith = (text, anchors, cues) => {
+  const lines = fold(text).split("\n");
+  for (const [i, line] of lines.entries()) {
+    if (!/^\s*#{1,6}\s/.test(line) || !anyOf(line, cues)) continue;
+    const end = lines.findIndex((next, j) => j > i && /^\s*#{1,6}\s/.test(next));
+    const body = lines.slice(i + 1, end === -1 ? void 0 : end).join(" ");
+    if (anyOf(body, anchors)) return `${line.trim()} ${body.trim()}`;
+  }
+  return void 0;
+};
 function gradeActivation(answer) {
   const text = fold(answer.split(ACTIVATION_PROMPT).join(" "));
   const parts = sentences(answer.split(ACTIVATION_PROMPT).join(" "));
   const active = anyOf(text, ACTIVE_ANCHORS);
   const evidence = anyOf(text, EVIDENCE_ANCHORS);
-  const rejected = sentenceWith(parts, REJECTED_ANCHORS, REJECTED_CUES);
-  const stale = sentenceWith(parts, STALE_ANCHORS, STALE_CUES);
+  const body = answer.split(ACTIVATION_PROMPT).join(" ");
+  const rejected = sentenceWith(parts, REJECTED_ANCHORS, REJECTED_CUES) ?? sectionWith(body, REJECTED_ANCHORS, REJECTED_CUES);
+  const stale = sentenceWith(parts, STALE_ANCHORS, STALE_CUES) ?? sectionWith(body, STALE_ANCHORS, STALE_CUES);
   const next = anyOf(text, NEXT_CUES);
   const checks = [
     { id: "active-decision", passed: Boolean(active), detail: active ? `cites "${active}"` : "active decision not cited (id, title or pg-boss)" },
@@ -5829,4 +5840,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-TZMPHS4N.js.map
+//# sourceMappingURL=chunk-HBD6UV27.js.map
