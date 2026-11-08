@@ -42,6 +42,13 @@ Memory that costs less context, finds more, and is safe to share between machine
   `edu brain share <id>` moves a note to the global brain.
 - **Approval first:** `edu create` proposes every extracted canonical note, even the ones the
   extractor calls verified; accept them with `edu brain approve`.
+- **One command, every agent:** `edu setup --yes` configures every detected CLI and survives Node
+  upgrades; `edu uninstall` restores host configs exactly. Cloud sandboxes:
+  `curl -fsSL https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.sh | EDU_YES=1 EDU_JOIN=https://github.com/<you>/<brain>.git sh`
+  with a `GH_TOKEN` secret ([guide](docs/guides/install-5.0.md)).
+
+Held-out retrieval: recall@10 56% → 76% (85% when the agent also passes a translation in `alt`);
+cross-language MRR 0.10 → 0.45–0.61. [What changed, measured and verified](docs/edu-5.0.md)
 
 ## Previous: Edu 4.1.0
 

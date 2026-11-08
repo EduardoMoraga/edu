@@ -44,6 +44,14 @@ Memoria que ocupa menos contexto, encuentra más y se comparte con seguridad ent
   sandbox en la nube al cerebro compartido; `edu brain share <id>` mueve una nota al cerebro global.
 - **Primero la aprobación:** `edu create` propone cada nota canónica extraída, incluso las que el
   extractor marca como verificadas; acéptelas con `edu brain approve`.
+- **Un comando, todos los agentes:** `edu setup --yes` configura cada CLI detectada y resiste
+  actualizaciones de Node; `edu uninstall` deja la configuración de cada host exactamente como estaba.
+  En sandboxes en la nube: `curl -fsSL https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.sh | EDU_YES=1 EDU_JOIN=https://github.com/<usted>/<cerebro>.git sh`
+  con un secreto `GH_TOKEN` ([guía](guides/install-5.0.md)).
+
+Recuperación en un corpus independiente: recall@10 de 56% a 76% (85% cuando el agente también pasa
+una traducción en `alt`); MRR entre idiomas de 0,10 a 0,45–0,61. [Qué cambió, cómo se midió y
+verificó](edu-5.0.md)
 
 ## Anterior: candidata Edu 2.0
 
