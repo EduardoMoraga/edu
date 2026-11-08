@@ -1,6 +1,6 @@
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { INDEX_DIR, TRANSITIVE_PREFIX, TIER_DIRS, type BrainLocation, type Note, type NoteMeta, type TransitiveKind } from '../core/contracts.js';
 import { parseMarkdown, serializeMarkdown } from './frontmatter.js';
 import { brainPath } from './location.js';
@@ -157,4 +157,35 @@ export async function overlayNotes(locations: BrainLocation[]): Promise<Note[]> 
 }
 
 export function encodeNote(note: Note): string { return serializeMarkdown(note.meta as unknown as Record<string, unknown>, note.body); }
+
+/** Frontmatter keys that are not content: learning signal (`usage`) and the write timestamp (`updated`). */
+const VOLATILE_KEYS = new Set(['usage', 'updated']);
+const canonicalJson = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([key, item]) => [key, canonicalJson(item)]));
+  }
+  return value;
+};
+
+/**
+ * Stable 12-hex content hash of a note: sha256 over its frontmatter (keys sorted, undefined dropped, without
+ * `usage` and `updated`) and its normalized body. Recall, exposure and feedback never change it; any edit
+ * of title, body, status, links, tags or provenance does. Used for hash-guarded writes (`expectedHash`).
+ */
+export function contentHash(note: Pick<Note, 'meta' | 'body'>): string {
+  const meta = Object.fromEntries(Object.entries(note.meta).filter(([key]) => !VOLATILE_KEYS.has(key)));
+  const body = note.body.replace(/\r\n/g, '\n').trim();
+  return createHash('sha256').update(JSON.stringify({ meta: canonicalJson(meta), body })).digest('hex').slice(0, 12);
+}
+
+/** Thrown by a hash-guarded update when the note changed since the caller read it. */
+export class NoteConflictError extends Error {
+  readonly code = 'note-conflict' as const;
+  constructor(readonly id: string, readonly expectedHash: string, readonly currentHash: string) {
+    super(`Note ${id} changed since it was read (expected ${expectedHash}, current ${currentHash}); re-read it and retry`);
+    this.name = 'NoteConflictError';
+  }
+}
 export { INDEX_DIR };
