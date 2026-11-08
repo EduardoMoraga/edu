@@ -2,7 +2,7 @@ import { pinConfiguredBases } from '../adapters/paths.js';
 import { planClaudeRefresh } from './claude-upgrade.js';
 import { planCodexRefresh } from './codex-upgrade.js';
 import { eduMcpLaunch, spawnCli, type McpLaunch } from '../platform/index.js';
-import { access, mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, realpath, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { CliId } from '../core/contracts.js';
 import { instructionActions, skillActions } from '../adapters/common.js';
@@ -32,10 +32,14 @@ export interface SetupPlan extends SetupOptions {
   fallback: CliId[];
   alreadyInstalled: CliId[];
 }
-export interface ApplySetupOptions { runner?: SetupRunner; templatesDir?: string; detected?: CliId[]; lang?: 'en' | 'es'; brainRoot?: string; platform?: NodeJS.Platform }
-export interface SetupReport { installed: CliId[]; fallback: CliId[]; alreadyInstalled: CliId[]; failed: Array<{ cli: CliId; message: string }>; notes?: string[] }
+export interface ApplySetupOptions {
+  runner?: SetupRunner; templatesDir?: string; detected?: CliId[]; lang?: 'en' | 'es'; brainRoot?: string; platform?: NodeJS.Platform;
+  /** The caller named the CLIs (`--cli`): on an existing installation, set up the ones not configured yet. */
+  addNew?: boolean;
+}
+export interface SetupReport { installed: CliId[]; fallback: CliId[]; alreadyInstalled: CliId[]; failed: Array<{ cli: CliId; message: string }>; notes?: string[]; upgraded?: boolean }
 
-interface SetupManifest { version: 1; packageRoot: string; native: CliId[]; fallback: CliId[]; adapterManifestPath?: string }
+interface SetupManifest { version: 1; packageRoot: string; native: CliId[]; fallback: CliId[]; adapterManifestPath?: string; createdDirs?: string[] }
 
 const LIST_COMMANDS: Record<CliId, SetupCommand> = {
   claude: { cli: 'claude', command: 'claude', args: ['plugin', 'list'] },
@@ -275,7 +279,7 @@ async function optionalSetupFile(path: string): Promise<string | undefined> {
 }
 
 /** The old updater calls NEW setup before NEW migration. Guard here, before native writes. */
-async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brainRoot: string): Promise<SetupReport | undefined> {
+async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brainRoot: string): Promise<(SetupReport & { deferred?: CliId[] }) | undefined> {
   const existingBrain = await optionalSetupFile(join(brainRoot, 'EDU.md')) !== undefined;
   const registry = await optionalSetupFile(join(brainRoot, 'projects.json'));
   if (existingBrain || registry !== undefined) {
@@ -298,7 +302,10 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
   const configured = new Set([...plan.alreadyInstalled, ...(previous?.native ?? []), ...(previous?.fallback ?? []),
     ...(storedAdapter?.actions ?? []).flatMap((a: { cli: CliId; clis?: CliId[] }) => a.clis ?? [a.cli])]);
   const unconfigured = plan.clis.filter(cli => !configured.has(cli));
-  if (unconfigured.length) throw new Error(`Setup upgrade preserves existing integrations; configure new CLIs explicitly with edu install --scope global --cli ${unconfigured.join(',')}`);
+  // A detected CLI is not consent to integrate it during an upgrade (`edu update` runs setup --yes):
+  // refresh the configured hosts and name the new ones. An explicit --cli list adds them after the refresh.
+  const deferred = unconfigured;
+  if (unconfigured.length) plan = { ...plan, clis: plan.clis.filter(cli => configured.has(cli)), commands: plan.commands.filter(c => configured.has(c.cli)), fallback: plan.fallback.filter(cli => configured.has(cli)) };
   const scopes = [{ scope: 'global' as const, root: plan.packageRoot },
     ...(await readProjects(brainRoot)).projects.map(p => ({ scope: 'project' as const, root: p.root }))];
   const upgrades: InstallPlan[] = [];
@@ -389,13 +396,28 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
     for (const upgrade of upgrades) await applyInstall(upgrade);
   }
 
-  return { installed: [], fallback: previous?.fallback ?? [], alreadyInstalled: [...new Set([...plan.alreadyInstalled, ...(previous?.native ?? [])])], failed: [], ...(notes.length ? { notes } : {}) };
+  if (deferred.length && !options.addNew) notes.push(`New CLI detected but not set up during this upgrade: ${deferred.join(', ')}. Add it with: edu setup --yes --cli ${deferred.join(',')}`);
+  return { installed: [], fallback: previous?.fallback ?? [], alreadyInstalled: [...new Set([...plan.alreadyInstalled, ...(previous?.native ?? [])])], failed: [], upgraded: true, ...(notes.length ? { notes } : {}), ...(deferred.length && options.addNew ? { deferred } : {}) };
 }
 
 export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {}): Promise<SetupReport> {
   const brainRoot = resolve(options.brainRoot ?? process.env.EDU_HOME ?? join(plan.home, '.edu'));
   const upgraded = await prepareUpgrade(plan, options, brainRoot);
-  if (upgraded) return upgraded;
+  if (upgraded && !upgraded.deferred?.length) return upgraded;
+  if (upgraded) {
+    // Explicitly requested new hosts on an existing installation: a fresh setup of only those hosts.
+    const added = new Set(upgraded.deferred);
+    const fresh = await applyFreshSetup({ ...plan, clis: plan.clis.filter(cli => added.has(cli)), commands: plan.commands.filter(c => added.has(c.cli)), fallback: plan.fallback.filter(cli => added.has(cli)), alreadyInstalled: plan.alreadyInstalled.filter(cli => added.has(cli)) }, options, brainRoot);
+    return {
+      installed: fresh.installed, fallback: [...new Set([...upgraded.fallback, ...fresh.fallback])],
+      alreadyInstalled: [...new Set([...upgraded.alreadyInstalled, ...fresh.alreadyInstalled])], failed: fresh.failed, upgraded: true,
+      ...(upgraded.notes?.length || fresh.notes?.length ? { notes: [...(upgraded.notes ?? []), ...(fresh.notes ?? [])] } : {}),
+    };
+  }
+  return applyFreshSetup(plan, options, brainRoot);
+}
+
+async function applyFreshSetup(plan: SetupPlan, options: ApplySetupOptions, brainRoot: string): Promise<SetupReport> {
   const runner = options.runner ?? plan.runner ?? defaultRunner;
   const report: SetupReport = { installed: [], fallback: [], alreadyInstalled: [...plan.alreadyInstalled], failed: [] };
   const pending = new Set(plan.fallback);
@@ -403,9 +425,12 @@ export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {
   const failed = new Map<CliId, string>();
   await localizePluginsForPlatform(plan.packageRoot, options.platform);
   // Codex refuses to run when CODEX_HOME points to a missing directory (fresh machines, custom homes).
+  const createdDirs: string[] = [];
   if (plan.commands.some(c => c.cli === 'codex')) {
-    const { mkdir } = await import('node:fs/promises');
-    await mkdir(process.env.CODEX_HOME || join(plan.home, '.codex'), { recursive: true }).catch(() => undefined);
+    const codexHome = resolve(process.env.CODEX_HOME || join(plan.home, '.codex'));
+    // Recorded so uninstall removes it again when Codex left it empty.
+    const created = await mkdir(codexHome, { recursive: true }).catch(() => undefined);
+    if (created) createdDirs.push(codexHome);
   }
   for (const command of plan.commands) {
     if (failed.has(command.cli)) continue;
@@ -457,6 +482,7 @@ export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {
     native: [...new Set([...(previous?.native ?? []), ...report.installed])],
     fallback: [...new Set([...(previous?.fallback ?? []), ...report.fallback])],
     ...(adapterManifestPath || previous?.adapterManifestPath ? { adapterManifestPath: adapterManifestPath ?? previous?.adapterManifestPath } : {}),
+    ...(createdDirs.length || previous?.createdDirs?.length ? { createdDirs: [...new Set([...(previous?.createdDirs ?? []), ...createdDirs])] } : {}),
   };
   await writeManifest(join(plan.home, '.edu/plugin-setup.json'), manifest);
   return report;
@@ -505,6 +531,9 @@ export async function uninstallSetup(options: { home: string; runner?: SetupRunn
     }
   }
   await unlink(path);
+  for (const dir of [...(manifest.createdDirs ?? [])].reverse()) {
+    await rmdir(dir).catch(error => { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error; });
+  }
   if (failures.length) throw new AggregateError(failures, failures.join('\n'));
 }
 
