@@ -19,7 +19,33 @@ cualquiera de ellos se puede delegar trabajo a los demás y verlo en curso.
 
 ---
 
-## Candidata Edu 2.0
+## Edu 5.0
+
+Memoria que ocupa menos contexto, encuentra más y se comparte con seguridad entre máquinas y agentes.
+
+- **Medido:** `edu bench` mide la recuperación (recall@k y MRR en ES/EN), el costo de contexto
+  (tokens del brief y de las herramientas MCP) y la estabilidad del brief sobre un corpus fijo;
+  `edu bench activation` prueba un agente real.
+- **Recuperación bilingüe:** stemming liviano ES/EN, un puente de términos ES↔EN y búsqueda
+  aproximada de respaldo. Sin dependencias nuevas ni servidor.
+- **Contexto más barato:** el brief de sesión es estable para la caché (orden por contenido, lo
+  volátil al final, un puntero a `0-index/catalog.md`) y las definiciones de herramientas MCP pesan
+  cerca de 30% menos, con los mismos nombres y parámetros.
+- **Sin ruido de sincronización:** los conteos de recall e inyección van a un registro local de la
+  máquina, no a las notas; el feedback sigue en la nota.
+- **Memoria compilada:** `edu_remember` (ahora con `links` y `supersedes`) enlaza notas relacionadas
+  y avisa de posibles contradicciones; `0-index/catalog.md` lista cada nota y `0-index/log.md`
+  registra cada operación. `edu brain lint` revisa la salud del cerebro sin escribir; `edu dream`
+  convierte las sesiones recientes de todos los agentes en un plan que usted revisa, y nada se
+  aplica hasta que lo marca.
+- **Compartir con seguridad:** escrituras protegidas por hash (`edu_read` muestra el hash y
+  `expected_hash` rechaza una actualización desfasada), procedencia (máquina, agente, sesión) en
+  cada nota y secretos ocultados antes de escribir. `edu join <repo>` conecta una máquina o un
+  sandbox en la nube al cerebro compartido; `edu brain share <id>` mueve una nota al cerebro global.
+- **Primero la aprobación:** `edu create` propone cada nota canónica extraída, incluso las que el
+  extractor marca como verificadas; acéptelas con `edu brain approve`.
+
+## Anterior: candidata Edu 2.0
 
 Esta rama incorpora recuperación accionable y acotada, consolidación repetible de experiencias
 estructuradas, separación entre opiniones y feedback respaldado por verificaciones, sesiones seguras
@@ -87,8 +113,9 @@ albert/
 ```
 
 - La extracción corre sin interfaz con el primer CLI instalado (claude, codex, pi, opencode) o
-  `--cli`. Lo que el documento afirma queda como notas canónicas **aceptadas** (banda `verified`,
-  fuente `archivo#título`); las interpretaciones quedan **propuestas** para que usted las apruebe.
+  `--cli`. Cada nota extraída queda como nota canónica **propuesta** a la espera de su aprobación,
+  incluso lo que el documento afirma tal cual (banda `verified`, fuente `archivo#título`); nada se
+  acepta sin usted.
   Los procedimientos se vuelven playbooks y los términos, una nota de glosario. Si la respuesta no
   es válida, Edu reintenta una vez y luego divide por títulos. Revíselas con `edu brain proposals`
   (título, fuente, banda, por qué) y decida con `edu brain approve <id>` / `--all` / `--reject <id>`

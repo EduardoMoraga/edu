@@ -19,7 +19,31 @@ them, hand work to the others and watch it happen.
 
 ---
 
-## Edu 4.1.0
+## Edu 5.0
+
+Memory that costs less context, finds more, and is safe to share between machines and agents.
+
+- **Measured:** `edu bench` scores retrieval (ES/EN recall@k, MRR), context cost (brief and MCP
+  tool tokens) and brief stability on a fixed corpus; `edu bench activation` checks a live agent.
+- **Bilingual recall:** light ES/EN stemming, an ES↔EN term bridge and a fuzzy fallback. No new
+  dependency, no server.
+- **Cheaper context:** the session brief is cache-stable (content-only order, volatile sections
+  last, a pointer to `0-index/catalog.md`), and MCP tool definitions are about 30% smaller with the
+  same names and parameters.
+- **No sync churn:** recall and injection counts go to a machine-local exposure ledger, not the
+  notes; feedback stays in the note.
+- **Compiled memory:** `edu_remember` (now with `links` and `supersedes`) links related notes and
+  reports possible conflicts; `0-index/catalog.md` lists every note and `0-index/log.md` records
+  every operation. `edu brain lint` is a read-only health check; `edu dream` turns recent sessions
+  from every host into a plan you review, and nothing applies until you tick it.
+- **Safe sharing:** hash-guarded writes (`edu_read` shows the hash, `expected_hash` refuses a stale
+  update), provenance (host, agent, session) on every note, and secrets redacted before writing.
+  `edu join <repo>` attaches a machine or cloud sandbox to the shared brain;
+  `edu brain share <id>` moves a note to the global brain.
+- **Approval first:** `edu create` proposes every extracted canonical note, even the ones the
+  extractor calls verified; accept them with `edu brain approve`.
+
+## Previous: Edu 4.1.0
 
 One brain on every machine. `edu sync` replaces hand-made sync scripts: files Edu regenerates
 and counter-only differences never stop it, and a real conflict goes to a `sync-conflict/` branch
@@ -120,8 +144,9 @@ albert/
 ```
 
 - Extraction runs headless through the first installed CLI (claude, codex, pi, opencode) or
-  `--cli`. What a document states becomes **accepted** canonical notes (band `verified`, source
-  `file#heading`); interpretations stay **proposed** for you to approve. Procedures become
+  `--cli`. Every extracted note becomes a **proposed** canonical note awaiting your approval, even
+  what a document states outright (band `verified`, source `file#heading`); nothing is accepted
+  without you. Procedures become
   playbooks, terms one glossary note. Invalid answers are retried once, then Edu falls back to
   the heading split. Review them with `edu brain proposals` (title, source, band, why) and decide
   with `edu brain approve <id>` / `--all` / `--reject <id>` (a rejected proposal is deleted and a
