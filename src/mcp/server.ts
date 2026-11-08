@@ -65,7 +65,10 @@ function line(note: Note): string {
 export function agentOfClient(clientName: string | undefined): string | undefined {
   if (!clientName?.trim()) return undefined;
   const cli = detectCallerCli({}, clientName);
-  return cli ? ({ claude: 'claude-code', codex: 'codex', pi: 'pi', opencode: 'opencode', agy: 'antigravity' } as const)[cli] : undefined;
+  if (cli) return ({ claude: 'claude-code', codex: 'codex', pi: 'pi', opencode: 'opencode', agy: 'antigravity' } as const)[cli];
+  // Any other MCP client (Copilot, Cursor, …) is recorded by its own name, normalized.
+  const slug = clientName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  return slug || undefined;
 }
 
 /** Compact text of what compiling a new note found. */
@@ -213,12 +216,13 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     tier: z.enum(['episodic', 'transitive']), kind: transitiveKinds.optional(), title: z.string().min(1), body: z.string(),
     band: bands.optional(), tags: z.array(z.string()).optional(), owner: z.string().optional(), due: z.string().optional(),
     links: z.array(z.string().min(1)).optional().describe('Related note ids'), supersedes: z.string().min(1).optional().describe('Id of the note this replaces'),
+    session: z.string().min(1).optional().describe('Your Edu session id, if one was injected'),
     maxTokens: tokenLimit,
-  }, async ({ tier, kind, title, body, band, tags, owner, due, links, supersedes }) => {
+  }, async ({ tier, kind, title, body, band, tags, owner, due, links, supersedes, session }) => {
     if (tier === 'episodic' && kind) throw new Error('Episodic notes cannot use a transitive kind');
     const { note, report } = await brain.remember({
       tier, kind: tier === 'transitive' ? kind ?? 'lesson' : undefined, title, body, band: band as ClaimBand | undefined, tags, owner, due,
-      ...(links?.length ? { links: [...new Set(links)] } : {}), ...(supersedes ? { supersedes } : {}), source: 'mcp', by: by(),
+      ...(links?.length ? { links: [...new Set(links)] } : {}), ...(supersedes ? { supersedes } : {}), source: 'mcp', by: { ...by(), ...(session ? { session } : {}) },
     });
     return [`Created ${line(note)}`, ...compileReportText(report)].join('\n');
   });

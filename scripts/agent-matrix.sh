@@ -18,7 +18,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 EDU=(node "$ROOT/dist/cli.js")
 OUT=${1:-$(mktemp -d)/agent-matrix}
 TIMEOUT=${AGENT_MATRIX_TIMEOUT:-600}
-CLIS=${AGENT_MATRIX_CLIS:-"claude codex pi opencode agy"}
+CLIS=${AGENT_MATRIX_CLIS:-"claude codex pi opencode agy copilot"}
 
 if [[ ! -f "$ROOT/dist/cli.js" ]]; then
   echo "dist/cli.js not found: run npm run build first" >&2
@@ -32,15 +32,25 @@ printf 'cli\texit\tscore\tanswer\n' >"$SUMMARY"
 default_flags() {
   case "$1" in
     # Read-only Edu tools plus file reads; the server is registered as "edu" (plugin installs as plugin_edu_edu).
-    claude) echo "-p --output-format text --allowedTools mcp__edu mcp__plugin_edu_edu Read Grep Glob" ;;
+    # --allowedTools is variadic, so the prompt goes on stdin (see PROMPT_ON_STDIN).
+    claude) echo "-p --output-format text --allowedTools mcp__edu,mcp__plugin_edu_edu,Read,Grep,Glob" ;;
     # Read-only sandbox; the temp project is not a git repository.
     codex) echo "exec --skip-git-repo-check --sandbox read-only --color never" ;;
     pi) echo "-p --no-session" ;;
     # --auto approves tool permissions that are not explicitly denied (the project is a throwaway temp dir).
     opencode) echo "run --auto" ;;
-    agy) echo "-p --print-timeout ${TIMEOUT}s" ;;
+    # -p takes the prompt as its value, so it must be the last flag.
+    agy) echo "--print-timeout ${TIMEOUT}s -p" ;;
+    # Copilot has no Edu integration: Edu's MCP server is passed for this session only.
+    copilot) echo "--allow-all-tools --no-color --additional-mcp-config @$COPILOT_MCP -p" ;;
   esac
 }
+
+# CLIs that read the prompt from stdin instead of the last argument.
+PROMPT_ON_STDIN=" claude "
+
+COPILOT_MCP=$(mktemp)
+printf '{"mcpServers":{"edu":{"type":"local","command":"node","args":["%s","mcp"],"tools":["*"]}}}' "$ROOT/dist/cli.js" >"$COPILOT_MCP"
 
 for cli in $CLIS; do
   if ! command -v "$cli" >/dev/null 2>&1; then
@@ -57,7 +67,11 @@ for cli in $CLIS; do
   echo "run  $cli in $project"
   (
     cd "$project" || exit 1
-    EDU_HOME="$work/edu-home" timeout "$TIMEOUT" "$cli" "${flags[@]}" "$prompt" </dev/null >"$answer" 2>"$OUT/$cli.stderr.txt"
+    if [[ "$PROMPT_ON_STDIN" == *" $cli "* ]]; then
+      printf '%s' "$prompt" | EDU_HOME="$work/edu-home" timeout "$TIMEOUT" "$cli" "${flags[@]}" >"$answer" 2>"$OUT/$cli.stderr.txt"
+    else
+      EDU_HOME="$work/edu-home" timeout "$TIMEOUT" "$cli" "${flags[@]}" "$prompt" </dev/null >"$answer" 2>"$OUT/$cli.stderr.txt"
+    fi
   )
   code=$?
   "${EDU[@]}" bench activation --grade "$answer" --json >"$OUT/$cli.grade.json"

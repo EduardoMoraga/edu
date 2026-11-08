@@ -31,13 +31,14 @@ async function connected(clientName = 'claude-code') {
 }
 
 describe('agentOfClient', () => {
-  it('maps MCP client names to provenance agents and leaves unknown clients undefined', () => {
+  it('maps known hosts to provenance agents and records other clients by normalized name', () => {
     expect(agentOfClient('claude-code')).toBe('claude-code');
     expect(agentOfClient('codex-mcp-client')).toBe('codex');
     expect(agentOfClient('pi')).toBe('pi');
     expect(agentOfClient('opencode')).toBe('opencode');
     expect(agentOfClient('antigravity')).toBe('antigravity');
-    expect(agentOfClient('some-editor')).toBeUndefined();
+    expect(agentOfClient('GitHub Copilot CLI')).toBe('github-copilot-cli');
+    expect(agentOfClient('  ')).toBeUndefined();
     expect(agentOfClient(undefined)).toBeUndefined();
   });
 });
@@ -78,7 +79,7 @@ describe('edu_remember compiles on write', () => {
       expect(result.text).toMatch(/Redacted secrets \(.+\)/);
       const note = (await t.brain.list({ kind: 'lesson' }))[0]!;
       expect(note.body).not.toContain('AKIAIOSFODNN7EXAMPLE');
-      expect(note.meta.agent).toBeUndefined();
+      expect(note.meta.agent).toBe('some-editor');
     } finally { await t.close(); }
   });
 });
