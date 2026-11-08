@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { INDEX_DIR, TRANSITIVE_PREFIX, TIER_DIRS, type BrainLocation, type Note, type NoteMeta, type TransitiveKind } from '../core/contracts.js';
 import { parseMarkdown, serializeMarkdown } from './frontmatter.js';
 import { brainPath } from './location.js';
+import { assertInsideBrain } from './safe-path.js';
 
 export function slugify(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'note';
@@ -74,8 +75,13 @@ const isLocked = (error: unknown) => LOCKED.has(String((error as NodeJS.ErrnoExc
  * Writes through a temp file renamed over the target. When the rename keeps failing because another process
  * holds the target (common on Windows), it retries with backoff and finally copies the temp file over the
  * target in place. The temp file never survives, and a write that cannot land at all throws.
+ *
+ * With `root`, the target must stay inside that brain root with no symbolic link on the way or as the file
+ * itself (see `assertInsideBrain`); otherwise an `UnsafeBrainPathError` is thrown before anything is written.
+ * Without it the rename still never follows a symlinked target: it replaces the link itself.
  */
-export async function atomicWrite(path: string, content: string): Promise<void> {
+export async function atomicWrite(path: string, content: string, options: { root?: string } = {}): Promise<void> {
+  if (options.root !== undefined) await assertInsideBrain(options.root, path);
   noteCache.delete(resolve(path));
   await atomicFs.mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;

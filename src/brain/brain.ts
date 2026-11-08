@@ -14,7 +14,7 @@ import { resolveReference, type ResolveResult } from './resolve.js';
 import { ensureLocalIgnored, frontmatterUsage, mergeExposure, nextExposure, readLedger, updateLedger } from './ledger.js';
 import { REDACTED_TAG, redactSecrets, redactValue } from './redact.js';
 import { compileNote, type CompileReport } from './compile.js';
-import { CATALOG_FILE, appendLog, writeCatalog, type LogOp } from './catalog.js';
+import { CATALOG_FILE, appendLog, warnUnsafe, writeCatalog, type LogOp } from './catalog.js';
 
 export interface NewNote {
   title: string;
@@ -273,7 +273,8 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     const usage = frontmatterUsage(note.meta.usage, disk?.meta.usage, disk === undefined);
     const meta: NoteMeta = { ...note.meta };
     if (usage) meta.usage = usage; else delete meta.usage;
-    await atomicWrite(note.path, encodeNote({ ...note, meta }));
+    // Refuses (throws) a note path that is, or sits under, a symbolic link inside the brain.
+    await atomicWrite(note.path, encodeNote({ ...note, meta }), { root: brainPath(locationOf(note.path)) });
     return (await withExposure([{ ...note, meta: structuredClone(meta) }]))[0]!;
   };
   type Authority = 'accept-canonical' | 'supersede-canonical' | 'revert-decision';
@@ -627,7 +628,8 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         for (const note of group.sort((a, b) => a.meta.title.localeCompare(b.meta.title))) lines.push(`- [[${basename(note.path, '.md')}|${note.meta.title}]] — ${note.meta.band ?? 'inferred'} · ${note.meta.status ?? 'unspecified'}`);
         lines.push('');
       }
-      await atomicWrite(join(brainPath(primary), INDEX_DIR, 'INDEX.md'), `${lines.join('\n')}\n`);
+      try { await atomicWrite(join(brainPath(primary), INDEX_DIR, 'INDEX.md'), `${lines.join('\n')}\n`, { root: brainPath(primary) }); }
+      catch (error) { warnUnsafe(error); }
       await writeCatalog(brainPath(primary), notes, note => note.meta.source !== REJECT_SOURCE);
       await writeObsidianViews(primary, viewOptions);
     },
@@ -644,7 +646,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         if ((await listLocation(target)).some(note => note.meta.id === id)) throw new Error(`Note id already exists in the ${target.scope} brain: ${id}; nothing was moved`);
         const path = notePath(brainPath(target), current.meta, new Date(current.meta.created));
         if (await pathExists(path)) throw new Error(`${path} already exists; nothing was moved`);
-        await atomicWrite(path, await readFile(current.path, 'utf8'));
+        await atomicWrite(path, await readFile(current.path, 'utf8'), { root: brainPath(target) });
         const copy = await readNote(path);
         if (copy?.meta.id !== id) { await rm(path, { force: true }); throw new Error(`The copy of ${id} in the ${target.scope} brain could not be read back; nothing was moved`); }
         const exposure = (await readLedger(source.root)).notes[id];

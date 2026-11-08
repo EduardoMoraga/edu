@@ -11,6 +11,7 @@
 import { appendFile, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { UsageStats } from '../core/contracts.js';
+import { assertInsideBrain, isUnsafeBrainPath } from './safe-path.js';
 import { atomicWrite } from './store.js';
 
 /** Machine-local folder inside a brain root; git-ignored through `<root>/.gitignore`. */
@@ -75,10 +76,12 @@ export async function readLedger(root: string): Promise<UsageLedger> {
 /**
  * Read-modify-write of a root's ledger. The caller MUST hold that root's usage lock (`withUsageLock`):
  * the ledger has no lock of its own so it composes with the note writes done in the same critical section.
- * `mutate` returns false when nothing changed (no write).
+ * `mutate` returns false when nothing changed (no write). A ledger that is (or sits under) a symbolic link is
+ * never read, moved or written: the update is skipped with a warning (exposure is an aid, not the source of truth).
  */
 export async function updateLedger(root: string, mutate: (ledger: UsageLedger) => boolean): Promise<void> {
   const path = ledgerPath(root);
+  if (!await safeTarget(root, path)) return;
   const raw = await readFile(path, 'utf8').catch(() => undefined);
   let ledger = empty();
   if (raw !== undefined) {
@@ -88,7 +91,17 @@ export async function updateLedger(root: string, mutate: (ledger: UsageLedger) =
   if (!mutate(ledger)) return;
   await ensureLocalIgnored(root);
   cache.delete(resolve(path));
-  await atomicWrite(path, `${JSON.stringify(ledger)}\n`);
+  try { await atomicWrite(path, `${JSON.stringify(ledger)}\n`, { root }); }
+  catch (error) { if (!isUnsafeBrainPath(error)) throw error; process.emitWarning(`${error.message}; skipped`, 'EduWarning'); }
+}
+
+async function safeTarget(root: string, path: string): Promise<boolean> {
+  try { await assertInsideBrain(root, path); return true; }
+  catch (error) {
+    if (!isUnsafeBrainPath(error)) throw error;
+    process.emitWarning(`${error.message}; skipped`, 'EduWarning');
+    return false;
+  }
 }
 
 const ignored = new Set<string>();
@@ -100,6 +113,7 @@ export async function ensureLocalIgnored(root: string): Promise<void> {
   const key = resolve(root);
   if (ignored.has(key)) return;
   const path = join(root, '.gitignore');
+  if (!await safeTarget(root, path)) return;
   const current = await readFile(path, 'utf8').catch(() => undefined);
   const rules = (current ?? '').split(/\r?\n/).map(line => line.trim());
   if (!rules.some(rule => [LOCAL_DIR, `${LOCAL_DIR}/`, `/${LOCAL_DIR}`, `/${LOCAL_DIR}/`].includes(rule))) {

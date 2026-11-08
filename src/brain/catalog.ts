@@ -14,6 +14,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { INDEX_DIR, type Note, type Tier } from '../core/contracts.js';
 import { withLogLock } from './note-lock.js';
+import { assertInsideBrain, isUnsafeBrainPath } from './safe-path.js';
 import { atomicWrite } from './store.js';
 
 export const CATALOG_FILE = 'catalog.md';
@@ -120,13 +121,25 @@ export function buildCatalog(notes: Note[], isReferrer?: (note: Note) => boolean
   return `${lines.join('\n')}\n`;
 }
 
-/** Writes `0-index/catalog.md` only when its content changed. */
+/** A generated brain file (catalog, log, views) that cannot be written safely is skipped with a warning. */
+export function warnUnsafe(error: unknown): void {
+  if (!isUnsafeBrainPath(error)) throw error;
+  process.emitWarning(`${error.message}; skipped`, 'EduWarning');
+}
+
+/**
+ * Writes `0-index/catalog.md` only when its content changed. A catalog behind a symbolic link is skipped with a
+ * warning (never written through), so a note write never fails because of it.
+ */
 export async function writeCatalog(brainDir: string, notes: Note[], isReferrer?: (note: Note) => boolean): Promise<boolean> {
   const path = join(brainDir, INDEX_DIR, CATALOG_FILE);
   const content = buildCatalog(notes, isReferrer);
-  if (await readFile(path, 'utf8').catch(() => undefined) === content) return false;
-  await atomicWrite(path, content);
-  return true;
+  try {
+    await assertInsideBrain(brainDir, path);
+    if (await readFile(path, 'utf8').catch(() => undefined) === content) return false;
+    await atomicWrite(path, content, { root: brainDir });
+    return true;
+  } catch (error) { warnUnsafe(error); return false; }
 }
 
 const field = (value: string) => oneLine(value).replace(/\|/g, '/');
@@ -149,11 +162,13 @@ export function parseLog(text: string): LogEntry[] {
 /**
  * Appends one line to `0-index/log.md` (creating it with a header). Appends are small single writes, so
  * concurrent writers interleave whole lines. Best effort: a log failure never fails the brain operation.
+ * A log that is (or sits under) a symbolic link is never appended to: the line is skipped with a warning.
  */
 export async function appendLog(brainDir: string, entry: { op: LogOp; id: string; title: string; at?: Date }): Promise<void> {
   const write = async () => {
     const dir = join(brainDir, INDEX_DIR);
     const path = join(dir, LOG_FILE);
+    try { await assertInsideBrain(brainDir, path); } catch (error) { warnUnsafe(error); return; }
     await mkdir(dir, { recursive: true });
     await writeFile(path, '# Brain log\n\nAppend-only. One line per operation: `## [YYYY-MM-DD HH:MM] op | id | title` (UTC).\n\n', { flag: 'wx' })
       .catch(error => { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; });
