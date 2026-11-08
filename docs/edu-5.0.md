@@ -53,31 +53,49 @@ them only if this benchmark shows they would pay for a dependency.
 ## Live agents
 
 `scripts/agent-matrix.sh` seeds a project with an active decision, a rejected option and a stale
-hypothesis, then asks each CLI for the current decision, its evidence, the rejected option, the stale
-note and the next safe step. A deterministic grader scores the answer 0–5.
+hypothesis. It then asks each CLI, headless and with a real model, for five things: the current decision,
+its evidence, the rejected option, which open hypothesis is stale, and the next safe step. A
+deterministic grader scores the answer 0–5.
 
-| Agent | How it reached Edu | Activation | Write with provenance |
-|---|---|---|---|
-| Claude Code 2.1 | Plugin (hook + MCP) | 5/5 | `agent: claude-code` |
-| Codex 0.167 | Plugin (hook + MCP) | 5/5 | `agent: codex` |
-| OpenCode 2.2 | Managed files (plugin + MCP) | 5/5 | `agent: opencode` |
-| GitHub Copilot CLI | MCP only, no integration | 5/5 | Recorded by client name |
-| Pi 1.5 | Package (extension + MCP) | Brief, MCP discovery and a real `edu_recall` call checked through Pi with a stub model | — |
-| Antigravity 1.5 | Plugin | `agy plugin validate --strict`; SessionStart hook output checked | — |
+Final run on 2026-11-08, against the 5.0.0 candidate installed with `edu setup --yes` over 4.1. The
+answers are in `docs/evals/edu-5.0-agent-matrix/`.
 
-Pi and Antigravity were not run with a real model: on this machine Pi's OpenAI login fails with
-`invalid_grant`, and agy asks for a new login. Run `scripts/agent-matrix.sh` after logging in to
-complete the matrix. Cursor Agent, Devin and omp are installed but not logged in.
+| Agent | Version | How it reached Edu | Model | Activation |
+|---|---|---|---|---|
+| Claude Code | 2.1.319 | Plugin (hook + MCP) | its default | 5/5 |
+| Codex | 0.167.0 | Plugin (hook + MCP) | its default | 5/5 |
+| Pi | 1.5.0 | Package (extension + MCP via codemode) | Claude Sonnet 5.5 through a Copilot subscription | 5/5 |
+| OpenCode | 2.2.6 | Managed files (plugin + MCP) | its default | 5/5 |
+| Antigravity | 1.5.3 | Plugin (hook + MCP) | its default | 5/5 |
+| GitHub Copilot CLI | 1.0.107 | MCP only, no integration | its default | 5/5 |
+| oh-my-pi | 18.18.2 | Project `.mcp.json` only, no integration | Claude Sonnet 5.5 through Copilot | 5/5 |
+
+A separate write test asked Claude Code, Codex, OpenCode and Copilot to record a decision with
+`edu_remember`. Each note was written with provenance (`agent: claude-code`, `codex`, `opencode`, or
+the Copilot client name).
+
+What the earlier runs taught, and what changed because of them:
+- OpenCode noticed that a reverted decision pointed at its successor with `supersedes`, which made it
+  read as if it replaced the decision that replaced it. Reverted decisions now use `superseded_by`,
+  and 4.x notes are read that way.
+- The prompt used to ask which "note" was obsolete. The reverted decision is a fair answer to that, so
+  the prompt now asks for the stale open hypothesis. The brief also shows each hypothesis's opening
+  date.
+- The grader now accepts a heading (`##` or bold) that flags the hypothesis with its id on the next
+  line. It still rejects a heading that names a different note.
+
+Not run: Cursor Agent and Devin, which are installed but not logged in on this machine.
 
 ## Verification
 
 | Check | Result |
 |---|---|
 | `npm run typecheck` | Clean |
-| Full suite (Linux, Node 26) | 1602 passed, 2 skipped |
+| Full suite (Linux, Node 26) | 1678 passed, 2 skipped |
 | `npm run build:plugins -- --check` | Up to date |
 | `scripts/install-matrix.sh` | Passes locally (`--local`) and in CI in node:22-bookworm-slim and node:24-alpine containers |
-| Real upgrade from 4.1 | All five hosts re-registered to 5.0 after a Node relocation |
+| Real upgrade from 4.1 on the author's machine | Claude, Codex, Pi, OpenCode and Antigravity all on 5.0.0; this first needed the Node-relocation repair and the new agy refresh |
+| Independent reviews (Codex, GPT-6.1) | Three rounds: 5/10, then 7/10, then 8.5/10. Every finding was fixed with a regression test that fails without the fix |
 
 ## Limits
 

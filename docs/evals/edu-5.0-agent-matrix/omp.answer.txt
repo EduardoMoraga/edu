@@ -1,0 +1,19 @@
+**Decisión vigente:** la cola de trabajos en segundo plano usa **Postgres con pg-boss** y reemplaza a Redis con BullMQ. La nota está `verified` y `active`.
+
+**Evidencia:**
+- Incidente INC-42: Redis desalojó 312 trabajos encolados por presión de memoria.
+- Prueba de carga: pg-boss sostuvo 1.200 trabajos por segundo.
+- Fuente declarada en la nota: `docs/adr/0007-cola-de-trabajos.md`. En este directorio no existe `docs/adr`, así que no pude contrastarla con el ADR.
+
+**Opción descartada:** Redis con BullMQ.
+
+**Hipótesis obsoleta:** `H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos`, que sigue `open` y dice «Pendiente de medir». La decisión la contradice: INC-42 ya mostró pérdida de trabajos en Redis y Redis fue descartado. Conviene cerrarla o marcarla como superada. No la modifiqué.
+
+**Siguiente paso seguro:** la memoria no registra ningún siguiente paso, y `edu_commitments` devuelve «No commitments». Lo siguiente es una inferencia mía, `[INFERENCE]`:
+1. Localizar el ADR 0007 en el repo correcto y confirmar que coincide con la nota.
+2. Cerrar la hipótesis obsoleta.
+3. No medir Redis para Black Friday, porque la decisión ya lo descartó.
+
+**Fuentes (ambas de alcance no indicado por la herramienta):**
+- `D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos`: `verified`, hash `c0e154b5103b`.
+- `H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos`: `hypothesis`, hash `96f9482812f2`.

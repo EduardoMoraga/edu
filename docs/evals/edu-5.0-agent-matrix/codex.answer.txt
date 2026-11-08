@@ -1,0 +1,9 @@
+Según la memoria **del proyecto**:
+
+- **Decisión vigente:** Postgres con **pg-boss**, registrada como `active`, banda `verified`. [[D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos]]
+- **Evidencia registrada:** INC-42: Redis desalojó **312 trabajos** por presión de memoria; una prueba de carga sostuvo **1.200 trabajos/s** con pg-boss. La nota cita `docs/adr/0007-cola-de-trabajos.md`, ausente en este workspace; no pude comprobar la evidencia original.
+- **Opción descartada:** Redis con BullMQ, elegida por rapidez de implementación; figura `reverted`, banda `inferred`. [[D-usar-redis-con-bullmq-para-la-cola-de-trabajos]]
+- **Hipótesis obsoleta:** «Redis aguanta el pico de Black Friday sin perder trabajos» sigue `open`, banda `hypothesis`. Su obsolescencia es una **inferencia** ante el incidente registrado y la sustitución de Redis. [[H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos]]
+- **Siguiente paso seguro:** revisar el ADR y los registros originales del incidente y la prueba; luego resolver la hipótesis enlazando esa evidencia. No hace falta reabrir la elección tecnológica por una hipótesis pendiente.
+
+Sesión de Edu cerrada; decisiones e hipótesis sin modificar.

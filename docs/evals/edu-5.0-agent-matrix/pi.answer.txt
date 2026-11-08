@@ -1,0 +1,16 @@
+**Decisión vigente** (`D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos`, verificada y activa): la cola de trabajos en segundo plano usa **Postgres con pg-boss**. Fuente: `docs/adr/0007-cola-de-trabajos.md`.
+
+**Evidencia:**
+- Incidente INC-42: Redis desalojó 312 trabajos encolados por presión de memoria.
+- Prueba de carga: pg-boss sostuvo 1.200 trabajos por segundo.
+
+**Opción descartada:** Redis con BullMQ.
+
+**Hipótesis obsoleta:** `H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos`. Sigue abierta, con banda "hypothesis", y dice que Redis soporta el pico de Black Friday sin perder trabajos. Nunca se midió ("pendiente de medir"), y el incidente INC-42 apunta en sentido contrario. Además, la decisión reemplazó a Redis, así que ya no aplica.
+
+**Siguiente paso seguro:**
+1. No migrar ni medir Redis. Seguir con pg-boss según el ADR-0007.
+2. Cerrar o superseder la hipótesis con una nota que cite la decisión y INC-42. Puedo hacerlo con `edu_remember` y `supersedes` si quieres. No toca nada canónico.
+3. Si te preocupa el pico de Black Friday, haz una prueba de carga de pg-boss por encima de 1.200 trabajos por segundo. La prueba ya hecha cubre ese ritmo, pero no el pico real.
+
+Los pasos 2 y 3 son recomendaciones mías. La memoria no los registra.

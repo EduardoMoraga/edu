@@ -1,0 +1,39 @@
+Aquí tienes el estado actual según la memoria de Edu para el workspace activo (`/tmp/tmp.uX02kiKHbM/project`, Edu `v5.0.0`, sesión `2026-11-08-antigravity-session-bbb305c7-6f452ff4`):
+
+---
+
+### 1. Decisión vigente (`verified` · `active`)
+* **Decisión**: **Usar Postgres con `pg-boss`** para la cola de trabajos en segundo plano.
+* **ID**: `[[D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos]]` (hash `a32225b34a82`).
+
+### 2. Evidencia registrada
+* **Incidente `INC-42`**: Redis desalojó **312 trabajos encolados** debido a presión de memoria.
+* **Prueba de carga**: `pg-boss` sostuvo **1.200 trabajos por segundo**.
+* **Fuente**: `docs/adr/0007-cola-de-trabajos.md`.
+
+### 3. Opción descartada / reemplazada
+* **Redis con BullMQ**: descartada y reemplazada por Postgres con `pg-boss` tras demostrarse la pérdida de trabajos encolados bajo presión de memoria (`INC-42`).
+
+### 4. Hipótesis abierta que quedó obsoleta (`hypothesis` · `open`)
+* **ID**: `[[H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos]]` (abierta desde `2026-08-10`, hash `57c9fe5b5c45`).
+* **Contenido**: *"Creemos que la instancia actual de Redis soporta el pico de Black Friday sin perder trabajos de la cola. Pendiente de medir."*
+* **Por qué está obsoleta**: Permanece en banda `hypothesis` (una hipótesis abierta no es un hecho) y quedó **refutada en la práctica** por el incidente `INC-42` (pérdida de 312 trabajos) y **superada arquitectónicamente** por la decisión vigente `[[D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos]]` que retiró Redis + BullMQ como cola de trabajos.
+
+### 5. Siguiente paso seguro
+1. **Actualizar la memoria sin borrar historial a ciegas**:
+   * Registrar con `edu_remember` una nota transitoria que reemplace explícitamente la hipótesis obsoleta (`supersedes: "H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos"`, enlazada con `links: ["D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos"]`) dejando trazabilidad de que fue refutada por `INC-42`, **o bien** generar un plan revisable con `edu brain lint` / `edu brain tidy` antes de aplicar cualquier limpieza con backup.
+2. **Aprobación humana si se eleva a regla canónica**:
+   * Si quieres consolidar `[[D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos]]` en el nivel canónico del proyecto, usar `edu_propose_canonical` para que pase por **aprobación humana explícita**.
+3. **Verificación operativa para Black Friday**:
+   * Si aún es necesario validar el pico de tráfico de Black Friday, replantear la medición sobre **Postgres + `pg-boss`** (la arquitectura activa) en lugar de Redis.
+
+---
+
+### Fuentes consultadas en Edu
+
+| ID | Título | Banda (`band`) | Estado | Alcance (`scope`) | Fuente / Hash |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `[[D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos]]` | Usar Postgres con pg-boss para la cola de trabajos | `verified` (metadato almacenado) | `active` | Workspace (`/tmp/tmp.uX02kiKHbM/project` / `.edu`) | `docs/adr/0007-cola-de-trabajos.md` · hash `a32225b34a82` |
+| `[[H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos]]` | Redis aguanta el pico de Black Friday sin perder trabajos | `hypothesis` (no verificado) | `open` (desde `2026-08-10`) | Workspace (`/tmp/tmp.uX02kiKHbM/project` / `.edu`) | Nota de hipótesis · hash `57c9fe5b5c45` |
+
+*(Se registró `edu_feedback` con `helpful: true` de forma consultiva sobre ambas notas).* ¿Quieres que deje registrada ahora con `edu_remember` la superación (`supersedes`) de la hipótesis obsoleta?

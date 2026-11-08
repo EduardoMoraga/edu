@@ -1,0 +1,27 @@
+## Decisión vigente
+**[[D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos]]** — *Usar Postgres con pg-boss para la cola de trabajos*.
+- Estado: `active` · banda: `verified` (metadato guardado, no re-verificado ahora) · creada 2026-10-19.
+- La cola en segundo plano (correos, facturas, webhooks) corre sobre **Postgres + pg-boss**.
+
+## Evidencia registrada
+- **INC-42**: Redis desalojó **312 trabajos encolados** por presión de memoria.
+- **Prueba de carga**: pg-boss sostuvo **1.200 trabajos/segundo**.
+- Fuente citada: `docs/adr/0007-cola-de-trabajos.md` — ese ADR **no está en este workspace**, así que no lo re-comprobé.
+
+## Opción descartada
+**[[D-usar-redis-con-bullmq-para-la-cola-de-trabajos]]** — Redis con BullMQ.
+- Estado: `reverted` · banda: `inferred` · `superseded_by` la decisión de pg-boss.
+- Se había elegido por **rapidez de implementación**.
+
+## Hipótesis obsoleta
+**[[H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos]]** — *"Redis aguanta el pico de Black Friday sin perder trabajos"*, abierta desde 2026-08-10, banda `hypothesis`.
+- Su premisa es la **instancia actual de Redis**, que ya no está en la ruta de la cola; además INC-42 apunta en contra.
+- **Matiz importante:** en la memoria sigue con `status: open`. Que esté obsoleta es **mi inferencia** a partir de la decisión, no un estado registrado; nunca se cerró formalmente.
+
+## Siguiente paso seguro
+1. **No medir ni dimensionar Redis** para el pico: ya no es la cola.
+2. Si aún se quiere validar capacidad de Black Friday, hacerlo **contra pg-boss/Postgres**.
+3. **Cerrar formalmente la hipótesis como obsoleta** con una nota que la suceda (conservando historial), no borrarla. Puedo hacerlo si me lo confirmas.
+4. **Verificar el ADR** en el repo real antes de volver a citarlo como evidencia `verified`.
+
+No modifiqué la memoria; solo consulté y registré feedback útil sobre la decisión. Sesión Edu cerrada con una lección candidata: `L-cerrar-hipotesis-cuya-premisa-fue-reemplazada` (inferida, no verificada).

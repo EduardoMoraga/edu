@@ -198,11 +198,12 @@ var STALE_CUES = ["obsolet", "desactualiz", "stale", "outdated", "caduc", "venci
 var NEXT_CUES = ["siguiente paso", "proximo paso", "next step", "recomiendo", "sugiero", "recommend", "suggest", "propongo", "deberiamos", "should"];
 var sentences = (text) => fold(text).split(/(?<=[.!?])\s+|\n+/).map((part) => part.trim()).filter(Boolean);
 var sentenceWith = (parts, anchors, cues) => parts.find((part) => anyOf(part, anchors) && anyOf(part, cues));
+var isHeading = (line) => /^\s*#{1,6}\s/.test(line) || /^\s*\*\*[^*]+\*\*:?\s*$/.test(line);
 var sectionWith = (text, anchors, cues) => {
   const lines = fold(text).split("\n");
   for (const [i, line] of lines.entries()) {
-    if (!/^\s*#{1,6}\s/.test(line) || !anyOf(line, cues)) continue;
-    const end = lines.findIndex((next, j) => j > i && /^\s*#{1,6}\s/.test(next));
+    if (!isHeading(line) || !anyOf(line, cues)) continue;
+    const end = lines.findIndex((next, j) => j > i && isHeading(next));
     const body = lines.slice(i + 1, end === -1 ? void 0 : end).join(" ");
     if (anyOf(body, anchors)) return `${line.trim()} ${body.trim()}`;
   }
@@ -5840,4 +5841,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-V6MBBI73.js.map
+//# sourceMappingURL=chunk-57CB55M7.js.map

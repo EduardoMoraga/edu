@@ -76,12 +76,14 @@ const NEXT_CUES = ['siguiente paso', 'proximo paso', 'next step', 'recomiendo', 
 const sentences = (text: string) => fold(text).split(/(?<=[.!?])\s+|\n+/).map(part => part.trim()).filter(Boolean);
 const sentenceWith = (parts: string[], anchors: readonly string[], cues: readonly string[]) =>
   parts.find(part => anyOf(part, anchors) && anyOf(part, cues));
-/** A Markdown heading carrying the cue, with the anchor in the section under it ("## Stale hypothesis" then its id). */
+/** A heading line: Markdown `#`, or a line that is only bold text (`**Stale hypothesis**`). */
+const isHeading = (line: string) => /^\s*#{1,6}\s/.test(line) || /^\s*\*\*[^*]+\*\*:?\s*$/.test(line);
+/** A heading carrying the cue, with the anchor in the section under it ("## Stale hypothesis" then its id). */
 const sectionWith = (text: string, anchors: readonly string[], cues: readonly string[]) => {
   const lines = fold(text).split('\n');
   for (const [i, line] of lines.entries()) {
-    if (!/^\s*#{1,6}\s/.test(line) || !anyOf(line, cues)) continue;
-    const end = lines.findIndex((next, j) => j > i && /^\s*#{1,6}\s/.test(next));
+    if (!isHeading(line) || !anyOf(line, cues)) continue;
+    const end = lines.findIndex((next, j) => j > i && isHeading(next));
     const body = lines.slice(i + 1, end === -1 ? undefined : end).join(' ');
     if (anyOf(body, anchors)) return `${line.trim()} ${body.trim()}`;
   }

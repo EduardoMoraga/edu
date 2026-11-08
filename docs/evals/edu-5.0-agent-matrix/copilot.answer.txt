@@ -1,0 +1,27 @@
+ ● skill(edu-recall)
+
+ ● Search tools edu_… Found 4 matching tool(s): edu-edu_brief, edu-edu_read, edu-edu_recall, edu-...
+
+ ● edu_recall (MCP: … D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos · verified · active · ...
+
+ ● edu_read (MCP: ed… D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos · verified · active · ...
+
+ ● edu_read (MCP: ed… H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos · hypothesis · ...
+
+**Decisión vigente** (verified, activa): la cola de trabajos en segundo plano usa **Postgres con pg-boss**.
+
+**Evidencia:**
+- Incidente INC-42: Redis desalojó 312 trabajos encolados por presión de memoria.
+- Prueba de carga: pg-boss sostuvo 1.200 trabajos por segundo.
+- Fuente: `docs/adr/0007-cola-de-trabajos.md`.
+
+**Opción descartada:** Redis con BullMQ.
+
+**Hipótesis obsoleta:** `H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos` (hypothesis, open). Dice que Redis soporta el pico de Black Friday sin perder trabajos. Contradice INC-42 y la decisión vigente, y quedó sin medir.
+
+**Siguiente paso seguro:** no migrar nada ni reabrir Redis. Trata la hipótesis como obsoleta y propón cerrarla o archivarla, citando la decisión y el INC-42. Después, si hace falta, valida pg-boss con una prueba de carga a escala de Black Friday. No tengo una herramienta para cerrar la hipótesis, y no la modifiqué.
+
+**Fuentes** (ambas leídas de la memoria de Edu; no vi el alcance workspace/global ni la fuente de cada nota):
+- `D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos`: verified.
+- `H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos`: hypothesis.
+
