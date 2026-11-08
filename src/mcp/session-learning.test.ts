@@ -184,8 +184,8 @@ describe('edu_session_close lessons', () => {
         await server.connect(b); await client.connect(a);
         try { return JSON.stringify((await client.listTools()).tools.find(tool => tool.name === 'edu_session_close')); } finally { await client.close(); await server.close(); }
       })();
-      expect(listed).toContain('EXISTING brain notes');
-      expect(listed).toContain('Not file names');
+      expect(listed).toContain('Existing note ids');
+      expect(listed).toContain('not file names');
     } finally { await t.close(); }
   });
 

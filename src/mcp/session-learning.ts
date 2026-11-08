@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import type { Brain } from '../brain/index.js';
+import { NoteConflictError, contentHash, type Brain, type UpdateOptions } from '../brain/index.js';
 import { createId } from '../brain/store.js';
 import type { Note } from '../core/contracts.js';
 
@@ -11,10 +11,10 @@ import type { Note } from '../core/contracts.js';
  * summarize, infer or call another model, and nothing here is verified, canonical or credited as a win.
  */
 export const lessonInput = z.object({
-  title: z.string().trim().min(1).max(200).describe('Short name of the observation'),
-  body: z.string().trim().min(1).max(2000).describe('What you observed and what to do next time, in your own words'),
+  title: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(2000),
   evidence: z.array(z.string().min(1).max(200)).max(10).optional()
-    .describe('IDs of EXISTING brain notes, exactly as printed by edu_recall / edu_read (e.g. L-some-lesson or 2026-05-01-some-title-ab12cd34). Not file names, paths, quotes or prose; omit when there is none. An unknown id rejects the whole close'),
+    .describe('Existing note ids as edu_recall/edu_read print them, not file names; an unknown id rejects the close'),
 }).strict();
 export const lessonsInput = z.array(lessonInput).max(3);
 export type SessionLesson = z.output<typeof lessonInput>;
@@ -68,7 +68,7 @@ async function writeJournal(path: string, journal: Journal): Promise<void> {
  * Everything is validated before any effect; a private journal written before the close lets an exact retry finish
  * notes that failed to write after the session was already closed.
  */
-export async function closeWithLessons(brain: Brain, root: string, session: Note, summary: string, input: SessionLesson[]): Promise<{ text: string; closedNow: boolean }> {
+export async function closeWithLessons(brain: Brain, root: string, session: Note, summary: string, input: SessionLesson[], guard: UpdateOptions = {}): Promise<{ text: string; closedNow: boolean }> {
   const lessons = input.map(lesson => ({ title: lesson.title, body: lesson.body, ...(lesson.evidence?.length ? { evidence: [...new Set(lesson.evidence)] } : {}) }));
   const tags = lessons.map(lesson => noteTag(session.meta.id, lesson));
   if (new Set(tags).size !== tags.length) throw new Error('The same lesson appears twice in one close');
@@ -84,8 +84,10 @@ export async function closeWithLessons(brain: Brain, root: string, session: Note
     throw new Error(`Session ${session.meta.id} is already closed with a different summary; it was not changed`);
   }
   if (!closed) {
+    // A guarded close is refused before any effect (journal, lessons) when the session changed since it was read.
+    if (guard.expectedHash !== undefined && guard.expectedHash.trim().toLowerCase() !== contentHash(session)) throw new NoteConflictError(session.meta.id, guard.expectedHash, contentHash(session));
     await writeJournal(journalPath, { sessionId: session.meta.id, hash, summary, lessons, done: false, ids: [] });
-    await brain.closeSession(session.meta.id, summary);
+    await brain.closeSession(session.meta.id, summary, guard);
   }
 
   const recorded: string[] = [];
@@ -101,7 +103,7 @@ export async function closeWithLessons(brain: Brain, root: string, session: Note
       const input = {
         tier: 'transitive' as const, kind: 'lesson' as const, band: 'inferred' as const, source: 'mcp', tags: ['session-lesson', tag], links: [session.meta.id, ...refs],
         body: [lesson.body, ...(refs.length ? ['', `Evidence: ${refs.map(ref => `[[${ref}]]`).join(', ')}`] : []), '', `Noted by the host model when closing session [[${session.meta.id}]]; not verified.`].join('\n'),
-        provenance: { origin: `session:${session.meta.id}` },
+        provenance: { origin: `session:${session.meta.id}` }, by: { ...guard.by, session: session.meta.id },
       };
       // A lesson never overwrites another one: when the title is taken (another session, same title) the id gets a stable full-hash suffix; an occupied suffixed id is reported, never overwritten.
       const note = await brain.read(createId({ tier: 'transitive', kind: 'lesson', title: lesson.title }))

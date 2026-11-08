@@ -1,9 +1,10 @@
 import { dirname, join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { autoMaintain, openBrain } from '../brain/index.js';
+import { NoteConflictError, autoMaintain, contentHash, openBrain, type CompileReport } from '../brain/index.js';
 import { brief, estimateTokens, truncateToTokens } from '../context/index.js';
-import type { BrainLocation, ClaimBand, Note, Tier } from '../core/contracts.js';
+import type { BrainLocation, ClaimBand, Note, NoteOrigin, Tier } from '../core/contracts.js';
 import { createCrew, type CrewOptions } from '../crew/index.js';
 import { packageVersion } from '../cli/package.js';
 import { closeWithLessons, lessonsInput } from './session-learning.js';
@@ -36,7 +37,21 @@ export interface EduMcpOptions {
   capabilities?: () => string | Promise<string>;
 }
 
-const tokenLimit = z.number().int().positive().optional().describe('Maximum response tokens (default 800)');
+/**
+ * Published (tools/list) schema of a field when it differs from the validating one. `z.number().int()` publishes
+ * `maximum: 9007199254740991` on every integer; the published twin says `integer` with the same bounds the strict
+ * schema enforces, without that noise. Arguments are always validated with the strict schema.
+ */
+const published = new WeakMap<z.ZodType, z.ZodType>();
+function optionalInt(min: number, max?: number, description?: string) {
+  let strict = z.number().int().min(min);
+  if (max !== undefined) strict = strict.max(max);
+  const optional = description ? strict.optional().describe(description) : strict.optional();
+  const twin = z.number().meta({ type: 'integer', minimum: min, ...(max !== undefined ? { maximum: max } : {}) }).optional();
+  published.set(optional, description ? twin.describe(description) : twin);
+  return optional;
+}
+const tokenLimit = optionalInt(1);
 const bands = z.enum(['verified', 'inferred', 'hypothesis']);
 const tiers = z.enum(['canonical', 'episodic', 'transitive']);
 const transitiveKinds = z.enum(['decision', 'hypothesis', 'commitment', 'lesson']);
@@ -45,6 +60,24 @@ const canonicalKinds = z.enum(['identity', 'standard', 'lexicon', 'domain', 'per
 function line(note: Note): string {
   return `${note.meta.id} · ${note.meta.band ?? 'inferred'} · ${note.meta.status ?? 'unspecified'} · ${note.meta.title}`;
 }
+
+/** Provenance `agent` for an MCP client name (from initialize); undefined when the client is not a known host. */
+export function agentOfClient(clientName: string | undefined): string | undefined {
+  if (!clientName?.trim()) return undefined;
+  const cli = detectCallerCli({}, clientName);
+  return cli ? ({ claude: 'claude-code', codex: 'codex', pi: 'pi', opencode: 'opencode', agy: 'antigravity' } as const)[cli] : undefined;
+}
+
+/** Compact text of what compiling a new note found. */
+export function compileReportText(report: CompileReport): string[] {
+  const lines: string[] = [];
+  if (report.linked.length) lines.push(`Linked: ${report.linked.join(', ')}`);
+  for (const conflict of report.possibleConflicts) lines.push(`Possible conflict: ${conflict.id} · ${conflict.title} (${conflict.reason}); consider supersedes: ${conflict.id}`);
+  if (report.redacted.length) lines.push(`Redacted secrets (${report.redacted.join(', ')}) before writing; the note is tagged redacted.`);
+  return lines;
+}
+
+const conflictText = (error: NoteConflictError) => `Note changed since you read it (now ${error.currentHash}). Re-read with edu_read and retry.`;
 
 /**
  * MCP tool annotations. Hosts (Codex, Claude…) use them to decide what can run without asking:
@@ -106,11 +139,12 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
       const text = await operation();
       return { content: [{ type: 'text' as const, text: jsonCapabilities ? text : truncateToTokens(text, limit) }] };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = error instanceof NoteConflictError ? conflictText(error) : error instanceof Error ? error.message : String(error);
       return { content: [{ type: 'text' as const, text: jsonCapabilities ? boundedCapabilities(JSON.stringify({ limitations: [`Error: ${message}`] }), SERVER_VERSION, profile, limit) : truncateToTokens(`Error: ${message}`, limit) }], isError: true };
     }
   };
 
+  const listed: { name: string; description: string; inputSchema: z.ZodObject; annotations?: Tool['annotations'] }[] = [];
   const register = <Shape extends z.ZodRawShape>(
     name: string,
     description: string,
@@ -122,9 +156,11 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     // The SDK validates before invoking a tool. Catch invalid field values at its
     // boundary, then validate with the original schema inside our bounded reply.
     const sdkShape = Object.fromEntries(Object.entries(shape).map(([key, schema]) => [
-      key, (schema as z.ZodType<unknown>).catch(null).meta({ default: undefined }),
+      key, (published.get(schema as z.ZodType) ?? schema as z.ZodType<unknown>).catch(null).meta({ default: undefined }),
     ])) as z.ZodRawShape;
-    server.registerTool(name, { description, inputSchema: z.object(sdkShape), annotations: TOOL_ANNOTATIONS[name] }, async (args) => {
+    const inputSchema = z.object(sdkShape);
+    listed.push({ name, description, inputSchema, annotations: TOOL_ANNOTATIONS[name] });
+    server.registerTool(name, { description, inputSchema, annotations: TOOL_ANNOTATIONS[name] }, async (args) => {
       const requested = (args as Record<string, unknown>).maxTokens;
       const maxTokens = typeof requested === 'number' && Number.isSafeInteger(requested) && requested > 0 ? requested : undefined;
       return respond(maxTokens, async () => {
@@ -140,23 +176,28 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     });
   };
 
-  register('edu_brief', 'Get a compact session-start brief', { maxTokens: tokenLimit },
+  /** The session this server opened (edu_session_open) and has not closed: provenance for notes written meanwhile. */
+  let currentSession: string | undefined;
+  const clientAgent = () => agentOfClient(server.server.getClientVersion()?.name);
+  const by = (): NoteOrigin => ({ agent: clientAgent(), session: currentSession });
+
+  register('edu_brief', 'Session-start brief', { maxTokens: tokenLimit },
     async ({ maxTokens }) => brief(brain, maxTokens ?? 800, { eduMdPath, now: opts.now }));
 
-  register('edu_recall', 'Search brain notes', {
-    query: z.string().min(1), limit: z.number().int().positive().optional(), tiers: z.array(tiers).optional(), maxTokens: tokenLimit,
+  register('edu_recall', 'Search notes', {
+    query: z.string().min(1), limit: optionalInt(1), tiers: z.array(tiers).optional(), maxTokens: tokenLimit,
   }, async ({ query, limit, tiers: selectedTiers }) => {
     const hits = await brain.recall(query, { limit: limit ?? 10, tiers: selectedTiers as Tier[] | undefined });
     return hits.length ? hits.map(hit => `${line(hit.note)} · ${hit.why}`).join('\n') : 'No matching notes.';
   });
 
-  register('edu_read', 'Read a brain note by id, legacy id or alias (e.g. D-010), unique id prefix, filename or exact title; returns the candidates when ambiguous. Long notes are paged: pass offset (characters) from the continuation hint, and optionally limit (characters per page)', {
-    id: z.string().min(1), offset: z.number().int().nonnegative().optional(), limit: z.number().int().positive().optional(), maxTokens: tokenLimit,
+  register('edu_read', 'Read a note by id, alias, id prefix, filename or title (ambiguous: lists candidates); shows its hash. Paged: pass offset from the hint; limit = chars per page', {
+    id: z.string().min(1), offset: optionalInt(0), limit: optionalInt(1), maxTokens: tokenLimit,
   }, async ({ id, offset, limit, maxTokens }) => {
       const result = await brain.resolve(id);
       if (!result) throw new Error(`Note not found: ${id}`);
       if ('candidates' in result) return [`Ambiguous reference "${id}" (${result.via}): ${result.candidates.length} notes match. Read one by id:`, ...result.candidates.slice(0, 20).map(note => `- ${line(note)}`)].join('\n');
-      const header = `${line(result.note)}\n\n`;
+      const header = `${line(result.note)}\nhash: ${contentHash(result.note)}\n\n`;
       const body = result.note.body;
       const start = Math.min(offset ?? 0, body.length);
       const budget = maxTokens ?? 800;
@@ -168,26 +209,31 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
       return render(Math.max(start, end));
     });
 
-  register('edu_remember', 'Create an episodic or transitive note', {
+  register('edu_remember', 'Write an episodic or transitive note; reports new links, possible conflicts, redactions', {
     tier: z.enum(['episodic', 'transitive']), kind: transitiveKinds.optional(), title: z.string().min(1), body: z.string(),
-    band: bands.optional(), tags: z.array(z.string()).optional(), owner: z.string().optional(), due: z.string().optional(), maxTokens: tokenLimit,
-  }, async ({ tier, kind, title, body, band, tags, owner, due }) => {
+    band: bands.optional(), tags: z.array(z.string()).optional(), owner: z.string().optional(), due: z.string().optional(),
+    links: z.array(z.string().min(1)).optional().describe('Related note ids'), supersedes: z.string().min(1).optional().describe('Id of the note this replaces'),
+    maxTokens: tokenLimit,
+  }, async ({ tier, kind, title, body, band, tags, owner, due, links, supersedes }) => {
     if (tier === 'episodic' && kind) throw new Error('Episodic notes cannot use a transitive kind');
-    const note = await brain.write({ tier, kind: tier === 'transitive' ? kind ?? 'lesson' : undefined, title, body, band: band as ClaimBand | undefined, tags, owner, due, source: 'mcp' });
-    return `Created ${line(note)}`;
+    const { note, report } = await brain.remember({
+      tier, kind: tier === 'transitive' ? kind ?? 'lesson' : undefined, title, body, band: band as ClaimBand | undefined, tags, owner, due,
+      ...(links?.length ? { links: [...new Set(links)] } : {}), ...(supersedes ? { supersedes } : {}), source: 'mcp', by: by(),
+    });
+    return [`Created ${line(note)}`, ...compileReportText(report)].join('\n');
   });
 
-  register('edu_feedback', 'Record whether a note was useful (advisory; cannot mark a result as externally verified)', {
+  register('edu_feedback', 'Record whether a note helped (advisory; never marks anything externally verified)', {
     id: z.string().min(1), helpful: z.boolean(), maxTokens: tokenLimit,
   }, async ({ id, helpful }) => {
     const note = await brain.feedback(id, helpful);
     return `Feedback recorded: ${line(note)}`;
   });
 
-  register('edu_propose_canonical', 'Propose a canonical note for human acceptance', {
+  register('edu_propose_canonical', 'Propose a canonical note; a human must accept it', {
     kind: canonicalKinds, title: z.string().min(1), body: z.string(), band: bands.optional(), maxTokens: tokenLimit,
   }, async ({ kind, title, body, band }) => {
-    const note = await brain.proposeCanonical({ tier: 'canonical', kind, title, body, band, source: 'mcp' });
+    const note = await brain.proposeCanonical({ tier: 'canonical', kind, title, body, band, source: 'mcp', by: by() });
     return `Proposed ${line(note)}`;
   });
 
@@ -198,26 +244,31 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     return notes.length ? notes.sort((a, b) => (a.meta.due ?? '9999').localeCompare(b.meta.due ?? '9999')).map(note => `${line(note)} · due ${note.meta.due ?? 'unspecified'}`).join('\n') : 'No commitments.';
   });
 
-  register('edu_session_open', 'Open a work session (reuses the open session with the same source and title)', {
+  register('edu_session_open', 'Open a work session (reuses the open one with the same source and title)', {
     title: z.string().min(1), source: z.string().optional(), maxTokens: tokenLimit,
   }, async ({ title, source }) => {
     const origin = source ?? 'mcp';
     // Find-or-open is not atomic; serialize it per source+title across processes so concurrent opens share one session.
     return withHostLock(brainRoot, origin, `open:${title}`, async () => {
       const existing = (await brain.list({ kind: 'session', status: 'open-session' })).find(note => note.meta.source === origin && note.meta.title === title);
-      if (existing) return `Session id: ${existing.meta.id}\nReused ${line(existing)}`;
-      const note = await brain.openSession(title, origin);
+      if (existing) { currentSession = existing.meta.id; return `Session id: ${existing.meta.id}\nReused ${line(existing)}`; }
+      const agent = clientAgent();
+      const note = await brain.openSession(title, origin, agent ? { agent } : undefined);
+      currentSession = note.meta.id;
       return `Session id: ${note.meta.id}\nOpened ${line(note)}`;
     });
   });
 
-  register('edu_session_close', 'Close a work session by its exact id with a summary. Repeating the same close is a no-op; an unknown id is never replaced by another session', {
+  register('edu_session_close', 'Close a session by its exact id with a summary. Repeating the same close is a no-op; an unknown id fails', {
     id: z.string().min(1), summary: z.string(), source: z.string().optional(),
-    lessons: lessonsInput.optional().describe('Up to 3 observations YOU (the calling model) noted in this session: {title, body, evidence?: existing note ids}. Recorded as unverified candidates; Edu infers nothing from the summary'),
+    lessons: lessonsInput.optional().describe('Up to 3 observations YOU made this session; stored as unverified candidates'),
+    expected_hash: z.string().min(1).optional().describe('Hash from edu_read; refuses if the session changed since'),
     maxTokens: tokenLimit,
-  }, async ({ id, summary, source, lessons }) => {
+  }, async ({ id, summary, source, lessons, expected_hash: expectedHash }) => {
+    const agent = clientAgent();
+    const guard = { ...(expectedHash ? { expectedHash } : {}), ...(agent ? { by: { agent } } : {}) };
     // Read, compare and close under one lock per session id: concurrent identical closes write once.
-    return withHostLock(brainRoot, 'mcp-close', id, async () => {
+    const text = await withHostLock(brainRoot, 'mcp-close', id, async () => {
       const current = await brain.read(id);
       if (!current || current.meta.kind !== 'session') {
         const open = await brain.list({ kind: 'session', status: 'open-session' });
@@ -225,7 +276,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
       }
       if (source && current.meta.source !== source) throw new Error(`Session ${id} belongs to source ${current.meta.source ?? 'unknown'}, not ${source}; not closed`);
       if (lessons?.length) {
-        const result = await closeWithLessons(brain, brainRoot, current, summary, lessons);
+        const result = await closeWithLessons(brain, brainRoot, current, summary, lessons, guard);
         if (result.closedNow) await autoMaintain(brain, brainRoot);
         return result.text;
       }
@@ -233,21 +284,23 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
         if (current.body.trim() === summary.trim()) return `Already closed ${line(current)}`;
         throw new Error(`Session ${id} is already closed with a different summary; it was not changed`);
       }
-      const note = await brain.closeSession(id, summary);
+      const note = await brain.closeSession(id, summary, guard);
       await autoMaintain(brain, brainRoot);
       return `Closed ${line(note)}`;
     });
+    if (currentSession === id) currentSession = undefined;
+    return text;
   });
 
-  register('edu_capabilities', 'Describe the running Edu version as valid bounded JSON. Drops complete array items with omitted counts; tiny hard budgets may return reduced identity, {} or 0 (insufficient budget, not no capabilities). Takes no caller version.', {
-    maxTokens: tokenLimit.describe('Estimated response token budget (default 800); a hard bound; tiny budgets return reduced identity, {} or 0 when identity cannot fit'),
+  register('edu_capabilities', 'Running Edu version and features as bounded JSON (takes no caller version)', {
+    maxTokens: optionalInt(1, undefined, 'Hard budget (default 800); tiny ones may yield {} or 0 (budget too small, not no capabilities)'),
   }, async ({ maxTokens }) => boundedCapabilities(opts.capabilities ? await opts.capabilities() : [
     `Edu ${SERVER_VERSION} (MCP, ${profile} profile). Persistent notes, recall, sessions and feedback are available${profile === 'full' ? ', plus crew dispatch' : '; crew/orchestration tools are omitted'}.`,
     'Memory is stored notes, not model training; Edu does not guarantee better answers or lower cost.',
     'Feedback from edu_feedback is advisory and is never treated as externally verified.',
   ].join('\n'), SERVER_VERSION, profile, maxTokens ?? 800));
 
-  register('edu_projects', 'List the registered Edu workspaces and their agent names, marking the active one', { maxTokens: tokenLimit },
+  register('edu_projects', 'List workspaces and agent names; marks the active one', { maxTokens: tokenLimit },
     async () => {
       const workspaces = await listWorkspaces(env);
       const rows = workspaces.map(w => `${w.root === workspace || w.name === workspace ? '* ' : '  '}${w.name} · agent ${w.agent} · ${w.root}${w.present ? '' : ' (missing)'}`);
@@ -255,7 +308,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
         'Switch with edu_project_use (workspace name, agent name, path, or "global").'].join('\n');
     });
 
-  register('edu_project_use', 'Switch the active Edu workspace for this session by workspace name, agent name (e.g. "albert"), path, or "global"', {
+  register('edu_project_use', 'Switch this session\'s workspace: workspace name, agent name, path or "global"', {
     workspace: z.string().min(1), maxTokens: tokenLimit,
   }, async ({ workspace: selector }) => {
     if (opts.workspaceLocked) throw new Error('The host owns this workspace. Change the host working directory and restart its Edu MCP server before switching brains.');
@@ -269,14 +322,14 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
 
   const cliIds = z.enum(['claude', 'codex', 'pi', 'opencode', 'agy']);
   const autonomy = z.enum(['readonly', 'ask', 'auto', 'full']);
-  register('edu_crew_dispatch', 'Dispatch a crew job to a coding CLI. mode "pane" opens a visible herdr pane (beside the caller inside herdr, otherwise a tab in the herdr "Edu" workspace) and falls back to headless with a note when herdr is unreachable', {
+  register('edu_crew_dispatch', 'Run a crew job on a coding CLI. mode pane: visible herdr pane, headless if herdr is unreachable', {
     cli: cliIds, task: z.string().min(1), mode: z.enum(['headless', 'pane']).optional(), cwd: z.string().optional(), autonomy: autonomy.optional(), maxTokens: tokenLimit,
   }, async ({ cli, task, mode, cwd, autonomy: selectedAutonomy }) => {
     const job = await crew.dispatch({ cli, task, mode, cwd, autonomy: selectedAutonomy });
     return JSON.stringify(job);
   });
 
-  register('edu_crew_status', 'List crew jobs or inspect one job', {
+  register('edu_crew_status', 'List crew jobs or show one', {
     jobId: z.string().optional(), maxTokens: tokenLimit,
   }, async ({ jobId }) => JSON.stringify(await crew.status(jobId)));
 
@@ -284,9 +337,9 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     jobId: z.string().min(1), waitSeconds: z.number().nonnegative().optional(), maxTokens: tokenLimit,
   }, async ({ jobId, waitSeconds }) => JSON.stringify(await crew.result(jobId, waitSeconds ?? 0)));
 
-  register('edu_crew_artifact', 'Read a page of a crew job sanitized full output or summary. Continue with nextOffset until null.', {
-    jobId: z.string().min(1), kind: z.enum(['output', 'summary']), offset: z.number().int().nonnegative().optional(),
-    maxBytes: z.number().int().min(1).max(4096).optional(), maxTokens: z.number().int().min(100).max(20000).optional(),
+  register('edu_crew_artifact', 'Page a crew job\'s sanitized output or summary; continue with nextOffset until null', {
+    jobId: z.string().min(1), kind: z.enum(['output', 'summary']), offset: optionalInt(0),
+    maxBytes: optionalInt(1, 4096), maxTokens: optionalInt(100, 20000),
   }, async ({ jobId, kind, offset, maxBytes, maxTokens }) => {
     const limit = maxTokens ?? 800;
     let pageBytes = Math.min(maxBytes ?? 1000, 4096);
@@ -298,7 +351,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     }
   });
 
-  register('edu_orchestrate', 'Start a detached orchestration with a visible spec and crew job', {
+  register('edu_orchestrate', 'Start a detached orchestration (visible spec and crew job)', {
     goal: z.string().min(1), playbook: z.string().optional(), mode: z.enum(['solo', 'crew']).optional(),
     autoApprove: z.boolean().optional(), maxTokens: tokenLimit,
   }, async ({ goal, playbook, mode, autoApprove }) => {
@@ -316,9 +369,18 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     jobId: z.string().min(1), approve: z.boolean(), maxTokens: tokenLimit,
   }, async ({ jobId, approve }) => JSON.stringify(await crew.approve(jobId, approve)));
 
-  register('edu_crew_review', 'Dispatch a read-only review using a different available CLI', {
+  register('edu_crew_review', 'Read-only review by a different available CLI', {
     cli: cliIds.optional(), base: z.string().optional(), maxTokens: tokenLimit,
   }, async ({ cli, base }) => JSON.stringify(await crew.review({ cli, base, callerCli: detectCallerCli(process.env, server.server.getClientVersion()?.name) })));
+
+  // tools/list is what every host pays for in context on every turn. The SDK's own listing adds a `$schema` URL to
+  // each input schema and `execution: {taskSupport: 'forbidden'}` (the protocol default); both carry no information
+  // for a model, so the listing is published from the same registrations without them. Calls still go through the SDK.
+  const tools: Tool[] = listed.map(({ name, description, inputSchema, annotations }) => {
+    const { $schema: _schemaUrl, ...schema } = z.toJSONSchema(inputSchema, { target: 'draft-7', io: 'input' }) as Record<string, unknown>;
+    return { name, description, inputSchema: schema as Tool['inputSchema'], ...(annotations ? { annotations } : {}) };
+  });
+  server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
 
   return server;
 }
