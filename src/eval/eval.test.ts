@@ -140,6 +140,13 @@ describe('deterministic memory suite', () => {
     expect(phase('edu-cold')).toEqual({ transfer: '0/1', distractor: '0/3', correction: '0/2' });
     expect(phase('memory-static')).toEqual({ transfer: '1/1', distractor: '0/3', correction: '0/2' });
     expect(phase('memory-adaptive')).toEqual({ transfer: '1/1', distractor: '2/3', correction: '1/2' });
+    // The mechanism, not just the counts: the distractor wins the first staging query, then verified feedback recovers.
+    const adaptiveSteps = result.steps.filter(step => step.arm === 'memory-adaptive' && step.phase === 'distractor');
+    expect(adaptiveSteps.map(step => [step.usedNote, step.success])).toEqual([
+      ['L-staging-database-migrations-rollback', false],
+      ['L-run-schema-migrations-with-the-make-target', true],
+      ['L-run-schema-migrations-with-the-make-target', true],
+    ]);
     const adaptive = result.trials.filter(t => t.arm === 'memory-adaptive');
     expect(adaptive.reduce((n, t) => n + t.costs.humanInterventions, 0)).toBe(1);
     expect(adaptive.reduce((n, t) => n + t.costs.reflectionTokens, 0)).toBeGreaterThan(0);
