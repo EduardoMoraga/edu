@@ -1,22 +1,58 @@
 import type { Note, RecallHit } from '../core/contracts.js';
 import { learnedWeight } from './learning.js';
-import { analyzeToken, conceptWords, CONCEPT_PREFIX, fuzzyCandidates, stem, tokenize } from './lexicon.js';
+import { analyzeToken, conceptWords, CONCEPT_PREFIX, fuzzyCandidates, queryStopwords, stem, tokenize } from './lexicon.js';
 import { normalizeReference } from './resolve.js';
 
 export { tokenize };
 
 /** A concept-bridge match (e.g. Spanish query, English note) counts less than the same stem. */
 const BRIDGE_WEIGHT = 0.6;
+/** BM25 term-frequency saturation and length normalization. */
+const K1 = 1.2;
+const B = 0.75;
+/** The title counts this many times in the term frequencies (a light BM25F field weight). */
+const TITLE_WEIGHT = 2;
+/**
+ * Score × coverage^COVERAGE_EXPONENT, where coverage is the IDF-weighted share of distinct query units a note
+ * matches. BM25 alone lets a long note that repeats one query word outrank a short note that answers all of it.
+ */
+const COVERAGE_EXPONENT = 0.5;
+/** Score × (1 + TITLE_COVERAGE_BOOST × IDF-weighted share of query units found in the title). */
+const TITLE_COVERAGE_BOOST = 0.5;
 /** A fuzzy (typo) match counts less than a bridge match. */
 const FUZZY_WEIGHT = 0.5;
 /** Below this raw BM25 the best hit is weak enough to try fuzzy matches for unknown words. */
 const WEAK_SCORE = 1;
+
+/**
+ * Words that ask for a kind of note ("¿qué decidimos?", "what did we learn", "pendientes", "hipótesis").
+ * A note of the asked kind gets a small multiplicative boost; it never adds a match on its own.
+ */
+const KIND_CUES: ReadonlyArray<readonly [kind: string, words: readonly string[]]> = [
+  ['decision', ['decision', 'decisions', 'decide', 'decided', 'decidir', 'decidimos', 'decidio', 'decidieron', 'decisiones', 'acordamos', 'acordado', 'agreed', 'chose', 'chosen', 'elegimos']],
+  ['lesson', ['lesson', 'lessons', 'learn', 'learned', 'learnt', 'leccion', 'lecciones', 'aprendimos', 'aprendido', 'aprendizaje', 'aprendizajes', 'takeaway', 'takeaways']],
+  ['commitment', ['commitment', 'commitments', 'committed', 'promise', 'promised', 'pendiente', 'pendientes', 'compromiso', 'compromisos', 'prometimos', 'owe', 'due']],
+  ['hypothesis', ['hypothesis', 'hypotheses', 'suspect', 'suspicion', 'hipotesis', 'sospecha', 'sospechamos', 'theory', 'teoria']],
+];
+const KIND_BOOST = 0.15;
+
+/** Kinds the query asks for, from its cue words. */
+function askedKinds(text: string): Set<string> {
+  const tokens = new Set(tokenize(text));
+  return new Set(KIND_CUES.filter(([, words]) => words.some(word => tokens.has(word))).map(([kind]) => kind));
+}
 
 export interface SearchOptions {
   /** Include historical/proposed notes in general lexical searches. Explicit IDs/aliases always work. */
   includeHistory?: boolean;
   /** Extract passages by default; set false when a caller only needs ranking (e.g. context selection). */
   includePassages?: boolean;
+  /**
+   * Plain BM25 similarity over every query word, without the question shaping (query function words, coverage,
+   * title coverage, kind cues). For callers
+   * that compare a whole note against others by score ratio (compile on write), not answer a question.
+   */
+  similarity?: boolean;
 }
 
 export function isOperationalNote(note: Note): boolean {
@@ -36,9 +72,12 @@ interface Feature { term: string; weight: number }
  */
 interface QueryUnit { label: string; features: Feature[]; words: string[] }
 
-function queryUnits(text: string): QueryUnit[] {
+function queryUnits(text: string, keepFunctionWords = false): QueryUnit[] {
   const units = new Map<string, QueryUnit>();
-  for (const token of tokenize(text)) {
+  const tokens = tokenize(text);
+  // Function words ("which", "should", "desde") only add noise to a question that has content words.
+  const content = keepFunctionWords ? tokens : tokens.filter(token => !queryStopwords.has(token));
+  for (const token of content.length ? content : tokens) {
     const { stem: s, concepts } = analyzeToken(token);
     if (!s) continue;
     const key = concepts.length ? [...concepts].sort().join(' ') : s;
@@ -53,13 +92,14 @@ function queryUnits(text: string): QueryUnit[] {
   return [...units.values()];
 }
 
-/** Per-note term frequencies over stems and concept keys; the title counts twice, as before. */
-interface DocVector { tf: Map<string, number>; length: number; words: Set<string> }
+/** Per-note term frequencies over stems and concept keys (the title weighted), plus the title's terms. */
+interface DocVector { tf: Map<string, number>; length: number; words: Set<string>; title: Set<string> }
 
-function addField(vector: DocVector, text: string, times: number): void {
+function addField(vector: DocVector, text: string, times: number, title = false): void {
   for (const token of tokenize(text)) {
     const { stem: s, concepts } = analyzeToken(token);
     if (!s) continue;
+    if (title) { vector.title.add(s); for (const concept of concepts) vector.title.add(concept); }
     vector.length += times;
     vector.words.add(token);
     vector.tf.set(s, (vector.tf.get(s) ?? 0) + times);
@@ -79,8 +119,8 @@ function docVector(note: Note): DocVector {
   const body = note.body ?? '';
   const cached = vectorCache.get(note.path);
   if (cached && cached.title === title && cached.tags === tags && cached.body === body) return cached.vector;
-  const vector: DocVector = { tf: new Map(), length: 0, words: new Set() };
-  addField(vector, title, 2);
+  const vector: DocVector = { tf: new Map(), length: 0, words: new Set(), title: new Set() };
+  addField(vector, title, TITLE_WEIGHT, true);
   addField(vector, tags, 1);
   addField(vector, body, 1);
   if (vectorCache.size >= VECTOR_CACHE_LIMIT) vectorCache.delete(vectorCache.keys().next().value!);
@@ -156,26 +196,32 @@ function bm25Scores(units: QueryUnit[], docs: Doc[]) {
   for (const unit of units) for (const { term } of unit.features) {
     if (!df.has(term)) df.set(term, docs.reduce((count, doc) => count + (doc.vector.tf.has(term) ? 1 : 0), 0));
   }
+  const idfOf = (term: string) => { const termDf = df.get(term)!; return Math.log(1 + (docs.length - termDf + 0.5) / (termDf + 0.5)); };
+  // How much a query unit is worth for coverage: its rarest feature present in the brain.
+  const unitIdf = units.map(unit => Math.max(0, ...unit.features.filter(({ term }) => df.get(term)).map(({ term }) => idfOf(term))));
+  const totalIdf = unitIdf.reduce((sum, value) => sum + value, 0);
   const avgdl = docs.reduce((sum, doc) => sum + doc.vector.length, 0) / Math.max(docs.length, 1);
   return docs.map(doc => {
     let bm25 = 0;
+    let covered = 0;
+    let inTitle = 0;
     const matched: string[] = [];
-    for (const unit of units) {
+    units.forEach((unit, index) => {
       let best = 0;
       let bestTerm = '';
       for (const { term, weight } of unit.features) {
         const tf = doc.vector.tf.get(term);
         if (!tf) continue;
-        const termDf = df.get(term)!;
-        const idf = Math.log(1 + (docs.length - termDf + 0.5) / (termDf + 0.5));
-        const score = weight * idf * (tf * 2.2) / (tf + 1.2 * (1 - 0.75 + 0.75 * doc.vector.length / Math.max(avgdl, 1)));
+        const score = weight * idfOf(term) * (tf * (K1 + 1)) / (tf + K1 * (1 - B + B * doc.vector.length / Math.max(avgdl, 1)));
         if (score > best) { best = score; bestTerm = term; }
       }
-      if (!best) continue;
+      if (!best) return;
       bm25 += best;
+      covered += unitIdf[index]!;
+      if (unit.features.some(({ term }) => doc.vector.title.has(term))) inTitle += unitIdf[index]!;
       matched.push(bestTerm.startsWith(CONCEPT_PREFIX) ? `${unit.label}→${bestTerm.slice(CONCEPT_PREFIX.length)}` : bestTerm === unit.features[0]!.term ? bestTerm : `${unit.label}≈${bestTerm}`);
-    }
-    return { doc, bm25, matched };
+    });
+    return { doc, bm25, coverage: totalIdf ? covered / totalIdf : 0, titleCoverage: totalIdf ? inTitle / totalIdf : 0, matched };
   });
 }
 
@@ -207,7 +253,7 @@ function addFuzzyFeatures(units: QueryUnit[], docs: Doc[]): boolean {
 export function rankNotes(query: string, notes: Note[], now = new Date(), limit = 10, options: SearchOptions = {}): RecallHit[] {
   const reference = searchReference(query);
   if (!reference) return [];
-  const units = queryUnits(reference);
+  const units = queryUnits(reference, options.similarity);
   // A query that is exactly a note's id, alias or legacy id (e.g. an imported "D-010") names that note: it ranks first.
   const key = reference.toLocaleLowerCase('en');
   const named = (note: Note) => [note.meta.id, note.meta.legacy_id, ...(Array.isArray(note.meta.aliases) ? note.meta.aliases : [])]
@@ -222,10 +268,12 @@ export function rankNotes(query: string, notes: Note[], now = new Date(), limit 
   const lexical = hitsOf(scored);
   const top = Math.max(0, ...lexical.map(row => row.bm25));
   if ((lexical.length < limit || top < WEAK_SCORE) && addFuzzyFeatures(units, docs)) scored = bm25Scores(units, docs);
-  const ranked = hitsOf(scored).map(({ doc: { note, named: isNamed }, bm25, matched }) => {
+  const kinds = askedKinds(reference);
+  const ranked = hitsOf(scored).map(({ doc: { note, named: isNamed }, bm25, coverage, titleCoverage, matched }) => {
     const w = learnedWeight(note.meta.usage, now);
     if (isNamed) return { note, score: 1_000_000, why: `Named by id or alias "${query.trim()}"; learned weight ${w.toFixed(2)}.` };
-    return { note, score: bm25 * (0.5 + w), why: `Matched ${matched.join(', ')}; learned weight ${w.toFixed(2)}.` };
+    const shape = options.similarity ? 1 : Math.pow(coverage, COVERAGE_EXPONENT) * (1 + TITLE_COVERAGE_BOOST * titleCoverage) * (kinds.has(note.meta.kind ?? '') ? 1 + KIND_BOOST : 1);
+    return { note, score: bm25 * shape * (0.5 + w), why: `Matched ${matched.join(', ')}; learned weight ${w.toFixed(2)}.` };
   });
   return ranked.sort((a, b) => b.score - a.score || a.note.meta.id.localeCompare(b.note.meta.id)).slice(0, Math.max(0, limit)).map(hit => {
     if (options.includePassages === false) return hit;

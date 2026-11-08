@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeToken, CONCEPT_GROUPS, conceptsOf, editDistance, fuzzyCandidates, stem, tokenize, trigramSimilarity } from './lexicon.js';
+import { analyzeToken, CONCEPT_GROUPS, conceptsOf, editDistance, fuzzyCandidates, queryStopwords, stem, tokenize, trigramSimilarity } from './lexicon.js';
 
 const concepts = (word: string) => analyzeToken(tokenize(word)[0]!).concepts;
 
@@ -44,9 +44,17 @@ describe('concept bridge', () => {
     ['respaldo', 'backups'], ['rama', 'branch'], ['presupuesto', 'budget'], ['permisos', 'permission'],
     ['usuario', 'users'], ['inglés', 'english'], ['español', 'spanish'], ['memoria', 'memories'],
     ['lección', 'lessons'], ['precio', 'pricing'], ['contrato', 'agreement'], ['conflicto', 'conflicts'],
+    // General vocabulary: calendar, quantities, common verbs and adjectives.
+    ['lunes', 'mondays'], ['trimestral', 'quarter'], ['miles', 'thousand'], ['tarjetas', 'card'], ['bloqueos', 'locks'],
+    ['lotes', 'batches'], ['nunca', 'never'], ['arranque', 'startup'], ['prefiere', 'preferred'], ['aprueba', 'approves'],
   ])('bridges %s and %s', (es, en) => {
     const shared = concepts(es).filter(concept => concepts(en).includes(concept));
     expect(shared.length).toBeGreaterThan(0);
+  });
+
+  it('keeps negations out of the query-only function words', () => {
+    for (const word of ['should', 'when', 'desde', 'cada']) expect(queryStopwords.has(word)).toBe(true);
+    for (const word of ['not', 'no', 'never', 'nunca']) expect(queryStopwords.has(word)).toBe(false);
   });
 
   it('ignores stopwords and unknown vocabulary', () => {
