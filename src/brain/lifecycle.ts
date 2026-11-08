@@ -27,7 +27,7 @@ export function validateTransition(kind: NoteMeta['kind'] | 'canonical', from: s
 }
 
 export function assertDecisionReversion(meta: NoteMeta, patch: Partial<NoteMeta>): void {
-  if (meta.kind === 'decision' && patch.status === 'reverted' && (!patch.supersedes || patch.supersedes === meta.id)) {
+  if (meta.kind === 'decision' && patch.status === 'reverted' && (!patch.superseded_by || patch.superseded_by === meta.id)) {
     throw new Error('Reverting a decision requires a distinct superseding D- note; create the new decision with supersedes');
   }
 }

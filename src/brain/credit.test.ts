@@ -339,7 +339,7 @@ describe('core atomicity: update and create', () => {
     const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
     const d1 = await brain.write({ title: 'Decide one', body: 'x', tier: 'transitive', kind: 'decision' });
     const d2 = await brain.write({ title: 'Decide two', body: 'y', tier: 'transitive', kind: 'decision', supersedes: d1.meta.id });
-    expect((await brain.read(d1.meta.id))?.meta).toMatchObject({ status: 'reverted', supersedes: d2.meta.id });
+    expect((await brain.read(d1.meta.id))?.meta).toMatchObject({ status: 'reverted', superseded_by: d2.meta.id });
     const o = await lesson(brain, 'Old way'); await lesson(brain, 'New way', { supersedes: o.meta.id });
     expect((await brain.read(o.meta.id))?.meta.status).toBe('retired');
   });
@@ -381,7 +381,7 @@ describe('core atomicity: compound supersedes', () => {
       const decisions = await a.list({ kind: 'decision' });
       expect(decisions.filter(d => d.meta.status === 'active').map(d => d.meta.id)).toEqual([winner.meta.id]);
       expect(decisions).toHaveLength(2);
-      expect((await b.read(old.meta.id))?.meta).toMatchObject({ status: 'reverted', supersedes: winner.meta.id });
+      expect((await b.read(old.meta.id))?.meta).toMatchObject({ status: 'reverted', superseded_by: winner.meta.id });
     }
   });
 

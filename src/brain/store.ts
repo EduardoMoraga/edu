@@ -120,6 +120,17 @@ export function noteCacheStats(): { entries: number; parses: number } { return {
 // Callers spread and patch notes freely, so every hit hands out its own meta (including tags/links/usage).
 const fresh = (note: Note | undefined): Note | undefined => note && { meta: structuredClone(note.meta), body: note.body, path: note.path };
 
+/**
+ * Before 5.0 a reverted decision stored its successor in `supersedes`, so it read as if it replaced the decision
+ * that actually replaced it. Read it as `superseded_by`, the field every other replaced note uses; the file is
+ * rewritten in the new form only when something else changes it.
+ */
+export function normalizeLegacyMeta(meta: NoteMeta): NoteMeta {
+  if (meta.kind !== 'decision' || meta.status !== 'reverted' || !meta.supersedes || meta.superseded_by) return meta;
+  const { supersedes, ...rest } = meta;
+  return { ...rest, superseded_by: supersedes };
+}
+
 export async function readNote(path: string): Promise<Note | undefined> {
   const key = resolve(path);
   try {
@@ -128,7 +139,7 @@ export async function readNote(path: string): Promise<Note | undefined> {
     if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size && cached.ino === info.ino) return fresh(cached.note);
     noteParses++;
     const parsed = parseMarkdown<NoteMeta>(await readFile(path, 'utf8'));
-    const note = parsed.meta.id && parsed.meta.tier && parsed.meta.title ? { meta: parsed.meta, body: parsed.body, path } : undefined;
+    const note = parsed.meta.id && parsed.meta.tier && parsed.meta.title ? { meta: normalizeLegacyMeta(parsed.meta), body: parsed.body, path } : undefined;
     noteCache.set(key, { mtimeMs: info.mtimeMs, size: info.size, ino: info.ino, note });
     return fresh(note);
   } catch { noteCache.delete(key); return undefined; }

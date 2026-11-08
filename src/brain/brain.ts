@@ -323,7 +323,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       if (authority === 'supersede-canonical' && (current.meta.status !== 'accepted' || patch.status !== 'superseded')) throw new Error('Only an accepted canonical note can be superseded');
     }
     if (current.meta.kind === 'decision') {
-      if (body !== undefined || patch.title !== undefined || (patch.supersedes !== undefined && authority !== 'revert-decision')) throw new Error('Decisions are immutable; create a new D- note with supersedes instead');
+      if (body !== undefined || patch.title !== undefined || patch.supersedes !== undefined) throw new Error('Decisions are immutable; create a new D- note with supersedes instead');
       if (patch.status && (authority !== 'revert-decision' || patch.status !== 'reverted')) throw new Error('Decision status cannot be edited; create a new D- note with supersedes');
       if (patch.status === 'reverted') assertDecisionReversion(current.meta, patch);
     }
@@ -430,7 +430,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
             if (!roots.includes(rootOf(prior.path))) return undefined;
             if (await find(meta.id)) throw new Error(`Note id already exists: ${meta.id}`);
             const fresh = await persist(note);
-            try { await applyUpdate(prior, { status: 'reverted', supersedes: fresh.meta.id }, undefined, 'revert-decision'); }
+            try { await applyUpdate(prior, { status: 'reverted', superseded_by: fresh.meta.id }, undefined, 'revert-decision'); }
             catch (error) { await rm(fresh.path, { force: true }); throw error; }
             touched.push(prior.path);
             return fresh;
