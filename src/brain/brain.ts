@@ -112,6 +112,11 @@ export interface Brain {
    */
   discardEmptySession(id: string): Promise<boolean>;
   rebuildIndex(): Promise<void>;
+  /**
+   * Runs many writes as one batch: the catalog is rebuilt once at the end instead of after every write (importers).
+   * Batches nest; only the outermost one rebuilds.
+   */
+  batch<T>(work: () => Promise<T>): Promise<T>;
   stats(): Promise<BrainStats>;
   /**
    * Moves a note to another location of this brain (e.g. project → global), keeping its id, file content and
@@ -245,7 +250,10 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
    * catalog, not INDEX.md or the Obsidian views; `writeCatalog` leaves an unchanged catalog untouched. Must run after
    * the mutation's own locks are released (locks are not re-entrant). A failure is a warning, never a failed write.
    */
+  let batchDepth = 0;
+  let batchPaths: string[] = [];
   const refreshCatalogs = async (paths: string[]) => {
+    if (batchDepth > 0) { batchPaths.push(...paths); return; }
     const deepest = Math.max(0, ...paths.map(path => locations.indexOf(locationOf(path))));
     const affected = locations.slice(0, deepest + 1);
     try {
@@ -602,6 +610,12 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         for (const link of proposal.meta.links) proposedOrRejected.add(link);
       }
       await this.rebuildIndex(); report.indexRebuilt = true; return report;
+    },
+    async batch(work) {
+      batchDepth++;
+      try { return await work(); } finally {
+        if (--batchDepth === 0 && batchPaths.length) { const paths = batchPaths; batchPaths = []; await refreshCatalogs(paths); }
+      }
     },
     async rebuildIndex() {
       const notes = await all();

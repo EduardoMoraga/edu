@@ -12,6 +12,21 @@ async function temp() { const path = await mkdtemp(join(tmpdir(), 'edu-catalog-'
 afterEach(async () => { resetNoteCache(); resetLedgerCache(); await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
 describe('catalog', () => {
+  it('rebuilds once at the end of a batch, listing every note written in it', async () => {
+    const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
+    await brain.init({ scope: 'project', root });
+    const path = join(root, 'brain', '0-index', 'catalog.md');
+    await brain.batch(async () => {
+      await brain.write({ tier: 'transitive', kind: 'lesson', title: 'First batched lesson', body: 'One.' });
+      // Inside the batch the catalog is not rewritten per write.
+      expect(await readFile(path, 'utf8').catch(() => '')).not.toContain('First batched lesson');
+      await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Second batched lesson', body: 'Two.' });
+    });
+    const catalog = await readFile(path, 'utf8');
+    expect(catalog).toContain('First batched lesson');
+    expect(catalog).toContain('Second batched lesson');
+  });
+
   it('lists one line per live note grouped by tier/kind, with gaps, next to INDEX.md', async () => {
     const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
     const rule = await brain.proposeCanonical({ tier: 'canonical', kind: 'standard', title: 'Tests before merge', body: '# Rule\n\nEvery pull request runs the full suite before it merges.' });

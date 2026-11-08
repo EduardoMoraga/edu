@@ -2,7 +2,8 @@ import { dirname, join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { NoteConflictError, autoMaintain, contentHash, openBrain, type CompileReport } from '../brain/index.js';
+import { NoteConflictError, autoMaintain, contentHash, openBrain } from '../brain/index.js';
+import { compileReportLines } from '../brain/compile.js';
 import { brief, estimateTokens, truncateToTokens } from '../context/index.js';
 import type { BrainLocation, ClaimBand, Note, NoteOrigin, Tier } from '../core/contracts.js';
 import { createCrew, type CrewOptions } from '../crew/index.js';
@@ -77,14 +78,8 @@ export function agentOfClient(clientName: string | undefined): string | undefine
   return slug || undefined;
 }
 
-/** Compact text of what compiling a new note found. */
-export function compileReportText(report: CompileReport): string[] {
-  const lines: string[] = [];
-  if (report.linked.length) lines.push(`Linked: ${report.linked.join(', ')}`);
-  for (const conflict of report.possibleConflicts) lines.push(`Possible conflict: ${conflict.id} · ${conflict.title} (${conflict.reason}); consider supersedes: ${conflict.id}`);
-  if (report.redacted.length) lines.push(`Redacted secrets (${report.redacted.join(', ')}) before writing; the note is tagged redacted.`);
-  return lines;
-}
+/** Compact text of what compiling a new note found (shared with the CLI). */
+export const compileReportText = compileReportLines;
 
 const conflictText = (error: NoteConflictError) => `Note changed since you read it (now ${error.currentHash}). Re-read with edu_read and retry.`;
 

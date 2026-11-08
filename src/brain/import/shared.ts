@@ -27,7 +27,12 @@ export interface ImportMetadata {
   owner?: string; due?: string; tags?: string[]; status?: string; acceptedCanonical?: boolean;
 }
 
+/** Imports in one batch: the catalog is rebuilt once at the end, not after every note. */
 export async function importFiles(files: string[], brain: Brain, source: ImportReport['source'], classify: (path: string) => Partial<NewNote>, normalize?: (metadata: Record<string, unknown>, body: string, path: string) => ImportMetadata): Promise<ImportReport> {
+  return brain.batch ? brain.batch(() => importFilesUnbatched(files, brain, source, classify, normalize)) : importFilesUnbatched(files, brain, source, classify, normalize);
+}
+
+async function importFilesUnbatched(files: string[], brain: Brain, source: ImportReport['source'], classify: (path: string) => Partial<NewNote>, normalize?: (metadata: Record<string, unknown>, body: string, path: string) => ImportMetadata): Promise<ImportReport> {
   const report: ImportReport = { source, imported: [], skipped: [], errors: [], warnings: [] };
   for (const path of files) {
     try {
