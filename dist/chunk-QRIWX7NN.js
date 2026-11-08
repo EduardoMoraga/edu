@@ -31,7 +31,7 @@ import {
   printJson,
   registerPluginSetup,
   statusLine
-} from "./chunk-2CQ4ANGQ.js";
+} from "./chunk-NFPFWWNY.js";
 import {
   detectTheme,
   formatTokens,
@@ -46,7 +46,7 @@ import {
   editContent,
   editInstructions,
   ownerOf
-} from "./chunk-WTENJ4PS.js";
+} from "./chunk-JIRYCTAA.js";
 import {
   classifyPackage,
   loadChecks,
@@ -1780,7 +1780,7 @@ function registerSetup(program, ctx) {
       const brainRoot = globalHome(ctx);
       let purgeBrain = false;
       if (opts.purgeBrain) {
-        const { assertPurgeableBrain } = await import("./uninstall-DTQMWZOB.js");
+        const { assertPurgeableBrain } = await import("./uninstall-DIWMZZ7C.js");
         if (await exists(brainRoot)) {
           await assertPurgeableBrain(brainRoot, ctx.home);
           const question = es ? `\xBFBorrar el cerebro ${brainRoot} con todas sus notas? Esto no se puede deshacer.` : `Delete the brain ${brainRoot} and all its notes? This cannot be undone.`;
@@ -1790,7 +1790,7 @@ function registerSetup(program, ctx) {
           if (!purgeBrain) ctx.out(es ? "El cerebro se conserva." : "Keeping the brain.");
         }
       }
-      const { uninstallEdu } = await import("./uninstall-DTQMWZOB.js");
+      const { uninstallEdu } = await import("./uninstall-DIWMZZ7C.js");
       const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain });
       if (g.json) {
         printJson(ctx, report);
@@ -4779,7 +4779,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-DMMHYVXQ.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-R5HUQZ3Y.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -5829,4 +5829,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-XJCBDM24.js.map
+//# sourceMappingURL=chunk-QRIWX7NN.js.map

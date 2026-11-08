@@ -1,6 +1,7 @@
 import { pinConfiguredBases } from '../adapters/paths.js';
 import { planClaudeRefresh } from './claude-upgrade.js';
 import { planCodexRefresh } from './codex-upgrade.js';
+import { planAgyRefresh } from './agy-upgrade.js';
 import { eduOwnedRoot } from './native-files.js';
 import { pluginRecoveryPath, resumeRegistrationRecovery, withRegistrationRecovery } from './plugin-recovery.js';
 import { eduMcpLaunch, spawnCli, type McpLaunch } from '../platform/index.js';
@@ -414,6 +415,10 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
         });
         continue;
       }
+    }
+    if (cli === 'agy') {
+      nativeRefreshes.push(await planAgyRefresh({ packageRoot: plan.packageRoot, brainRoot, runner }));
+      continue;
     }
     throw new Error(`Manual conflict: ${cli} native cache refresh cannot be verified from legacy setup metadata. Preserve custom files and back up the installed plugin before a targeted host update; restart required. No native update was run.`);
   }

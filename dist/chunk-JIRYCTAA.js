@@ -628,9 +628,64 @@ async function planCodexRefresh(options) {
   };
 }
 
+// src/setup/agy-upgrade.ts
+import { cp, mkdir as mkdir2, readFile as readFile6 } from "fs/promises";
+import { join as join6 } from "path";
+async function listEdu(runner) {
+  const listed = await runner({ cli: "agy", command: "agy", args: ["plugin", "list", "--json"] });
+  if (listed.exitCode !== 0) throw new Error(`agy plugin list failed: ${listed.stderr ?? ""}`.trim());
+  const plugins = JSON.parse(listed.stdout ?? "[]");
+  const matches = Array.isArray(plugins) ? plugins.filter((p) => p.name === "edu") : [];
+  if (matches.length > 1) throw new Error("more than one plugin named edu is installed");
+  return matches[0];
+}
+async function planAgyRefresh(options) {
+  const { packageRoot, brainRoot, runner } = options;
+  const source = join6(packageRoot, "plugins/agy");
+  let installed;
+  let next;
+  try {
+    const manifest = JSON.parse(await readFile6(join6(source, "plugin.json"), "utf8"));
+    if (manifest.name !== "edu" || !manifest.version) throw new Error("invalid candidate plugin manifest");
+    next = manifest.version;
+    installed = await listEdu(runner);
+    if (installed?.path) {
+      const own = JSON.parse(await readFile6(join6(installed.path, "plugin.json"), "utf8").catch(() => "{}"));
+      if (own.name !== "edu") throw new Error(`installed plugin at ${installed.path} is not Edu's`);
+    }
+  } catch (error) {
+    throw new Error(`Manual conflict: agy native plugin: ${error instanceof Error ? error.message : error}`);
+  }
+  if (installed?.version === next) return async () => {
+  };
+  return async () => {
+    let backup;
+    if (installed?.path) {
+      const stamp = (options.now?.() ?? /* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+      backup = join6(brainRoot, "backups", `agy-plugin-${stamp}`);
+      await mkdir2(join6(brainRoot, "backups"), { recursive: true });
+      await cp(installed.path, backup, { recursive: true, errorOnExist: true, force: false });
+    }
+    try {
+      const result = await runner({ cli: "agy", command: "agy", args: ["plugin", "install", source] });
+      if (result.exitCode !== 0) throw new Error(`host exit ${result.exitCode}: ${result.stderr ?? ""}`.trim());
+      const now = await listEdu(runner);
+      if (now?.version !== next) throw new Error(`installed version is ${now?.version ?? "missing"}, expected ${next}`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (backup) {
+        const restored = await runner({ cli: "agy", command: "agy", args: ["plugin", "install", backup] }).catch(() => void 0);
+        if (restored?.exitCode === 0) throw new Error(`agy native refresh failed (${reason}); the previous plugin was reinstalled from ${backup}`);
+        throw new Error(`agy native refresh failed (${reason}) and the previous plugin could not be reinstalled. Restore it with: agy plugin install "${backup}"`);
+      }
+      throw new Error(`agy native refresh failed: ${reason}`);
+    }
+  };
+}
+
 // src/setup/index.ts
-import { access, mkdir as mkdir2, readFile as readFile6, readdir as readdir2, realpath as realpath3, rename as rename2, rmdir, unlink as unlink2, writeFile as writeFile2 } from "fs/promises";
-import { dirname as dirname3, join as join6, resolve as resolve6, sep } from "path";
+import { access, mkdir as mkdir3, readFile as readFile7, readdir as readdir2, realpath as realpath3, rename as rename2, rmdir, unlink as unlink2, writeFile as writeFile2 } from "fs/promises";
+import { dirname as dirname3, join as join7, resolve as resolve6, sep } from "path";
 import { parse as parse2 } from "jsonc-parser";
 
 // src/detach/edit.ts
@@ -953,7 +1008,7 @@ function nativeCommands(cli, packageRoot) {
     case "pi":
       return [{ cli, command: "pi", args: ["install", packageRoot] }];
     case "agy":
-      return [{ cli, command: "agy", args: ["plugin", "install", join6(packageRoot, "plugins/agy")] }];
+      return [{ cli, command: "agy", args: ["plugin", "install", join7(packageRoot, "plugins/agy")] }];
     case "opencode":
       return [];
   }
@@ -988,20 +1043,20 @@ function isInstalled(result, cli) {
   });
 }
 async function collectFiles(root, relative = "") {
-  const entries = await readdir2(join6(root, relative), { withFileTypes: true });
+  const entries = await readdir2(join7(root, relative), { withFileTypes: true });
   const files = [];
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    const path = join6(relative, entry.name);
+    const path = join7(relative, entry.name);
     if (entry.isDirectory()) files.push(...await collectFiles(root, path));
-    else if (entry.isFile()) files.push({ path, content: await readFile6(join6(root, path), "utf8") });
+    else if (entry.isFile()) files.push({ path, content: await readFile7(join7(root, path), "utf8") });
   }
   return files;
 }
 async function appendOpenCodeAssets(plan, packageRoot) {
-  const sourceRoot = join6(packageRoot, "plugins/opencode");
-  const destinationRoot = join6(plan.home, ".config/opencode");
+  const sourceRoot = join7(packageRoot, "plugins/opencode");
+  const destinationRoot = join7(plan.home, ".config/opencode");
   for (const category of ["commands", "agents", "plugins"]) {
-    const source = join6(sourceRoot, category);
+    const source = join7(sourceRoot, category);
     let files;
     try {
       files = await collectFiles(source);
@@ -1014,7 +1069,7 @@ async function appendOpenCodeAssets(plan, packageRoot) {
       const action = {
         cli: "opencode",
         kind: "file",
-        path: join6(destinationRoot, category, file.path),
+        path: join7(destinationRoot, category, file.path),
         description: `Install OpenCode ${category} file ${file.path}`,
         content: file.content
       };
@@ -1026,21 +1081,21 @@ async function appendOpenCodeAssets(plan, packageRoot) {
 }
 var OPENCODE1_TUI_PLUGIN = "tui-plugins/edu.tsx";
 function retireOpenCode1Tui(plan, destinationRoot) {
-  const stale = join6(destinationRoot, OPENCODE1_TUI_PLUGIN);
+  const stale = join7(destinationRoot, OPENCODE1_TUI_PLUGIN);
   const jsonPatch = { plugin: { [UNION]: [stale] } };
   plan.retire = [
     ...plan.retire ?? [],
     { kind: "file", path: stale },
-    { kind: "json-merge", path: join6(destinationRoot, "tui.json"), jsonPatch },
-    { kind: "json-merge", path: join6(destinationRoot, "tui.jsonc"), jsonPatch }
+    { kind: "json-merge", path: join7(destinationRoot, "tui.json"), jsonPatch },
+    { kind: "json-merge", path: join7(destinationRoot, "tui.jsonc"), jsonPatch }
   ];
 }
 async function removeOpenCode1TuiFromCliJson(home) {
-  const destinationRoot = join6(home, ".config/opencode");
-  const path = join6(destinationRoot, "cli.json");
+  const destinationRoot = join7(home, ".config/opencode");
+  const path = join7(destinationRoot, "cli.json");
   let text;
   try {
-    text = await readFile6(path, "utf8");
+    text = await readFile7(path, "utf8");
   } catch (error) {
     if (error.code === "ENOENT") return;
     throw error;
@@ -1048,7 +1103,7 @@ async function removeOpenCode1TuiFromCliJson(home) {
   const errors = [];
   const value = parse2(text, errors, { allowTrailingComma: true });
   if (errors.length || !value || typeof value !== "object" || !Array.isArray(value.plugins)) return;
-  const stale = join6(destinationRoot, OPENCODE1_TUI_PLUGIN);
+  const stale = join7(destinationRoot, OPENCODE1_TUI_PLUGIN);
   const indexes = value.plugins.flatMap((item, index) => item === stale ? [index] : []);
   if (!indexes.length) return;
   let next = text;
@@ -1059,15 +1114,15 @@ var OPENCODE_TUI_PLUGIN = "plugins/edu-deck/tui.tsx";
 async function appendOpenCodeTui(plan, sourceRoot, destinationRoot) {
   let tui;
   try {
-    tui = await readFile6(join6(sourceRoot, "tui/edu.tsx"), "utf8");
+    tui = await readFile7(join7(sourceRoot, "tui/edu.tsx"), "utf8");
   } catch (error) {
     if (error.code === "ENOENT") return;
     throw error;
   }
-  plan.actions.push({ cli: "opencode", kind: "file", path: join6(destinationRoot, OPENCODE_TUI_PLUGIN), description: "Install the Edu Deck OpenCode TUI plugin", content: tui });
+  plan.actions.push({ cli: "opencode", kind: "file", path: join7(destinationRoot, OPENCODE_TUI_PLUGIN), description: "Install the Edu Deck OpenCode TUI plugin", content: tui });
   try {
-    const theme = await readFile6(join6(sourceRoot, "themes/edu.json"), "utf8");
-    plan.actions.push({ cli: "opencode", kind: "file", path: join6(destinationRoot, "themes/edu.json"), description: "Install the edu OpenCode theme", content: theme });
+    const theme = await readFile7(join7(sourceRoot, "themes/edu.json"), "utf8");
+    plan.actions.push({ cli: "opencode", kind: "file", path: join7(destinationRoot, "themes/edu.json"), description: "Install the edu OpenCode theme", content: theme });
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
@@ -1092,7 +1147,7 @@ async function planSetup(options) {
   return { ...options, packageRoot: resolve6(options.packageRoot), home: resolve6(options.home), commands, fallback, alreadyInstalled };
 }
 async function writeManifest(path, manifest) {
-  await mkdir2(dirname3(path), { recursive: true });
+  await mkdir3(dirname3(path), { recursive: true });
   const temp = `${path}.${process.pid}.tmp`;
   await writeFile2(temp, `${JSON.stringify(manifest, null, 2)}
 `);
@@ -1110,7 +1165,7 @@ async function localizePluginsForPlatform(packageRoot, platform = process.platfo
   const written = [];
   for (const [cli, relative, shape] of targets) {
     if (opts.clis && !opts.clis.includes(cli)) continue;
-    const path = join6(packageRoot, relative);
+    const path = join7(packageRoot, relative);
     try {
       await access(path);
     } catch {
@@ -1129,7 +1184,7 @@ async function localizeUpgradeSources(plan, options, brainRoot, native) {
   if (!/[\\/]node_modules[\\/]edu-agent$/.test(plan.packageRoot) || await realpath3(plan.packageRoot) !== resolve6(plan.packageRoot)) throw new Error("Manual conflict: Windows native upgrade requires an owned installed edu-agent package");
   const changed = [];
   for (const cli of clis) {
-    const path = join6(plan.packageRoot, "plugins", cli === "claude" ? "claude-code" : "codex", ".mcp.json");
+    const path = join7(plan.packageRoot, "plugins", cli === "claude" ? "claude-code" : "codex", ".mcp.json");
     if (await realpath3(path) !== resolve6(path)) throw new Error(`Manual conflict: symlinked candidate MCP ${path}`);
     const before = await readTarget(path);
     const shape = (launch) => cli === "claude" ? { edu: launch } : { mcpServers: { edu: launch } };
@@ -1146,15 +1201,15 @@ async function localizeUpgradeSources(plan, options, brainRoot, native) {
 }
 async function optionalSetupFile(path) {
   try {
-    return await readFile6(path, "utf8");
+    return await readFile7(path, "utf8");
   } catch (error) {
     if (error.code === "ENOENT") return void 0;
     throw error;
   }
 }
 async function prepareUpgrade(plan, options, brainRoot) {
-  const existingBrain = await optionalSetupFile(join6(brainRoot, "EDU.md")) !== void 0;
-  const registry = await optionalSetupFile(join6(brainRoot, "projects.json"));
+  const existingBrain = await optionalSetupFile(join7(brainRoot, "EDU.md")) !== void 0;
+  const registry = await optionalSetupFile(join7(brainRoot, "projects.json"));
   if (existingBrain || registry !== void 0) {
     const results = await migrateWorkspaces(brainRoot);
     const failures = results.filter((r) => r.status !== "migrated" && !(r.name === "global" && !existingBrain && ["missing", "no-brain"].includes(r.status)));
@@ -1167,7 +1222,7 @@ async function prepareUpgrade(plan, options, brainRoot) {
   if (!existingBrain || !previousText && !adapterText && !plan.alreadyInstalled.length) return void 0;
   const previous = previousText ? JSON.parse(previousText) : void 0;
   if (previous && (previous.version !== 1 || !Array.isArray(previous.native) || !Array.isArray(previous.fallback))) throw new Error("Invalid setup manifest");
-  const templatesDir = options.templatesDir ?? join6(plan.packageRoot, "templates");
+  const templatesDir = options.templatesDir ?? join7(plan.packageRoot, "templates");
   const storedAdapter = adapterText ? JSON.parse(adapterText) : void 0;
   if (storedAdapter && !Array.isArray(storedAdapter.actions)) throw new Error("Invalid adapter manifest");
   const configured = /* @__PURE__ */ new Set([
@@ -1202,7 +1257,7 @@ async function prepareUpgrade(plan, options, brainRoot) {
     for (const cli of plan.clis) {
       for (const action of await skillActions(cli, scope.scope, scope.root, { home: plan.home, templatesDir, selectedHosts: plan.clis, notes, bases })) {
         const prior = owned.find((a) => a.kind === "file" && a.path === action.path && (a.clis ?? [a.cli]).includes(cli));
-        const document = action.bundle ? owned.find((a) => a.kind === "file" && a.path === join6(action.bundle.root, "SKILL.md") && (a.clis ?? [a.cli]).includes(cli)) : void 0;
+        const document = action.bundle ? owned.find((a) => a.kind === "file" && a.path === join7(action.bundle.root, "SKILL.md") && (a.clis ?? [a.cli]).includes(cli)) : void 0;
         if (!prior && !document) continue;
         await validateBundleAction(action, bases);
         if (!prior) {
@@ -1220,8 +1275,8 @@ async function prepareUpgrade(plan, options, brainRoot) {
       }
     }
     if (scope.scope === "global" && plan.clis.includes("opencode")) {
-      const destination = join6(plan.home, ".config/opencode");
-      const assets = owned.filter((a) => a.kind === "file" && (a.clis ?? [a.cli]).includes("opencode") && ["commands", "agents", "plugins", "themes", "tui-plugins"].some((category) => a.path.startsWith(join6(destination, category) + sep)));
+      const destination = join7(plan.home, ".config/opencode");
+      const assets = owned.filter((a) => a.kind === "file" && (a.clis ?? [a.cli]).includes("opencode") && ["commands", "agents", "plugins", "themes", "tui-plugins"].some((category) => a.path.startsWith(join7(destination, category) + sep)));
       if (assets.length) {
         const candidates = { ...scope, home: plan.home, templatesDir, notes: [], actions: [] };
         await appendOpenCodeAssets(candidates, plan.packageRoot);
@@ -1278,6 +1333,10 @@ async function prepareUpgrade(plan, options, brainRoot) {
         continue;
       }
     }
+    if (cli === "agy") {
+      nativeRefreshes.push(await planAgyRefresh({ packageRoot: plan.packageRoot, brainRoot, runner }));
+      continue;
+    }
     throw new Error(`Manual conflict: ${cli} native cache refresh cannot be verified from legacy setup metadata. Preserve custom files and back up the installed plugin before a targeted host update; restart required. No native update was run.`);
   }
   for (const refresh of nativeRefreshes) await refresh();
@@ -1293,7 +1352,7 @@ async function prepareUpgrade(plan, options, brainRoot) {
   return { installed: [], fallback: previous?.fallback ?? [], alreadyInstalled: [.../* @__PURE__ */ new Set([...plan.alreadyInstalled, ...previous?.native ?? []])], failed: [], upgraded: true, ...notes.length ? { notes } : {}, ...deferred.length && options.addNew ? { deferred } : {} };
 }
 async function applySetup(plan, options = {}) {
-  const brainRoot = resolve6(options.brainRoot ?? process.env.EDU_HOME ?? join6(plan.home, ".edu"));
+  const brainRoot = resolve6(options.brainRoot ?? process.env.EDU_HOME ?? join7(plan.home, ".edu"));
   const upgraded = await prepareUpgrade(plan, options, brainRoot);
   if (upgraded && !upgraded.deferred?.length) return upgraded;
   if (upgraded) {
@@ -1319,8 +1378,8 @@ async function applyFreshSetup(plan, options, brainRoot) {
   await localizePluginsForPlatform(plan.packageRoot, options.platform);
   const createdDirs = [];
   if (plan.commands.some((c) => c.cli === "codex")) {
-    const codexHome = resolve6(process.env.CODEX_HOME || join6(plan.home, ".codex"));
-    const created = await mkdir2(codexHome, { recursive: true }).catch(() => void 0);
+    const codexHome = resolve6(process.env.CODEX_HOME || join7(plan.home, ".codex"));
+    const created = await mkdir3(codexHome, { recursive: true }).catch(() => void 0);
     if (created) createdDirs.push(codexHome);
   }
   for (const command of plan.commands) {
@@ -1336,13 +1395,13 @@ async function applyFreshSetup(plan, options, brainRoot) {
   for (const cli of successful) if (!pending.has(cli)) report.installed.push(cli);
   let adapterPlan;
   if (pending.size) {
-    adapterPlan = await planInstall({ clis: [...pending], selectedHosts: plan.clis, scope: "global", root: plan.packageRoot, home: plan.home, templatesDir: options.templatesDir ?? join6(plan.packageRoot, "templates") });
+    adapterPlan = await planInstall({ clis: [...pending], selectedHosts: plan.clis, scope: "global", root: plan.packageRoot, home: plan.home, templatesDir: options.templatesDir ?? join7(plan.packageRoot, "templates") });
     if (pending.has("opencode")) await appendOpenCodeAssets(adapterPlan, plan.packageRoot);
     report.fallback.push(...pending);
   }
   const codexInstalled = successful.has("codex") || plan.alreadyInstalled.includes("codex");
   if (codexInstalled && !pending.has("codex")) {
-    const templatesDir = options.templatesDir ?? join6(plan.packageRoot, "templates");
+    const templatesDir = options.templatesDir ?? join7(plan.packageRoot, "templates");
     const identityActions = instructionActions("codex", "global", plan.packageRoot, { home: plan.home, templatesDir, brainRoot });
     if (adapterPlan) {
       adapterPlan.actions.push(...identityActions);
@@ -1364,11 +1423,11 @@ async function applyFreshSetup(plan, options, brainRoot) {
     adapterManifestPath = getManifestPath("global", plan.packageRoot, plan.home);
   }
   if (pending.has("opencode")) await removeOpenCode1TuiFromCliJson(plan.home);
-  await initBrain({ location: { scope: "global", root: brainRoot }, templatesDir: options.templatesDir ?? join6(plan.packageRoot, "templates"), detected: options.detected ?? plan.clis, lang: options.lang });
-  const manifestPath = join6(plan.home, ".edu/plugin-setup.json");
+  await initBrain({ location: { scope: "global", root: brainRoot }, templatesDir: options.templatesDir ?? join7(plan.packageRoot, "templates"), detected: options.detected ?? plan.clis, lang: options.lang });
+  const manifestPath = join7(plan.home, ".edu/plugin-setup.json");
   let previous;
   try {
-    previous = JSON.parse(await readFile6(manifestPath, "utf8"));
+    previous = JSON.parse(await readFile7(manifestPath, "utf8"));
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
@@ -1380,17 +1439,17 @@ async function applyFreshSetup(plan, options, brainRoot) {
     ...adapterManifestPath || previous?.adapterManifestPath ? { adapterManifestPath: adapterManifestPath ?? previous?.adapterManifestPath } : {},
     ...createdDirs.length || previous?.createdDirs?.length ? { createdDirs: [.../* @__PURE__ */ new Set([...previous?.createdDirs ?? [], ...createdDirs])] } : {}
   };
-  await writeManifest(join6(plan.home, ".edu/plugin-setup.json"), manifest);
+  await writeManifest(join7(plan.home, ".edu/plugin-setup.json"), manifest);
   return report;
 }
 async function setupManifestPath(home) {
-  return join6(resolve6(home), ".edu/plugin-setup.json");
+  return join7(resolve6(home), ".edu/plugin-setup.json");
 }
 async function uninstallSetup(options) {
   const path = await setupManifestPath(options.home);
   let manifest;
   try {
-    manifest = JSON.parse(await readFile6(path, "utf8"));
+    manifest = JSON.parse(await readFile7(path, "utf8"));
   } catch (error) {
     if (error.code === "ENOENT") return;
     throw error;
@@ -1442,7 +1501,7 @@ async function uninstallSetup(options) {
 }
 async function needsFirstRunSetup(home) {
   try {
-    await access(join6(home, "config.json"));
+    await access(join7(home, "config.json"));
     return false;
   } catch (error) {
     if (error.code === "ENOENT") return true;
@@ -1463,4 +1522,4 @@ export {
   uninstallSetup,
   needsFirstRunSetup
 };
-//# sourceMappingURL=chunk-WTENJ4PS.js.map
+//# sourceMappingURL=chunk-JIRYCTAA.js.map
