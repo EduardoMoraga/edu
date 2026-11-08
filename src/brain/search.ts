@@ -35,6 +35,11 @@ const KIND_CUES: ReadonlyArray<readonly [kind: string, words: readonly string[]]
   ['hypothesis', ['hypothesis', 'hypotheses', 'suspect', 'suspicion', 'hipotesis', 'sospecha', 'sospechamos', 'theory', 'teoria']],
 ];
 const KIND_BOOST = 0.15;
+/**
+ * Score × EPISODE_WEIGHT for episodic notes (session logs). A session mentions many topics in passing; the
+ * decision, lesson or canonical note distilled from it is the better answer when both match a question.
+ */
+const EPISODE_WEIGHT = 0.85;
 
 /** Kinds the query asks for, from its cue words. */
 function askedKinds(text: string): Set<string> {
@@ -49,7 +54,7 @@ export interface SearchOptions {
   includePassages?: boolean;
   /**
    * Plain BM25 similarity over every query word, without the question shaping (query function words, coverage,
-   * title coverage, kind cues). For callers
+   * title coverage, kind cues, episode weight). For callers
    * that compare a whole note against others by score ratio (compile on write), not answer a question.
    */
   similarity?: boolean;
@@ -272,7 +277,8 @@ export function rankNotes(query: string, notes: Note[], now = new Date(), limit 
   const ranked = hitsOf(scored).map(({ doc: { note, named: isNamed }, bm25, coverage, titleCoverage, matched }) => {
     const w = learnedWeight(note.meta.usage, now);
     if (isNamed) return { note, score: 1_000_000, why: `Named by id or alias "${query.trim()}"; learned weight ${w.toFixed(2)}.` };
-    const shape = options.similarity ? 1 : Math.pow(coverage, COVERAGE_EXPONENT) * (1 + TITLE_COVERAGE_BOOST * titleCoverage) * (kinds.has(note.meta.kind ?? '') ? 1 + KIND_BOOST : 1);
+    const shape = options.similarity ? 1 : Math.pow(coverage, COVERAGE_EXPONENT) * (1 + TITLE_COVERAGE_BOOST * titleCoverage) * (kinds.has(note.meta.kind ?? '') ? 1 + KIND_BOOST : 1)
+      * (note.meta.tier === 'episodic' ? EPISODE_WEIGHT : 1);
     return { note, score: bm25 * shape * (0.5 + w), why: `Matched ${matched.join(', ')}; learned weight ${w.toFixed(2)}.` };
   });
   return ranked.sort((a, b) => b.score - a.score || a.note.meta.id.localeCompare(b.note.meta.id)).slice(0, Math.max(0, limit)).map(hit => {

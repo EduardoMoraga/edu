@@ -116,6 +116,15 @@ describe('bilingual and paraphrase-tolerant recall', () => {
     expect(rankNotes('cache invalidation', [lesson, decision], now)[0]?.note.meta.id).toBe('D-cache');
   });
 
+  it('prefers a distilled note over a session log that matches as well, not over a better-matching one', () => {
+    const decision = note('D-dns', 'Move DNS to Cloudflare', 'DNS zones move to Cloudflare.');
+    const session = note('A-dns', 'Move DNS to Cloudflare', 'DNS zones move to Cloudflare.', { tier: 'episodic', kind: 'session', status: 'closed' });
+    expect(rankNotes('dns cloudflare', [session, decision], now).map(hit => hit.note.meta.id)).toEqual(['D-dns', 'A-dns']);
+    const call = note('S-acme', 'Customer call with Acme', 'Acme wants SSO next quarter.', { tier: 'episodic', kind: 'session', status: 'closed' });
+    const other = note('D-sso', 'SSO through the identity provider', 'SSO uses the identity provider.');
+    expect(rankNotes('acme call', [other, call], now)[0]?.note.meta.id).toBe('S-acme');
+  });
+
   it('keeps plain BM25 similarity for whole-note comparison', () => {
     const a = note('D-a', 'Store sessions in Redis', 'Session storage uses Redis with a one hour expiry.');
     const b = note('D-b', 'Store sessions in Postgres', 'Session storage uses Postgres with a one hour expiry.');
