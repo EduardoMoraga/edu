@@ -48,6 +48,7 @@ function contextTable(c: ContextReport): string[] {
     `session brief      ${String(c.brief.tokens).padStart(6)}  (budget ${c.brief.budgetTokens}; hook output ${c.brief.hookTokens})`,
     `brief stability    ${s.identical ? 'identical' : 'differs'}; common prefix ${s.commonPrefixTokens}/${s.secondTokens} tokens (${pct(s.commonPrefixRatio).trim()})`,
     ...(s.firstDifference ? [`  first difference: ${s.firstDifference.slice(0, 100)}`] : []),
+    `brief after recall ${s.afterRecallIdentical ? 'identical' : 'differs'}`,
     `MCP tools (full)   ${String(c.mcp.full.tokens).padStart(6)}  (${c.mcp.full.tools} tools)`,
     `MCP tools (memory) ${String(c.mcp.memory.tokens).padStart(6)}  (${c.mcp.memory.tools} tools)`,
   ];

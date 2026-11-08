@@ -2,12 +2,22 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { readWorkspaceSettings } from '../brain/location.js';
 import type { Brain } from '../brain/index.js';
-import { learnedWeight } from '../brain/index.js';
+import { CATALOG_FILE } from '../brain/catalog.js';
+import { INDEX_DIR } from '../core/contracts.js';
 import { isOperationalNote, rankNotes, relevantPassage } from '../brain/search.js';
 import type { ContextPack, ContextRequest, ContextSection, Note } from '../core/contracts.js';
 import { estimateTokens, truncateToTokens } from './tokens.js';
 
 export interface ContextOptions { eduMdPath?: string; now?: Date; trackUsage?: boolean }
+
+/**
+ * Display order of brief sections, most stable first, so a host's prompt cache keeps the longest possible prefix:
+ * identity and accepted canonical notes rarely change; decisions and lessons change on deliberate writes;
+ * commitments churn with work; episodes change with every closed session; the index pointer counts every write.
+ * Sections are still filled in priority order (what wins the budget); only the rendering follows this order.
+ */
+const SECTION_ORDER = ['Identity core', 'Who and how', 'Active decisions', 'Proven lessons', 'Canonical hits', 'Active commitments & open hypotheses', 'Last 3 episodes', 'Index pointer'];
+const sectionRank = (title: string) => { const rank = SECTION_ORDER.indexOf(title); return rank < 0 ? SECTION_ORDER.length : rank; };
 
 function byNewest(a: Note, b: Note): number {
   return b.meta.created.localeCompare(a.meta.created) || a.meta.id.localeCompare(b.meta.id);
@@ -60,7 +70,7 @@ async function assembleContext(brain: Brain, req: ContextRequest, opts: ContextO
   const deferred: string[] = [];
   const deferredIds = new Set<string>();
   const included = new Set<string>();
-  const fullText = () => sections.map(section => section.text).join('\n\n');
+  const fullText = () => [...sections].sort((a, b) => sectionRank(a.title) - sectionRank(b.title)).map(section => section.text).join('\n\n');
   const defer = (note: Note) => {
     if (!included.has(note.meta.id) && !deferredIds.has(note.meta.id)) { deferredIds.add(note.meta.id); deferred.push(note.meta.id); }
   };
@@ -136,9 +146,10 @@ async function assembleContext(brain: Brain, req: ContextRequest, opts: ContextO
     ? rankNotes(query, candidates, now, candidates.length, { includePassages: false })
       .sort((a, b) => b.score - a.score || Number(b.note.meta.status === 'proven') - Number(a.note.meta.status === 'proven'))
       .map(hit => hit.note)
+    // Content-only order (kind, proven, created, id): exposure (recall, injection) and the clock never reorder the
+    // brief. Feedback still counts through the lifecycle: wins promote a lesson to proven.
     : candidates.sort((a, b) => Number(b.meta.kind === 'decision') - Number(a.meta.kind === 'decision')
       || Number(b.meta.status === 'proven') - Number(a.meta.status === 'proven')
-      || learnedWeight(b.meta.usage, now) - learnedWeight(a.meta.usage, now)
       || byNewest(a, b));
   const counts = new Map<string, number>();
   for (const note of ordered) {
@@ -167,7 +178,7 @@ async function assembleContext(brain: Brain, req: ContextRequest, opts: ContextO
     add('Last 3 episodes', `- ${note.meta.title}${summary ? `: ${truncateToTokens(summary, 50)}` : ''}`, note);
   }
   const remaining = allNotes.filter(note => !included.has(note.meta.id)).length;
-  add('Index pointer', `${remaining} more notes available via edu_recall/edu_read`);
+  add('Index pointer', `catalog: ${INDEX_DIR}/${CATALOG_FILE} · ${remaining} more notes via edu_recall/edu_read`);
 
   if (trackUsage) await brain.recordUse([...included], now);
   const text = fullText();

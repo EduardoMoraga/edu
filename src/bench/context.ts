@@ -5,6 +5,7 @@
  *   fixture brain with the same estimator Edu uses for its budgets (src/context/tokens.ts).
  * - Brief stability: two session starts with different host session ids. Identical bytes (or a long common
  *   prefix) keep the host's prompt cache warm; every byte after the first difference is re-billed each session.
+ *   A third start of the first session after a recall checks that exposure (recall hits) leaves the brief alone.
  * - MCP tool definitions: what a host receives from `tools/list` (name, description, JSON input schema,
  *   annotations), fetched over an in-memory transport, no stdio and no model.
  */
@@ -15,6 +16,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CliContext } from '../cli/context.js';
 import { SESSION_BRIEF_TOKENS, sessionStart, workspaceBrief } from '../cli/hooks.js';
+import { openBrain } from '../brain/index.js';
 import { estimateTokens } from '../context/tokens.js';
 import type { BrainLocation } from '../core/contracts.js';
 import { createEduMcpServer } from '../mcp/server.js';
@@ -34,6 +36,8 @@ export interface ContextReport {
     commonPrefixRatio: number;
     /** First line of the second hook output that differs from the first one (diagnostic). */
     firstDifference: string | null;
+    /** The first session's start repeated after a recall is byte-identical to the original start. */
+    afterRecallIdentical: boolean;
   };
   mcp: { full: ToolProfileCost; memory: ToolProfileCost };
 }
@@ -104,6 +108,8 @@ export async function runContextBench(options: { tmpRoot?: string } = {}): Promi
     if (!plain) throw new Error('bench brain was not initialized');
     const first = await hookOutput(base, cwd, 'bench-session-a');
     const second = await hookOutput(base, cwd, 'bench-session-b');
+    await openBrain([{ scope: 'project', root: join(cwd, '.edu') }]).recall('scheduler locks');
+    const afterRecall = await hookOutput(base, cwd, 'bench-session-a');
     const prefix = first.slice(0, commonPrefixLength(first, second));
     const firstLines = first.split('\n');
     const difference = second.split('\n').find((line, i) => line !== firstLines[i]);
@@ -119,6 +125,7 @@ export async function runContextBench(options: { tmpRoot?: string } = {}): Promi
         commonPrefixTokens: prefixTokens,
         commonPrefixRatio: secondTokens ? Math.round((prefixTokens / secondTokens) * 1e4) / 1e4 : 1,
         firstDifference: first === second ? null : difference ?? '(second output is a prefix of the first)',
+        afterRecallIdentical: afterRecall === first,
       },
       mcp: { full: await mcpToolCost(locations, 'full'), memory: await mcpToolCost(locations, 'memory') },
     };

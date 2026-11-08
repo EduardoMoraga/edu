@@ -17,6 +17,9 @@ describe('context bench', () => {
     // The hook appends the host session line to the brief.
     expect(a.brief.hookTokens).toBeGreaterThan(a.brief.tokens);
     expect(a.stability.commonPrefixTokens).toBeLessThanOrEqual(a.stability.secondTokens);
+    // Only the host session line differs between two starts, and a recall changes nothing.
+    expect(a.stability.firstDifference).toMatch(/^Edu session id: /);
+    expect(a.stability.afterRecallIdentical).toBe(true);
     expect(a.mcp.full.tools).toBeGreaterThan(a.mcp.memory.tools);
     expect(a.mcp.full.tokens).toBeGreaterThan(a.mcp.memory.tokens);
     expect(a.mcp.full.perTool.map(t => t.name)).toContain('edu_recall');

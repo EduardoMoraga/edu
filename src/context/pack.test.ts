@@ -79,6 +79,25 @@ describe('context packs', () => {
     expect(first).toContain('edu_recall/edu_read');
   });
 
+  it('is cache-stable: recall exposure and the clock never change it, volatile sections come last, the pointer names the catalog', async () => {
+    const { brain, eduMdPath } = await fixture();
+    await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Older checksum lesson', body: 'Verify the checksum.', created: '2026-09-01T00:00:00Z' });
+    const newer = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Newer cache lesson', body: 'Warm the cache.', created: '2026-09-02T00:00:00Z' });
+    await brain.write({ tier: 'transitive', kind: 'decision', title: 'Use queues', body: 'Queues decouple the ETL.' });
+    await brain.write({ tier: 'transitive', kind: 'commitment', title: 'Ship the report', body: 'Weekly.', due: '2026-10-09' });
+    await brain.write({ tier: 'episodic', title: 'Last episode', body: 'Summary', created: '2026-10-01T00:00:00Z' });
+    const first = await brief(brain, 1500, { eduMdPath, now: new Date('2026-10-08T00:00:00Z') });
+    // Recall writes exposure (machine-local ledger) for the newer lesson; a later clock would decay any recency weight.
+    expect((await brain.recall('cache')).map(hit => hit.note.meta.id)).toContain(newer.meta.id);
+    await brain.recordUse([newer.meta.id], new Date('2026-10-08T12:00:00Z'));
+    expect(await brief(brain, 1500, { eduMdPath, now: new Date('2027-03-01T00:00:00Z') })).toBe(first);
+
+    const headings = [...first.matchAll(/^## (.+)$/gm)].map(match => match[1]);
+    expect(headings).toEqual(['Identity core', 'Active decisions', 'Proven lessons', 'Active commitments & open hypotheses', 'Last 3 episodes', 'Index pointer']);
+    expect(first.indexOf('Newer cache lesson')).toBeLessThan(first.indexOf('Older checksum lesson'));
+    expect(first.trim().split('\n').at(-1)).toMatch(/^catalog: 0-index\/catalog\.md · \d+ more notes via edu_recall\/edu_read$/);
+  });
+
   it('keeps weighted candidate ordering stable across repeated briefs', async () => {
     const { brain, eduMdPath } = await fixture();
     const stale = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Alpha weighted lesson', body: 'Old lesson' });
