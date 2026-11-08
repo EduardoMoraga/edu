@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { isEmptySession, isGenerated, syncBrain, withoutCounters } from './sync.js';
+import { conflictBranches, isAppendOnly, isEmptySession, isGenerated, mergeAppendOnly, remoteUrl, syncBrain, withoutCounters } from './sync.js';
 
 const env = { ...process.env, GIT_AUTHOR_NAME: 'Edu', GIT_AUTHOR_EMAIL: 'edu@example.com', GIT_COMMITTER_NAME: 'Edu', GIT_COMMITTER_EMAIL: 'edu@example.com', GIT_CONFIG_NOSYSTEM: '1' };
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -114,14 +114,80 @@ describe('edu sync', () => {
     expect(result.state).toBe('offline');
     expect(git(a.vault, 'log', '-1', '--format=%s')).toMatch(/auto-sync from a/);
   });
+
+  it('merges concurrent appends to the append-only log from two clones', async () => {
+    const log = '01-CONOCIMIENTO/0-index/log.md';
+    write(a, log, '# Log\n\n## [2026-11-01 09:00] seed\n');
+    await sync(a, 'a');
+    await sync(b, 'b');
+    write(a, log, '# Log\n\n## [2026-11-01 09:00] seed\n\n## [2026-11-02 11:00] from a\n');
+    write(b, log, '# Log\n\n## [2026-11-01 09:00] seed\n\n## [2026-11-02 10:30] from b\n- detail b\n');
+    await sync(a, 'a');
+    const result = await sync(b, 'b');
+    expect(result.state).toBe('ok');
+    expect(result.merged).toEqual([log]);
+    const merged = '# Log\n\n## [2026-11-01 09:00] seed\n\n## [2026-11-02 10:30] from b\n- detail b\n\n## [2026-11-02 11:00] from a\n';
+    expect(read(b, log)).toBe(merged);
+    expect((await sync(a, 'a')).state).toBe('ok');
+    expect(read(a, log)).toBe(merged);
+  });
+
+  it('treats the English dashboard and the catalog as generated', async () => {
+    write(a, '00-START/Dashboard.md', 'A\n');
+    write(a, '01-CONOCIMIENTO/0-index/catalog.md', 'catalog A\n');
+    await sync(a, 'a');
+    await sync(b, 'b');
+    write(a, '00-START/Dashboard.md', 'A2\n');
+    write(a, '01-CONOCIMIENTO/0-index/catalog.md', 'catalog A2\n');
+    await sync(a, 'a');
+    write(b, '00-START/Dashboard.md', 'B2\n');
+    write(b, '01-CONOCIMIENTO/0-index/catalog.md', 'catalog B2\n');
+    const result = await sync(b, 'b');
+    expect(result.state).toBe('ok');
+    expect(result.resolved.sort()).toEqual(['00-START/Dashboard.md', '01-CONOCIMIENTO/0-index/catalog.md']);
+    expect(read(b, '00-START/Dashboard.md')).toBe('A2\n');
+  });
+
+  it('ignores the local exposure ledger, once', async () => {
+    write(a, '01-CONOCIMIENTO/.edu-local/exposure.json', '{}\n');
+    expect((await sync(a, 'a')).state).toBe('ok');
+    expect((await sync(a, 'a')).state).toBe('ok');
+    expect(read(a, '.gitignore').split('\n').filter(line => line === '.edu-local/')).toHaveLength(1);
+    expect(git(a.vault, 'ls-tree', '-r', '--name-only', 'origin/main')).not.toContain('.edu-local');
+  });
+
+  it('lists conflict branches and redacts the remote', async () => {
+    write(a, '01-CONOCIMIENTO/1-canonical/D-x.md', note('edited on a'));
+    await sync(a, 'a');
+    write(b, '01-CONOCIMIENTO/1-canonical/D-x.md', note('edited on b'));
+    const result = await sync(b, 'b');
+    expect(await conflictBranches(b.vault, env)).toEqual([result.branch]);
+    git(b.vault, 'remote', 'set-url', 'origin', 'https://user:s3cretT0ken@example.invalid/x/edu-vault.git');
+    expect(await remoteUrl(b.vault, env)).toBe('https://***@example.invalid/x/edu-vault.git');
+    const offline = await sync(b, 'b');
+    expect(offline.state).toBe('offline');
+    expect(offline.message).not.toContain('s3cretT0ken');
+  });
 });
 
 describe('sync helpers', () => {
   it('recognizes generated files', () => {
     expect(isGenerated('01-CONOCIMIENTO/0-index/INDEX.md')).toBe(true);
     expect(isGenerated('00-INICIO/Panel.md')).toBe(true);
+    expect(isGenerated('00-START/Dashboard.md')).toBe(true);
+    expect(isGenerated('vault/00-START/Dashboard.md')).toBe(true);
+    expect(isGenerated('notes/00-START/Dashboard.md.bak')).toBe(false);
+    expect(isGenerated('01-CONOCIMIENTO/0-index/catalog.md')).toBe(true);
+    expect(isGenerated('01-CONOCIMIENTO/0-index/log.md')).toBe(false);
+    expect(isAppendOnly('01-CONOCIMIENTO/0-index/log.md')).toBe(true);
     expect(isGenerated('x/Conocimiento.base')).toBe(true);
     expect(isGenerated('01-CONOCIMIENTO/1-canonical/D-x.md')).toBe(false);
+  });
+  it('unions append-only logs: deduped, chronological, upstream first on ties', () => {
+    const upstream = '# Log\n\n## [2026-11-02 10:00] u1\n## [2026-11-03 10:00] same\n';
+    const local = '# Log\n\n## [2026-11-01 08:00] l0\n## [2026-11-03 10:00] same\n## [2026-11-03 10:00] tie\n';
+    expect(mergeAppendOnly(upstream, local))
+      .toBe('# Log\n\n## [2026-11-01 08:00] l0\n## [2026-11-02 10:00] u1\n## [2026-11-03 10:00] same\n## [2026-11-03 10:00] tie\n');
   });
   it('ignores only frontmatter counters', () => {
     expect(withoutCounters(note('a', 1))).toBe(withoutCounters(note('a', 2)));
