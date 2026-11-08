@@ -91,7 +91,7 @@ describe('rebuildIndex Obsidian views', () => {
     await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Small PRs', body: 'x' });
     await brain.rebuildIndex();
     const files = (await readdir(index)).sort();
-    expect(files).toEqual([...baseFileNames('es'), 'INDEX.md', 'Mine.base', 'notes.md'].sort());
+    expect(files).toEqual([...baseFileNames('es'), 'INDEX.md', 'Mine.base', 'catalog.md', 'log.md', 'notes.md'].sort());
     const lessons = parse(await readFile(join(index, 'Lecciones.base'), 'utf8'));
     expect(lessons.filters.and).toEqual(['file.path.contains("/3-transitive/")', 'kind == "lesson"']);
     expect(lessons.formulas.proyecto).toContain('startsWith("01-CONOCIMIENTO/")');
