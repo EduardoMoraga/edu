@@ -58,6 +58,8 @@ export interface SearchOptions {
    * that compare a whole note against others by score ratio (compile on write), not answer a question.
    */
   similarity?: boolean;
+  /** How many hits to return when it differs from `limit` (which still decides when the typo fallback runs). */
+  depth?: number;
 }
 
 export function isOperationalNote(note: Note): boolean {
@@ -255,6 +257,9 @@ function addFuzzyFeatures(units: QueryUnit[], docs: Doc[]): boolean {
   return added;
 }
 
+/** The score of a note named by its exact id, alias or legacy id: above any lexical score. */
+export const NAMED_SCORE = 1_000_000;
+
 export function rankNotes(query: string, notes: Note[], now = new Date(), limit = 10, options: SearchOptions = {}): RecallHit[] {
   const reference = searchReference(query);
   if (!reference) return [];
@@ -276,14 +281,77 @@ export function rankNotes(query: string, notes: Note[], now = new Date(), limit 
   const kinds = askedKinds(reference);
   const ranked = hitsOf(scored).map(({ doc: { note, named: isNamed }, bm25, coverage, titleCoverage, matched }) => {
     const w = learnedWeight(note.meta.usage, now);
-    if (isNamed) return { note, score: 1_000_000, why: `Named by id or alias "${query.trim()}"; learned weight ${w.toFixed(2)}.` };
+    if (isNamed) return { note, score: NAMED_SCORE, why: `Named by id or alias "${query.trim()}"; learned weight ${w.toFixed(2)}.` };
     const shape = options.similarity ? 1 : Math.pow(coverage, COVERAGE_EXPONENT) * (1 + TITLE_COVERAGE_BOOST * titleCoverage) * (kinds.has(note.meta.kind ?? '') ? 1 + KIND_BOOST : 1)
       * (note.meta.tier === 'episodic' ? EPISODE_WEIGHT : 1);
     return { note, score: bm25 * shape * (0.5 + w), why: `Matched ${matched.join(', ')}; learned weight ${w.toFixed(2)}.` };
   });
-  return ranked.sort((a, b) => b.score - a.score || a.note.meta.id.localeCompare(b.note.meta.id)).slice(0, Math.max(0, limit)).map(hit => {
+  return ranked.sort((a, b) => b.score - a.score || a.note.meta.id.localeCompare(b.note.meta.id)).slice(0, Math.max(0, options.depth ?? limit)).map(hit => {
     if (options.includePassages === false) return hit;
     const passage = passageFor(hit.note.body, units, 480);
     return { ...hit, why: `${hit.why}${passage ? ` Passage: ${JSON.stringify(passage)}` : ''}` };
+  });
+}
+
+/** Reciprocal Rank Fusion constant (Cormack et al.): a hit at 1-based rank r adds 1 / (RRF_K + r). */
+export const RRF_K = 60;
+/** At most this many query variants (the question plus its rephrasings or translations) are fused. */
+export const MAX_QUERY_VARIANTS = 4;
+
+/** Trimmed, non-empty, deduplicated (case-insensitively) query variants, in order, capped at MAX_QUERY_VARIANTS. */
+export function queryVariants(queries: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const variants: string[] = [];
+  for (const raw of queries) {
+    const query = typeof raw === 'string' ? raw.trim() : '';
+    const key = query.toLocaleLowerCase('en');
+    if (!query || seen.has(key)) continue;
+    seen.add(key);
+    variants.push(query);
+    if (variants.length === MAX_QUERY_VARIANTS) break;
+  }
+  return variants;
+}
+
+/** A fused hit: its RRF score, its best single score, and the variant (index) where the note ranked best. */
+export interface FusedHit { hit: RecallHit; rrf: number; best: number; variant: number; named: boolean }
+
+/**
+ * Reciprocal Rank Fusion of ranked lists (one per query variant) over their union. Order: notes named by id or
+ * alias first, then RRF score, then the best single score, then id. Each fused hit keeps the hit (and so its
+ * `why`) of the variant where the note ranked best (the higher score, then the earlier variant, on a tie).
+ */
+export function fuseRankings(rankings: ReadonlyArray<readonly RecallHit[]>): FusedHit[] {
+  const fused = new Map<Note, FusedHit & { rank: number }>();
+  rankings.forEach((ranking, variant) => ranking.forEach((hit, index) => {
+    const rank = index + 1;
+    const named = hit.score >= NAMED_SCORE;
+    const entry = fused.get(hit.note);
+    if (!entry) { fused.set(hit.note, { hit, rrf: 1 / (RRF_K + rank), best: hit.score, variant, named, rank }); return; }
+    entry.rrf += 1 / (RRF_K + rank);
+    entry.best = Math.max(entry.best, hit.score);
+    entry.named ||= named;
+    if (rank < entry.rank || (rank === entry.rank && hit.score > entry.hit.score)) Object.assign(entry, { hit, variant, rank });
+  }));
+  return [...fused.values()]
+    .sort((a, b) => Number(b.named) - Number(a.named) || b.rrf - a.rrf || b.best - a.best || a.hit.note.meta.id.localeCompare(b.hit.note.meta.id))
+    .map(({ hit, rrf, best, variant, named }) => ({ hit, rrf, best, variant, named }));
+}
+
+/**
+ * Several phrasings of one question (e.g. the same question in Spanish and English), each ranked with
+ * `rankNotes` over every note and fused with Reciprocal Rank Fusion. One variant is exactly `rankNotes`.
+ * A fused hit's score is its RRF score (NAMED_SCORE for a note named by id or alias); its `why` and passage
+ * come from the variant where the note ranked best.
+ */
+export function rankQueries(queries: readonly string[], notes: Note[], now = new Date(), limit = 10, options: SearchOptions = {}): RecallHit[] {
+  const variants = queryVariants(queries);
+  if (variants.length <= 1) return rankNotes(variants[0] ?? '', notes, now, limit, options);
+  const rankings = variants.map(query => rankNotes(query, notes, now, limit, { ...options, includePassages: false, depth: notes.length }));
+  return fuseRankings(rankings).slice(0, Math.max(0, limit)).map(({ hit, rrf, named, variant }) => {
+    const score = named ? NAMED_SCORE : rrf;
+    if (options.includePassages === false) return { ...hit, score };
+    const passage = relevantPassage(hit.note.body, variants[variant]!);
+    return { ...hit, score, why: `${hit.why}${passage ? ` Passage: ${JSON.stringify(passage)}` : ''}` };
   });
 }

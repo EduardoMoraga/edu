@@ -9,7 +9,7 @@ import { INDEX_DIR, NoteConflictError, atomicWrite, contentHash, createId, encod
 import { withUsageLock } from './note-lock.js';
 import { assertDecisionReversion, isClosedEpisode, validateTransition, validateStatus } from './lifecycle.js';
 import { assertFeedbackContext, feedbackUsage, applyLearning } from './learning.js';
-import { rankNotes } from './search.js';
+import { rankNotes, rankQueries } from './search.js';
 import { resolveReference, type ResolveResult } from './resolve.js';
 import { ensureLocalIgnored, frontmatterUsage, mergeExposure, nextExposure, readLedger, updateLedger } from './ledger.js';
 import { REDACTED_TAG, redactSecrets } from './redact.js';
@@ -77,7 +77,12 @@ export interface Brain {
   update(id: string, patch: Partial<NoteMeta>, body?: string, options?: UpdateOptions): Promise<Note>;
   /** The note's current `contentHash` (for `update(..., { expectedHash })`), or undefined when it does not exist. */
   hashOf(id: string): Promise<string | undefined>;
-  recall(query: string, opts?: { limit?: number; tiers?: Tier[] }): Promise<RecallHit[]>;
+  /**
+   * Several queries (the same question rephrased or translated; trimmed, deduplicated, at most 4) are each
+   * ranked and fused with Reciprocal Rank Fusion (k = 60); a fused hit's score is its RRF score, and notes named
+   * by id or alias stay on top. One string ranks exactly as before.
+   */
+  recall(query: string | readonly string[], opts?: { limit?: number; tiers?: Tier[] }): Promise<RecallHit[]>;
   /**
    * Without `context` the feedback is advisory (counts as a ranking signal, never promotes). With a `context` it is
    * deduplicated by `eventId`; only trusted runtime callers may pass `verified: true` (MCP stays advisory).
@@ -426,7 +431,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     },
     async recall(query, opts = {}) {
       const notes = (await all()).filter(n => !opts.tiers || opts.tiers.includes(n.meta.tier));
-      const hits = rankNotes(query, notes, new Date(), opts.limit);
+      const hits = typeof query === 'string' ? rankNotes(query, notes, new Date(), opts.limit) : rankQueries(query, notes, new Date(), opts.limit);
       const now = new Date();
       await markUsed(hits.map(hit => hit.note), now);
       return hits;
