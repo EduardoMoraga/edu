@@ -57,7 +57,7 @@ const collect = (value: string, previous: string[]) => [...previous, value];
 
 interface ApproveOpts { all?: boolean; reject?: string[]; reason?: string; json?: boolean }
 
-interface RecallOpts { limit?: string; json?: boolean }
+interface RecallOpts { limit?: string; json?: boolean; alt?: string[] }
 interface RememberOpts { kind?: string; body?: string; band?: string; due?: string; json?: boolean }
 
 export function registerBrain(program: Command, ctx: CliContext): void {
@@ -85,12 +85,15 @@ export function registerBrain(program: Command, ctx: CliContext): void {
     .command('recall')
     .description('search the brain (relevance × learned weight)')
     .argument('<query...>', 'what to look for')
+    .option('--alt <query>', 'the same question rephrased or translated, fused with it (repeatable, up to 3)', collect, [])
     .option('--limit <n>', 'maximum hits', '8')
     .option('--json', 'machine-readable output')
     .action(
       action<RecallOpts>(ctx, async ({ g, opts }, query) => {
+        const alt = opts.alt ?? [];
+        if (alt.length > 3) throw new Error('--alt accepts at most 3 phrasings');
         const ws = await openWorkspace(ctx, g.cwd);
-        const hits = await ws.brain.recall(query ?? '', { limit: parseIntOption(opts.limit ?? '8', '--limit') });
+        const hits = await ws.brain.recall(alt.length ? [query ?? '', ...alt] : query ?? '', { limit: parseIntOption(opts.limit ?? '8', '--limit') });
         if (g.json || opts.json) {
           return printJson(ctx, hits.map((h) => ({ id: h.note.meta.id, title: h.note.meta.title, tier: h.note.meta.tier, band: h.note.meta.band, score: h.score, why: h.why })));
         }

@@ -24,6 +24,14 @@ describe('edu brain', () => {
     expect(hits[0]).toMatchObject({ title: 'Use atomic writes', tier: 'transitive' });
     c.stdout.length = 0;
 
+    await runCli(c, ['brain', 'recall', 'escrituras', 'zzqx', '--alt', 'temp file rename', '--alt', 'atomic', '--json']);
+    expect(JSON.parse(out(c))[0]).toMatchObject({ title: 'Use atomic writes' });
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'recall', 'x', '--alt', 'a', '--alt', 'b', '--alt', 'c', '--alt', 'd']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('--alt');
+    c.exitCode = undefined; c.stderr.length = 0; c.stdout.length = 0;
+
     await runCli(c, ['brain', 'status', '--json']);
     const status = JSON.parse(out(c));
     expect(status.total).toBe(1);
