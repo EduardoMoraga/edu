@@ -123,7 +123,8 @@ export function containsPatch(target: unknown, patch: unknown): boolean {
 
 // ---- JSONC: edit in place with jsonc-parser so comments and layout survive. -------------------
 
-const isJsonc = (path: string) => path.toLowerCase().endsWith('.jsonc');
+/** `.jsonc`, plus OpenCode's `opencode.json`, which OpenCode itself parses as JSONC (comments, trailing commas). */
+const isJsonc = (path: string) => { const lower = path.toLowerCase().replace(/\\/g, '/'); return lower.endsWith('.jsonc') || lower.endsWith('/opencode.json'); };
 const FORMAT = { formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' } };
 
 function parseJsonc(text: string): JsonRecord {
