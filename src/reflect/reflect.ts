@@ -107,19 +107,7 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
     try { output = ReflectionSchema.parse(JSON.parse(await readFile(journal, 'utf8'))); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      let response = '';
-      const request: EngineRunRequest = { cli: engine.cli, prompt, cwd: process.cwd(), autonomy: 'readonly' };
-      if (estimateTokens(request.prompt) > budgetTokens) throw new Error('Reflection request exceeds budgetTokens.');
-      request.invocation = { id: crypto.randomUUID(), purpose: 'reflection' };
-      // Record the attempt before starting. A crash without usage remains unknown on resume.
-      await mkdir(dirname(measurementPath), { recursive: true });
-      await appendFile(measurementPath, JSON.stringify({ invocationId: request.invocation.id }) + '\n');
-      for await (const event of measuredEngine(engine).run(request, 'reflect')) {
-        if (event.type === 'usage') await appendFile(measurementPath, JSON.stringify(event.usage) + '\n');
-        if (event.type === 'agent.text') response += event.text;
-        if (event.type === 'error' || (event.type === 'agent.end' && !event.ok)) throw new Error('Reflection engine failed.');
-      }
-      output = ReflectionSchema.parse(parseJson(response));
+      output = ReflectionSchema.parse(parseJson(await invokeReflectionEngine(engine, prompt, { budgetTokens, measurementPath })));
     }
     const measurementRows: Usage[] = [];
     try {
@@ -191,6 +179,26 @@ export async function reflect({ brain, engine, since = '7d', now = new Date(), b
   if (!result) throw new Error('Reflection is already running (or its lock requires recovery).');
   return result;
 }
+/**
+ * One readonly headless run of the engine for a reflection-style prompt: refuses a request over budget, records
+ * the attempt (and any usage) in `measurementPath` before and while it runs, and returns the concatenated text.
+ * Shared by `edu reflect` and `edu dream --model`.
+ */
+export async function invokeReflectionEngine(engine: Engine, prompt: string, opts: { budgetTokens: number; measurementPath: string; agentId?: string }): Promise<string> {
+  let response = '';
+  const request: EngineRunRequest = { cli: engine.cli, prompt, cwd: process.cwd(), autonomy: 'readonly' };
+  if (estimateTokens(request.prompt) > opts.budgetTokens) throw new Error('Reflection request exceeds budgetTokens.');
+  request.invocation = { id: crypto.randomUUID(), purpose: 'reflection' };
+  // Record the attempt before starting. A crash without usage remains unknown on resume.
+  await mkdir(dirname(opts.measurementPath), { recursive: true });
+  await appendFile(opts.measurementPath, JSON.stringify({ invocationId: request.invocation.id }) + '\n');
+  for await (const event of measuredEngine(engine).run(request, opts.agentId ?? 'reflect')) {
+    if (event.type === 'usage') await appendFile(opts.measurementPath, JSON.stringify(event.usage) + '\n');
+    if (event.type === 'agent.text') response += event.text;
+    if (event.type === 'error' || (event.type === 'agent.end' && !event.ok)) throw new Error('Reflection engine failed.');
+  }
+  return response;
+}
 function mhirByGap(events: Intervention[], count: number) {
   const groups = new Map<string, Set<string>>();
   for (const event of events) {
@@ -202,7 +210,8 @@ function mhirByGap(events: Intervention[], count: number) {
 function noteInput(item: z.infer<typeof Item>, kind: 'lesson' | 'hypothesis'): NewNote {
   return { title: item.title, body: item.body, tier: 'transitive', kind, links: item.evidence, tags: item.evidence.length ? [] : ['uncited'], band: kind === 'hypothesis' ? 'hypothesis' : 'inferred', source: 'edu:reflect' };
 }
-function parseJson(text: string): unknown {
+/** Strict JSON from a model reply, optionally inside one fenced block. */
+export function parseJson(text: string): unknown {
   const candidate = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim() ?? text.trim();
   try { return JSON.parse(candidate); }
   catch (error) { throw new Error(`Reflection response must be strict JSON: ${error instanceof Error ? error.message : String(error)}`); }
