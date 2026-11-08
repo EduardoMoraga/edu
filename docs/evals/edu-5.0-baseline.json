@@ -1,0 +1,980 @@
+{
+  "schema": "edu-bench/1",
+  "edu": "4.1.0",
+  "node": "v26.13.0",
+  "generatedAt": "2026-11-08T19:22:32.933Z",
+  "retrieval": {
+    "corpus": {
+      "version": 1,
+      "notes": 120,
+      "queries": 60,
+      "byLang": {
+        "es": 52,
+        "en": 68
+      }
+    },
+    "overall": {
+      "n": 60,
+      "recallAt1": 0.6,
+      "recallAt5": 0.75,
+      "recallAt10": 0.8167,
+      "mrr": 0.6681
+    },
+    "byClass": {
+      "keyword": {
+        "n": 15,
+        "recallAt1": 1,
+        "recallAt5": 1,
+        "recallAt10": 1,
+        "mrr": 1
+      },
+      "paraphrase": {
+        "n": 15,
+        "recallAt1": 0.2667,
+        "recallAt5": 0.4,
+        "recallAt10": 0.5333,
+        "mrr": 0.3384
+      },
+      "cross-language": {
+        "n": 15,
+        "recallAt1": 0.1333,
+        "recallAt5": 0.6,
+        "recallAt10": 0.7333,
+        "mrr": 0.334
+      },
+      "id": {
+        "n": 15,
+        "recallAt1": 1,
+        "recallAt5": 1,
+        "recallAt10": 1,
+        "mrr": 1
+      }
+    },
+    "latencyMs": {
+      "p50": 24.94,
+      "p95": 35.02
+    },
+    "queries": [
+      {
+        "id": "k01",
+        "class": "keyword",
+        "query": "postgres advisory locks job scheduler",
+        "expected": "t01",
+        "rank": 1,
+        "top3": [
+          "t01",
+          "t01-x1",
+          "t01-x2"
+        ],
+        "latencyMs": 29.79
+      },
+      {
+        "id": "k02",
+        "class": "keyword",
+        "query": "facturación mensual cierre día 25",
+        "expected": "t02",
+        "rank": 1,
+        "top3": [
+          "t02",
+          "t02-x1",
+          "t06-x2"
+        ],
+        "latencyMs": 36.86
+      },
+      {
+        "id": "k03",
+        "class": "keyword",
+        "query": "retry webhooks exponential backoff jitter",
+        "expected": "t03",
+        "rank": 1,
+        "top3": [
+          "t03",
+          "t10-x1",
+          "t10"
+        ],
+        "latencyMs": 27.91
+      },
+      {
+        "id": "k04",
+        "class": "keyword",
+        "query": "respaldar la base antes de cada migración",
+        "expected": "t04",
+        "rank": 1,
+        "top3": [
+          "t04",
+          "t04-x2",
+          "t01-x2"
+        ],
+        "latencyMs": 27.8
+      },
+      {
+        "id": "k05",
+        "class": "keyword",
+        "query": "Camila Rojas finanzas",
+        "expected": "t06",
+        "rank": 1,
+        "top3": [
+          "t06",
+          "t11",
+          "t06-x2"
+        ],
+        "latencyMs": 27.64
+      },
+      {
+        "id": "k06",
+        "class": "keyword",
+        "query": "cold starts p95 latency spikes Mondays",
+        "expected": "t08",
+        "rank": 1,
+        "top3": [
+          "t08",
+          "t08-x2",
+          "t08-x1"
+        ],
+        "latencyMs": 24.72
+      },
+      {
+        "id": "k07",
+        "class": "keyword",
+        "query": "Windows installer fix Friday",
+        "expected": "t10",
+        "rank": 1,
+        "top3": [
+          "t10",
+          "t10-x1",
+          "t19"
+        ],
+        "latencyMs": 24.94
+      },
+      {
+        "id": "k08",
+        "class": "keyword",
+        "query": "deploy only from main branch",
+        "expected": "t12",
+        "rank": 1,
+        "top3": [
+          "t12",
+          "t12-x1",
+          "t16"
+        ],
+        "latencyMs": 25.33
+      },
+      {
+        "id": "k09",
+        "class": "keyword",
+        "query": "mask card numbers last four digits",
+        "expected": "t14",
+        "rank": 1,
+        "top3": [
+          "t14",
+          "t14-x1",
+          "t11-x2"
+        ],
+        "latencyMs": 28.91
+      },
+      {
+        "id": "k10",
+        "class": "keyword",
+        "query": "feature flags LaunchDarkly environment variables",
+        "expected": "t16",
+        "rank": 1,
+        "top3": [
+          "t16",
+          "t16-x1",
+          "t16-x2"
+        ],
+        "latencyMs": 23.71
+      },
+      {
+        "id": "k11",
+        "class": "keyword",
+        "query": "duplicate payments refunded automatically",
+        "expected": "t20",
+        "rank": 1,
+        "top3": [
+          "t20",
+          "t20-x2",
+          "t20-x1"
+        ],
+        "latencyMs": 24.64
+      },
+      {
+        "id": "k12",
+        "class": "keyword",
+        "query": "plan anual descuento retención",
+        "expected": "t21",
+        "rank": 1,
+        "top3": [
+          "t21",
+          "t06-x1",
+          "t21-x2"
+        ],
+        "latencyMs": 25.15
+      },
+      {
+        "id": "k13",
+        "class": "keyword",
+        "query": "migraciones de datos por lotes de mil filas",
+        "expected": "t23",
+        "rank": 1,
+        "top3": [
+          "t23",
+          "t24-x1",
+          "t04-x2"
+        ],
+        "latencyMs": 24.34
+      },
+      {
+        "id": "k14",
+        "class": "keyword",
+        "query": "secrets 1Password injected at runtime",
+        "expected": "t28",
+        "rank": 1,
+        "top3": [
+          "t28",
+          "t28-x2",
+          "t26-x1"
+        ],
+        "latencyMs": 24.06
+      },
+      {
+        "id": "k15",
+        "class": "keyword",
+        "query": "payment gateway timeout shorter than client timeout",
+        "expected": "t30",
+        "rank": 1,
+        "top3": [
+          "t30",
+          "t30-x2",
+          "t30-x1"
+        ],
+        "latencyMs": 25.45
+      },
+      {
+        "id": "p01",
+        "class": "paraphrase",
+        "query": "how do we stop two workers from running the same cron task",
+        "expected": "t01",
+        "rank": 1,
+        "top3": [
+          "t01",
+          "t01-x1",
+          "t25-x2"
+        ],
+        "latencyMs": 24.54
+      },
+      {
+        "id": "p02",
+        "class": "paraphrase",
+        "query": "qué hacer antes de alterar tablas en producción",
+        "expected": "t04",
+        "rank": 1,
+        "top3": [
+          "t04",
+          "t27",
+          "t01-x2"
+        ],
+        "latencyMs": 22.59
+      },
+      {
+        "id": "p03",
+        "class": "paraphrase",
+        "query": "which language should replies to the owner use",
+        "expected": "t05",
+        "rank": null,
+        "top3": [
+          "b13",
+          "t01",
+          "t03-x1"
+        ],
+        "latencyMs": 23.81
+      },
+      {
+        "id": "p04",
+        "class": "paraphrase",
+        "query": "quién autoriza modificar las tarifas",
+        "expected": "t06",
+        "rank": null,
+        "top3": [],
+        "latencyMs": 22.02
+      },
+      {
+        "id": "p05",
+        "class": "paraphrase",
+        "query": "what is required before merging a change",
+        "expected": "t07",
+        "rank": 7,
+        "top3": [
+          "t13-x1",
+          "b09",
+          "b27"
+        ],
+        "latencyMs": 24.81
+      },
+      {
+        "id": "p06",
+        "class": "paraphrase",
+        "query": "en qué etapa del registro se pierden más personas",
+        "expected": "t09",
+        "rank": null,
+        "top3": [
+          "t27-x2",
+          "t30-x1"
+        ],
+        "latencyMs": 23.75
+      },
+      {
+        "id": "p07",
+        "class": "paraphrase",
+        "query": "which package manager do we use in the monorepo",
+        "expected": "t13",
+        "rank": 2,
+        "top3": [
+          "t27-x1",
+          "t13",
+          "t13-x2"
+        ],
+        "latencyMs": 32.7
+      },
+      {
+        "id": "p08",
+        "class": "paraphrase",
+        "query": "por qué la suite falla al azar por la base de datos",
+        "expected": "t15",
+        "rank": 1,
+        "top3": [
+          "t15",
+          "t23",
+          "t26-x2"
+        ],
+        "latencyMs": 30.29
+      },
+      {
+        "id": "p09",
+        "class": "paraphrase",
+        "query": "how often do we test that we can recover data",
+        "expected": "t18",
+        "rank": null,
+        "top3": [
+          "b09",
+          "t11-x1",
+          "t15-x2"
+        ],
+        "latencyMs": 37.69
+      },
+      {
+        "id": "p10",
+        "class": "paraphrase",
+        "query": "cómo deben llamarse las branches de git",
+        "expected": "t19",
+        "rank": null,
+        "top3": [
+          "t12-x1",
+          "t13-x1"
+        ],
+        "latencyMs": 27.11
+      },
+      {
+        "id": "p11",
+        "class": "paraphrase",
+        "query": "which runtime version does continuous integration use",
+        "expected": "t22",
+        "rank": 10,
+        "top3": [
+          "b13",
+          "t28",
+          "t01"
+        ],
+        "latencyMs": 28.06
+      },
+      {
+        "id": "p12",
+        "class": "paraphrase",
+        "query": "how big should a code change be for review",
+        "expected": "t24",
+        "rank": null,
+        "top3": [
+          "t05",
+          "t05-x1",
+          "t24-x2"
+        ],
+        "latencyMs": 25.16
+      },
+      {
+        "id": "p13",
+        "class": "paraphrase",
+        "query": "se puede modificar manualmente el panel del vault",
+        "expected": "t25",
+        "rank": 3,
+        "top3": [
+          "b07",
+          "t18-x2",
+          "t25"
+        ],
+        "latencyMs": 25.02
+      },
+      {
+        "id": "p14",
+        "class": "paraphrase",
+        "query": "why do agents ignore choices we already made",
+        "expected": "t26",
+        "rank": 1,
+        "top3": [
+          "t26"
+        ],
+        "latencyMs": 25.73
+      },
+      {
+        "id": "p15",
+        "class": "paraphrase",
+        "query": "cómo estructurar un reporte de avance",
+        "expected": "t29",
+        "rank": null,
+        "top3": [],
+        "latencyMs": 23.2
+      },
+      {
+        "id": "x01",
+        "class": "cross-language",
+        "query": "bloqueos de base de datos para tareas programadas",
+        "expected": "t01",
+        "rank": null,
+        "top3": [
+          "t23",
+          "t26-x2",
+          "t01-x2"
+        ],
+        "latencyMs": 44.24
+      },
+      {
+        "id": "x02",
+        "class": "cross-language",
+        "query": "when do we issue the monthly invoices",
+        "expected": "t02",
+        "rank": 6,
+        "top3": [
+          "t02-x2",
+          "t21-x1",
+          "t07-x1"
+        ],
+        "latencyMs": 29.67
+      },
+      {
+        "id": "x03",
+        "class": "cross-language",
+        "query": "reintentos de webhooks con espera exponencial",
+        "expected": "t03",
+        "rank": 1,
+        "top3": [
+          "t03",
+          "t10",
+          "t21"
+        ],
+        "latencyMs": 27.75
+      },
+      {
+        "id": "x04",
+        "class": "cross-language",
+        "query": "take a backup before running a schema migration",
+        "expected": "t04",
+        "rank": 7,
+        "top3": [
+          "t01",
+          "t23-x2",
+          "t18"
+        ],
+        "latencyMs": 31.73
+      },
+      {
+        "id": "x05",
+        "class": "cross-language",
+        "query": "idioma preferido para responder a Eduardo",
+        "expected": "t05",
+        "rank": 3,
+        "top3": [
+          "t05-x2",
+          "t29",
+          "t05"
+        ],
+        "latencyMs": 26.5
+      },
+      {
+        "id": "x06",
+        "class": "cross-language",
+        "query": "who approves pricing changes",
+        "expected": "t06",
+        "rank": null,
+        "top3": [
+          "t24-x2",
+          "b16"
+        ],
+        "latencyMs": 23.31
+      },
+      {
+        "id": "x07",
+        "class": "cross-language",
+        "query": "arranques en frío y picos de latencia los lunes",
+        "expected": "t08",
+        "rank": null,
+        "top3": [
+          "t17"
+        ],
+        "latencyMs": 23.54
+      },
+      {
+        "id": "x08",
+        "class": "cross-language",
+        "query": "users drop off at email verification during onboarding",
+        "expected": "t09",
+        "rank": 3,
+        "top3": [
+          "b16",
+          "t09-x1",
+          "t09"
+        ],
+        "latencyMs": 35.02
+      },
+      {
+        "id": "x09",
+        "class": "cross-language",
+        "query": "desplegar solo desde la rama principal",
+        "expected": "t12",
+        "rank": 5,
+        "top3": [
+          "t12-x2",
+          "t19-x2",
+          "t11-x1"
+        ],
+        "latencyMs": 32.14
+      },
+      {
+        "id": "x10",
+        "class": "cross-language",
+        "query": "support hours in Chile time",
+        "expected": "t17",
+        "rank": 2,
+        "top3": [
+          "t17-x1",
+          "t17",
+          "t20"
+        ],
+        "latencyMs": 25.23
+      },
+      {
+        "id": "x11",
+        "class": "cross-language",
+        "query": "simulacros de restauración de respaldos cada trimestre",
+        "expected": "t18",
+        "rank": 2,
+        "top3": [
+          "t18-x2",
+          "t18",
+          "t18-x1"
+        ],
+        "latencyMs": 24.43
+      },
+      {
+        "id": "x12",
+        "class": "cross-language",
+        "query": "reembolso automático de pagos duplicados",
+        "expected": "t20",
+        "rank": 2,
+        "top3": [
+          "t20-x1",
+          "t20",
+          "t02"
+        ],
+        "latencyMs": 25.88
+      },
+      {
+        "id": "x13",
+        "class": "cross-language",
+        "query": "long data migrations run in batches of a thousand rows",
+        "expected": "t23",
+        "rank": null,
+        "top3": [
+          "t23-x2",
+          "t29-x1",
+          "t11-x1"
+        ],
+        "latencyMs": 24.59
+      },
+      {
+        "id": "x14",
+        "class": "cross-language",
+        "query": "move DNS to Cloudflare before month end",
+        "expected": "t27",
+        "rank": 1,
+        "top3": [
+          "t27",
+          "t27-x1",
+          "t27-x2"
+        ],
+        "latencyMs": 23.04
+      },
+      {
+        "id": "x15",
+        "class": "cross-language",
+        "query": "nunca registrar números de tarjeta completos en los logs",
+        "expected": "t14",
+        "rank": 3,
+        "top3": [
+          "t14-x2",
+          "t10-x2",
+          "t14"
+        ],
+        "latencyMs": 23.39
+      },
+      {
+        "id": "i01",
+        "class": "id",
+        "query": "D-014",
+        "expected": "t01",
+        "rank": 1,
+        "top3": [
+          "t01"
+        ],
+        "latencyMs": 22.14
+      },
+      {
+        "id": "i02",
+        "class": "id",
+        "query": "@id",
+        "expected": "t01",
+        "rank": 1,
+        "top3": [
+          "t01",
+          "t01-x1",
+          "t01-x2"
+        ],
+        "latencyMs": 26.04
+      },
+      {
+        "id": "i03",
+        "class": "id",
+        "query": "@id",
+        "expected": "t02",
+        "rank": 1,
+        "top3": [
+          "t02",
+          "t02-x1",
+          "t06-x2"
+        ],
+        "latencyMs": 22.96
+      },
+      {
+        "id": "i04",
+        "class": "id",
+        "query": "@id",
+        "expected": "t03",
+        "rank": 1,
+        "top3": [
+          "t03",
+          "t10-x1",
+          "t30-x2"
+        ],
+        "latencyMs": 27.5
+      },
+      {
+        "id": "i05",
+        "class": "id",
+        "query": "@id",
+        "expected": "t05",
+        "rank": 1,
+        "top3": [
+          "t05",
+          "t05-x1",
+          "t25-x2"
+        ],
+        "latencyMs": 24.26
+      },
+      {
+        "id": "i06",
+        "class": "id",
+        "query": "Camila",
+        "expected": "t06",
+        "rank": 1,
+        "top3": [
+          "t06",
+          "t11",
+          "t02-x1"
+        ],
+        "latencyMs": 25.45
+      },
+      {
+        "id": "i07",
+        "class": "id",
+        "query": "@id",
+        "expected": "t09",
+        "rank": 1,
+        "top3": [
+          "t09",
+          "t09-x2",
+          "t04-x2"
+        ],
+        "latencyMs": 23.61
+      },
+      {
+        "id": "i08",
+        "class": "id",
+        "query": "@id",
+        "expected": "t11",
+        "rank": 1,
+        "top3": [
+          "t11",
+          "t11-x1",
+          "t06"
+        ],
+        "latencyMs": 22.58
+      },
+      {
+        "id": "i09",
+        "class": "id",
+        "query": "@id",
+        "expected": "t15",
+        "rank": 1,
+        "top3": [
+          "t15",
+          "t15-x1",
+          "b13"
+        ],
+        "latencyMs": 24.84
+      },
+      {
+        "id": "i10",
+        "class": "id",
+        "query": "@id",
+        "expected": "t19",
+        "rank": 1,
+        "top3": [
+          "t19",
+          "t19-x2",
+          "t21-x2"
+        ],
+        "latencyMs": 26.47
+      },
+      {
+        "id": "i11",
+        "class": "id",
+        "query": "@id",
+        "expected": "t21",
+        "rank": 1,
+        "top3": [
+          "t21",
+          "t06-x1",
+          "t21-x2"
+        ],
+        "latencyMs": 24.13
+      },
+      {
+        "id": "i12",
+        "class": "id",
+        "query": "@id",
+        "expected": "t25",
+        "rank": 1,
+        "top3": [
+          "t25",
+          "t05-x2",
+          "t11-x1"
+        ],
+        "latencyMs": 22.54
+      },
+      {
+        "id": "i13",
+        "class": "id",
+        "query": "@id",
+        "expected": "t27",
+        "rank": 1,
+        "top3": [
+          "t27",
+          "t27-x2",
+          "t04"
+        ],
+        "latencyMs": 24.53
+      },
+      {
+        "id": "i14",
+        "class": "id",
+        "query": "@id",
+        "expected": "t29",
+        "rank": 1,
+        "top3": [
+          "t29",
+          "t06",
+          "t02"
+        ],
+        "latencyMs": 24.57
+      },
+      {
+        "id": "i15",
+        "class": "id",
+        "query": "@id",
+        "expected": "t30",
+        "rank": 1,
+        "top3": [
+          "t30",
+          "t30-x2",
+          "t30-x1"
+        ],
+        "latencyMs": 24.59
+      }
+    ]
+  },
+  "context": {
+    "brief": {
+      "budgetTokens": 1500,
+      "tokens": 1499,
+      "bytes": 5433,
+      "hookTokens": 1517,
+      "hookBytes": 5499
+    },
+    "stability": {
+      "identical": false,
+      "firstTokens": 1517,
+      "secondTokens": 1517,
+      "commonPrefixTokens": 1515,
+      "commonPrefixRatio": 0.9987,
+      "firstDifference": "Edu session id: 2026-11-08-claude-code-session-bench-se-20e8c463"
+    },
+    "mcp": {
+      "full": {
+        "tools": 19,
+        "tokens": 3701,
+        "bytes": 12749,
+        "perTool": [
+          {
+            "name": "edu_session_close",
+            "tokens": 453
+          },
+          {
+            "name": "edu_crew_dispatch",
+            "tokens": 262
+          },
+          {
+            "name": "edu_remember",
+            "tokens": 247
+          },
+          {
+            "name": "edu_read",
+            "tokens": 244
+          },
+          {
+            "name": "edu_propose_canonical",
+            "tokens": 208
+          },
+          {
+            "name": "edu_capabilities",
+            "tokens": 206
+          },
+          {
+            "name": "edu_crew_artifact",
+            "tokens": 195
+          },
+          {
+            "name": "edu_recall",
+            "tokens": 189
+          },
+          {
+            "name": "edu_orchestrate",
+            "tokens": 184
+          },
+          {
+            "name": "edu_project_use",
+            "tokens": 170
+          },
+          {
+            "name": "edu_feedback",
+            "tokens": 169
+          },
+          {
+            "name": "edu_session_open",
+            "tokens": 165
+          },
+          {
+            "name": "edu_crew_review",
+            "tokens": 161
+          },
+          {
+            "name": "edu_crew_approve",
+            "tokens": 159
+          },
+          {
+            "name": "edu_crew_result",
+            "tokens": 157
+          },
+          {
+            "name": "edu_commitments",
+            "tokens": 141
+          },
+          {
+            "name": "edu_projects",
+            "tokens": 137
+          },
+          {
+            "name": "edu_crew_status",
+            "tokens": 133
+          },
+          {
+            "name": "edu_brief",
+            "tokens": 124
+          }
+        ]
+      },
+      "memory": {
+        "tools": 12,
+        "tokens": 2451,
+        "bytes": 8455,
+        "perTool": [
+          {
+            "name": "edu_session_close",
+            "tokens": 453
+          },
+          {
+            "name": "edu_remember",
+            "tokens": 247
+          },
+          {
+            "name": "edu_read",
+            "tokens": 244
+          },
+          {
+            "name": "edu_propose_canonical",
+            "tokens": 208
+          },
+          {
+            "name": "edu_capabilities",
+            "tokens": 206
+          },
+          {
+            "name": "edu_recall",
+            "tokens": 189
+          },
+          {
+            "name": "edu_project_use",
+            "tokens": 170
+          },
+          {
+            "name": "edu_feedback",
+            "tokens": 169
+          },
+          {
+            "name": "edu_session_open",
+            "tokens": 165
+          },
+          {
+            "name": "edu_commitments",
+            "tokens": 141
+          },
+          {
+            "name": "edu_projects",
+            "tokens": 137
+          },
+          {
+            "name": "edu_brief",
+            "tokens": 124
+          }
+        ]
+      }
+    }
+  }
+}
