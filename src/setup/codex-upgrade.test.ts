@@ -33,12 +33,18 @@ async function nativeFixture(platform: NodeJS.Platform = 'linux', baseline: stri
   await mkdir(brainRoot); await writeFile(join(brainRoot, 'EDU.md'), '# CUSTOM IDENTITY');
   await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot, native: ['codex'], fallback: [] }));
   const other = join(home, 'codex home/plugins/cache/other/other/custom.txt'); await mkdir(dirname(other), { recursive: true }); await writeFile(other, 'OTHER CUSTOM');
-  const calls: string[] = []; let installedVersion = baseline; let mode = 'ok';
+  const calls: string[] = []; let installedVersion = baseline; let mode = 'ok'; let registeredRoot = packageRoot;
   const runner: SetupRunner = async c => {
     const args = c.args.join(' '); calls.push(args);
     if (mode === 'throw' && args === 'plugin add edu@edu --json') throw new Error('spawn failed');
-    if (args === '--version') return { exitCode: 0, stdout: mode === 'unsupported' ? 'codex-cli 0.164.0' : 'codex-cli 0.163.0' };
-    if (args.startsWith('plugin list')) return { exitCode: 0, stdout: JSON.stringify({ installed: [{ pluginId: 'edu@edu', name: 'edu', marketplaceName: 'edu', version: installedVersion, installed: true, enabled: true, source: { source: 'local', path: source }, marketplaceSource: { sourceType: 'local', source: mode === 'origin' ? '/another/package' : packageRoot } }] }) };
+    if (args === '--version') return { exitCode: 0, stdout: mode === 'old-host' ? 'codex-cli 0.162.0' : mode === 'newer' ? 'codex-cli 0.167.0' : 'codex-cli 0.163.0' };
+    if (args.startsWith('plugin list')) {
+      const root = mode === 'origin' ? '/another/package' : registeredRoot;
+      return { exitCode: 0, stdout: JSON.stringify({ installed: [{ pluginId: 'edu@edu', name: 'edu', marketplaceName: 'edu', version: installedVersion, installed: true, enabled: true, source: { source: 'local', path: join(root, 'plugins/codex') }, marketplaceSource: { sourceType: mode === 'remote-source' ? 'git' : 'local', source: root } }] }) };
+    }
+    if (args === 'plugin remove edu@edu') { await rm(base, { recursive: true, force: true }); return { exitCode: 0 }; }
+    if (args === 'plugin marketplace remove edu') return { exitCode: 0 };
+    if (args.startsWith('plugin marketplace add ')) { registeredRoot = c.args[3]!; return { exitCode: 0 }; }
     expect(args).toBe('plugin add edu@edu --json');
     // Native mutation cannot begin until the original cache is backed up.
     const backups = await readdir(join(brainRoot, 'backups')); let found = false;
@@ -53,12 +59,19 @@ async function nativeFixture(platform: NodeJS.Platform = 'linux', baseline: stri
     expect(JSON.parse(await readFile(join(source, '.mcp.json'), 'utf8'))).toEqual({ mcpServers: { edu: launch } });
 
     if (mode === 'failure') return { exitCode: 1, stderr: 'simulated host failure' };
-    if (mode !== 'retained-old') await rm(base, { recursive: true }); await cp(source, nextRoot, { recursive: true }); installedVersion = manifest.version;
+    if (mode !== 'retained-old') await rm(base, { recursive: true, force: true }); await cp(source, nextRoot, { recursive: true }); installedVersion = manifest.version;
     if (mode === 'corrupt') await writeFile(join(nextRoot, 'skills/edu-brief/SKILL.md'), 'STALE');
     return { exitCode: 0, stdout: JSON.stringify({ pluginId: 'edu@edu', version: manifest.version, installedPath: mode === 'wrong-path' ? '/other/cache' : nextRoot }) };
   };
   const run = async () => applySetup(await planSetup({ home, packageRoot, clis: ['codex'], runner }), { runner, brainRoot, platform });
-  return { home, brainRoot, packageRoot, runner, source, base, oldRoot, nextRoot, other, calls, run, setInstalledVersion: (value: string) => { installedVersion = value; }, setMode: (value: string) => { mode = value; } };
+  return { home, brainRoot, packageRoot, runner, source, base, oldRoot, nextRoot, other, calls, run, files, setRegisteredRoot: (value: string) => { registeredRoot = value; }, setInstalledVersion: (value: string) => { installedVersion = value; }, setMode: (value: string) => { mode = value; } };
+}
+async function backedUp(brainRoot: string, path: string): Promise<string | undefined> {
+  for (const backup of await readdir(join(brainRoot, 'backups'))) {
+    const record = JSON.parse(await readFile(join(brainRoot, 'backups', backup, 'manifest.json'), 'utf8'));
+    for (const file of record.files) if (file.path === path && file.file) return readFile(join(brainRoot, 'backups', backup, file.file), 'utf8');
+  }
+  return undefined;
 }
 describe.each(cases)('$baseline on $platform', ({ platform, baseline }) => {
 const fixture = (override: NodeJS.Platform = platform) => nativeFixture(override, baseline);
@@ -73,27 +86,67 @@ it('refreshes a pristine public cache with backup and candidate validation; repe
 it('accepts an exact current cache on a newer host without invoking native install again', async () => {
   const f = await fixture(); await f.run();
   const backups = await readdir(join(f.brainRoot, 'backups'));
-  f.setMode('unsupported');
+  f.setMode('old-host');
   await f.run();
   expect(f.calls.filter(c => c === 'plugin add edu@edu --json')).toHaveLength(1);
   expect(await readdir(join(f.brainRoot, 'backups'))).toEqual(backups);
   await writeFile(join(f.nextRoot, 'skills/edu-brief/SKILL.md'), 'CUSTOM');
-  await expect(f.run()).rejects.toThrow(/manual conflict/i);
+  await expect(f.run()).rejects.toThrow(/manual conflict.*0\.163\.0 or newer/i);
   expect(await readFile(join(f.nextRoot, 'skills/edu-brief/SKILL.md'), 'utf8')).toBe('CUSTOM');
+  expect(f.calls).not.toContain('plugin remove edu@edu');
 });
-it.each(['edited', 'extra', 'missing', 'symlink', 'origin', 'unsupported', 'unknown-version', 'unknown-directory', 'empty-directory'])('preserves custom/unknown cache (%s) without invoking install', async mode => {
-  const f = await fixture(); f.setMode(mode);
+it('accepts Codex 0.167.0 and replaces an Edu-owned custom cache through remove + add after a backup', async () => {
+  const f = await fixture(); f.setMode('newer');
+  const path = join(f.oldRoot, 'skills/edu-brief/SKILL.md'); await writeFile(path, 'CUSTOM');
+  await f.run();
+  expect(f.calls.filter(c => !c.startsWith('plugin list') && c !== '--version')).toEqual(['plugin remove edu@edu', 'plugin add edu@edu --json']);
+  expect(await readFile(join(f.nextRoot, 'skills/edu-brief/SKILL.md'), 'utf8')).toBe('NEW PROTOCOL');
+  expect(await backedUp(f.brainRoot, path)).toBe('CUSTOM');
+  expect(await readFile(f.other, 'utf8')).toBe('OTHER CUSTOM');
+});
+it.each(['edited', 'extra', 'missing', 'unknown-directory'])('backs up an Edu-owned non-baseline cache (%s) and reinstalls through public commands', async mode => {
+  const f = await fixture();
   const path = join(f.oldRoot, 'skills/edu-brief/SKILL.md');
   if (mode === 'edited') await writeFile(path, 'CUSTOM');
   if (mode === 'extra') await writeFile(join(f.oldRoot, 'custom.txt'), 'CUSTOM');
-  if (mode === 'missing') await rm(path);
-  if (mode === 'unknown-version') f.setInstalledVersion('8.0.0');
+  if (mode === 'missing') await rm(join(f.oldRoot, '.mcp.json'));
   if (mode === 'unknown-directory') { await mkdir(join(f.base, 'unknown')); await writeFile(join(f.base, 'unknown/custom'), 'CUSTOM'); }
+  await f.run();
+  expect(f.calls).toContain('plugin remove edu@edu');
+  expect(f.calls).not.toContain('plugin marketplace remove edu');
+  if (mode === 'edited') expect(await backedUp(f.brainRoot, path)).toBe('CUSTOM');
+  if (mode === 'extra') expect(await backedUp(f.brainRoot, join(f.oldRoot, 'custom.txt'))).toBe('CUSTOM');
+  expect(await readFile(f.other, 'utf8')).toBe('OTHER CUSTOM');
+});
+it('re-registers a relocated package root (Node manager moved it) and records the new root; a second run is a no-op', async () => {
+  const f = await fixture(); f.setMode('newer');
+  const oldPackage = join(f.home, 'old-node/lib/node_modules/edu-agent');
+  f.setRegisteredRoot(oldPackage);
+  await writeFile(join(f.brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot: oldPackage, native: ['codex'], fallback: [] }));
+  await f.run();
+  expect(f.calls.filter(c => !c.startsWith('plugin list') && c !== '--version')).toEqual(['plugin remove edu@edu', 'plugin marketplace remove edu', `plugin marketplace add ${f.packageRoot}`, 'plugin add edu@edu --json']);
+  expect(await backedUp(f.brainRoot, join(f.oldRoot, '.codex-plugin/plugin.json'))).toBe(f.files['.codex-plugin/plugin.json']);
+  expect(await readFile(join(f.nextRoot, 'skills/edu-brief/SKILL.md'), 'utf8')).toBe('NEW PROTOCOL');
+  expect(JSON.parse(await readFile(join(f.brainRoot, 'plugin-setup.json'), 'utf8')).packageRoot).toBe(f.packageRoot);
+  const count = f.calls.length; const backups = await readdir(join(f.brainRoot, 'backups'));
+  await f.run();
+  expect(f.calls.slice(count).every(c => c.startsWith('plugin list') || c === '--version')).toBe(true);
+  expect(await readdir(join(f.brainRoot, 'backups'))).toEqual(backups);
+});
+it('refuses a relocated registration that points at an unrecorded custom checkout', async () => {
+  const f = await fixture(); f.setRegisteredRoot(join(f.home, 'dev/edu'));
+  await expect(f.run()).rejects.toThrow(/manual conflict.*not an Edu package/i);
+  expect(f.calls.filter(c => !c.startsWith('plugin list') && c !== '--version')).toEqual([]);
+});
+it.each(['symlink', 'origin', 'remote-source', 'old-host', 'unknown-version', 'empty-directory'])('preserves custom/unknown cache (%s) without invoking install', async mode => {
+  const f = await fixture(); f.setMode(mode);
+  const path = join(f.oldRoot, 'skills/edu-brief/SKILL.md');
+  if (mode === 'unknown-version') f.setInstalledVersion('8.0.0');
   if (mode === 'empty-directory') await mkdir(join(f.base, 'empty'));
   if (mode === 'symlink') { await rm(path); await symlink(f.other, path); }
   await expect(f.run()).rejects.toThrow(/manual conflict/i);
   expect(f.calls).not.toContain('plugin add edu@edu --json');
-  if (mode === 'edited') expect(await readFile(path, 'utf8')).toBe('CUSTOM');
+  expect(f.calls).not.toContain('plugin remove edu@edu');
   expect(await readFile(f.other, 'utf8')).toBe('OTHER CUSTOM');
 });
 it.each(['failure', 'corrupt', 'wrong-path', 'throw', 'retained-old'])('does not claim success when native runner/postvalidation fails (%s)', async mode => {
@@ -122,12 +175,12 @@ it('refuses arbitrary Windows MCP variants without overwriting custom source or 
   expect(await readFile(path, 'utf8')).toBe(custom);
   expect(f.calls).not.toContain('plugin add edu@edu --json');
 });
-it('refuses a modified old Windows launch instead of blessing any cmd wrapper', async () => {
+it('backs up a modified old Windows launch before replacing it instead of blessing any cmd wrapper', async () => {
   const f = await fixture('win32'); const path = join(f.oldRoot, '.mcp.json');
   const custom = (await readFile(path, 'utf8')).replace('"/c"', '"/k"'); await writeFile(path, custom);
-  await expect(f.run()).rejects.toThrow(/manual conflict/i);
-  expect(await readFile(path, 'utf8')).toBe(custom);
-  expect(f.calls).not.toContain('plugin add edu@edu --json');
+  await f.run();
+  expect(await backedUp(f.brainRoot, path)).toBe(custom);
+  expect(f.calls).toContain('plugin remove edu@edu');
 });
 
 it('Windows localization backs up the candidate and leaves other host package MCP files untouched', async () => {

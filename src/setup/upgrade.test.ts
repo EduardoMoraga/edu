@@ -245,6 +245,26 @@ it.each([
   expect(calls.every(c => c === 'list' || c.startsWith('plugin list'))).toBe(true);
 });
 
+it('re-points Pi at a relocated package root through pi remove/install, records it, and repeats as a no-op', async () => {
+  const { home, brainRoot } = await fixture();
+  const packageRoot = await installedPackage(home);
+  const oldRoot = join(home, 'old-node/lib/node_modules/edu-agent');
+  await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot: oldRoot, native: ['pi'], fallback: [] }));
+  const calls: string[] = []; let registered = oldRoot;
+  const runner: SetupRunner = async c => {
+    const args = c.args.join(' '); calls.push(args);
+    if (args === `remove ${oldRoot}`) { registered = ''; return { exitCode: 0 }; }
+    if (args === `install ${packageRoot}`) { registered = packageRoot; return { exitCode: 0 }; }
+    return { exitCode: 0, stdout: `User packages:\n  ${registered}\n` };
+  };
+  await applySetup(await planSetup({ home, packageRoot, clis: ['pi'], runner }), { runner, brainRoot, platform: 'linux' });
+  expect(calls.filter(c => c !== 'list')).toEqual([`remove ${oldRoot}`, `install ${packageRoot}`]);
+  expect(JSON.parse(await readFile(join(brainRoot, 'plugin-setup.json'), 'utf8')).packageRoot).toBe(packageRoot);
+  calls.length = 0;
+  await applySetup(await planSetup({ home, packageRoot, clis: ['pi'], runner }), { runner, brainRoot, platform: 'linux' });
+  expect(calls.every(c => c === 'list')).toBe(true);
+});
+
 it('upgrades a pristine owned skill with new declared helpers, retires old helpers and refuses custom collisions', async () => {
   const { home, brainRoot } = await fixture();
   const { applyInstall } = await import('../adapters/installer.js');

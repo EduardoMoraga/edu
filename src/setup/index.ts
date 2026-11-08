@@ -1,6 +1,7 @@
 import { pinConfiguredBases } from '../adapters/paths.js';
 import { planClaudeRefresh } from './claude-upgrade.js';
 import { planCodexRefresh } from './codex-upgrade.js';
+import { eduOwnedRoot } from './native-files.js';
 import { eduMcpLaunch, spawnCli, type McpLaunch } from '../platform/index.js';
 import { access, mkdir, readFile, readdir, realpath, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -385,12 +386,31 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
     }
     if (cli === 'pi') {
       const listed = await runner(LIST_COMMANDS.pi);
-      const local = listed.stdout?.split(/\r?\n/).some(line => line.trim() === plan.packageRoot);
-      if (listed.exitCode === 0 && local && previous?.packageRoot === plan.packageRoot) continue; // Local Pi resources load in place on restart.
+      const lines = listed.exitCode === 0 ? listed.stdout?.split(/\r?\n/).map(line => line.trim()) ?? [] : [];
+      if (lines.includes(plan.packageRoot)) continue; // Local Pi resources load in place on restart.
+      const old = previous?.packageRoot;
+      if (old && old !== plan.packageRoot && lines.includes(old) && eduOwnedRoot(old, old)) {
+        // A Node manager moved the package root: re-point the in-place Pi package through its public CLI.
+        nativeRefreshes.push(async () => {
+          for (const args of [['remove', old], ['install', plan.packageRoot]]) {
+            const result = await runner({ cli: 'pi', command: 'pi', args });
+            if (result.exitCode !== 0) throw new Error(`Pi native refresh failed: pi ${args.join(' ')}: host exit ${result.exitCode}: ${result.stderr ?? ''}`);
+          }
+          const after = await runner(LIST_COMMANDS.pi);
+          const now = after.exitCode === 0 ? after.stdout?.split(/\r?\n/).map(line => line.trim()) ?? [] : [];
+          if (!now.includes(plan.packageRoot) || now.includes(old)) throw new Error('Pi native refresh failed: package registration does not point at the current package');
+        });
+        continue;
+      }
     }
     throw new Error(`Manual conflict: ${cli} native cache refresh cannot be verified from legacy setup metadata. Preserve custom files and back up the installed plugin before a targeted host update; restart required. No native update was run.`);
   }
   for (const refresh of nativeRefreshes) await refresh();
+  if (previous && previous.packageRoot !== plan.packageRoot && native.length) {
+    // Every native host now resolves the current package: record it so the next run is a no-op.
+    await backupUpgradeFiles(brainRoot, [manifestPath]);
+    await writeManifest(manifestPath, { ...previous, packageRoot: plan.packageRoot });
+  }
   if (upgrades.length) {
     await backupUpgradeFiles(brainRoot, upgrades.flatMap(p => [...p.actions.map(a => a.path), getManifestPath(p.scope, p.root, p.home)]));
     for (const upgrade of upgrades) await applyInstall(upgrade);
