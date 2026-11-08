@@ -38,7 +38,10 @@ export interface DreamOptions {
   unusedDays?: number;
   /** Sessions a topic must recur in before it becomes a new-lesson proposal (default 3). */
   minSessions?: number;
-  /** Where usage comes from; defaults to the note's frontmatter (a local ledger can be plugged in). */
+  /**
+   * Where usage comes from. Defaults to the usage `brain.list()` returns: feedback from the note's frontmatter merged
+   * with the machine-local exposure ledger (recall and injection hits), so a recent recall keeps a note alive.
+   */
   usageOf?: (note: Note) => UsageStats | undefined;
   /** With an engine: also ask the model, over the same evidence. */
   engine?: Engine;
@@ -160,6 +163,9 @@ function fromLint(ev: Evidence, findings: LintFinding[], now: Date): DreamPropos
   }
   return proposals;
 }
+
+/** Usage as the brain returns it: `brain.list()` merges frontmatter feedback with the exposure ledger. */
+const mergedUsage = (note: Note): UsageStats | undefined => note.meta.usage;
 
 function lifecycleProposals(ev: Evidence, opts: Required<Pick<DreamOptions, 'unusedDays'>> & { now: Date; usageOf: (note: Note) => UsageStats | undefined }): DreamProposal[] {
   const proposals: DreamProposal[] = [];
@@ -312,7 +318,7 @@ export async function planDream(brain: Brain, primary: BrainLocation, opts: Drea
   const report = lintNotes(all, { now, staleDays: opts.staleDays ?? 90, root });
   const heuristic = [
     ...recurringTopics(ev, recent, minSessions),
-    ...lifecycleProposals(ev, { now, unusedDays: opts.unusedDays ?? 90, usageOf: opts.usageOf ?? (note => note.meta.usage) }),
+    ...lifecycleProposals(ev, { now, unusedDays: opts.unusedDays ?? 90, usageOf: opts.usageOf ?? mergedUsage }),
     ...fromLint(ev, report.findings, now),
   ];
   const hosts: Record<string, number> = {};

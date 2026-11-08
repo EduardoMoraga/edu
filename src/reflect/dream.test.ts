@@ -56,6 +56,20 @@ async function fixture(loc: BrainLocation) {
 const byKind = (plan: DreamPlan, kind: string) => plan.proposals.filter(p => p.kind === kind);
 
 describe('edu dream (deterministic)', () => {
+  it('does not archive a note recalled recently when that use lives only in the machine-local ledger', async () => {
+    const { loc, brain } = await setup();
+    const recalled = await seed(loc, { tier: 'transitive', kind: 'lesson', status: 'candidate', title: 'Old ledger only lesson', created: daysAgo(200), updated: daysAgo(200) }, 'Recalled through the ledger.');
+    const forgotten = await seed(loc, { tier: 'transitive', kind: 'hypothesis', status: 'open', title: 'Old forgotten hypothesis', created: daysAgo(200), updated: daysAgo(200) }, 'Nobody used this.');
+    await brain.recordUse([recalled.meta.id], new Date(daysAgo(2)));
+    // The exposure is in the ledger, not in the note file.
+    expect(await readFile(recalled.path, 'utf8')).not.toContain('lastUsed');
+    const plan = await planDream(brain, loc, { now: NOW });
+    expect(byKind(plan, 'archive').flatMap(p => p.evidence)).toEqual([forgotten.meta.id]);
+    // Control: frontmatter alone has no use, so without the ledger the recalled note would be proposed too.
+    const frontmatterOnly = await planDream(brain, loc, { now: NOW, usageOf: () => undefined });
+    expect(byKind(frontmatterOnly, 'archive').flatMap(p => p.evidence).sort()).toEqual([recalled.meta.id, forgotten.meta.id].sort());
+  });
+
   it('proposes recurring topics with prevalence and evidence, promotions, archive and lint fixes; reads only', async () => {
     const { loc, brain } = await setup();
     const f = await fixture(loc);
