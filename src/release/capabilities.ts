@@ -45,7 +45,7 @@ export function getCapabilities(version = packageVersion()) {
       'Secret redaction is pattern-based and best effort; it is not a data-loss-prevention system.',
       'edu brain share moves a note between this machine\'s project and global brains; other projects lose a note moved into one project.',
       'edu sync resolves only generated files and counter-only differences; other conflicts wait on a sync-conflict branch for a person or agent to merge.',
-      '4.0.0 builds on the 3.0 candidate; what was verified and what was not is in docs/edu-4.0.md.',
+      '5.0.0 builds on 4.x; what was measured and verified, and what was not, is in docs/edu-5.0.md.',
       'edu brain tidy never confirms or refutes a hypothesis: stale ones become no-evidence; accepted canonical notes and closed episodes are reported, not edited.',
       'Crew redaction is best effort and may withhold long lines; run logs retain raw local evidence.',
       'Run budgets cover Edu-owned invocations, not native CLI tools, descendants, provider cost or internal turns.',
