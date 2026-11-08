@@ -1,8 +1,10 @@
-/** `edu brain status|recall|remember|maintain|tidy|import|link|proposals|approve`. */
+/** `edu brain status|recall|remember|maintain|tidy|lint|import|link|proposals|approve`. */
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { autoMaintain } from '../../brain/auto-maintain.js';
 import { listCanonicalProposals, reviewCanonicalProposals } from '../../brain/proposals.js';
+import { LINT_KINDS, lintBrain, type LintReport } from '../../brain/lint.js';
+import { brainPath } from '../../brain/location.js';
 import { TIDY_KINDS, applyTidy, loadTidyPlan, planTidy, saveTidyPlan } from '../../brain/tidy.js';
 import type { ClaimBand, TransitiveKind } from '../../core/contracts.js';
 import type { CliContext } from '../context.js';
@@ -210,6 +212,23 @@ export function registerBrain(program: Command, ctx: CliContext): void {
     );
 
   brain
+    .command('lint')
+    .description('read-only health check: orphans, missing pages, possible contradictions, stale claims, overdue commitments, duplicates')
+    .option('--stale-days <n>', 'age in days after which a time-sensitive claim without "(as of YYYY-MM-DD)" is stale', '90')
+    .option('--strict', 'exit with code 1 when a finding has severity error')
+    .option('--json', 'machine-readable output')
+    .action(
+      action<{ staleDays?: string; strict?: boolean; json?: boolean }>(ctx, async ({ g, opts }) => {
+        const ws = await openWorkspace(ctx, g.cwd);
+        const staleDays = parseIntOption(opts.staleDays ?? '90', '--stale-days');
+        const report = await lintBrain(ws.brain, { staleDays, root: brainPath(ws.primary) });
+        if (opts.strict && report.summary.error) ctx.setExitCode(1);
+        if (g.json || opts.json) return printJson(ctx, report);
+        for (const line of lintTable(report)) ctx.out(line);
+      }),
+    );
+
+  brain
     .command('import')
     .description('import an Albert vault or MORAGENT memory (read-only on the source)')
     .argument('<source>', 'albert | moragent')
@@ -303,4 +322,24 @@ export function registerBrain(program: Command, ctx: CliContext): void {
         ctx.out(fill(m.summary, { accepted: result.accepted.length, rejected: result.rejected.length, errors: result.errors.length }));
       }),
     );
+}
+
+/** Findings grouped by kind (most actionable first), then the summary counts. */
+export function lintTable(report: LintReport): string[] {
+  const lines: string[] = [];
+  for (const kind of LINT_KINDS) {
+    const group = report.findings.filter(finding => finding.kind === kind);
+    if (!group.length) continue;
+    lines.push(`${kind} (${group.length})`);
+    for (const finding of group) {
+      lines.push(`  ${finding.severity.padEnd(7)} ${finding.ids.join(', ')}`);
+      lines.push(`          ${finding.message}`);
+      lines.push(`          fix: ${finding.fix}`);
+    }
+    lines.push('');
+  }
+  const { summary } = report;
+  if (!summary.total) lines.push(`No findings in ${report.notes} notes.`);
+  else lines.push(`${summary.total} finding(s) in ${report.notes} notes: ${summary.error} error · ${summary.warning} warning · ${summary.info} info — ${LINT_KINDS.filter(kind => summary[kind]).map(kind => `${kind} ${summary[kind]}`).join(', ')}`);
+  return lines;
 }
