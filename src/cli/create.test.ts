@@ -49,7 +49,8 @@ describe('edu create', () => {
     const texts = await Promise.all(notes.map(path => readFile(path, 'utf8')));
     // Same-titled sections from both documents merge into one note (Operación Norte, Clientes).
     expect(texts.length).toBe(4);
-    expect(texts.every(text => /status: accepted/.test(text) && /band: verified/.test(text))).toBe(true);
+    // Extracted notes are proposals, even when the extractor calls them verified: nothing is accepted without a human.
+    expect(texts.every(text => /status: proposed/.test(text) && /band: verified/.test(text))).toBe(true);
     expect(texts.some(text => text.includes('source: operacion.md#Clientes'))).toBe(true);
     expect(texts.some(text => text.includes('source: kpis.docx#KPIs') && text.includes('| Quiebre | < 3% |'))).toBe(true);
     expect(await readFile(join(root, '01-CONOCIMIENTO', '0-index', 'INDEX.md'), 'utf8')).toContain('Clientes');
@@ -66,11 +67,11 @@ describe('edu create', () => {
 
     const registry = JSON.parse(await readFile(join(c.dirs.eduHome, 'projects.json'), 'utf8'));
     expect(registry.projects).toEqual([expect.objectContaining({ name: 'albert', root: await realpath(root), brain: join(await realpath(root), '01-CONOCIMIENTO') })]);
-    expect(out(c)).toContain('Notas: 4 aceptadas · 0 propuestas');
+    expect(out(c)).toContain('Notas: 4 propuestas para aprobar');
     expect(out(c)).toContain('Extracción: por títulos (--no-llm)');
 
     const deck = await deckSnapshot(root);
-    expect(deck).toMatchObject({ identity: 'Albert', brain: { present: true, canonical: 4 } });
+    expect(deck).toMatchObject({ identity: 'Albert', brain: { present: true, canonical: 0, toApprove: 4 } });
 
     const hook = await captureContext();
     hook.ctx.env = { ...c.ctx.env };
@@ -95,7 +96,7 @@ describe('edu create', () => {
     expect(await present(join(parent, 'ada', '01-KNOWLEDGE', 'sources', 'operacion.md'))).toBe(true);
   });
 
-  it('extracts with the installed CLI: verified notes accepted, inferred proposed, playbooks and glossary', async () => {
+  it('extracts with the installed CLI: every note proposed (verified included), playbooks and glossary', async () => {
     const extraction = {
       identity: { name: 'ignored', role: 'Analista de trade marketing', tone: 'directo', summary: 'Opera trade en retail.' },
       notes: [
@@ -112,7 +113,7 @@ describe('edu create', () => {
     expect(err(c)).toBe('');
     const root = join(c.dirs.cwd, 'out', 'albert');
     expect(out(c)).toContain('Extrayendo conocimiento con claude');
-    expect(out(c)).toContain('Notas: 2 aceptadas · 1 propuestas para aprobar · 1 términos de glosario · 1 playbooks');
+    expect(out(c)).toContain('Notas: 3 propuestas para aprobar (edu brain proposals / approve) · 1 términos de glosario · 1 playbooks');
     const config = JSON.parse(await readFile(join(root, '.edu', 'config.json'), 'utf8'));
     expect(config.identity).toEqual({ name: 'Albert', role: 'Analista de trade marketing', tone: 'directo', summary: 'Opera trade en retail.' });
     expect(config.defaultCli).toBe('claude');
@@ -124,6 +125,8 @@ describe('edu create', () => {
     const notes = await Promise.all((await notesIn(join(root, '01-CONOCIMIENTO', '1-canonical'))).map(path => readFile(path, 'utf8')));
     expect(notes.find(text => text.includes('Riesgo de quiebre'))).toMatch(/status: proposed[\s\S]*band: inferred|band: inferred[\s\S]*status: proposed/);
     expect(notes.find(text => text.includes('title: Glosario'))).toContain('- **OSA**: on-shelf availability');
+    expect(notes.find(text => text.includes('title: Clientes'))).toMatch(/status: proposed/);
+    expect(notes.some(text => /status: accepted/.test(text))).toBe(false);
   });
 
   it('falls back to the heading extraction with a warning when the CLI answer stays invalid', async () => {
@@ -134,7 +137,7 @@ describe('edu create', () => {
     expect(c.exitCode).toBeUndefined();
     expect(err(c)).toContain('claude no devolvió un JSON válido');
     expect(out(c)).toContain('Extracción: por títulos (falló claude)');
-    expect(out(c)).toContain('Notas: 3 aceptadas');
+    expect(out(c)).toContain('Notas: 3 propuestas');
   });
 
   it('adds documents to an existing workspace with --add, without clobbering titles', async () => {

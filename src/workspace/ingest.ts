@@ -1,6 +1,7 @@
 /**
- * Writes an extraction into a workspace brain: notes as canonical (verified → accepted, inferred →
- * proposed for human approval), the glossary as one lexicon note, playbooks under `.edu/playbooks/`.
+ * Writes an extraction into a workspace brain: every note (and the glossary, as one lexicon note) becomes a
+ * canonical proposal awaiting `edu brain approve`, whatever band the extractor gave it: a model labelling its
+ * own output `verified` is not human confirmation. Playbooks go under `.edu/playbooks/`.
  * Never overwrites: a title or playbook name already taken gets a suffix.
  */
 import { access } from 'node:fs/promises';
@@ -11,7 +12,7 @@ import type { CanonicalKind } from '../core/contracts.js';
 import type { Lang } from '../cli/i18n.js';
 import type { ExtractedNote, KnowledgeExtraction } from './extract.js';
 
-export interface IngestReport { accepted: number; proposed: number; glossaryTerms: number; playbooks: string[]; skipped: number }
+export interface IngestReport { proposed: number; glossaryTerms: number; playbooks: string[]; skipped: number }
 
 const CANONICAL_KIND: Record<ExtractedNote['kind'], CanonicalKind> = {
   overview: 'identity', standard: 'standard', decision: 'standard', process: 'standard',
@@ -34,16 +35,15 @@ function freeTitle(title: string, taken: Set<string>, label: string): string {
 const sourceLabel = (source: string) => source.split('#')[0]!.split('; ')[0]!.replace(/\.[^.]+$/, '') || 'doc';
 
 export async function ingestExtraction(brain: Brain, eduRoot: string, extraction: KnowledgeExtraction, opts: { lang: Lang; origin: string }): Promise<IngestReport> {
-  const report: IngestReport = { accepted: 0, proposed: 0, glossaryTerms: 0, playbooks: [], skipped: 0 };
+  const report: IngestReport = { proposed: 0, glossaryTerms: 0, playbooks: [], skipped: 0 };
   const taken = new Set((await brain.list({ tier: 'canonical' })).map(note => note.meta.id));
   const write = async (note: ExtractedNote) => {
     const title = freeTitle(note.title, taken, sourceLabel(note.source || opts.origin));
-    const created = await brain.proposeCanonical({
+    await brain.proposeCanonical({
       tier: 'canonical', kind: CANONICAL_KIND[note.kind], title, body: note.body, band: note.band,
       source: note.source || opts.origin, tags: ['workspace', note.kind],
     });
-    if (note.band === 'verified') { await brain.acceptCanonical(created.meta.id); report.accepted++; }
-    else report.proposed++;
+    report.proposed++;
   };
   for (const note of extraction.notes) {
     if (!note.title.trim() || !note.body.trim()) { report.skipped++; continue; }
