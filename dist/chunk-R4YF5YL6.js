@@ -205,6 +205,8 @@ var sectionWith = (text, anchors, cues) => {
     if (!isHeading(line) || !anyOf(line, cues)) continue;
     const end = lines.findIndex((next, j) => j > i && isHeading(next));
     const body = lines.slice(i + 1, end === -1 ? void 0 : end).join(" ");
+    const first = /\b[a-z]-[a-z0-9]+(?:-[a-z0-9]+)+/.exec(`${line} ${body}`)?.[0];
+    if (first && !anyOf(first, anchors)) continue;
     if (anyOf(body, anchors)) return `${line.trim()} ${body.trim()}`;
   }
   return void 0;
@@ -5841,4 +5843,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-57CB55M7.js.map
+//# sourceMappingURL=chunk-R4YF5YL6.js.map

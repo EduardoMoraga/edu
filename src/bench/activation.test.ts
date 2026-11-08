@@ -48,6 +48,9 @@ describe('activation grader', () => {
     expect(bold.checks.find(c => c.id === 'stale-note')?.passed).toBe(true);
     const wrong = gradeActivation('## Nota obsoleta\n\n`D-usar-redis-con-bullmq-para-la-cola-de-trabajos`\n\n## Otro\n\nH-redis-aguanta-el-pico sigue abierta.');
     expect(wrong.checks.find(c => c.id === 'stale-note')?.passed).toBe(false);
+    // Same section: the heading names the reverted decision, the hypothesis is only mentioned as still current.
+    const same = gradeActivation('## Nota obsoleta: D-usar-redis-con-bullmq-para-la-cola-de-trabajos\n\nH-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos sigue abierta y vigente.');
+    expect(same.checks.find(c => c.id === 'stale-note')?.passed).toBe(false);
   });
 
   it('gives 0 to an empty answer and to an echo of the prompt', () => {

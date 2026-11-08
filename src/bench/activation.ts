@@ -85,6 +85,9 @@ const sectionWith = (text: string, anchors: readonly string[], cues: readonly st
     if (!isHeading(line) || !anyOf(line, cues)) continue;
     const end = lines.findIndex((next, j) => j > i && isHeading(next));
     const body = lines.slice(i + 1, end === -1 ? undefined : end).join(' ');
+    // The section is about the first note it names: "## Obsolete: D-other" then a mention of the anchor is not a flag.
+    const first = /\b[a-z]-[a-z0-9]+(?:-[a-z0-9]+)+/.exec(`${line} ${body}`)?.[0];
+    if (first && !anyOf(first, anchors)) continue;
     if (anyOf(body, anchors)) return `${line.trim()} ${body.trim()}`;
   }
   return undefined;
