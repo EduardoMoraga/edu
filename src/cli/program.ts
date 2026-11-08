@@ -13,6 +13,7 @@ import { registerConnect } from './commands/connect.js';
 import { registerCrew } from './commands/crew.js';
 import { registerDeck } from './commands/deck.js';
 import { registerDoctor } from './commands/doctor.js';
+import { registerDream } from './commands/dream.js';
 import { registerDetach } from './commands/detach.js';
 import { registerEvidence } from './commands/evidence.js';
 import { registerExperiment } from './commands/experiment.js';
@@ -35,7 +36,7 @@ import { packageVersion } from './package.js';
 const GROUPS: Array<[string, string[]]> = [
   ['Get started:', ['create', 'init', 'vault', 'sync', 'join', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities']],
   ['Work:', ['run', 'ui', 'demo', 'deck', 'experiment']],
-  ['Brain:', ['brief', 'brain', 'context', 'reflect', 'proposals', 'metrics', 'checks', 'eval', 'bench']],
+  ['Brain:', ['brief', 'brain', 'context', 'reflect', 'dream', 'proposals', 'metrics', 'checks', 'eval', 'bench']],
   ['Integrations:', ['mcp', 'connect', 'statusline', 'hook']],
 ];
 
@@ -88,6 +89,7 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerLive(program, ctx);
   registerBrain(program, ctx);
   registerLearn(program, ctx);
+  registerDream(program, ctx);
   registerDoctor(program, ctx);
   registerDetach(program, ctx);
   registerEvidence(program, ctx);
