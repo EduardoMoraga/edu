@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { assertInsideBrain } from './safe-path.js';
 
 const WAIT_MS = 15_000;
 const STALE_MS = 30_000;
@@ -27,10 +28,13 @@ export function logLockDir(brainDir: string): string {
  */
 export async function withLogLock<T>(brainDir: string, body: () => Promise<T>): Promise<T> {
   const dir = logLockDir(brainDir);
-  return withDirLock(dirname(dir), basename(dir), body);
+  // The brain folder is synced content: a remote could track `.edu-local` (or `locks`) as a link to an outside
+  // folder, and lock creation or stale-lock removal would then act there. Refuse before touching anything.
+  await assertInsideBrain(brainDir, join(dir, 'owner'));
+  return withDirLock(dirname(dir), basename(dir), body, () => assertInsideBrain(brainDir, join(dir, 'owner')));
 }
 
-async function withDirLock<T>(locks: string, name: string, body: () => Promise<T>): Promise<T> {
+async function withDirLock<T>(locks: string, name: string, body: () => Promise<T>, recheck?: () => Promise<void>): Promise<T> {
   const dir = join(locks, name);
   await mkdir(locks, { recursive: true });
   const deadline = Date.now() + WAIT_MS;
@@ -50,6 +54,7 @@ async function withDirLock<T>(locks: string, name: string, body: () => Promise<T
       break;
     }
     if ((contention as NodeJS.ErrnoException)?.code === 'EEXIST' && await stale(dir)) {
+      await recheck?.(); // never reclaim through a path that became a link meanwhile
       const claimed = `${dir}.stale-${process.pid}-${Date.now()}`;
       try { await rename(dir, claimed); await rm(claimed, { recursive: true, force: true }); } catch { /* another contender won */ }
       continue;

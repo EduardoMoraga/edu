@@ -179,7 +179,9 @@ export async function appendLog(brainDir: string, entry: { op: LogOp; id: string
   let locked = false;
   try {
     await withLogLock(brainDir, async () => { locked = true; await write(); });
-  } catch {
+  } catch (error) {
+    // A lock folder that is (or sits under) a link means the brain's content is hostile: skip, never write around it.
+    if (isUnsafeBrainPath(error)) { warnUnsafe(error); return; }
     if (!locked) await write().catch(() => undefined);
     /* the log is an aid, not the source of truth */
   }

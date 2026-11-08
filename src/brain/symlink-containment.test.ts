@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -114,6 +114,20 @@ describe.runIf(posix)('brain writes never follow symbolic links out of the brain
     // A target spelled through the root's real path is inside too.
     await atomicWrite(join(real, '0-index', 'extra.md'), 'x', { root: join(root, 'brain') });
     expect(warnings).toEqual([]);
+  });
+
+  it('never creates or reclaims the log lock through a linked .edu-local (remote-controlled)', async () => {
+    const { brainDir, outside, brain } = await fixture();
+    const lock = join(outside, 'locks', 'log.lock');
+    await mkdir(lock, { recursive: true });
+    await writeFile(join(lock, 'keep.txt'), 'KEEP');
+    const old = new Date(Date.now() - 3_600_000);
+    await utimes(lock, old, old);
+    await rm(join(brainDir, '.edu-local'), { recursive: true, force: true });
+    await symlink(outside, join(brainDir, '.edu-local'));
+    await brain.write({ tier: 'transitive', kind: 'lesson', title: 'After the hostile pull', body: 'body' });
+    expect(await readFile(join(lock, 'keep.txt'), 'utf8')).toBe('KEEP');
+    expect(warnings.join('\n')).toMatch(/symbolic link/);
   });
 
   it('accepts a root spelled through a linked ancestor (macOS /var → /private/var)', async () => {
