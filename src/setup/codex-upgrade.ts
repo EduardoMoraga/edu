@@ -6,6 +6,7 @@ import { tree, treeOrEmpty, equal, version, eduOwnedRoot, type Hashes } from './
 import { backupUpgradeFiles } from '../update/migrate.js';
 import { compareVersions } from '../update/release.js';
 import { codexBaselineForVersion } from './codex-baseline.js';
+import { withRegistrationRecovery } from './plugin-recovery.js';
 import type { SetupRunner } from './index.js';
 
 /** Oldest Codex whose public plugin commands and cache layout this refresh verifies. */
@@ -34,6 +35,7 @@ export async function planCodexRefresh(options: { home: string; packageRoot: str
   let checkProvenance: () => Promise<void>;
   let before: Hashes; let candidate: Hashes; let installedVersion: string; let nextVersion: string;
   let reinstall = false; let relocated = false;
+  let previous: { root: string; pluginId: string; version: string; enabled: boolean };
   try {
     const entry = await listed();
     const registeredRoot = entry.marketplaceSource?.source;
@@ -44,6 +46,7 @@ export async function planCodexRefresh(options: { home: string; packageRoot: str
       throw new Error('installed plugin identity or local provenance is unknown');
     }
     relocated = registeredRoot !== packageRoot;
+    previous = { root: registeredRoot, pluginId: 'edu@edu', version: entry.version, enabled: entry.enabled };
     if (relocated && !eduOwnedRoot(registeredRoot, previousPackageRoot)) throw new Error('registered marketplace source is not an Edu package this setup recorded (custom or development checkout)');
     const host = await command(['--version']);
     checkProvenance = await captureNativeProvenance({ host: 'codex', home, packageRoot, runner, expectedRegistration: JSON.stringify([entry]) });
@@ -75,25 +78,37 @@ export async function planCodexRefresh(options: { home: string; packageRoot: str
     const backup = await backupUpgradeFiles(brainRoot, Object.keys(before).map(p => join(base, p)));
     if (!equal(await treeOrEmpty(base), before) || !equal(await tree(sourceRoot), candidate)) throw new Error('Manual conflict: Codex native cache/source changed during backup');
     await checkProvenance();
-    try {
-      const steps = reinstall ? [['plugin', 'remove', 'edu@edu'], ...(relocated ? [['plugin', 'marketplace', 'remove', 'edu'], ['plugin', 'marketplace', 'add', packageRoot]] : [])] : [];
-      for (const args of steps) {
-        const step = await command(args);
-        if (step.exitCode !== 0) throw new Error(`codex ${args.join(' ')}: host exit ${step.exitCode}: ${step.stderr ?? ''}`);
-      }
-      const result = await command(['plugin', 'add', 'edu@edu', '--json']);
-      if (result.exitCode !== 0) throw new Error(`host exit ${result.exitCode}: ${result.stderr ?? ''}`);
+    const verify = async (result: { stdout?: string }) => {
       const installed = JSON.parse(result.stdout ?? '');
       const expectedPath = join(base, nextVersion);
       if (installed.pluginId !== 'edu@edu' || installed.version !== nextVersion || installed.installedPath !== expectedPath) throw new Error('unexpected install identity/version/path');
       const expected = Object.fromEntries(Object.entries(candidate).map(([p, hash]) => [`${nextVersion}/${p}`, hash]));
       if (!equal(await tree(base), expected)) throw new Error('installed cache does not match candidate hashes');
-      if (reinstall) {
-        const entry = await listed();
-        if (entry.marketplaceSource?.sourceType !== 'local' || entry.marketplaceSource.source !== packageRoot || entry.source?.path !== sourceRoot || entry.version !== nextVersion) throw new Error('registration does not point at the current package');
+    };
+    if (reinstall) {
+      // Destructive: the previous registration is recorded first and restored on any failure.
+      try {
+        await withRegistrationRecovery({ host: 'codex', home, runner, previous, target: packageRoot }, async step => {
+          await step(['plugin', 'remove', 'edu@edu']);
+          if (relocated) {
+            await step(['plugin', 'marketplace', 'remove', 'edu']);
+            await step(['plugin', 'marketplace', 'add', packageRoot]);
+          }
+          await verify(await step(['plugin', 'add', 'edu@edu', '--json']));
+          const entry = await listed();
+          if (entry.marketplaceSource?.sourceType !== 'local' || entry.marketplaceSource.source !== packageRoot || entry.source?.path !== sourceRoot || entry.version !== nextVersion) throw new Error('registration does not point at the current package');
+        });
+      } catch (error) {
+        throw new Error(`Codex native refresh failed: ${error instanceof Error ? error.message : error}. Backup: ${backup}. Restart only after the registration is confirmed.`);
       }
+      return;
+    }
+    try {
+      const result = await command(['plugin', 'add', 'edu@edu', '--json']);
+      if (result.exitCode !== 0) throw new Error(`host exit ${result.exitCode}: ${result.stderr ?? ''}`);
+      await verify(result);
     } catch (error) {
-      throw new Error(`Codex native refresh failed: ${error instanceof Error ? error.message : error}. Backup: ${backup}. No automatic host rollback; restart only after repair.`);
+      throw new Error(`Codex native refresh failed: ${error instanceof Error ? error.message : error}. Backup: ${backup}. The registration was not removed (plugin add over it); restart only after repair.`);
     }
   };
 }

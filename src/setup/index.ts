@@ -2,6 +2,7 @@ import { pinConfiguredBases } from '../adapters/paths.js';
 import { planClaudeRefresh } from './claude-upgrade.js';
 import { planCodexRefresh } from './codex-upgrade.js';
 import { eduOwnedRoot } from './native-files.js';
+import { pluginRecoveryPath, resumeRegistrationRecovery, withRegistrationRecovery } from './plugin-recovery.js';
 import { eduMcpLaunch, spawnCli, type McpLaunch } from '../platform/index.js';
 import { access, mkdir, readFile, readdir, realpath, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -375,6 +376,10 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
   const native = [...new Set([...plan.alreadyInstalled, ...(previous?.native ?? [])])].filter(cli => plan.clis.includes(cli));
   await localizeUpgradeSources(plan, options, brainRoot, native);
   const nativeRefreshes: Array<() => Promise<void>> = [];
+  // A previous run that could not roll back left its record: repair that registration before planning.
+  for (const cli of native) {
+    if (cli === 'claude' || cli === 'codex' || cli === 'pi') await resumeRegistrationRecovery({ host: cli, home: plan.home, runner, packageRoot: plan.packageRoot });
+  }
   for (const cli of native) {
     if (cli === 'codex') {
       nativeRefreshes.push(await planCodexRefresh({ home: plan.home, packageRoot: plan.packageRoot, previousPackageRoot: previous?.packageRoot, brainRoot, runner, platform: options.platform }));
@@ -391,14 +396,21 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
       const old = previous?.packageRoot;
       if (old && old !== plan.packageRoot && lines.includes(old) && eduOwnedRoot(old, old)) {
         // A Node manager moved the package root: re-point the in-place Pi package through its public CLI.
+        // Install the new package before removing the old one, so a failed install removes nothing;
+        // any later failure restores the old package (recorded first).
         nativeRefreshes.push(async () => {
-          for (const args of [['remove', old], ['install', plan.packageRoot]]) {
-            const result = await runner({ cli: 'pi', command: 'pi', args });
-            if (result.exitCode !== 0) throw new Error(`Pi native refresh failed: pi ${args.join(' ')}: host exit ${result.exitCode}: ${result.stderr ?? ''}`);
+          try {
+            await withRegistrationRecovery({ host: 'pi', home: plan.home, runner, previous: { root: old }, target: plan.packageRoot }, async step => {
+              await step(['install', plan.packageRoot]);
+              const listedNow = await runner(LIST_COMMANDS.pi);
+              if (listedNow.exitCode === 0 && listedNow.stdout?.split(/\r?\n/).map(line => line.trim()).includes(old)) await step(['remove', old]);
+              const after = await runner(LIST_COMMANDS.pi);
+              const now = after.exitCode === 0 ? after.stdout?.split(/\r?\n/).map(line => line.trim()) ?? [] : [];
+              if (!now.includes(plan.packageRoot) || now.includes(old)) throw new Error('package registration does not point at the current package');
+            });
+          } catch (error) {
+            throw new Error(`Pi native refresh failed: ${error instanceof Error ? error.message : error}`);
           }
-          const after = await runner(LIST_COMMANDS.pi);
-          const now = after.exitCode === 0 ? after.stdout?.split(/\r?\n/).map(line => line.trim()) ?? [] : [];
-          if (!now.includes(plan.packageRoot) || now.includes(old)) throw new Error('Pi native refresh failed: package registration does not point at the current package');
         });
         continue;
       }
@@ -551,6 +563,9 @@ export async function uninstallSetup(options: { home: string; runner?: SetupRunn
     }
   }
   await unlink(path);
+  // The registrations are gone: a pending rollback record no longer describes anything to repair.
+  await unlink(pluginRecoveryPath(options.home)).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+  await rmdir(dirname(pluginRecoveryPath(options.home))).catch(() => undefined);
   for (const dir of [...(manifest.createdDirs ?? [])].reverse()) {
     await rmdir(dir).catch(error => { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error; });
   }

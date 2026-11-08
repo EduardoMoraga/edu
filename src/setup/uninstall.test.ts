@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, parse, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CliId } from '../core/contracts.js';
 import { applySetup, planSetup, type SetupCommand, type SetupRunner } from './index.js';
@@ -136,5 +136,88 @@ describe('edu uninstall', () => {
     await expect(assertPurgeableBrain(dirname(home), home)).rejects.toThrow(/home directory/);
     await mkdir(join(home, 'not-a-brain'));
     await expect(assertPurgeableBrain(join(home, 'not-a-brain'), home)).rejects.toThrow(/not an Edu brain/);
+  });
+});
+
+describe('purge home protection', () => {
+  /** A complete Edu brain layout: the strongest markers the guard accepts. */
+  async function brainLayout(root: string): Promise<void> {
+    await mkdir(join(root, 'brain/1-canonical'), { recursive: true });
+    await mkdir(join(root, 'brain/0-index'), { recursive: true });
+    await writeFile(join(root, 'EDU.md'), '# Edu');
+    await writeFile(join(root, 'config.json'), '{}');
+  }
+  async function sandbox(): Promise<string> {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'edu-purge-')));
+    dirs.push(root);
+    return root;
+  }
+
+  it('refuses a target that reaches the home through a symlinked ancestor, and leaves the home intact', async () => {
+    const root = await sandbox();
+    const home = join(root, 'real/home');
+    await brainLayout(home);
+    await writeFile(join(home, 'precious.txt'), 'keep me');
+    const alias = join(root, 'alias');
+    await symlink(join(root, 'real'), alias, 'junction');
+    await expect(assertPurgeableBrain(join(alias, 'home'), home)).rejects.toThrow(/home directory/);
+    await expect(uninstallEdu({ home, cwd: home, brainRoot: join(alias, 'home'), purgeBrain: true, runner: runner('fail').run })).rejects.toThrow(/home directory/);
+    // And through an aliased HOME: the canonical target is still the real home.
+    await expect(assertPurgeableBrain(home, join(alias, 'home'))).rejects.toThrow(/home directory/);
+    await expect(assertPurgeableBrain(join(root, 'real'), join(alias, 'home'))).rejects.toThrow(/home directory/);
+    expect(await readFile(join(home, 'precious.txt'), 'utf8')).toBe('keep me');
+  });
+
+  it('refuses the home itself, the filesystem root and every ancestor of the home', async () => {
+    const root = await sandbox();
+    const home = join(root, 'home');
+    await brainLayout(home);
+    await expect(assertPurgeableBrain(home, home)).rejects.toThrow(/home directory/);
+    await expect(assertPurgeableBrain(root, home)).rejects.toThrow(/home directory/);
+    await expect(assertPurgeableBrain(parse(root).root, home)).rejects.toThrow(/home directory|root/);
+  });
+
+  it('refuses a directory without an Edu brain layout (config.json alone is not enough)', async () => {
+    const root = await sandbox();
+    const home = join(root, 'home');
+    const target = join(home, '.edu');
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, 'config.json'), '{}');
+    await expect(assertPurgeableBrain(target, home)).rejects.toThrow(/not an Edu brain/);
+    await writeFile(join(target, 'EDU.md'), '# Edu');
+    await expect(assertPurgeableBrain(target, home)).rejects.toThrow(/not an Edu brain/);
+  });
+
+  it('refuses a brain that is itself a symlink, or whose markers are symlinks', async () => {
+    const root = await sandbox();
+    const home = join(root, 'home');
+    const real = join(root, 'elsewhere');
+    await brainLayout(real);
+    await mkdir(home, { recursive: true });
+    await symlink(real, join(home, '.edu'), 'junction');
+    await expect(assertPurgeableBrain(join(home, '.edu'), home)).rejects.toThrow(/symlink/);
+    await expect(uninstallEdu({ home, cwd: home, brainRoot: join(home, '.edu'), purgeBrain: true, runner: runner('fail').run })).rejects.toThrow(/symlink/);
+    expect(await readFile(join(real, 'EDU.md'), 'utf8')).toBe('# Edu');
+    const linked = join(root, 'linked');
+    await mkdir(linked);
+    await writeFile(join(linked, 'EDU.md'), '# Edu');
+    await symlink(join(real, 'brain'), join(linked, 'brain'), 'junction');
+    await expect(assertPurgeableBrain(linked, home)).rejects.toThrow(/not an Edu brain|symlink/);
+  });
+
+  it('purges a legitimate brain by its canonical path without following links inside it', async () => {
+    const root = await sandbox();
+    const home = join(root, 'home');
+    const brain = join(home, '.edu');
+    await brainLayout(brain);
+    const outside = join(root, 'outside');
+    await mkdir(outside);
+    await writeFile(join(outside, 'keep.txt'), 'outside');
+    await symlink(outside, join(brain, 'brain/1-canonical/link'), 'junction');
+    const result = await uninstallEdu({ home, cwd: home, brainRoot: brain, purgeBrain: true, runner: runner('fail').run });
+    expect(result.brain.action).toBe('purged');
+    await expect(readdir(brain)).rejects.toThrow();
+    expect(await readFile(join(outside, 'keep.txt'), 'utf8')).toBe('outside');
+    expect(await readdir(home)).toEqual([]);
   });
 });
