@@ -133,7 +133,8 @@ async function assembleContext(brain: Brain, req: ContextRequest, opts: ContextO
       .sort((a, b) => (a.meta.due ?? '9999').localeCompare(b.meta.due ?? '9999') || a.meta.id.localeCompare(b.meta.id));
     const hypotheses = notes.filter(note => note.meta.kind === 'hypothesis' && note.meta.status === 'open').sort(byNewest);
     for (const note of [...pending, ...hypotheses]) {
-      const detail = note.meta.kind === 'commitment' ? `due ${note.meta.due ?? 'unspecified'}` : `band ${note.meta.band ?? 'hypothesis'}`;
+      // An absolute date (not "N days ago") keeps the brief byte-stable while still showing how long a hypothesis has waited.
+      const detail = note.meta.kind === 'commitment' ? `due ${note.meta.due ?? 'unspecified'}` : `band ${note.meta.band ?? 'hypothesis'}, open since ${note.meta.created.slice(0, 10)}`;
       add('Active commitments & open hypotheses', `- ${note.meta.title} (${detail})`, note);
     }
   };

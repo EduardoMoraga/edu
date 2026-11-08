@@ -132,7 +132,7 @@ ${prefix}`;
     const pending = notes.filter((note) => note.meta.kind === "commitment" && (note.meta.status === "pending" || note.meta.status === "overdue")).sort((a, b) => (a.meta.due ?? "9999").localeCompare(b.meta.due ?? "9999") || a.meta.id.localeCompare(b.meta.id));
     const hypotheses = notes.filter((note) => note.meta.kind === "hypothesis" && note.meta.status === "open").sort(byNewest);
     for (const note of [...pending, ...hypotheses]) {
-      const detail = note.meta.kind === "commitment" ? `due ${note.meta.due ?? "unspecified"}` : `band ${note.meta.band ?? "hypothesis"}`;
+      const detail = note.meta.kind === "commitment" ? `due ${note.meta.due ?? "unspecified"}` : `band ${note.meta.band ?? "hypothesis"}, open since ${note.meta.created.slice(0, 10)}`;
       add("Active commitments & open hypotheses", `- ${note.meta.title} (${detail})`, note);
     }
   };
@@ -192,4 +192,4 @@ export {
   buildContext,
   brief
 };
-//# sourceMappingURL=chunk-EL5RUSGC.js.map
+//# sourceMappingURL=chunk-EK6FCFDF.js.map
