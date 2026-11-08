@@ -5,6 +5,7 @@
  */
 import { Command } from 'commander';
 import { detectTheme, getGlyphs, renderBanner } from '../identity/index.js';
+import { registerBench } from './commands/bench.js';
 import { registerBrain } from './commands/brain.js';
 import { registerCapabilities } from './commands/capabilities.js';
 import { registerCreate } from './commands/create.js';
@@ -33,7 +34,7 @@ import { packageVersion } from './package.js';
 const GROUPS: Array<[string, string[]]> = [
   ['Get started:', ['create', 'init', 'vault', 'sync', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities']],
   ['Work:', ['run', 'ui', 'demo', 'deck', 'experiment']],
-  ['Brain:', ['brief', 'brain', 'context', 'reflect', 'proposals', 'metrics', 'checks', 'eval']],
+  ['Brain:', ['brief', 'brain', 'context', 'reflect', 'proposals', 'metrics', 'checks', 'eval', 'bench']],
   ['Integrations:', ['mcp', 'connect', 'statusline', 'hook']],
 ];
 
@@ -89,6 +90,7 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerDetach(program, ctx);
   registerEvidence(program, ctx);
   registerEvaluation(program, ctx);
+  registerBench(program, ctx);
   registerExperiment(program, ctx);
   registerCapabilities(program, ctx);
   registerIntegrations(program, ctx);
