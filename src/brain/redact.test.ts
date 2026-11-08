@@ -168,3 +168,44 @@ describe('redaction on write', () => {
     expect(report.redacted).toEqual(['slack-token']);
   });
 });
+
+describe('redaction of quoted values with escapes', () => {
+  it('consumes backslash escapes inside quoted values, so no suffix leaks', () => {
+    expect(redactSecrets(JSON.stringify({ password: 'head"LEAKED-TAIL' })).text).toBe('{"password":"[REDACTED:assignment]"}');
+    expect(redactSecrets(JSON.stringify({ token: 'a b\\c"d e' }))).toEqual({ text: '{"token":"[REDACTED:assignment]"}', kinds: ['assignment'] });
+    expect(redactSecrets(String.raw`secret: 'it\'s LEAKED tail' ok`).text).toBe("secret: '[REDACTED:assignment]' ok");
+    expect(redactSecrets("password: 'it''s LEAKED tail'").text).toBe("password: '[REDACTED:assignment]'");
+    expect(redactSecrets(String.raw`api_key = "C:\\dir\\LEAKED \"x\" end"` + '\nnext').text).toBe('api_key = "[REDACTED:assignment]"\nnext');
+  });
+
+  it('redacts an unterminated quoted value to the end of its line', () => {
+    expect(redactSecrets('password="no closing LEAKED tail\nnext line').text).toBe('password="[REDACTED:assignment]\nnext line');
+    expect(redactSecrets(String.raw`token: 'ends in backslash LEAKED\\`).text).toBe("token: '[REDACTED:assignment]");
+    expect(redactSecrets(String.raw`{"password":"head\"LEAKED-TAIL`).text).toBe('{"password":"[REDACTED:assignment]');
+  });
+
+  it('is idempotent and keeps prose and empty values', () => {
+    const once = redactSecrets(JSON.stringify({ password: 'head"LEAKED-TAIL' })).text;
+    expect(redactSecrets(once)).toEqual({ text: once, kinds: [] });
+    const open = redactSecrets('password="no closing tail').text;
+    expect(redactSecrets(open)).toEqual({ text: open, kinds: [] });
+    for (const text of ['the password policy requires rotation', 'token budget 1500', 'password: ""', "secret: ''", 'password: "'])
+      expect(redactSecrets(text), text).toEqual({ text, kinds: [] });
+  });
+
+  it('persists no suffix of an escaped secret in JSON or YAML form', async () => {
+    const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
+    const body = [
+      JSON.stringify({ password: 'head"LEAKED-ONE' }),
+      JSON.stringify({ client_secret: 'sp ace\\back"LEAKED-TWO more' }),
+      'db:',
+      '  password: "yaml \\"LEAKED-THREE\\" tail"',
+      "  secret: 'single ''LEAKED-FOUR'' tail'",
+      'token: "open LEAKED-FIVE',
+    ].join('\n');
+    const note = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Escaped secrets', body });
+    const disk = await readFile(note.path, 'utf8');
+    for (const leaked of ['LEAKED-ONE', 'LEAKED-TWO', 'LEAKED-THREE', 'LEAKED-FOUR', 'LEAKED-FIVE', 'more', 'tail']) expect(disk, leaked).not.toContain(leaked);
+    expect(note.meta.tags).toContain('redacted');
+  });
+});

@@ -52,13 +52,20 @@ const RULES: Rule[] = [
   },
   {
     // key = value, key: value, "key": "value", KEY=value (env files). Only the value is replaced: a quoted value
-    // whole (spaces included), an unquoted one to the end of its token.
+    // whole (spaces and escapes included: `\"` in JSON/YAML, `''` in YAML single quotes), an unterminated quoted
+    // value to the end of its line, an unquoted one to the end of its token.
     kind: 'assignment',
-    pattern: new RegExp(String.raw`(\b(?:[\w.-]*[_.-])?${KEY_WORDS}["']?\s*[:=][ \t]*)(?:"([^"\n]+)"|'([^'\n]+)'|([^\s"'\`,;)}\]]{4,}))`, 'gi'),
-    replace: (m, prefix, double, single, bare) => {
-      const quote = double ? '"' : single ? "'" : '';
-      const value = double || single || bare!;
-      return `${prefix}${quote}${isPlaceholder(value) ? value : m}${quote}`;
+    pattern: new RegExp(String.raw`(\b(?:[\w.-]*[_.-])?${KEY_WORDS}["']?\s*[:=][ \t]*)(?:${[
+      String.raw`"((?:[^"\\\r\n]|\\.)+)"`,
+      String.raw`'((?:[^'\\\r\n]|\\.|'')+)'`,
+      String.raw`"((?:[^"\\\r\n]|\\.)+\\?|\\)(?=[\r\n]|$)`,
+      String.raw`'((?:[^'\\\r\n]|\\.)+\\?|\\)(?=[\r\n]|$)`,
+      String.raw`([^\s"'\`,;)}\]]{4,})`,
+    ].join('|')})`, 'gi'),
+    replace: (m, prefix, double, single, openDouble, openSingle, bare) => {
+      const [open, close] = double ? ['"', '"'] : single ? ["'", "'"] : openDouble ? ['"', ''] : openSingle ? ["'", ''] : ['', ''];
+      const value = double || single || openDouble || openSingle || bare!;
+      return `${prefix}${open}${isPlaceholder(value) ? value : m}${close}`;
     },
   },
   {
