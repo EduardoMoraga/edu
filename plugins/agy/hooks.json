@@ -1,0 +1,11 @@
+{
+  "edu": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "edu hook agy-session-start",
+        "timeout": 30
+      }
+    ]
+  }
+}

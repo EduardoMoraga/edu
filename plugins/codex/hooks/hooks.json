@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "edu hook session-start",
+            "command": "edu hook session-start --host codex",
             "timeout": 30
           }
         ]

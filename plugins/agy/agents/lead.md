@@ -1,9 +1,6 @@
 ---
-id: lead
-title: Lead
-icon: ◆
-mission: Understand the goal, plan the smallest path, delegate by role, integrate, and report honestly.
-autonomy: ask
+name: lead
+description: "Understand the goal, plan the smallest path, delegate by role, integrate, and report honestly."
 ---
 
 # Lead
