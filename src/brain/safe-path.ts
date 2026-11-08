@@ -44,6 +44,15 @@ export async function assertInsideBrain(root: string, path: string): Promise<voi
       if (real && (rel = below(real, target)) !== undefined) { base = real; break; }
     }
   }
+  if (rel === undefined) {
+    // Or through another spelling of it (macOS: /var → /private/var): the nearest ancestor of the target whose real
+    // path is the root's real path is the root. Components below it are still checked one by one.
+    const real = await canonicalRoot(root, true);
+    for (let dir = resolve(target, '..'); real && rel === undefined; dir = resolve(dir, '..')) {
+      if ((await realpath(dir).catch(() => undefined)) === real) { base = dir; rel = below(dir, target); }
+      if (resolve(dir, '..') === dir) break;
+    }
+  }
   if (rel === undefined) throw new UnsafeBrainPathError(`refusing to write ${path}: it is outside the brain ${root}`);
   const parts = rel.split(sep);
   let current = base;

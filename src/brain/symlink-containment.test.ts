@@ -116,6 +116,21 @@ describe.runIf(posix)('brain writes never follow symbolic links out of the brain
     expect(warnings).toEqual([]);
   });
 
+  it('accepts a root spelled through a linked ancestor (macOS /var → /private/var)', async () => {
+    const real = await temp();
+    const alias = `${real}-alias`; dirs.push(alias);
+    await symlink(real, alias);
+    await mkdir(join(real, 'brain'), { recursive: true });
+    // Root spelled through the real path, target through the alias, and the other way round.
+    await atomicWrite(join(alias, 'brain', '0-index', 'a.md'), 'a', { root: join(real, 'brain') });
+    await atomicWrite(join(real, 'brain', '0-index', 'b.md'), 'b', { root: join(alias, 'brain') });
+    expect(await readFile(join(real, 'brain', '0-index', 'a.md'), 'utf8')).toBe('a');
+    expect(await readFile(join(real, 'brain', '0-index', 'b.md'), 'utf8')).toBe('b');
+    // A link below the root is still refused, however the root is spelled.
+    await symlink(await temp(), join(real, 'brain', '3-transitive'));
+    await expect(atomicWrite(join(alias, 'brain', '3-transitive', 'x.md'), 'x', { root: join(real, 'brain') })).rejects.toThrow(/symbolic link/);
+  });
+
   it('atomicWrite without a root replaces a symlinked target instead of following it', async () => {
     const { brainDir, sentinel } = await fixture();
     const link = join(brainDir, 'linked.md');

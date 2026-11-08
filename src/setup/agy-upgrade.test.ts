@@ -24,8 +24,9 @@ async function fixture(installedVersion: string | undefined, nextVersion = '5.0.
     if (command.args[1] === 'list') return { exitCode: 0, stdout: JSON.stringify(state.version ? [{ name: 'edu', version: state.version, path: installedPath, enabled: true }] : []) };
     if (command.args[1] === 'install') {
       const from = command.args[2]!;
-      if (state.failInstall && from.endsWith('plugins/agy')) return { exitCode: 1, stderr: 'boom' };
-      state.version = from.endsWith('plugins/agy') ? nextVersion : installedVersion;
+      const isNew = from === join(packageRoot, 'plugins', 'agy');
+      if (state.failInstall && isNew) return { exitCode: 1, stderr: 'boom' };
+      state.version = isNew ? nextVersion : installedVersion;
       return { exitCode: 0 };
     }
     return { exitCode: 1 };
