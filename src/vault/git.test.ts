@@ -1,5 +1,43 @@
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { gitEnv, redact, remoteKey, sameRemote } from './git.js';
+import { git, gitEnv, redact, remoteKey, sameRemote, withoutCredentials } from './git.js';
+
+describe('git runner', () => {
+  it('closes stdin: a Git child that reads input gets EOF instead of waiting', async () => {
+    const started = Date.now();
+    const result = await git(tmpdir(), ['-c', 'alias.readin=!cat', 'readin'], process.env, { timeoutMs: 5000 });
+    expect(result.code).toBe(0);
+    expect(Date.now() - started).toBeLessThan(4000);
+  });
+
+  it('kills a hung Git call and reports exit code 124', async () => {
+    const started = Date.now();
+    const result = await git(tmpdir(), ['-c', 'alias.hang=!sleep 5', 'hang'], process.env, { timeoutMs: 300 });
+    expect(result.code).toBe(124);
+    expect(result.err).toMatch(/timed out/);
+    expect(Date.now() - started).toBeLessThan(4000);
+  });
+
+  it('never lets Git Credential Manager prompt', () => {
+    expect(gitEnv({}).GCM_INTERACTIVE).toBe('never');
+  });
+});
+
+describe('credential URLs', () => {
+  it('redacts credential query parameters', () => {
+    expect(redact('https://host/repo.git?access_token=abc123')).toBe('https://host/repo.git?access_token=***');
+    expect(redact('fatal: https://h/r.git?ref=main&private_token=xyz&sig=s1 failed')).toBe('fatal: https://h/r.git?ref=main&private_token=***&sig=*** failed');
+    expect(redact('https://h/r.git?ref=main')).toBe('https://h/r.git?ref=main');
+  });
+
+  it('strips userinfo and credential parameters from a URL to store', () => {
+    expect(withoutCredentials('https://x-access-token:ghp_abc@github.com/me/v.git')).toEqual({ url: 'https://github.com/me/v.git', password: 'ghp_abc', stripped: true });
+    expect(withoutCredentials('https://host/repo.git?access_token=abc123&ref=x').url).toBe('https://host/repo.git?ref=x');
+    expect(withoutCredentials('https://host/repo.git?token=abc123').url).toBe('https://host/repo.git');
+    expect(withoutCredentials('git@github.com:me/v.git')).toEqual({ url: 'git@github.com:me/v.git', stripped: false });
+    expect(withoutCredentials('ssh://git@github.com/me/v.git').url).toBe('ssh://git@github.com/me/v.git');
+  });
+});
 
 describe('git helpers', () => {
   it('redacts credentials in URLs and token values', () => {
