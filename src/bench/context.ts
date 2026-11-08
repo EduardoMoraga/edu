@@ -110,7 +110,10 @@ export async function runContextBench(options: { tmpRoot?: string } = {}): Promi
     const second = await hookOutput(base, cwd, 'bench-session-b');
     await openBrain([{ scope: 'project', root: join(cwd, '.edu') }]).recall('scheduler locks');
     const afterRecall = await hookOutput(base, cwd, 'bench-session-a');
-    const prefix = first.slice(0, commonPrefixLength(first, second));
+    // Whole lines only: a prompt cache never reuses part of a line, and random session ids would otherwise share
+    // a few characters by chance and make the number vary between runs.
+    const chars = commonPrefixLength(first, second);
+    const prefix = first.slice(0, first.lastIndexOf('\n', chars - 1) + 1 || (chars === first.length && chars === second.length ? chars : 0));
     const firstLines = first.split('\n');
     const difference = second.split('\n').find((line, i) => line !== firstLines[i]);
     const secondTokens = estimateTokens(second);

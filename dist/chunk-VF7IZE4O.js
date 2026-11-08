@@ -102,6 +102,7 @@ import {
 } from "./chunk-W3BITYSE.js";
 import {
   DASHBOARD_PATHS,
+  ledgerPath,
   listCanonicalProposals,
   openBrain,
   reviewCanonicalProposals
@@ -364,7 +365,7 @@ async function codexNotify(ctx, cwd, payload) {
 }
 
 // src/bench/retrieval.ts
-import { cp, mkdtemp, readFile, rm } from "fs/promises";
+import { mkdtemp, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join as join3 } from "path";
 
@@ -1154,18 +1155,16 @@ async function runRetrievalBench(options = {}) {
     const ids = await seedCorpus(template, notes);
     const keys = new Map([...ids].map(([key, id]) => [id, key]));
     const results = [];
-    for (const [index, query] of queries.entries()) {
+    const brain = openBrain([{ scope: "project", root: template }]);
+    for (const query of queries) {
       const expected = ids.get(query.expect);
       if (!expected) throw new Error(`Bench query ${query.id} expects unknown fixture ${query.expect}`);
       const text = query.text === "@id" ? expected : query.text;
-      const root = join3(base, `q${index}`, ".edu");
-      await cp(template, root, { recursive: true });
-      const brain = openBrain([{ scope: "project", root }]);
+      await rm(ledgerPath(template), { force: true });
       const started = performance.now();
       const alt = options.useAlt !== false && query.alt?.length ? query.alt : void 0;
       const hits = await brain.recall(alt ? [text, ...alt] : text, { limit: 10 });
       const latencyMs = performance.now() - started;
-      await rm(join3(base, `q${index}`), { recursive: true, force: true });
       const position = hits.findIndex((hit) => hit.note.meta.id === expected);
       const top3 = hits.slice(0, 3).map((hit) => keys.get(hit.note.meta.id) ?? hit.note.meta.id);
       results.push({ id: query.id, class: query.class, query: query.text, ...alt ? { alt } : {}, expected: query.expect, rank: position >= 0 ? position + 1 : null, top3, latencyMs: round(latencyMs, 2) });
@@ -1245,7 +1244,8 @@ async function runContextBench(options = {}) {
     const second = await hookOutput(base, cwd, "bench-session-b");
     await openBrain([{ scope: "project", root: join4(cwd, ".edu") }]).recall("scheduler locks");
     const afterRecall = await hookOutput(base, cwd, "bench-session-a");
-    const prefix = first.slice(0, commonPrefixLength(first, second));
+    const chars = commonPrefixLength(first, second);
+    const prefix = first.slice(0, first.lastIndexOf("\n", chars - 1) + 1 || (chars === first.length && chars === second.length ? chars : 0));
     const firstLines = first.split("\n");
     const difference = second.split("\n").find((line, i) => line !== firstLines[i]);
     const secondTokens = estimateTokens(second);
@@ -5754,4 +5754,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-SC7HRPID.js.map
+//# sourceMappingURL=chunk-VF7IZE4O.js.map

@@ -7,10 +7,10 @@
  * query runs against a fresh copy of the seeded brain: results never depend on query order or on earlier runs,
  * and the measured latency includes the exposure write a real recall pays.
  */
-import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openBrain } from '../brain/index.js';
+import { ledgerPath, openBrain } from '../brain/index.js';
 import type { BrainLocation, NoteMeta } from '../core/contracts.js';
 import { CORPUS_NOTES, CORPUS_QUERIES, CORPUS_VERSION, fixtureCreated, type FixtureNote, type FixtureQuery } from './fixtures/corpus.js';
 
@@ -185,18 +185,18 @@ export async function runRetrievalBench(options: RetrievalOptions = {}): Promise
     const ids = await seedCorpus(template, notes);
     const keys = new Map([...ids].map(([key, id]) => [id, key]));
     const results: QueryResult[] = [];
-    for (const [index, query] of queries.entries()) {
+    // Recall only writes the machine-local exposure ledger, never the notes: clearing the ledger before each
+    // query gives every query the same freshly seeded brain without copying it.
+    const brain = openBrain([{ scope: 'project', root: template }]);
+    for (const query of queries) {
       const expected = ids.get(query.expect);
       if (!expected) throw new Error(`Bench query ${query.id} expects unknown fixture ${query.expect}`);
       const text = query.text === '@id' ? expected : query.text;
-      const root = join(base, `q${index}`, '.edu');
-      await cp(template, root, { recursive: true });
-      const brain = openBrain([{ scope: 'project', root }]);
+      await rm(ledgerPath(template), { force: true });
       const started = performance.now();
       const alt = options.useAlt !== false && query.alt?.length ? query.alt : undefined;
       const hits = await brain.recall(alt ? [text, ...alt] : text, { limit: 10 });
       const latencyMs = performance.now() - started;
-      await rm(join(base, `q${index}`), { recursive: true, force: true });
       const position = hits.findIndex(hit => hit.note.meta.id === expected);
       const top3 = hits.slice(0, 3).map(hit => keys.get(hit.note.meta.id) ?? hit.note.meta.id);
       results.push({ id: query.id, class: query.class, query: query.text, ...(alt ? { alt } : {}), expected: query.expect, rank: position >= 0 ? position + 1 : null, top3, latencyMs: round(latencyMs, 2) });
