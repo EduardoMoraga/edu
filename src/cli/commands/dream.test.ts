@@ -1,5 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openBrain } from '../../brain/index.js';
 import { captureContext, out, runCli, type Captured } from '../testkit.js';
@@ -86,6 +86,23 @@ describe('edu dream', () => {
     await runCli(c, ['dream']);
     expect(c.exitCode).toBe(1);
     expect(c.stderr.join('\n')).toContain('edu init');
+  });
+
+  it('--uninstall drops this project\'s schedule record from EDU_HOME and needs no brain', async () => {
+    const c = await captureContext();
+    const { dreamRegistryPath, dreamScheduleName } = await import('../../reflect/dream-schedule.js');
+    const registry = dreamRegistryPath(c.dirs.eduHome);
+    await mkdir(dirname(registry), { recursive: true });
+    const record = (cwd: string) => ({ kind: 'systemd', name: dreamScheduleName(cwd), cwd, files: [] });
+    await writeFile(registry, JSON.stringify({ version: 1, schedules: [record(c.dirs.cwd), record('/elsewhere')] }));
+    await runCli(c, ['dream', '--uninstall']);
+    expect(c.exitCode).toBeUndefined();
+    expect(out(c)).toContain('No nightly dream is scheduled for this project.');
+    const left = JSON.parse(await readFile(registry, 'utf8')) as { schedules: Array<{ cwd: string }> };
+    expect(left.schedules.map(s => s.cwd)).toEqual(['/elsewhere']);
+    reset(c);
+    await runCli(c, ['dream', '--install', '--uninstall']);
+    expect(c.exitCode).toBe(1);
   });
 
   it.each([['dream'], ['brain', 'lint']])('parses `edu %s --help`', async (...path) => {

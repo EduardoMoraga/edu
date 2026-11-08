@@ -145,6 +145,7 @@ export function registerSetup(program: Command, ctx: CliContext): void {
         if (g.json) { printJson(ctx, report); return; }
         if (!report.removed.length) ctx.out(es ? 'Nada que eliminar: no hay instalación de Edu registrada.' : 'Nothing to remove: no recorded Edu installation.');
         for (const scopeName of [...new Set(report.removed.map(r => r.scope))]) ctx.out(t(g.lang, 'uninstall.done', { scope: scopeName }));
+        for (const s of report.schedules) ctx.out(es ? `Programación eliminada (${s.kind}): ${s.name}` : `Schedule removed (${s.kind}): ${s.name}`);
         if (report.brain.action === 'purged') ctx.out(es ? `Cerebro borrado: ${report.brain.path} (un remoto de edu sync/join no se toca).` : `Brain deleted: ${report.brain.path} (any edu sync/join remote is untouched).`);
         else if (report.brain.action === 'kept') ctx.out(es ? `Cerebro conservado: ${report.brain.path} (bórrelo con edu uninstall --purge-brain).` : `Brain kept: ${report.brain.path} (delete it with edu uninstall --purge-brain).`);
         ctx.out(es ? 'Para quitar el comando: npm uninstall -g edu-agent' : 'To remove the command too: npm uninstall -g edu-agent');

@@ -7,6 +7,8 @@ import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } fr
 import type { InstallScope } from '../core/contracts.js';
 import { getManifestPath, uninstall } from '../adapters/installer.js';
 import { setupManifestPath, uninstallSetup, type SetupRunner } from './index.js';
+import { uninstallDreamSchedules } from '../reflect/dream-schedule.js';
+import { scheduleFiles, uninstallSchedule } from '../vault/sync-service.js';
 
 export interface UninstallEduOptions {
   home: string;
@@ -19,11 +21,16 @@ export interface UninstallEduOptions {
   runner?: SetupRunner;
   /** Delete the global brain after removing integrations. The caller must have confirmed. */
   purgeBrain?: boolean;
+  platform?: NodeJS.Platform;
+  /** Runs systemctl/launchctl/schtasks for the schedules; injectable so tests never touch the service manager. */
+  serviceRun?: (cmd: string, args: string[]) => Promise<number>;
 }
 
 export interface UninstallEduReport {
   removed: Array<{ scope: InstallScope; via: 'setup' | 'manifest'; path: string }>;
   brain: { path: string; action: 'kept' | 'purged' | 'absent' };
+  /** Nightly dream and `edu sync` schedules stopped and deleted. */
+  schedules: Array<{ kind: 'systemd' | 'launchd' | 'schtasks'; name: string; removed: string[]; stopped: boolean }>;
 }
 
 async function present(path: string): Promise<boolean> {
@@ -126,8 +133,9 @@ export async function uninstallEdu(options: UninstallEduOptions): Promise<Uninst
     }
   }
   const brainRoot = resolve(options.brainRoot);
+  const schedules = await removeSchedules(options, home, cwd, brainRoot);
   const exists = await present(brainRoot);
-  if (!options.purgeBrain || !exists) return { removed, brain: { path: brainRoot, action: exists ? 'kept' : 'absent' } };
+  if (!options.purgeBrain || !exists) return { removed, schedules, brain: { path: brainRoot, action: exists ? 'kept' : 'absent' } };
   const target = await assertPurgeableBrain(brainRoot, home);
   // Integration removal ran in between: validate again right before deleting, on the same canonical path.
   if (await assertPurgeableBrain(target, home) !== target) throw new Error(`Refusing to purge ${brainRoot}: it moved during uninstall`);
@@ -135,5 +143,25 @@ export async function uninstallEdu(options: UninstallEduOptions): Promise<Uninst
   await rm(target, { recursive: true, force: true });
   // With EDU_HOME elsewhere, ~/.edu held only setup manifests; drop it once they are gone.
   if (join(home, '.edu') !== brainRoot) await rmdir(join(home, '.edu')).catch(() => undefined);
-  return { removed, brain: { path: brainRoot, action: 'purged' } };
+  return { removed, schedules, brain: { path: brainRoot, action: 'purged' } };
+}
+
+/**
+ * Per-user schedules Edu installed: the current project's nightly dream (project scope), every dream schedule
+ * recorded or found by name plus the `edu sync` scheduler (global scope). Only files that exist lead to a
+ * service-manager call, so a second run issues none.
+ */
+async function removeSchedules(options: UninstallEduOptions, home: string, cwd: string, eduHome: string): Promise<UninstallEduReport['schedules']> {
+  const platform = options.platform ?? process.platform;
+  const run = options.serviceRun;
+  const dreams = await uninstallDreamSchedules({ home, eduHome, platform, ...(run ? { run } : {}), ...(options.scope === 'project' ? { cwd } : {}) });
+  const schedules: UninstallEduReport['schedules'] = dreams.map(dream => ({ ...dream }));
+  if (options.scope === 'project') return schedules;
+  const sync = scheduleFiles(home, eduHome, platform);
+  if (sync && (await Promise.all(sync.files.map(present))).some(Boolean)) {
+    const result = await uninstallSchedule({ home, eduHome, platform, ...(run ? { run } : {}) });
+    const name = result.kind === 'schtasks' ? 'EduSync' : result.kind === 'launchd' ? 'dev.edu.sync' : 'edu-sync';
+    schedules.push({ kind: result.kind, name, removed: result.removed, stopped: result.stopped });
+  }
+  return schedules;
 }
