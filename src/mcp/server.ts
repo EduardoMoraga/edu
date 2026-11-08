@@ -52,6 +52,12 @@ function optionalInt(min: number, max?: number, description?: string) {
   return optional;
 }
 const tokenLimit = optionalInt(1);
+/**
+ * edu_recall `alt`: up to 3 more phrasings, fused with the query. The tool list is paid on every session, so the
+ * published twin states the limit in its description instead of `maxItems` and per-item `minLength`.
+ */
+const altQueries = z.array(z.string().min(1)).max(3).optional();
+published.set(altQueries, z.array(z.string()).optional().describe('Up to 3 rephrasings or translations (e.g. Spanish, English)'));
 const bands = z.enum(['verified', 'inferred', 'hypothesis']);
 const tiers = z.enum(['canonical', 'episodic', 'transitive']);
 const transitiveKinds = z.enum(['decision', 'hypothesis', 'commitment', 'lesson']);
@@ -188,9 +194,11 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     async ({ maxTokens }) => brief(brain, maxTokens ?? 800, { eduMdPath, now: opts.now }));
 
   register('edu_recall', 'Search notes', {
-    query: z.string().min(1), limit: optionalInt(1), tiers: z.array(tiers).optional(), maxTokens: tokenLimit,
-  }, async ({ query, limit, tiers: selectedTiers }) => {
-    const hits = await brain.recall(query, { limit: limit ?? 10, tiers: selectedTiers as Tier[] | undefined });
+    query: z.string().min(1),
+    alt: altQueries,
+    limit: optionalInt(1), tiers: z.array(tiers).optional(), maxTokens: tokenLimit,
+  }, async ({ query, alt, limit, tiers: selectedTiers }) => {
+    const hits = await brain.recall(alt?.length ? [query, ...alt] : query, { limit: limit ?? 10, tiers: selectedTiers as Tier[] | undefined });
     return hits.length ? hits.map(hit => `${line(hit.note)} · ${hit.why}`).join('\n') : 'No matching notes.';
   });
 

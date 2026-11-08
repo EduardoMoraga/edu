@@ -381,13 +381,45 @@ describe('published tool schemas', () => {
       expect(required.edu_feedback).toEqual(['id', 'helpful']);
       expect(required.edu_brief).toEqual([]);
       const recall = tools.find(tool => tool.name === 'edu_recall')!.inputSchema.properties as Record<string, { type?: string }>;
-      expect(Object.keys(recall)).toEqual(['query', 'limit', 'tiers', 'maxTokens']);
+      expect(Object.keys(recall)).toEqual(['query', 'alt', 'limit', 'tiers', 'maxTokens']);
+      expect(recall.alt).toMatchObject({ type: 'array', items: { type: 'string' } });
+      expect(JSON.stringify(recall.alt)).toContain('Up to 3');
       expect(recall.maxTokens?.type).toBe('integer');
       expect(JSON.stringify(tools)).not.toMatch(/"default":/);
       // Malformed arguments still produce a bounded error, not a protocol failure.
       const bad = await client.callTool({ name: 'edu_recall', arguments: { query: 5, maxTokens: 20 } });
       expect(bad.isError).toBe(true);
       expect(estimateTokens((bad.content as { text: string }[])[0]!.text)).toBeLessThanOrEqual(20);
+    } finally { await close(); }
+  });
+});
+
+describe('edu_recall alt', () => {
+  it('fuses the alternatives with the query and validates them', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'edu-recall-alt-'));
+    roots.push(root);
+    const location = { scope: 'project' as const, root };
+    const brain = openBrain([location]);
+    await brain.init(location);
+    await brain.write({ tier: 'transitive', kind: 'decision', title: 'On-call escalation', body: 'When the pager fires twice in an hour, escalate to the platform lead.' });
+    await brain.write({ tier: 'transitive', kind: 'decision', title: 'Vacaciones', body: 'Las vacaciones se piden con dos semanas de anticipación.' });
+    const { client, close } = await connected(location);
+    const call = async (args: Record<string, unknown>) => {
+      const result = await client.callTool({ name: 'edu_recall', arguments: args });
+      return { isError: result.isError, text: (result.content as { text: string }[]).map(item => item.text).join('') };
+    };
+    try {
+      const spanish = '¿a quién avisamos cuando suena el buscapersonas?';
+      expect((await call({ query: spanish })).text).not.toContain('On-call escalation');
+      const fused = await call({ query: spanish, alt: ['who do we escalate to when the pager fires'] });
+      expect(fused.isError).not.toBe(true);
+      expect(fused.text.split('\n')[0]).toContain('On-call escalation');
+      expect((await call({ query: 'pager', alt: [] })).text).toBe((await call({ query: 'pager' })).text);
+      for (const alt of [['a', 'b', 'c', 'd'], [''], 'pager', [5]]) {
+        const invalid = await call({ query: spanish, alt, maxTokens: 30 });
+        expect(invalid.isError).toBe(true);
+        expect(invalid.text).toContain('alt');
+      }
     } finally { await close(); }
   });
 });
