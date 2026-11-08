@@ -1,0 +1,1835 @@
+{
+ "version": 2,
+ "notes": [
+  {
+   "key": "dec-vault-sync-git",
+   "title": "Sincronizar la bóveda con git y cron",
+   "body": "Decidimos no pagar Obsidian Sync. La bóveda vive en un repo privado y cada máquina corre un cron cada 15 minutos: `git pull --rebase && git add -A && git commit -m auto && git push`. Si hay conflicto el script aborta y me avisa por ntfy en vez de forzar. Lo probamos dos semanas entre el notebook y el PC de la oficina y no se perdió nada. En el celular solo lectura con Working Copy. Revisar si el repo pasa de 1 GB.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "obsidian",
+    "git"
+   ]
+  },
+  {
+   "key": "les-obsidian-attachments-slow",
+   "title": "Obsidian got slow from huge attachments folder",
+   "body": "Obsidian took ~40s to open and search lagged on every keystroke. Cause: 3.2 GB of client PDFs and PNG exports dumped in `attachments/`. Indexing them killed it. Moved raw client files to `~/clientes/` outside the vault and kept only small images inside. Startup back to ~3s. Rule of thumb: the vault is for text, not for deliverables.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "obsidian",
+    "performance"
+   ]
+  },
+  {
+   "key": "std-daily-note-naming",
+   "title": "Nombre de las notas diarias",
+   "body": "Las notas diarias van en `diario/AAAA/AAAA-MM-DD.md`, con plantilla que trae tres secciones: hoy, bloqueos, ideas. Nada de nombres tipo 'lunes reunión'. Los agentes que escriben en la bóveda deben respetar esta ruta y nunca crear carpetas nuevas en la raíz. Las notas semanales van aparte en `semanas/`.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "obsidian",
+    "convención"
+   ]
+  },
+  {
+   "key": "dec-drop-redis-faro",
+   "title": "Replace Redis with SQLite + LRU in Faro",
+   "body": "We removed Redis from the Faro service. It only cached SKU→category and store→cluster lookups, about 80k keys, on a single VM. Running and patching a separate daemon, plus the auth config, was more ops than the cache was worth. Now the lookups are loaded at boot from a SQLite file shipped with the build and kept in a `functools.lru_cache`. Cold start went from 1.1s to 1.4s, acceptable. Revisit only if we go multi-node.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "faro",
+    "infra",
+    "cache"
+   ]
+  },
+  {
+   "key": "les-n8n-redis-pool",
+   "title": "n8n queue mode exhausted Redis connections",
+   "body": "When n8n ran in queue mode with 6 workers, Redis hit maxclients and jobs stalled silently in 'waiting'. The default pool per worker was too large. Fixed by setting `QUEUE_BULL_REDIS_MAXCLIENTS`-style limits and lowering worker concurrency to 3. Lesson: in queue mode watch Redis client count, not just CPU.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "n8n",
+    "redis"
+   ]
+  },
+  {
+   "key": "hyp-cache-bq-results",
+   "title": "Cachear resultados de BigQuery bajaría el costo",
+   "body": "Sospecho que guardar en GCS los resultados de las consultas pesadas del tablero (top 20) reduciría el gasto mensual en ~30%, porque muchas se repiten igualitas todos los días. Falta medir cuántas consultas son realmente idénticas en el log de jobs.",
+   "tier": "transitive",
+   "kind": "hypothesis",
+   "status": "open",
+   "tags": [
+    "bigquery",
+    "costos"
+   ]
+  },
+  {
+   "key": "dec-baseline-mediana-movil",
+   "title": "Línea base de promociones con mediana móvil",
+   "body": "Para medir el uplift de una promo, la venta base se calcula como la mediana móvil de las 8 semanas previas, sacando las semanas que tuvieron cualquier actividad promocional del mismo SKU. Probamos una regresión con estacionalidad y salía muy sensible a feriados. La mediana es fácil de explicar al cliente y robusta. Aplica a Faro y a los informes de Kiltro.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "faro",
+    "promociones",
+    "método"
+   ]
+  },
+  {
+   "key": "hyp-cannibalization-masks-uplift",
+   "title": "Cannibalization may hide real promo lift",
+   "body": "When one SKU of a brand is on deal, sister SKUs of the same brand drop 10–15% in the same stores. If we only look at the promoted SKU we overstate lift; if we look at the brand total we may see almost nothing. Hypothesis: net brand effect is about half of the SKU-level number. Need a test on Kiltro's 2025 Q3 data.",
+   "tier": "transitive",
+   "kind": "hypothesis",
+   "status": "open",
+   "tags": [
+    "promociones",
+    "faro"
+   ]
+  },
+  {
+   "key": "les-semana-santa-distorsion",
+   "title": "Semana Santa distorsiona las comparaciones",
+   "body": "En abril los pescados y conservas se disparan por Semana Santa y como cae en fechas distintas cada año, la comparación contra el año anterior sale cualquier cosa. Ahora marcamos la semana santa como evento en el calendario y no la usamos como referencia.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "estacionalidad"
+   ]
+  },
+  {
+   "key": "les-pbi-gateway-creds",
+   "title": "Scheduled refresh failed after password rotation",
+   "body": "The Pulso report showed Friday's numbers all Monday. The on-premises gateway's data source credentials were tied to my personal account, and IT rotated passwords on the weekend, so every scheduled refresh failed with a vague 'DataSource.Error'. Fix: created a dedicated service account with non-expiring password for the gateway and turned on failure email notifications to two people. Check gateway creds first whenever refresh dies.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "powerbi",
+    "pulso"
+   ]
+  },
+  {
+   "key": "std-dax-measure-naming",
+   "title": "Nombres de medidas DAX",
+   "body": "Las medidas en Power BI se nombran en español con prefijo de unidad: `Vta $`, `Vta Un`, `Vta $ AA` (año anterior), `Var % Vta $`. Van en una tabla vacía llamada `_Medidas`, agrupadas en carpetas. Nada de columnas calculadas si se puede hacer con medida.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "powerbi",
+    "dax"
+   ]
+  },
+  {
+   "key": "dec-incremental-refresh-36m",
+   "title": "Incremental refresh keeps 36 months",
+   "body": "For the `fact_sellout` table in Pulso we set an incremental refresh policy: store 36 months, refresh the last 10 days on every run. Full refresh only on the first of the month. This cut refresh time from 50 to 6 minutes. Requires RangeStart/RangeEnd parameters to fold to the source.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "powerbi",
+    "pulso"
+   ]
+  },
+  {
+   "key": "std-bq-partition-filter",
+   "title": "Toda consulta a sell-out filtra por partición",
+   "body": "Regla: cualquier consulta sobre `ventas.sellout_diario` tiene que filtrar por la columna de partición `fecha`; la tabla tiene `require_partition_filter = true` para que falle si no. En el cliente de Python seteamos `maximum_bytes_billed` en 50 GB por job. Además hay alerta de presupuesto en 150 USD al mes que llega a mi correo y al canal de Slack. Los agentes no pueden correr consultas sin dry-run primero.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "bigquery",
+    "costos",
+    "regla"
+   ]
+  },
+  {
+   "key": "hyp-bq-slots-vs-ondemand",
+   "title": "Flat-rate slots might beat on-demand pricing",
+   "body": "With current usage (~9 TB scanned/month), a 100-slot edition reservation could be cheaper than on-demand during the January planning peak. Unclear for the rest of the year. Need three months of INFORMATION_SCHEMA.JOBS data to compare. The risk is that a reservation sized for the peak sits idle most months. Autoscaling editions may solve that. Decision point: if January on-demand spend exceeds twice the monthly average, model the reservation cost with real job data before the next planning season.",
+   "tier": "transitive",
+   "kind": "hypothesis",
+   "status": "open",
+   "tags": [
+    "bigquery",
+    "costos"
+   ]
+  },
+  {
+   "key": "dom-sellout-schema",
+   "title": "Esquema de la tabla de sell-out",
+   "body": "`ventas.sellout_diario`: fecha (DATE, partición), cadena, local_id, sku, unidades, venta_neta_clp, precio_lista, flag_promo. Clustering por cadena y sku. Una fila por local-sku-día. Las devoluciones vienen como unidades negativas, no las borres. Los SKU son los códigos del fabricante, ya homologados con la tabla `maestros.sku_map`. Los locales se identifican con el código de la cadena más un prefijo. El precio de lista viene vacío en algunas cadenas; en ese caso se calcula como venta neta dividida por unidades.",
+   "tier": "canonical",
+   "kind": "domain",
+   "status": "accepted",
+   "tags": [
+    "bigquery",
+    "datos"
+   ]
+  },
+  {
+   "key": "per-camila-rojas-quillay",
+   "title": "Camila Rojas — Lácteos Quillay",
+   "body": "Jefa de trade marketing en Lácteos Quillay. Quiere todo en una sola lámina de resumen al inicio, con la recomendación arriba y el detalle en anexos. Odia los decimales y los gráficos de torta. Las reuniones con ella son los martes en la mañana; los viernes no contesta. Muy buena para conseguir datos internos si le explicas para qué.",
+   "tier": "canonical",
+   "kind": "person",
+   "status": "accepted",
+   "tags": [
+    "quillay",
+    "cliente"
+   ]
+  },
+  {
+   "key": "per-rodrigo-fuentes-quillay",
+   "title": "Rodrigo Fuentes — Quillay IT",
+   "body": "Rodrigo handles IT at Lácteos Quillay. He is the only one who can create SFTP users and whitelist our IP. Slow to reply by email, fast on WhatsApp. Ask him two weeks ahead for any access change, and always copy Camila.",
+   "tier": "canonical",
+   "kind": "person",
+   "status": "accepted",
+   "tags": [
+    "quillay",
+    "cliente"
+   ]
+  },
+  {
+   "key": "com-informe-quillay-dia5",
+   "title": "Informe mensual de Quillay el día 5",
+   "body": "Me comprometí a mandar el informe mensual de desempeño de Quillay a más tardar el día 5 hábil de cada mes. Incluye participación por cadena, precio promedio y top quiebres. Si el día 5 cae en fin de semana, se manda el viernes anterior. Si la data de alguna cadena no llegó, se manda igual con una nota y se completa después. El informe va en PDF con las tablas en Excel aparte para el equipo de Camila.",
+   "tier": "transitive",
+   "kind": "commitment",
+   "status": "pending",
+   "tags": [
+    "quillay"
+   ]
+  },
+  {
+   "key": "com-faro-v2-kiltro",
+   "title": "Deliver Faro v2 to Kiltro by Nov 20",
+   "body": "Promised Matías at Bebidas Kiltro the second version of the Faro promo ROI model by 2026-11-20. Scope: SKU-level elasticities, net-of-cannibalization lift, and a simulator sheet where they type discount % and get incremental margin. Not in scope: forecasting. If the cannibalization piece slips, ship without it and say so.",
+   "tier": "transitive",
+   "kind": "commitment",
+   "status": "pending",
+   "tags": [
+    "faro",
+    "kiltro"
+   ]
+  },
+  {
+   "key": "std-faro-repo-layout",
+   "title": "Estructura del repo de Faro",
+   "body": "Faro sigue `src/faro/{ingest,features,models,report}`. Los notebooks van en `notebooks/` y nunca se importan desde `src`. Los datos crudos no se versionan; solo los esquemas en `schemas/`. Cada módulo de `models` expone una función `fit` y una `predict` con firmas tipadas. Las configuraciones por cliente van en `configs/<cliente>.toml`. Los tests viven en `tests/` reflejando la misma estructura que `src`, y los fixtures de datos son siempre sintéticos.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "faro",
+    "repo"
+   ]
+  },
+  {
+   "key": "ses-faro-loading-debug",
+   "title": "Session: debugging Faro ingest",
+   "body": "Spent the afternoon with Claude Code chasing why Faro loaded 0 rows for Kiltro October. The SFTP file name changed from `kiltro_sellout_` to `KILTRO_SO_`. Added a case-insensitive glob and a check that fails loudly when zero files match. Ended the session with tests green.",
+   "tier": "episodic",
+   "kind": "session",
+   "status": "closed",
+   "tags": [
+    "faro",
+    "kiltro"
+   ]
+  },
+  {
+   "key": "dec-hook-brief-not-claudemd",
+   "title": "Inject context through a session-start hook",
+   "body": "Minga loads the brief into Claude Code via a SessionStart hook instead of writing it into CLAUDE.md. CLAUDE.md is a checked-in file: writing memory there makes git diffs noisy, gets stale between sessions, and leaks private notes into the repo. The hook computes a fresh brief each time and prints it to stdout so it becomes context. Same approach for Codex and OpenCode where they support it.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "minga",
+    "claude-code",
+    "hooks"
+   ]
+  },
+  {
+   "key": "les-hook-timeout-5s",
+   "title": "El hook se cortaba por timeout",
+   "body": "Con la bóveda grande (1.800 notas), el hook de inicio tardaba 7 s y el host lo mataba a los 5 s sin avisar; el agente partía sin contexto. Ahora el hook lee un índice precalculado y responde en 300 ms. Si un hook depende de escanear disco, medirlo con la bóveda real.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "minga",
+    "hooks"
+   ]
+  },
+  {
+   "key": "std-hook-idempotent",
+   "title": "Hook scripts must be idempotent",
+   "body": "Every hook we ship must be safe to run twice, must exit 0 on its own errors (log, don't block the user), and must never prompt for input. Writes go through a temp file and rename. Hooks must also finish quickly: anything over one second is logged as a warning in our own telemetry. They must not depend on network access, and they must behave the same whether or not the brain folder exists yet.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "minga",
+    "hooks"
+   ]
+  },
+  {
+   "key": "les-codex-sandbox-sin-red",
+   "title": "En el sandbox de Codex no hay red",
+   "body": "Codex corriendo en modo sandbox no tiene acceso a internet, así que los tests de integración que pegaban a BigQuery reventaban con timeout y Codex 'arreglaba' el código equivocado. Solución: marcamos esos tests con `@pytest.mark.network` y en `pytest.ini` se saltan por defecto; se corren solo con `-m network` en mi máquina o en CI. Avisarle en AGENTS.md que no intente arreglarlos.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "codex",
+    "tests"
+   ]
+  },
+  {
+   "key": "pref-codex-refactor-claude-explore",
+   "title": "Which agent for which job",
+   "body": "I prefer Codex for mechanical refactors across many files and Claude Code for exploring an unfamiliar codebase and planning. Pi for quick one-off scripts. Don't hand exploratory work to Codex, it tends to start editing too early. For reviews, whichever agent did not write the code. For anything touching client data, only agents running locally with my credentials, never cloud sandboxes. This is a working preference, not a rule; revisit it when the tools change.",
+   "tier": "canonical",
+   "kind": "preference",
+   "status": "accepted",
+   "tags": [
+    "agents"
+   ]
+  },
+  {
+   "key": "dom-codex-config-path",
+   "title": "Dónde vive la config de Codex",
+   "body": "Codex lee `~/.codex/config.toml`. Ahí van los perfiles, el modelo por defecto, `approval_policy` y los servidores MCP en `[mcp_servers.<nombre>]`. Las instrucciones del proyecto las toma de AGENTS.md en la raíz. Los perfiles se activan con `--profile`. El sandbox se configura con `sandbox_mode` y puede ser solo lectura, escritura en el workspace o sin restricciones. Las variables de entorno que necesitan los servidores MCP se pasan en la misma sección de cada servidor.",
+   "tier": "canonical",
+   "kind": "domain",
+   "status": "accepted",
+   "tags": [
+    "codex",
+    "config"
+   ]
+  },
+  {
+   "key": "std-uv-python312",
+   "title": "Python projects use uv and 3.12",
+   "body": "All Python repos are managed with uv: `uv init`, `uv add`, `uv run`. `uv.lock` is committed. Interpreter pinned with `.python-version` = 3.12. No requirements.txt except when a client's server demands it, then exported with `uv export`. No global pip installs. CI uses `uv sync --frozen`.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "python",
+    "tooling"
+   ]
+  },
+  {
+   "key": "les-conda-geopandas",
+   "title": "Conda se rompió con geopandas",
+   "body": "El entorno de conda para el mapa de locales quedó inutilizable al instalar geopandas: resolvía por 20 minutos y bajaba versiones de numpy. Terminamos borrándolo. Las dependencias geoespaciales con wheels modernos se instalan bien sin conda. La lección más general: no mezclar gestores de paquetes en un mismo proyecto y no instalar cosas en el entorno base. Si algún paquete realmente solo existe en conda-forge, crear un entorno aislado únicamente para ese análisis y documentarlo.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "python",
+    "geo"
+   ]
+  },
+  {
+   "key": "pref-ruff-format",
+   "title": "Ruff for lint and formatting",
+   "body": "Use ruff for both linting and formatting, line length 100. Don't add black or flake8 configs to new repos. Enable the `I` (isort), `UP` (pyupgrade) and `B` (bugbear) rule sets on top of the defaults. Run `ruff check --fix` and `ruff format` in pre-commit so agents never leave unformatted files behind. One tool is faster and avoids config drift between repos.",
+   "tier": "canonical",
+   "kind": "preference",
+   "status": "accepted",
+   "tags": [
+    "python",
+    "tooling"
+   ]
+  },
+  {
+   "key": "dec-n8n-informe-lunes",
+   "title": "El informe semanal sale por n8n",
+   "body": "El informe semanal de sell-out para clientes se genera con un flujo de n8n que parte los lunes a las 7:00: consulta BigQuery, arma las tablas con un script Python, genera el PDF y lo manda por correo a la lista de cada cliente. Descartamos las suscripciones de Power BI porque no dejan enviar a correos externos sin licencia y el formato del PDF quedaba feo.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "n8n",
+    "informes"
+   ]
+  },
+  {
+   "key": "les-n8n-exec-node-libs",
+   "title": "n8n Execute Command has no Python libs",
+   "body": "The Execute Command node runs inside the n8n Docker container, which has no pandas or our packages. A script that worked on my laptop failed with ModuleNotFoundError. Now n8n calls a small FastAPI endpoint on the same host instead of running Python directly.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "n8n",
+    "python"
+   ]
+  },
+  {
+   "key": "com-migrar-n8n-vps",
+   "title": "Migrar n8n al VPS",
+   "body": "Quedé de mover n8n desde el mini PC de la casa al VPS de Hetzner antes de diciembre, con backups diarios de la base de Postgres y dominio con TLS. Pasos: exportar los flujos y credenciales, levantar Postgres y n8n con docker compose, configurar Caddy para TLS, probar el flujo del informe semanal en paralelo una semana y recién ahí apagar el mini PC. Dejar documentado cómo restaurar desde backup.",
+   "tier": "transitive",
+   "kind": "commitment",
+   "status": "pending",
+   "tags": [
+    "n8n",
+    "infra"
+   ]
+  },
+  {
+   "key": "idn-owner",
+   "title": "Quién soy",
+   "body": "Soy economista y data scientist, vivo en Santiago. Trabajo en analítica de trade marketing para empresas de consumo masivo a través de mi consultora, Brújula Analytics: medición de promociones, sell-out, precios, ejecución en punto de venta. En paralelo construyo herramientas para agentes de código (Minga) en las noches. Trabajo casi siempre solo, con agentes como equipo.",
+   "tier": "canonical",
+   "kind": "identity",
+   "status": "accepted",
+   "tags": [
+    "perfil"
+   ]
+  },
+  {
+   "key": "pref-respuestas-cortas",
+   "title": "Prefiero respuestas cortas",
+   "body": "Cuando pregunto algo, primero la respuesta en una o dos líneas y después el detalle si hace falta. No repetir mi pregunta ni hacer resúmenes al final. Si hay que elegir entre opciones, dar una recomendación clara y no una lista de cinco alternativas equivalentes. Si algo no se sabe, decirlo derecho. Las explicaciones largas solo cuando las pido o cuando el tema es delicado, como borrar datos o tocar producción.",
+   "tier": "canonical",
+   "kind": "preference",
+   "status": "accepted",
+   "tags": [
+    "comunicación"
+   ]
+  },
+  {
+   "key": "dom-brujula-services",
+   "title": "Brújula Analytics service catalogue",
+   "body": "Three service lines: (1) promo evaluation (Faro), (2) sell-out dashboards (Pulso), (3) ad-hoc pricing studies. Typical client: mid-size CPG with 3–8 retail chains. Retainers are monthly. Projects usually start with a diagnostic of 4–6 weeks and then move to a monthly retainer. Data comes from retailer portals, SFTP drops or the client's own ERP. Deliverables are dashboards, PDF reports and occasionally a Python package the client's analysts can run.",
+   "tier": "canonical",
+   "kind": "domain",
+   "status": "accepted",
+   "tags": [
+    "brujula"
+   ]
+  },
+  {
+   "key": "pref-idioma-agentes",
+   "title": "Idioma y tono de los agentes",
+   "body": "Los agentes me hablan en español, tono directo, sin emojis ni frases de relleno. El código, los nombres de variables, los mensajes de commit y los PR van en inglés. Los informes para clientes, en español neutro (no chileno). Los comentarios en el código, en inglés y escasos.",
+   "tier": "canonical",
+   "kind": "preference",
+   "status": "accepted",
+   "tags": [
+    "comunicación",
+    "agentes"
+   ]
+  },
+  {
+   "key": "std-conventional-commits",
+   "title": "Conventional Commits",
+   "body": "Commit subjects follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, imperative mood, under 72 chars. Body explains why, not what. Allowed types: feat, fix, refactor, test, docs, chore, perf. Scope is the package or folder. Breaking changes get `!` after the type and a BREAKING CHANGE footer. Agents follow the same rules; a commit like 'update stuff' gets amended before merge.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "git"
+   ]
+  },
+  {
+   "key": "pref-formato-fechas",
+   "title": "Formato de fechas en informes",
+   "body": "En informes para clientes las fechas van DD-MM-AAAA y las semanas como 'Sem 45'. En código y archivos, ISO 8601 siempre. Los meses en texto van abreviados en español (ene, feb, mar). Los rangos de fechas se escriben 'del 03-11 al 09-11-2026'. Nada de formato gringo MM/DD en ningún entregable, ni siquiera en los nombres de archivo que ve el cliente.",
+   "tier": "canonical",
+   "kind": "preference",
+   "status": "accepted",
+   "tags": [
+    "informes"
+   ]
+  },
+  {
+   "key": "std-trunk-squash",
+   "title": "Trunk-based with squash merges",
+   "body": "main is always releasable. Work happens on short-lived branches named `feat/<id>` or `fix/<id>`, merged via PR with squash. Nobody, human or agent, pushes to main directly; branch protection enforces it. Branches older than a week get rebased or closed. Release tags are cut from main only.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "git",
+    "workflow"
+   ]
+  },
+  {
+   "key": "les-stash-pop-perdi-cambios",
+   "title": "Perdí cambios con git stash pop",
+   "body": "Hice `git stash pop` con conflicto, lo resolví mal y después `git checkout .` y se fue medio día de trabajo. Ahora uso `git stash apply` (no borra el stash) o derechamente un commit WIP en la rama. Antes de cualquier comando que descarta cambios, revisar `git status` y `git diff --stat`.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "git"
+   ]
+  },
+  {
+   "key": "dec-worktrees-parallel-agents",
+   "title": "One worktree per parallel agent",
+   "body": "When two or more coding agents work at once, each gets its own git worktree under `.worktrees/<agent>` so they never fight over the index or the working tree. The orchestrator merges their branches back. Each worktree has its own branch named after the agent and the task. When the agents finish, the orchestrator merges one at a time and runs the tests between merges. Worktrees without changes are removed automatically so the disk does not fill up.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "git",
+    "agents"
+   ]
+  },
+  {
+   "key": "les-pi-agentsmd-root",
+   "title": "Pi ignored nested AGENTS.md",
+   "body": "Pi was not following any of our conventions in the Faro repo. Turns out it only reads AGENTS.md from the directory where it is launched upward, and we had the file inside `src/faro/`. Launching from the repo root with the file at the root fixed it. Don't assume every host walks down into subfolders.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "pi",
+    "agents"
+   ]
+  },
+  {
+   "key": "dec-opencode-modelo-local",
+   "title": "OpenCode con modelo local para tareas baratas",
+   "body": "Para tareas de bajo riesgo (renombrar, escribir docstrings, ordenar imports) uso OpenCode apuntando a un modelo local por Ollama. Ahorra plata y no importa si se demora. El modelo actual es uno de 14B cuantizado que corre en la GPU del PC de escritorio. Nunca se usa para código de clientes ni para cambios de lógica; solo para tareas donde un error se nota a simple vista en el diff. Si la tarea toma más de diez minutos, la paso a un modelo pagado.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "opencode",
+    "modelos"
+   ]
+  },
+  {
+   "key": "dom-instruction-files-by-host",
+   "title": "Instruction file per host",
+   "body": "Claude Code reads CLAUDE.md (plus ~/.claude/CLAUDE.md). Codex, OpenCode and Pi read AGENTS.md. Antigravity has its own rules folder. Keep one source and generate the others. Most hosts look for the file at the repository root and some also merge a user-level file from the home directory. Nested files are honored inconsistently. Commands, skills and MCP configuration live in separate host-specific locations that are not covered here.",
+   "tier": "canonical",
+   "kind": "domain",
+   "status": "accepted",
+   "tags": [
+    "agents",
+    "config"
+   ]
+  },
+  {
+   "key": "dec-elasticidad-loglog",
+   "title": "Elasticidad con log-log y efectos fijos",
+   "body": "La elasticidad precio en Faro se estima con un modelo log-log de unidades contra precio, con efectos fijos por local y semana. Descartamos XGBoost para esto porque el cliente necesita un número interpretable por SKU ('si bajas 10% el precio, vendes 18% más') y los SHAP no se lo explican a un gerente comercial.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "faro",
+    "modelos"
+   ]
+  },
+  {
+   "key": "hyp-xgb-shap-forecast",
+   "title": "Gradient boosting could win for forecasting",
+   "body": "For pure demand forecasting (not explanation) XGBoost with lag features might beat the current ETS baseline by 10–20% MAPE. Worth a backtest on Quillay yogurt. Features would be lags of 1, 2, 4 and 52 weeks, price, promo flag and holidays. The comparison must use rolling-origin backtesting over at least 26 weeks. If it wins, use it only for the forecast module and keep the interpretable models for pricing questions.",
+   "tier": "transitive",
+   "kind": "hypothesis",
+   "status": "open",
+   "tags": [
+    "forecast",
+    "modelos"
+   ]
+  },
+  {
+   "key": "les-precio-cero-digitacion",
+   "title": "Precios en cero por error de digitación",
+   "body": "En la data de Tralka aparecían precios de $0 y de $9.999.999 por errores de carga en la cadena. Inflaban las elasticidades. Ahora se filtran precios fuera de ±3 desviaciones de la mediana del SKU antes de modelar. También se marca el SKU para revisión si más del 2% de sus registros cae fuera del rango.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "datos",
+    "calidad"
+   ]
+  },
+  {
+   "key": "les-nandu-sftp-latin1",
+   "title": "Ñandú sell-out arrives late and in latin-1",
+   "body": "Supermercados Ñandú drops the weekly sell-out CSV on SFTP with a two-day lag, usually Tuesday night, and it is encoded latin-1 with semicolons. Reading it as UTF-8 mangled every 'Ñ' and accented product name. Now the ingest uses `encoding='latin-1', sep=';'` and the job waits until Wednesday 08:00 before running.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "ñandú",
+    "ingesta"
+   ]
+  },
+  {
+   "key": "dom-sellin-vs-sellout",
+   "title": "Sell-in versus sell-out",
+   "body": "Sell-in: lo que el fabricante le vende a la cadena (facturación). Sell-out: lo que la cadena le vende al consumidor final (scanner). La diferencia entre ambos en un periodo es variación de inventario en la cadena. Para los análisis de promociones usamos sell-out, porque mide la respuesta real del consumidor. El sell-in sirve para ver carga de inventario antes de una activación y para detectar cuando la cadena compra de más y después deja de pedir por semanas.",
+   "tier": "canonical",
+   "kind": "domain",
+   "status": "accepted",
+   "tags": [
+    "glosario"
+   ]
+  },
+  {
+   "key": "std-validacion-duplicados",
+   "title": "Validar duplicados en la ingesta",
+   "body": "Toda ingesta de archivos de cadenas verifica unicidad de (fecha, local, sku) antes de cargar. Si hay duplicados, se rechaza el archivo entero y se avisa; no se deduplica en silencio. Además se valida que las fechas del archivo correspondan al periodo esperado, que no haya unidades nulas y que el total de venta no difiera más de 5% de lo que reporta el portal de la cadena. Cada validación fallida queda registrada con el nombre del archivo.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "ingesta",
+    "calidad"
+   ]
+  },
+  {
+   "key": "hyp-cabeceras-vs-descuento",
+   "title": "Las cabeceras explican más que el descuento",
+   "body": "En las promos de Kiltro, sospecho que la exhibición adicional (cabecera o isla) pesa más en el alza de ventas que el porcentaje de rebaja. Las promos con 15% y cabecera venden más que las de 25% sin exhibición. Para probarlo necesito el registro de ejecución del equipo de terreno cruzado con las ventas por local.",
+   "tier": "transitive",
+   "kind": "hypothesis",
+   "status": "open",
+   "tags": [
+    "kiltro",
+    "promociones"
+   ]
+  },
+  {
+   "key": "dec-field-app-photos",
+   "title": "Collect shelf photos via field app",
+   "body": "Kiltro's merchandisers will upload photos of each store visit through their existing field app; we pull them weekly into GCS. We decided against our own app to avoid maintaining it. Photos come with store id, timestamp and the merchandiser's checklist (display type, price tag present, facings). We only store metadata in BigQuery and the images in a bucket. Building our own tool would have meant app store accounts, logins and support we can't provide.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "kiltro",
+    "terreno"
+   ]
+  },
+  {
+   "key": "les-quiebres-en-promo",
+   "title": "Quiebres de stock en plena promoción",
+   "body": "En la promo de octubre de Kiltro varios locales quedaron sin stock al tercer día y el uplift medido salió bajísimo. Ahora excluimos local-días con stock cero antes de medir. El cliente pensó que la promo no funcionó cuando en realidad no había producto. Para la próxima, pedir el stock por local al distribuidor antes de partir y avisar al equipo de terreno qué locales tienen poca cobertura de inventario para la semana de activación.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "kiltro",
+    "quiebres"
+   ]
+  },
+  {
+   "key": "dec-bm25-no-vectors",
+   "title": "Memory search uses BM25, no vector DB",
+   "body": "Minga's recall uses BM25 over the Markdown notes plus a small synonym table, no embeddings and no vector database. Reasons: the Markdown files must stay the single source of truth, it has to work offline with zero services, and the index must rebuild in under a second. We will revisit only with measured evidence of bad recall.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "minga",
+    "retrieval"
+   ]
+  },
+  {
+   "key": "hyp-embeddings-locales",
+   "title": "Embeddings locales mejorarían recall entre idiomas",
+   "body": "Un modelo de embeddings chico corriendo local podría encontrar notas en inglés con preguntas en español mejor que la tabla de sinónimos. Habría que medirlo con un set de consultas que no hayamos usado para ajustar. El costo sería una dependencia nueva y un índice más pesado, además de perder la explicación simple de por qué apareció una nota. Criterio: si mejora el recall en más de diez puntos en consultas entre idiomas sin empeorar las de un solo idioma, vale la pena.",
+   "tier": "transitive",
+   "kind": "hypothesis",
+   "status": "open",
+   "tags": [
+    "minga",
+    "retrieval"
+   ]
+  },
+  {
+   "key": "les-fts5-porter-accents",
+   "title": "SQLite FTS5 porter tokenizer mangles Spanish",
+   "body": "Using `tokenize='porter'` in FTS5 stemmed Spanish words as if they were English and treated accented letters inconsistently. Switched to `unicode61 remove_diacritics 2` and our own light stemming. Example: 'promoción' and 'promociones' did not match each other while 'promotion' and 'promotions' did. With the custom stemmer both languages behave reasonably. Lesson: never assume a default tokenizer understands Spanish; test with real accented queries before shipping.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "sqlite",
+    "retrieval"
+   ]
+  },
+  {
+   "key": "com-kiltro-steering-quincenal",
+   "title": "Biweekly Kiltro steering",
+   "body": "Agreed with Bebidas Kiltro to hold a steering call every other Thursday at 10:00. I send the slides the Wednesday before by 18:00 so Matías can read them. Agenda always: last two weeks' promo results, risks, next decisions. If a holiday falls on the Thursday, the call moves to Friday at the same time. Minutes go out the same afternoon with owners and dates for each action item.",
+   "tier": "transitive",
+   "kind": "commitment",
+   "status": "pending",
+   "tags": [
+    "kiltro",
+    "reuniones"
+   ]
+  },
+  {
+   "key": "per-matias-leiva-kiltro",
+   "title": "Matías Leiva — Bebidas Kiltro",
+   "body": "Gerente comercial de Kiltro. Impaciente, quiere volumen en litros antes que valor en pesos. Decide rápido si le muestras el número; si le muestras metodología se pierde. Le carga que le cambien la definición de un KPI sin avisar. Prefiere WhatsApp para temas urgentes y correo para lo formal.",
+   "tier": "canonical",
+   "kind": "person",
+   "status": "accepted",
+   "tags": [
+    "kiltro",
+    "cliente"
+   ]
+  },
+  {
+   "key": "ses-kiltro-steering-oct",
+   "title": "Session: Kiltro steering 2026-10-23",
+   "body": "Reviewed October promo results: 2-liter cola lift +22%, flavored water flat. Matías asked for volume in liters on every chart. Open risk: field execution data is incomplete for the north region. Decisions taken: extend the cola promo two more weeks in the central region and pause flavored water discounts. Next steering will review whether display execution explains the regional differences. Action: ask the field team for the missing northern visit logs.",
+   "tier": "episodic",
+   "kind": "session",
+   "status": "closed",
+   "tags": [
+    "kiltro"
+   ]
+  },
+  {
+   "key": "les-utc-semana-corrida",
+   "title": "Ventas del domingo caían en el lunes",
+   "body": "Los timestamps de transacciones en BigQuery vienen en UTC. Al truncar a semana, todo lo vendido el domingo después de las 21:00 (hora de Santiago) quedaba en la semana siguiente y los totales semanales no cuadraban con la cadena. Ahora se convierte con `DATETIME(ts, 'America/Santiago')` antes de cualquier `DATE_TRUNC`.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "bigquery",
+    "fechas"
+   ]
+  },
+  {
+   "key": "std-iso-week",
+   "title": "Weeks are ISO weeks",
+   "body": "All weekly aggregations use ISO weeks (Monday start, `ISOWEEK`). Client reports label them 'Sem NN'. Never mix with retail fiscal weeks unless the client asks explicitly. In SQL use `EXTRACT(ISOWEEK FROM fecha)` together with `EXTRACT(ISOYEAR FROM fecha)`, never the calendar year, or the first days of January land in the wrong year. Python code uses `date.isocalendar()`. Year-over-year comparisons match ISO week to ISO week.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "fechas",
+    "informes"
+   ]
+  },
+  {
+   "key": "les-cambio-horario-cron",
+   "title": "El cambio de hora movió el cron",
+   "body": "Cuando Chile cambió al horario de verano el flujo de n8n se ejecutó una hora antes porque el contenedor estaba en UTC y el cron en hora fija. Seteamos `GENERIC_TIMEZONE=America/Santiago`. El informe llegó a los clientes a las 6:00 en vez de las 7:00 y con datos incompletos de una cadena que carga a las 6:30. Además ahora el flujo valida que las cargas del día estén completas antes de generar el PDF, y si no, espera media hora.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "n8n",
+    "fechas"
+   ]
+  },
+  {
+   "key": "std-secrets-1password",
+   "title": "Secrets come from 1Password at runtime",
+   "body": "No secrets in the repo, not even in an ignored .env that agents might read. Scripts get credentials via `op run --env-file=.env.tpl -- <cmd>`, where the template holds `op://` references only. Agents run with a read-only service account limited to the 'dev' vault.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "seguridad"
+   ]
+  },
+  {
+   "key": "les-api-key-commit",
+   "title": "Se filtró una API key en un commit",
+   "body": "Un agente commiteó un `.env` con la key de la API de mapas. La detectó el escáner de GitHub a los 10 minutos. Rotamos la key, reescribimos el historial y agregamos un pre-commit con gitleaks. La key alcanzó a usarse desde una IP desconocida, así que además revisamos la facturación del proveedor. Desde entonces el `.gitignore` de la plantilla incluye todos los archivos de entorno y gitleaks corre también en CI, no solo en local.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "seguridad",
+    "git"
+   ]
+  },
+  {
+   "key": "dec-gcp-secret-manager-n8n",
+   "title": "n8n in production uses GCP Secret Manager",
+   "body": "On the VPS, n8n credentials will come from GCP Secret Manager via a startup script, since 1Password CLI needs an interactive session there. The startup script fetches each secret with the VM's service account and writes them to the n8n environment in memory only, never to disk. Rotation is done in Secret Manager and a restart picks it up. Locally I keep using 1Password as usual.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "n8n",
+    "seguridad"
+   ]
+  },
+  {
+   "key": "lex-quiebre-osa-cabecera",
+   "title": "Jerga de punto de venta",
+   "body": "quiebre = producto sin stock en góndola (stockout). OSA = disponibilidad en góndola. cabecera = exhibición en la punta del pasillo (end-cap). flejera = etiqueta de precio en el estante. reponedor = persona que repone mercadería. Cuando el cliente dice 'se cayó la sala' es que hubo problema de ejecución en el local.",
+   "tier": "canonical",
+   "kind": "lexicon",
+   "status": "accepted",
+   "tags": [
+    "glosario",
+    "retail"
+   ]
+  },
+  {
+   "key": "les-osa-alertas-ruidosas",
+   "title": "OSA alerts were too noisy",
+   "body": "Alerting on every store-SKU with zero sales in a day produced 4,000 alerts a week. Raised the rule to three consecutive zero-sale days for SKUs that normally sell daily. Now about 150 a week, mostly real. The field team had stopped reading the alerts entirely, which defeats the purpose. Slow movers now use a separate weekly rule based on expected sales. Each alert includes the last sale date and the normal daily rate so the merchandiser can judge quickly.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "retail",
+    "alertas"
+   ]
+  },
+  {
+   "key": "dom-tipos-exhibicion",
+   "title": "Tipos de exhibición adicional",
+   "body": "Además de la góndola regular: cabecera, isla, pallet, colgante, cooler adicional. Cada cadena cobra distinto por cada una y no todas permiten material POP propio. Las cabeceras y las islas son las más caras y se negocian por catorcena. Los coolers adicionales aplican solo a bebidas y lácteos. Para medir el efecto de cada una hay que tener el registro de ejecución por local, que casi nunca viene completo.",
+   "tier": "canonical",
+   "kind": "domain",
+   "status": "accepted",
+   "tags": [
+    "retail"
+   ]
+  },
+  {
+   "key": "dom-numeric-weighted-distribution",
+   "title": "Numeric vs weighted distribution",
+   "body": "Numeric distribution = stores that carry the SKU / total stores in the universe. Weighted distribution = sum of the category sales of the stores that carry it / total category sales in the universe. A SKU in 30% of stores that are the big ones can have 60% weighted. Always say which one you are showing.",
+   "tier": "canonical",
+   "kind": "domain",
+   "status": "accepted",
+   "tags": [
+    "métricas",
+    "retail"
+   ]
+  },
+  {
+   "key": "dec-pulso-ponderada",
+   "title": "Pulso muestra la cobertura ponderada",
+   "body": "En el tablero Pulso la tarjeta principal de cobertura muestra la ponderada; la numérica queda en el tooltip. A los gerentes les importa dónde se vende, no cuántos locales. La tarjeta muestra además la variación contra el mes anterior en puntos porcentuales. Se discutió con Camila y con Matías y ambos estuvieron de acuerdo. En la exportación a Excel van las dos medidas, una al lado de la otra, para el analista que quiera revisarlas.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "pulso",
+    "métricas"
+   ]
+  },
+  {
+   "key": "les-universe-changes",
+   "title": "Store universe changes break distribution trends",
+   "body": "When Ñandú opened 12 stores in March, numeric distribution dropped for every SKU overnight. Fix: freeze the universe per period and note openings separately. The client thought their products were losing shelf presence and almost changed their sales targets. Now the distribution chart shows a dotted line when the store count changes and the report notes how many outlets opened or closed in the period.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "métricas",
+    "ñandú"
+   ]
+  },
+  {
+   "key": "std-test-reproduce-bug",
+   "title": "Primero el test que reproduce el bug",
+   "body": "Todo PR que arregla un error trae primero un test que falla sin el arreglo y pasa con él. vitest en TypeScript, pytest en Python. La cobertura no es meta; un test que reproduce vale más que diez que pasan por pasar. Los agentes deben mostrar el test fallando antes de tocar el código.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "tests",
+    "calidad"
+   ]
+  },
+  {
+   "key": "les-fake-timers-flaky",
+   "title": "Fake timers caused flaky tests",
+   "body": "Tests using fake timers failed one in ten runs in CI because a promise resolved after `runAllTimers`. Switched to `advanceTimersByTimeAsync` and the flake disappeared. The pattern was a retry helper that awaited a promise between timeouts. With synchronous timer advancing, the microtask never ran before the assertion. Rule now: any test that mixes timers and promises uses the async variants, and we run the suite ten times in CI before calling a flake fixed.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "tests",
+    "typescript"
+   ]
+  },
+  {
+   "key": "dec-ci-solo-linux",
+   "title": "CI solo en Linux",
+   "body": "GitHub Actions corre solo en ubuntu-latest. Windows y macOS se prueban a mano antes de cada release, porque las corridas multiplataforma triplicaban los minutos. Los tests que dependen de rutas o permisos de archivos llevan un marcador para revisarlos manualmente en los otros sistemas. Si algún usuario reporta un error específico de Windows, ahí se agrega un job puntual en vez de la matriz completa. Se revisa la decisión en seis meses.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "ci"
+   ]
+  },
+  {
+   "key": "ses-directquery-trial",
+   "title": "Session: trying DirectQuery for Pulso daily",
+   "body": "2026-10-28. Tried switching the Pulso daily table to DirectQuery against BigQuery so managers would see same-day data. Visuals took 9–14 seconds and every slicer click scanned the table, about 2 GB per interaction. Reverted to Import with the incremental policy and added an hourly refresh of the last 2 days instead. Conclusion: live connection not worth it at our size.",
+   "tier": "episodic",
+   "kind": "session",
+   "status": "closed",
+   "tags": [
+    "powerbi",
+    "pulso"
+   ]
+  },
+  {
+   "key": "ses-dax-yoy",
+   "title": "Sesión: medidas de año anterior",
+   "body": "Arreglamos la medida `Vta $ AA` que daba mal en semanas 53. Se cambió SAMEPERIODLASTYEAR por una tabla calendario con semana ISO equivalente. El problema aparecía en 2026 porque el año tiene 53 semanas ISO y la semana 53 no tenía par en 2025. Se decidió comparar la semana 53 contra la 52 del año anterior y dejarlo anotado en el tooltip. También se limpiaron tres medidas duplicadas que nadie usaba.",
+   "tier": "episodic",
+   "kind": "session",
+   "status": "closed",
+   "tags": [
+    "powerbi",
+    "dax"
+   ]
+  },
+  {
+   "key": "les-bq-bi-engine",
+   "title": "BI Engine reservation too small",
+   "body": "A 1 GB BI Engine reservation did nothing for the Pulso queries because the hot table is 6 GB; queries fell back silently. Either size it properly or don't pay for it. We noticed because the BigQuery job stats showed `biEngineMode: DISABLED` with reason 'insufficient reservation'. After the trial we removed the reservation. If we try again, size it from the actual table footprint and check the acceleration mode in job metadata the first day.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "bigquery",
+    "powerbi"
+   ]
+  },
+  {
+   "key": "pref-model-tiers",
+   "title": "Which model for which task",
+   "body": "Use the strongest model (Opus) for planning, architecture and code review. Use a cheap fast model (Haiku or a local one) for bulk classification, tagging and summarizing many small texts. Never use a local model to edit code in client repos.",
+   "tier": "canonical",
+   "kind": "preference",
+   "status": "accepted",
+   "tags": [
+    "modelos",
+    "agents"
+   ]
+  },
+  {
+   "key": "les-modelo-local-columnas",
+   "title": "El modelo local inventó columnas",
+   "body": "Le pedí a un modelo local que escribiera el SQL del informe y usó columnas que no existen (`venta_bruta`, `canal`). Para SQL siempre pasarle el esquema y validar con dry-run. Lo peor es que el SQL se veía razonable y corría contra otra tabla con nombres parecidos. Desde entonces, cualquier consulta generada por un modelo pasa por un dry-run que valida columnas y estima bytes antes de ejecutarse, y el esquema va siempre en el prompt.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "modelos",
+    "sql"
+   ]
+  },
+  {
+   "key": "dec-cross-vendor-review",
+   "title": "Reviews always cross-vendor",
+   "body": "Any substantial change written by one vendor's agent is reviewed by another vendor's agent before merge: Claude writes, Codex reviews, or vice versa. The reasoning: models from the same vendor tend to share blind spots and approve each other's mistakes. Small fixes under 20 lines can skip it. The reviewer gets the diff, the original task and the tests, and must answer pass or fix with concrete reasons.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "agents",
+    "review"
+   ]
+  },
+  {
+   "key": "com-post-linkedin-memoria",
+   "title": "Post en LinkedIn sobre memoria para agentes",
+   "body": "Quedé de escribir y publicar un post en LinkedIn contando cómo armé la memoria en Markdown para mis agentes, con un diagrama y sin vender nada, antes del 30 de noviembre. La idea central: los agentes olvidan todo entre sesiones y una carpeta de notas en texto plano, versionada, resuelve buena parte del problema. Contar también lo que no funcionó. Borrador primero en la bóveda, revisión de un amigo y recién ahí publicar.",
+   "tier": "transitive",
+   "kind": "commitment",
+   "status": "pending",
+   "tags": [
+    "minga",
+    "difusión"
+   ]
+  },
+  {
+   "key": "hyp-open-source-leads",
+   "title": "Open-sourcing Minga could bring consulting leads",
+   "body": "If Minga is public on GitHub with a good README, some CPG data teams may find Brújula through it. No evidence yet; track inbound mentions for three months after release. The counter-risk is time: maintaining issues and docs could eat consulting hours. Success criterion: at least three qualified conversations that started from the repository within the first quarter. If not, keep it public but stop investing in community work.",
+   "tier": "transitive",
+   "kind": "hypothesis",
+   "status": "open",
+   "tags": [
+    "minga",
+    "brujula"
+   ]
+  },
+  {
+   "key": "com-charla-meetup",
+   "title": "Charla en el meetup de datos",
+   "body": "Me comprometí a dar una charla de 20 minutos sobre medición de promociones en el meetup de Data Santiago en enero. La idea es mostrar el método de línea base, un caso real anonimizado y los errores típicos (canibalización, quiebres, feriados). Preparar las láminas en diciembre y ensayar una vez con alguien que no sea del rubro para ver si se entiende.",
+   "tier": "transitive",
+   "kind": "commitment",
+   "status": "pending",
+   "tags": [
+    "difusión"
+   ]
+  },
+  {
+   "key": "les-tralka-merged-headers",
+   "title": "Tralka spreadsheets with merged headers",
+   "body": "Ferretería Tralka sends weekly xlsx files with two header rows and merged cells (store name spans its units and sales columns). pandas read garbage. Fix: open with openpyxl, unmerge and forward-fill the top row, then `pd.read_excel(header=[0,1])` and flatten to `store__metric`. Wrapped in `read_tralka_xlsx()`.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "tralka",
+    "ingesta",
+    "excel"
+   ]
+  },
+  {
+   "key": "pref-pedir-csv",
+   "title": "Pedir CSV en vez de Excel",
+   "body": "Al partir con un cliente nuevo, pedir siempre el export en CSV UTF-8, una fila por registro, sin totales ni celdas combinadas. Si insisten en Excel, cobrar la limpieza. También pedir un diccionario de columnas y un ejemplo de dos semanas antes de acordar el formato definitivo. Si el cliente no puede exportar CSV desde su sistema, preferir acceso directo a una vista de la base antes que planillas armadas a mano por alguien.",
+   "tier": "canonical",
+   "kind": "preference",
+   "status": "accepted",
+   "tags": [
+    "clientes",
+    "ingesta"
+   ]
+  },
+  {
+   "key": "std-raw-immutable-gcs",
+   "title": "Raw files are immutable in GCS",
+   "body": "Every file received from a client goes untouched to `gs://brujula-raw/<client>/<yyyy>/<mm>/`. Never edit or overwrite raw; all cleaning happens downstream. The bucket has object versioning and a retention policy of 90 days so even an accidental delete can be undone. Each upload writes a small manifest with the original filename, sender, received timestamp and a SHA-256 so we can prove what the client actually sent.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "ingesta",
+    "gcs"
+   ]
+  },
+  {
+   "key": "dec-cobro-por-proyecto",
+   "title": "Cobro por proyecto más mantención",
+   "body": "Dejé de cobrar por hora. Ahora cada trabajo se cotiza a precio cerrado por proyecto y, si queda algo andando (tablero, flujo automático), se suma un fee mensual de mantención de 20% del valor del proyecto dividido en doce. Cobrar por hora me castigaba por usar agentes y ser más rápido.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "brujula",
+    "negocio"
+   ]
+  },
+  {
+   "key": "les-scope-creep-quillay",
+   "title": "Scope creep at Quillay",
+   "body": "The Quillay dashboard grew from 4 to 11 pages with no extra fee because every request came informally in meetings. Now any new ask goes into a written change request with its own quote. By the time we noticed, the project was running at half the planned hourly rate. The change request template has three fields: what is asked, why, and the price and date impact. Camila was fine with it once it was explained as protecting the delivery dates.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "quillay",
+    "negocio"
+   ]
+  },
+  {
+   "key": "com-propuesta-tralka",
+   "title": "Enviar propuesta a Tralka",
+   "body": "Quedé de enviarle a Ferretería Tralka la propuesta del tablero de inventario antes del viernes 14. Debe incluir alcance (rotación por local, días de inventario, alertas de sobrestock), precio cerrado y plazo de seis semanas. Antes de mandarla, revisar con el gerente de operaciones de ellos qué sistema de inventario usan y si pueden darnos acceso diario.",
+   "tier": "transitive",
+   "kind": "commitment",
+   "status": "pending",
+   "tags": [
+    "tralka",
+    "negocio"
+   ]
+  },
+  {
+   "key": "ses-revision-semanal-1102",
+   "title": "Sesión: revisión semanal 2026-11-02",
+   "body": "Revisamos pendientes: Faro v2 va atrasado en la parte de canibalización, el informe de Quillay salió a tiempo, n8n sigue en el mini PC. Se decidió no tomar clientes nuevos hasta enero. También se revisó el gasto en BigQuery del mes (dentro del presupuesto) y se cerraron dos hipótesis viejas sin evidencia. Para la próxima semana: terminar la parte de canibalización, preparar el comité de Kiltro y avanzar el post pendiente.",
+   "tier": "episodic",
+   "kind": "session",
+   "status": "closed",
+   "tags": [
+    "revisión"
+   ]
+  },
+  {
+   "key": "ses-minga-crew-test",
+   "title": "Session: first crew run with three agents",
+   "body": "Ran a task with Claude Code as lead, Codex as builder and OpenCode as reviewer. Worked, but OpenCode's review was shallow. Next time give the reviewer the diff explicitly. The lead split the task into three steps, the builder finished in about eight minutes and tests passed. The reviewer approved without reading the test file. Total cost was low. Action items: pass the full diff and the requirement list to the reviewer, and make it state what it checked.",
+   "tier": "episodic",
+   "kind": "session",
+   "status": "closed",
+   "tags": [
+    "minga",
+    "agents"
+   ]
+  },
+  {
+   "key": "les-npm-publish-dist",
+   "title": "Published without building dist",
+   "body": "Released a Minga version to npm without running the build; `dist/` was stale and the CLI crashed on install. Added `prepublishOnly: npm run build && npm test`. Also added a CI check that installs the packed tarball in a clean container and runs `--version`. The broken release stayed up for two hours; deprecated it with a message pointing to the fixed version. Never publish from a dirty working tree.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "minga",
+    "release"
+   ]
+  },
+  {
+   "key": "std-informe-estructura",
+   "title": "Estructura de los informes a clientes",
+   "body": "Todo informe: 1) resumen con tres hallazgos y una recomendación, 2) resultados, 3) metodología breve, 4) anexos. Máximo 12 láminas fuera de anexos. Cada lámina tiene un título que dice la conclusión, no el tema ('Las cabeceras explican el alza', no 'Resultados de exhibición'). Los números se redondean sin decimales salvo porcentajes de variación. El anexo metodológico lo puede leer el analista del cliente, no el gerente.",
+   "tier": "canonical",
+   "kind": "standard",
+   "status": "accepted",
+   "tags": [
+    "informes"
+   ]
+  },
+  {
+   "key": "dom-cadenas-chile",
+   "title": "Cadenas con las que trabajamos",
+   "body": "Ñandú (supermercados, 210 locales), Tralka (ferretería, 45), y en Kiltro el canal tradicional vía distribuidores. Cada una entrega datos en formato distinto y con rezago distinto. Ñandú entrega semanal por SFTP, Tralka manda planillas por correo y en el canal tradicional los distribuidores reportan mensual y con mucho atraso. Por eso los informes del canal tradicional siempre van con un mes de desfase y se avisa en la portada.",
+   "tier": "canonical",
+   "kind": "domain",
+   "status": "accepted",
+   "tags": [
+    "retail",
+    "clientes"
+   ]
+  },
+  {
+   "key": "hyp-agents-md-unificado",
+   "title": "Un solo archivo de instrucciones bastaría",
+   "body": "Creo que si genero CLAUDE.md desde AGENTS.md con un symlink, todos los hosts se comportarían igual. No probado con Antigravity. La idea es tener AGENTS.md como fuente y que CLAUDE.md sea solo un enlace simbólico. El riesgo es que cada host interpreta secciones distintas y que Windows no maneja bien los symlinks. Probar en el repo de Faro durante dos semanas y anotar diferencias de comportamiento.",
+   "tier": "transitive",
+   "kind": "hypothesis",
+   "status": "open",
+   "tags": [
+    "agents",
+    "config"
+   ]
+  },
+  {
+   "key": "les-obsidian-git-lockfile",
+   "title": "Obsidian workspace.json causes git conflicts",
+   "body": "`.obsidian/workspace.json` changes every time a pane moves, so two machines conflict constantly. Added it to .gitignore. Same for `.obsidian/cache` and the plugin data of the graph view. Plugin configs that matter (templates, hotkeys) stay versioned. After ignoring the files, ran `git rm --cached` on both machines so the conflicts stopped for good.",
+   "tier": "transitive",
+   "kind": "lesson",
+   "status": "proven",
+   "tags": [
+    "obsidian",
+    "git"
+   ]
+  },
+  {
+   "key": "pref-graficos-barras",
+   "title": "Gráficos de barras horizontales",
+   "body": "Para rankings de SKUs o locales, barras horizontales ordenadas de mayor a menor. Nada de 3D ni tortas. Para series de tiempo, líneas con máximo cuatro series y la del cliente destacada en color; el resto en gris. Etiquetas directas al final de cada línea en vez de leyenda. Siempre indicar la fuente y el periodo debajo del gráfico.",
+   "tier": "canonical",
+   "kind": "preference",
+   "status": "accepted",
+   "tags": [
+    "informes",
+    "visualización"
+   ]
+  },
+  {
+   "key": "dec-pulso-bigquery-source",
+   "title": "Pulso reads from BigQuery views",
+   "body": "Pulso connects only to curated views in the `reporting` dataset, never to raw tables, so we can change the underlying model without breaking the report. The views select only the columns the report needs, cast types explicitly and apply the timezone conversion once. Any change to a view goes through a PR with a before/after row count. This also keeps the report's scanned bytes predictable because the views are partition-aware.",
+   "tier": "transitive",
+   "kind": "decision",
+   "status": "active",
+   "tags": [
+    "pulso",
+    "bigquery"
+   ]
+  },
+  {
+   "key": "ses-elasticidades-tralka",
+   "title": "Sesión: elasticidades de Tralka",
+   "body": "Corrimos las elasticidades para 40 SKUs de Tralka. Las pinturas dieron muy elásticas (-2,4) y las herramientas casi inelásticas. Faltó limpiar los precios cero en la primera pasada. En la segunda pasada, con los precios filtrados, las pinturas quedaron en -1,8 y se vio que los adhesivos responden mucho a la exhibición. Quedó pendiente agregar efectos de temporada para la línea de jardín, que vende casi todo entre septiembre y diciembre.",
+   "tier": "episodic",
+   "kind": "session",
+   "status": "closed",
+   "tags": [
+    "tralka",
+    "faro"
+   ]
+  }
+ ],
+ "queries": [
+  {
+   "q": "cómo mantengo las notas al día entre mis dos máquinas sin gastar en el servicio oficial",
+   "target": "dec-vault-sync-git",
+   "class": "paraphrase-es",
+   "alt": [
+    "how do I keep my notes in sync between my two machines without paying for the official service"
+   ]
+  },
+  {
+   "q": "con qué criterio armamos la venta esperada sin actividad para medir el efecto de una oferta",
+   "target": "dec-baseline-mediana-movil",
+   "class": "paraphrase-es",
+   "alt": [
+    "what criteria do we use to build the expected sales without promotion to measure the effect of an offer"
+   ]
+  },
+  {
+   "q": "qué topes tenemos para que una consulta al warehouse no nos salga carísima",
+   "target": "std-bq-partition-filter",
+   "class": "paraphrase-es",
+   "alt": [
+    "what limits do we have so that a warehouse query doesn't end up costing a fortune"
+   ]
+  },
+  {
+   "q": "cómo le gusta recibir los resultados a la encargada de marketing de la láctea",
+   "target": "per-camila-rojas-quillay",
+   "class": "paraphrase-es",
+   "alt": [
+    "how does the marketing manager of the dairy company like to receive results"
+   ]
+  },
+  {
+   "q": "por qué fallaban las pruebas cuando las corría el agente de OpenAI en su entorno aislado",
+   "target": "les-codex-sandbox-sin-red",
+   "class": "paraphrase-es",
+   "alt": [
+    "why did the tests fail when the OpenAI agent ran them in its sandboxed environment"
+   ]
+  },
+  {
+   "q": "qué automatización arma el reporte de cada semana y por qué no lo despachamos desde la herramienta de tableros",
+   "target": "dec-n8n-informe-lunes",
+   "class": "paraphrase-es",
+   "alt": [
+    "what automation builds the weekly report and why don't we send it from the dashboard tool"
+   ]
+  },
+  {
+   "q": "a qué me dedico profesionalmente y qué proyecto paralelo tengo",
+   "target": "idn-owner",
+   "class": "paraphrase-es",
+   "alt": [
+    "what do I do for a living and what side project do I have"
+   ]
+  },
+  {
+   "q": "en qué lengua me tienen que responder los asistentes y cómo van escritos los commits",
+   "target": "pref-idioma-agentes",
+   "class": "paraphrase-es",
+   "alt": [
+    "what language must assistants reply to me in and how are commits written"
+   ]
+  },
+  {
+   "q": "por qué elegimos una especificación econométrica simple en lugar de árboles potenciados para la sensibilidad al precio",
+   "target": "dec-elasticidad-loglog",
+   "class": "paraphrase-es",
+   "alt": [
+    "why did we choose a simple econometric specification instead of boosted trees for price sensitivity"
+   ]
+  },
+  {
+   "q": "mi corazonada de que mostrar más el producto en la sala importa más que bajarle el precio",
+   "target": "hyp-cabeceras-vs-descuento",
+   "class": "paraphrase-es",
+   "alt": [
+    "my hunch that showing the product more on the shop floor matters more than lowering the price"
+   ]
+  },
+  {
+   "q": "por qué al agregar por semana se nos corrían las ventas de fin de semana al periodo siguiente",
+   "target": "les-utc-semana-corrida",
+   "class": "paraphrase-es",
+   "alt": [
+    "why did weekend sales shift to the next period when aggregating by week"
+   ]
+  },
+  {
+   "q": "cómo nombramos cuando no hay unidades disponibles para el comprador, y otra jerga del retail",
+   "target": "lex-quiebre-osa-cabecera",
+   "class": "paraphrase-es",
+   "alt": [
+    "what do we call it when there are no units available for the buyer, and other retail jargon"
+   ]
+  },
+  {
+   "q": "qué exigimos antes de aceptar un arreglo de un error en el código",
+   "target": "std-test-reproduce-bug",
+   "class": "paraphrase-es",
+   "alt": [
+    "what do we require before accepting a fix for a bug in the code"
+   ]
+  },
+  {
+   "q": "lo que quedé de subir a redes sobre cómo recuerdan las cosas mis agentes",
+   "target": "com-post-linkedin-memoria",
+   "class": "paraphrase-es",
+   "alt": [
+    "what I committed to posting on social media about how my agents remember things"
+   ]
+  },
+  {
+   "q": "cómo le pongo precio a los trabajos con clientes ahora",
+   "target": "dec-cobro-por-proyecto",
+   "class": "paraphrase-es",
+   "alt": [
+    "how do I price client work now"
+   ]
+  },
+  {
+   "q": "reglas obligatorias antes de lanzar una query sobre la tabla grande de ventas por día",
+   "target": "std-bq-partition-filter",
+   "class": "paraphrase-es",
+   "alt": [
+    "mandatory rules before running a query on the large daily sales table"
+   ]
+  },
+  {
+   "q": "how do my notes get replicated between my two computers",
+   "target": "dec-vault-sync-git",
+   "class": "cross-en-es",
+   "alt": [
+    "¿cómo se replican mis notas entre mis dos computadores?"
+   ]
+  },
+  {
+   "q": "how do we estimate counterfactual sales when measuring discount impact",
+   "target": "dec-baseline-mediana-movil",
+   "class": "cross-en-es",
+   "alt": [
+    "¿cómo estimamos las ventas contrafactuales al medir el impacto de un descuento?"
+   ]
+  },
+  {
+   "q": "what guardrails do we have on warehouse spend per query",
+   "target": "std-bq-partition-filter",
+   "class": "cross-en-es",
+   "alt": [
+    "¿qué límites tenemos sobre el gasto por consulta en el warehouse?"
+   ]
+  },
+  {
+   "q": "what does the dairy client's marketing lead expect in a presentation",
+   "target": "per-camila-rojas-quillay",
+   "class": "cross-en-es",
+   "alt": [
+    "¿qué espera la responsable de marketing del cliente lácteo en una presentación?"
+   ]
+  },
+  {
+   "q": "integration tests break when the other coding agent runs them offline",
+   "target": "les-codex-sandbox-sin-red",
+   "class": "cross-en-es",
+   "alt": [
+    "las pruebas de integración fallan cuando el otro agente de código las ejecuta sin conexión"
+   ]
+  },
+  {
+   "q": "how does the Monday sales digest get produced and emailed to clients",
+   "target": "dec-n8n-informe-lunes",
+   "class": "cross-en-es",
+   "alt": [
+    "¿cómo se genera y se envía por correo a los clientes el resumen de ventas del lunes?"
+   ]
+  },
+  {
+   "q": "what is my professional background",
+   "target": "idn-owner",
+   "class": "cross-en-es",
+   "alt": [
+    "¿cuál es mi trayectoria profesional?"
+   ]
+  },
+  {
+   "q": "which language should you use when talking to me versus in commit messages",
+   "target": "pref-idioma-agentes",
+   "class": "cross-en-es",
+   "alt": [
+    "¿en qué idioma debes hablarme y en cuál van los mensajes de commit?"
+   ]
+  },
+  {
+   "q": "why not gradient boosting for estimating price response",
+   "target": "dec-elasticidad-loglog",
+   "class": "cross-en-es",
+   "alt": [
+    "¿por qué no usar gradient boosting para estimar la respuesta al precio?"
+   ]
+  },
+  {
+   "q": "theory that end-of-aisle displays drive more lift than the price cut",
+   "target": "hyp-cabeceras-vs-descuento",
+   "class": "cross-en-es",
+   "alt": [
+    "teoría de que las exhibiciones en cabecera de góndola generan más incremento que la rebaja de precio"
+   ]
+  },
+  {
+   "q": "Sunday evening transactions showing up in the following week",
+   "target": "les-utc-semana-corrida",
+   "class": "cross-en-es",
+   "alt": [
+    "las transacciones del domingo por la tarde aparecen en la semana siguiente"
+   ]
+  },
+  {
+   "q": "local slang for out of stock and shelf availability",
+   "target": "lex-quiebre-osa-cabecera",
+   "class": "cross-en-es",
+   "alt": [
+    "jerga local para producto agotado y disponibilidad en góndola"
+   ]
+  },
+  {
+   "q": "policy on writing a failing check before patching a defect",
+   "target": "std-test-reproduce-bug",
+   "class": "cross-en-es",
+   "alt": [
+    "política de escribir una prueba que falle antes de corregir un defecto"
+   ]
+  },
+  {
+   "q": "did I promise to publish an article about agent memory",
+   "target": "com-post-linkedin-memoria",
+   "class": "cross-en-es",
+   "alt": [
+    "¿prometí publicar un artículo sobre memoria de agentes?"
+   ]
+  },
+  {
+   "q": "billing model for consulting engagements, hourly or fixed",
+   "target": "dec-cobro-por-proyecto",
+   "class": "cross-en-es",
+   "alt": [
+    "modelo de cobro para proyectos de consultoría, por hora o precio fijo"
+   ]
+  },
+  {
+   "q": "what model do we use for price sensitivity and why",
+   "target": "dec-elasticidad-loglog",
+   "class": "cross-en-es",
+   "alt": [
+    "¿qué modelo usamos para la sensibilidad al precio y por qué?"
+   ]
+  },
+  {
+   "q": "reason we stopped running the in-memory key-value server for reference data",
+   "target": "dec-drop-redis-faro",
+   "class": "paraphrase-en",
+   "alt": [
+    "razón por la que dejamos de usar el servidor clave-valor en memoria para datos de referencia"
+   ]
+  },
+  {
+   "q": "the dashboard stopped updating overnight, what was the root cause last time",
+   "target": "les-pbi-gateway-creds",
+   "class": "paraphrase-en",
+   "alt": [
+    "el tablero dejó de actualizarse durante la noche, ¿cuál fue la causa raíz la última vez?"
+   ]
+  },
+  {
+   "q": "deadline for the second version of the promotion return model for the beverage account",
+   "target": "com-faro-v2-kiltro",
+   "class": "paraphrase-en",
+   "alt": [
+    "fecha límite de la segunda versión del modelo de retorno de promociones para la cuenta de bebidas"
+   ]
+  },
+  {
+   "q": "why we push memory in via a startup callback instead of putting it in the instructions file",
+   "target": "dec-hook-brief-not-claudemd",
+   "class": "paraphrase-en",
+   "alt": [
+    "por qué inyectamos la memoria mediante un callback de inicio en lugar de ponerla en el archivo de instrucciones"
+   ]
+  },
+  {
+   "q": "which package manager and interpreter version our repos use",
+   "target": "std-uv-python312",
+   "class": "paraphrase-en",
+   "alt": [
+    "qué gestor de paquetes y versión del intérprete usan nuestros repos"
+   ]
+  },
+  {
+   "q": "how feature work gets integrated into the primary line",
+   "target": "std-trunk-squash",
+   "class": "paraphrase-en",
+   "alt": [
+    "cómo se integra el trabajo de nuevas funcionalidades en la rama principal"
+   ]
+  },
+  {
+   "q": "the minimal coding agent wasn't following our project rules kept inside a subfolder",
+   "target": "les-pi-agentsmd-root",
+   "class": "paraphrase-en",
+   "alt": [
+    "el agente de código minimalista no seguía las reglas de nuestro proyecto guardadas en una subcarpeta"
+   ]
+  },
+  {
+   "q": "the supermarket chain's weekly drop comes late and with broken characters",
+   "target": "les-nandu-sftp-latin1",
+   "class": "paraphrase-en",
+   "alt": [
+    "la entrega semanal de la cadena de supermercados llega tarde y con caracteres rotos"
+   ]
+  },
+  {
+   "q": "why the memory lookup has no semantic similarity index",
+   "target": "dec-bm25-no-vectors",
+   "class": "paraphrase-en",
+   "alt": [
+    "por qué la búsqueda en la memoria no tiene un índice de similitud semántica"
+   ]
+  },
+  {
+   "q": "how often do I meet the drinks company and when are slides due",
+   "target": "com-kiltro-steering-quincenal",
+   "class": "paraphrase-en",
+   "alt": [
+    "¿con qué frecuencia me reúno con la empresa de bebidas y cuándo hay que entregar las diapositivas?"
+   ]
+  },
+  {
+   "q": "where credentials live and how scripts obtain them at execution time",
+   "target": "std-secrets-1password",
+   "class": "paraphrase-en",
+   "alt": [
+    "dónde viven las credenciales y cómo las obtienen los scripts en tiempo de ejecución"
+   ]
+  },
+  {
+   "q": "difference between counting outlets carrying an item and adjusting by outlet size",
+   "target": "dom-numeric-weighted-distribution",
+   "class": "paraphrase-en",
+   "alt": [
+    "diferencia entre contar los locales que tienen un producto y ajustar por tamaño del local"
+   ]
+  },
+  {
+   "q": "we experimented with a real-time link from the report to the warehouse, what came of it",
+   "target": "ses-directquery-trial",
+   "class": "paraphrase-en",
+   "alt": [
+    "probamos un enlace en tiempo real del informe al warehouse, ¿qué resultó?"
+   ]
+  },
+  {
+   "q": "which LLM size do I want for which kind of job",
+   "target": "pref-model-tiers",
+   "class": "paraphrase-en",
+   "alt": [
+    "¿qué tamaño de LLM quiero para cada tipo de tarea?"
+   ]
+  },
+  {
+   "q": "hardware retailer workbooks with two-row combined headings, how did we parse them",
+   "target": "les-tralka-merged-headers",
+   "class": "paraphrase-en",
+   "alt": [
+    "libros de Excel de la ferretería con encabezados combinados en dos filas, ¿cómo los procesamos?"
+   ]
+  },
+  {
+   "q": "reports showing stale figures after IT changed account passwords",
+   "target": "les-pbi-gateway-creds",
+   "class": "paraphrase-en",
+   "alt": [
+    "informes que muestran cifras desactualizadas después de que TI cambió las contraseñas de las cuentas"
+   ]
+  },
+  {
+   "q": "por qué cambiamos el caché del servicio de promos a un archivo local",
+   "target": "dec-drop-redis-faro",
+   "class": "cross-es-en",
+   "alt": [
+    "why did we switch the promo service's cache to a local file"
+   ]
+  },
+  {
+   "q": "por qué el tablero quedó mostrando datos viejos después del fin de semana",
+   "target": "les-pbi-gateway-creds",
+   "class": "cross-es-en",
+   "alt": [
+    "why did the dashboard end up showing stale data after the weekend"
+   ]
+  },
+  {
+   "q": "para cuándo le prometí la nueva versión del modelo al cliente de bebidas",
+   "target": "com-faro-v2-kiltro",
+   "class": "cross-es-en",
+   "alt": [
+    "by when did I promise the new version of the model to the beverage client"
+   ]
+  },
+  {
+   "q": "por qué no metemos la memoria directo en el archivo de instrucciones del repo",
+   "target": "dec-hook-brief-not-claudemd",
+   "class": "cross-es-en",
+   "alt": [
+    "why don't we put the memory directly in the repo's instructions file"
+   ]
+  },
+  {
+   "q": "con qué herramienta manejamos dependencias y versión de python",
+   "target": "std-uv-python312",
+   "class": "cross-es-en",
+   "alt": [
+    "what tool do we use to manage dependencies and the Python version"
+   ]
+  },
+  {
+   "q": "cómo es el flujo de ramas y fusiones en los repos",
+   "target": "std-trunk-squash",
+   "class": "cross-es-en",
+   "alt": [
+    "what is the branching and merging workflow in the repos"
+   ]
+  },
+  {
+   "q": "por qué el agente minimalista no seguía las reglas que dejamos en una subcarpeta",
+   "target": "les-pi-agentsmd-root",
+   "class": "cross-es-en",
+   "alt": [
+    "why didn't the minimalist agent follow the rules we left in a subfolder"
+   ]
+  },
+  {
+   "q": "los archivos de la cadena grande llegan atrasados y con tildes rotas",
+   "target": "les-nandu-sftp-latin1",
+   "class": "cross-es-en",
+   "alt": [
+    "the big chain's files arrive late and with broken accents"
+   ]
+  },
+  {
+   "q": "por qué no usamos una base vectorial para buscar en la memoria",
+   "target": "dec-bm25-no-vectors",
+   "class": "cross-es-en",
+   "alt": [
+    "why don't we use a vector database to search the memory"
+   ]
+  },
+  {
+   "q": "cada cuánto es el comité con la empresa de bebidas y cuándo mando la presentación",
+   "target": "com-kiltro-steering-quincenal",
+   "class": "cross-es-en",
+   "alt": [
+    "how often is the meeting with the beverage company and when do I send the presentation"
+   ]
+  },
+  {
+   "q": "dónde guardamos las claves y cómo las ocupan los scripts",
+   "target": "std-secrets-1password",
+   "class": "cross-es-en",
+   "alt": [
+    "where do we store the keys and how do scripts use them"
+   ]
+  },
+  {
+   "q": "cómo se calcula la cobertura ponderada por venta de la categoría",
+   "target": "dom-numeric-weighted-distribution",
+   "class": "cross-es-en",
+   "alt": [
+    "how is the sales-weighted category coverage calculated"
+   ]
+  },
+  {
+   "q": "probamos conectar el tablero en vivo a la base y qué pasó",
+   "target": "ses-directquery-trial",
+   "class": "cross-es-en",
+   "alt": [
+    "we tried connecting the dashboard live to the database, what happened"
+   ]
+  },
+  {
+   "q": "qué modelo de lenguaje uso para clasificar textos y cuál para planificar",
+   "target": "pref-model-tiers",
+   "class": "cross-es-en",
+   "alt": [
+    "which language model do I use to classify texts and which one for planning"
+   ]
+  },
+  {
+   "q": "cómo leímos las planillas de la tienda de herramientas con encabezados combinados",
+   "target": "les-tralka-merged-headers",
+   "class": "cross-es-en",
+   "alt": [
+    "how did we read the hardware store's spreadsheets with merged headers"
+   ]
+  },
+  {
+   "q": "qué entra y qué queda fuera en lo que le entrego este mes al cliente de gaseosas",
+   "target": "com-faro-v2-kiltro",
+   "class": "cross-es-en",
+   "alt": [
+    "what is in and what is out of what I deliver this month to the soda client"
+   ]
+  },
+  {
+   "q": "¿en qué quedamos con el sync de las notas?",
+   "target": "dec-vault-sync-git",
+   "class": "vague",
+   "alt": [
+    "what did we end up with on the notes sync?"
+   ]
+  },
+  {
+   "q": "why did we get rid of redis",
+   "target": "dec-drop-redis-faro",
+   "class": "vague",
+   "alt": [
+    "¿por qué eliminamos redis?"
+   ]
+  },
+  {
+   "q": "por qué se cayó la actualización del tablero",
+   "target": "les-pbi-gateway-creds",
+   "class": "vague",
+   "alt": [
+    "why did the dashboard update fail"
+   ]
+  },
+  {
+   "q": "qué le gusta a la clienta de quillay",
+   "target": "per-camila-rojas-quillay",
+   "class": "vague",
+   "alt": [
+    "what does the Quillay client like"
+   ]
+  },
+  {
+   "q": "qué usamos pa los entornos de python",
+   "target": "std-uv-python312",
+   "class": "vague",
+   "alt": [
+    "what do we use for Python environments"
+   ]
+  },
+  {
+   "q": "cómo sale el informe de los lunes",
+   "target": "dec-n8n-informe-lunes",
+   "class": "vague",
+   "alt": [
+    "how does the Monday report come out"
+   ]
+  },
+  {
+   "q": "how should you talk to me",
+   "target": "pref-idioma-agentes",
+   "class": "vague",
+   "alt": [
+    "¿cómo debo hablarte?"
+   ]
+  },
+  {
+   "q": "por qué llegan raros los archivos del super",
+   "target": "les-nandu-sftp-latin1",
+   "class": "vague",
+   "alt": [
+    "why do the supermarket's files arrive weird"
+   ]
+  },
+  {
+   "q": "cuándo es la reunión con kiltro",
+   "target": "com-kiltro-steering-quincenal",
+   "class": "vague",
+   "alt": [
+    "when is the meeting with Kiltro"
+   ]
+  },
+  {
+   "q": "why no embeddings?",
+   "target": "dec-bm25-no-vectors",
+   "class": "vague",
+   "alt": [
+    "¿por qué no usamos embeddings?"
+   ]
+  },
+  {
+   "q": "lo de las fechas que no cuadraban",
+   "target": "les-utc-semana-corrida",
+   "class": "vague",
+   "alt": [
+    "the thing about the dates that didn't add up"
+   ]
+  },
+  {
+   "q": "qué modelo uso pa clasificar",
+   "target": "pref-model-tiers",
+   "class": "vague",
+   "alt": [
+    "which model do I use to classify"
+   ]
+  },
+  {
+   "q": "cuánto cobro",
+   "target": "dec-cobro-por-proyecto",
+   "class": "vague",
+   "alt": [
+    "how much do I charge"
+   ]
+  },
+  {
+   "q": "did directquery work out",
+   "target": "ses-directquery-trial",
+   "class": "vague",
+   "alt": [
+    "¿funcionó DirectQuery?"
+   ]
+  },
+  {
+   "q": "what was my theory about displays",
+   "target": "hyp-cabeceras-vs-descuento",
+   "class": "vague",
+   "alt": [
+    "¿cuál era mi teoría sobre las exhibiciones?"
+   ]
+  },
+  {
+   "q": "por qué no usamos xgboost pa la elasticidad",
+   "target": "dec-elasticidad-loglog",
+   "class": "vague",
+   "alt": [
+    "why don't we use xgboost for elasticity"
+   ]
+  }
+ ]
+}

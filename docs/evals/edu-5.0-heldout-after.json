@@ -1,0 +1,1344 @@
+{
+  "schema": "edu-bench/1",
+  "edu": "5.0.0",
+  "node": "v26.13.0",
+  "generatedAt": "2026-11-08T20:33:06.091Z",
+  "retrieval": {
+    "corpus": {
+      "source": "docs/evals/edu-5.0-heldout-corpus.json",
+      "version": 2,
+      "notes": 100,
+      "queries": 80,
+      "byLang": {
+        "es": 0,
+        "en": 0
+      }
+    },
+    "overall": {
+      "n": 80,
+      "recallAt1": 0.5125,
+      "recallAt5": 0.7375,
+      "recallAt10": 0.85,
+      "mrr": 0.6278
+    },
+    "byClass": {
+      "paraphrase-es": {
+        "n": 16,
+        "recallAt1": 0.5625,
+        "recallAt5": 0.8125,
+        "recallAt10": 0.9375,
+        "mrr": 0.6881
+      },
+      "cross-en-es": {
+        "n": 16,
+        "recallAt1": 0.5,
+        "recallAt5": 0.6875,
+        "recallAt10": 0.8125,
+        "mrr": 0.5964
+      },
+      "paraphrase-en": {
+        "n": 16,
+        "recallAt1": 0.5625,
+        "recallAt5": 0.6875,
+        "recallAt10": 0.75,
+        "mrr": 0.6215
+      },
+      "cross-es-en": {
+        "n": 16,
+        "recallAt1": 0.5,
+        "recallAt5": 0.6875,
+        "recallAt10": 0.875,
+        "mrr": 0.6116
+      },
+      "vague": {
+        "n": 16,
+        "recallAt1": 0.4375,
+        "recallAt5": 0.8125,
+        "recallAt10": 0.875,
+        "mrr": 0.6215
+      }
+    },
+    "latencyMs": {
+      "p50": 22.52,
+      "p95": 27.55
+    },
+    "queries": [
+      {
+        "id": "q1",
+        "class": "paraphrase-es",
+        "query": "cómo mantengo las notas al día entre mis dos máquinas sin gastar en el servicio oficial",
+        "alt": [
+          "how do I keep my notes in sync between my two machines without paying for the official service"
+        ],
+        "expected": "dec-vault-sync-git",
+        "rank": 1,
+        "top3": [
+          "dec-vault-sync-git",
+          "dec-hook-brief-not-claudemd",
+          "dec-opencode-modelo-local"
+        ],
+        "latencyMs": 44.84
+      },
+      {
+        "id": "q2",
+        "class": "paraphrase-es",
+        "query": "con qué criterio armamos la venta esperada sin actividad para medir el efecto de una oferta",
+        "alt": [
+          "what criteria do we use to build the expected sales without promotion to measure the effect of an offer"
+        ],
+        "expected": "dec-baseline-mediana-movil",
+        "rank": 1,
+        "top3": [
+          "dec-baseline-mediana-movil",
+          "com-propuesta-tralka",
+          "idn-owner"
+        ],
+        "latencyMs": 27.14
+      },
+      {
+        "id": "q3",
+        "class": "paraphrase-es",
+        "query": "qué topes tenemos para que una consulta al warehouse no nos salga carísima",
+        "alt": [
+          "what limits do we have so that a warehouse query doesn't end up costing a fortune"
+        ],
+        "expected": "std-bq-partition-filter",
+        "rank": 1,
+        "top3": [
+          "std-bq-partition-filter",
+          "hyp-cache-bq-results",
+          "hyp-embeddings-locales"
+        ],
+        "latencyMs": 26.89
+      },
+      {
+        "id": "q4",
+        "class": "paraphrase-es",
+        "query": "cómo le gusta recibir los resultados a la encargada de marketing de la láctea",
+        "alt": [
+          "how does the marketing manager of the dairy company like to receive results"
+        ],
+        "expected": "per-camila-rojas-quillay",
+        "rank": 5,
+        "top3": [
+          "idn-owner",
+          "std-informe-estructura",
+          "hyp-cache-bq-results"
+        ],
+        "latencyMs": 27.87
+      },
+      {
+        "id": "q5",
+        "class": "paraphrase-es",
+        "query": "por qué fallaban las pruebas cuando las corría el agente de OpenAI en su entorno aislado",
+        "alt": [
+          "why did the tests fail when the OpenAI agent ran them in its sandboxed environment"
+        ],
+        "expected": "les-codex-sandbox-sin-red",
+        "rank": 1,
+        "top3": [
+          "les-codex-sandbox-sin-red",
+          "std-test-reproduce-bug",
+          "dom-codex-config-path"
+        ],
+        "latencyMs": 27.26
+      },
+      {
+        "id": "q6",
+        "class": "paraphrase-es",
+        "query": "qué automatización arma el reporte de cada semana y por qué no lo despachamos desde la herramienta de tableros",
+        "alt": [
+          "what automation builds the weekly report and why don't we send it from the dashboard tool"
+        ],
+        "expected": "dec-n8n-informe-lunes",
+        "rank": 2,
+        "top3": [
+          "dom-brujula-services",
+          "dec-n8n-informe-lunes",
+          "com-propuesta-tralka"
+        ],
+        "latencyMs": 25.39
+      },
+      {
+        "id": "q7",
+        "class": "paraphrase-es",
+        "query": "a qué me dedico profesionalmente y qué proyecto paralelo tengo",
+        "alt": [
+          "what do I do for a living and what side project do I have"
+        ],
+        "expected": "idn-owner",
+        "rank": 7,
+        "top3": [
+          "dec-cobro-por-proyecto",
+          "dom-brujula-services",
+          "std-uv-python312"
+        ],
+        "latencyMs": 26.01
+      },
+      {
+        "id": "q8",
+        "class": "paraphrase-es",
+        "query": "en qué lengua me tienen que responder los asistentes y cómo van escritos los commits",
+        "alt": [
+          "what language must assistants reply to me in and how are commits written"
+        ],
+        "expected": "pref-idioma-agentes",
+        "rank": 1,
+        "top3": [
+          "pref-idioma-agentes",
+          "dec-cross-vendor-review",
+          "std-conventional-commits"
+        ],
+        "latencyMs": 23.25
+      },
+      {
+        "id": "q9",
+        "class": "paraphrase-es",
+        "query": "por qué elegimos una especificación econométrica simple en lugar de árboles potenciados para la sensibilidad al precio",
+        "alt": [
+          "why did we choose a simple econometric specification instead of boosted trees for price sensitivity"
+        ],
+        "expected": "dec-elasticidad-loglog",
+        "rank": 6,
+        "top3": [
+          "dec-opencode-modelo-local",
+          "hyp-embeddings-locales",
+          "pref-respuestas-cortas"
+        ],
+        "latencyMs": 23.31
+      },
+      {
+        "id": "q10",
+        "class": "paraphrase-es",
+        "query": "mi corazonada de que mostrar más el producto en la sala importa más que bajarle el precio",
+        "alt": [
+          "my hunch that showing the product more on the shop floor matters more than lowering the price"
+        ],
+        "expected": "hyp-cabeceras-vs-descuento",
+        "rank": null,
+        "top3": [
+          "lex-quiebre-osa-cabecera",
+          "les-universe-changes",
+          "les-quiebres-en-promo"
+        ],
+        "latencyMs": 22.62
+      },
+      {
+        "id": "q11",
+        "class": "paraphrase-es",
+        "query": "por qué al agregar por semana se nos corrían las ventas de fin de semana al periodo siguiente",
+        "alt": [
+          "why did weekend sales shift to the next period when aggregating by week"
+        ],
+        "expected": "les-utc-semana-corrida",
+        "rank": 2,
+        "top3": [
+          "dom-sellin-vs-sellout",
+          "les-utc-semana-corrida",
+          "les-universe-changes"
+        ],
+        "latencyMs": 24.82
+      },
+      {
+        "id": "q12",
+        "class": "paraphrase-es",
+        "query": "cómo nombramos cuando no hay unidades disponibles para el comprador, y otra jerga del retail",
+        "alt": [
+          "what do we call it when there are no units available for the buyer, and other retail jargon"
+        ],
+        "expected": "lex-quiebre-osa-cabecera",
+        "rank": 1,
+        "top3": [
+          "lex-quiebre-osa-cabecera",
+          "dom-tipos-exhibicion",
+          "std-dax-measure-naming"
+        ],
+        "latencyMs": 25.09
+      },
+      {
+        "id": "q13",
+        "class": "paraphrase-es",
+        "query": "qué exigimos antes de aceptar un arreglo de un error en el código",
+        "alt": [
+          "what do we require before accepting a fix for a bug in the code"
+        ],
+        "expected": "std-test-reproduce-bug",
+        "rank": 1,
+        "top3": [
+          "std-test-reproduce-bug",
+          "les-pbi-gateway-creds",
+          "les-codex-sandbox-sin-red"
+        ],
+        "latencyMs": 27.55
+      },
+      {
+        "id": "q14",
+        "class": "paraphrase-es",
+        "query": "lo que quedé de subir a redes sobre cómo recuerdan las cosas mis agentes",
+        "alt": [
+          "what I committed to posting on social media about how my agents remember things"
+        ],
+        "expected": "com-post-linkedin-memoria",
+        "rank": 1,
+        "top3": [
+          "com-post-linkedin-memoria",
+          "pref-idioma-agentes",
+          "les-cambio-horario-cron"
+        ],
+        "latencyMs": 23.24
+      },
+      {
+        "id": "q15",
+        "class": "paraphrase-es",
+        "query": "cómo le pongo precio a los trabajos con clientes ahora",
+        "alt": [
+          "how do I price client work now"
+        ],
+        "expected": "dec-cobro-por-proyecto",
+        "rank": 2,
+        "top3": [
+          "idn-owner",
+          "dec-cobro-por-proyecto",
+          "dom-cadenas-chile"
+        ],
+        "latencyMs": 23.93
+      },
+      {
+        "id": "q16",
+        "class": "paraphrase-es",
+        "query": "reglas obligatorias antes de lanzar una query sobre la tabla grande de ventas por día",
+        "alt": [
+          "mandatory rules before running a query on the large daily sales table"
+        ],
+        "expected": "std-bq-partition-filter",
+        "rank": 1,
+        "top3": [
+          "std-bq-partition-filter",
+          "les-bq-bi-engine",
+          "les-osa-alertas-ruidosas"
+        ],
+        "latencyMs": 21.17
+      },
+      {
+        "id": "q17",
+        "class": "cross-en-es",
+        "query": "how do my notes get replicated between my two computers",
+        "alt": [
+          "¿cómo se replican mis notas entre mis dos computadores?"
+        ],
+        "expected": "dec-vault-sync-git",
+        "rank": 6,
+        "top3": [
+          "dec-hook-brief-not-claudemd",
+          "dec-opencode-modelo-local",
+          "std-daily-note-naming"
+        ],
+        "latencyMs": 21.92
+      },
+      {
+        "id": "q18",
+        "class": "cross-en-es",
+        "query": "how do we estimate counterfactual sales when measuring discount impact",
+        "alt": [
+          "¿cómo estimamos las ventas contrafactuales al medir el impacto de un descuento?"
+        ],
+        "expected": "dec-baseline-mediana-movil",
+        "rank": 8,
+        "top3": [
+          "hyp-cabeceras-vs-descuento",
+          "les-scope-creep-quillay",
+          "dom-numeric-weighted-distribution"
+        ],
+        "latencyMs": 22.42
+      },
+      {
+        "id": "q19",
+        "class": "cross-en-es",
+        "query": "what guardrails do we have on warehouse spend per query",
+        "alt": [
+          "¿qué límites tenemos sobre el gasto por consulta en el warehouse?"
+        ],
+        "expected": "std-bq-partition-filter",
+        "rank": 2,
+        "top3": [
+          "hyp-cache-bq-results",
+          "std-bq-partition-filter",
+          "hyp-embeddings-locales"
+        ],
+        "latencyMs": 21.75
+      },
+      {
+        "id": "q20",
+        "class": "cross-en-es",
+        "query": "what does the dairy client's marketing lead expect in a presentation",
+        "alt": [
+          "¿qué espera la responsable de marketing del cliente lácteo en una presentación?"
+        ],
+        "expected": "per-camila-rojas-quillay",
+        "rank": 1,
+        "top3": [
+          "per-camila-rojas-quillay",
+          "dec-field-app-photos",
+          "idn-owner"
+        ],
+        "latencyMs": 21.58
+      },
+      {
+        "id": "q21",
+        "class": "cross-en-es",
+        "query": "integration tests break when the other coding agent runs them offline",
+        "alt": [
+          "las pruebas de integración fallan cuando el otro agente de código las ejecuta sin conexión"
+        ],
+        "expected": "les-codex-sandbox-sin-red",
+        "rank": 1,
+        "top3": [
+          "les-codex-sandbox-sin-red",
+          "dec-worktrees-parallel-agents",
+          "ses-minga-crew-test"
+        ],
+        "latencyMs": 28.4
+      },
+      {
+        "id": "q22",
+        "class": "cross-en-es",
+        "query": "how does the Monday sales digest get produced and emailed to clients",
+        "alt": [
+          "¿cómo se genera y se envía por correo a los clientes el resumen de ventas del lunes?"
+        ],
+        "expected": "dec-n8n-informe-lunes",
+        "rank": 1,
+        "top3": [
+          "dec-n8n-informe-lunes",
+          "les-utc-semana-corrida",
+          "std-bq-partition-filter"
+        ],
+        "latencyMs": 21.97
+      },
+      {
+        "id": "q23",
+        "class": "cross-en-es",
+        "query": "what is my professional background",
+        "alt": [
+          "¿cuál es mi trayectoria profesional?"
+        ],
+        "expected": "idn-owner",
+        "rank": null,
+        "top3": [],
+        "latencyMs": 22.4
+      },
+      {
+        "id": "q24",
+        "class": "cross-en-es",
+        "query": "which language should you use when talking to me versus in commit messages",
+        "alt": [
+          "¿en qué idioma debes hablarme y en cuál van los mensajes de commit?"
+        ],
+        "expected": "pref-idioma-agentes",
+        "rank": 1,
+        "top3": [
+          "pref-idioma-agentes",
+          "les-fts5-porter-accents",
+          "hyp-embeddings-locales"
+        ],
+        "latencyMs": 23.81
+      },
+      {
+        "id": "q25",
+        "class": "cross-en-es",
+        "query": "why not gradient boosting for estimating price response",
+        "alt": [
+          "¿por qué no usar gradient boosting para estimar la respuesta al precio?"
+        ],
+        "expected": "dec-elasticidad-loglog",
+        "rank": 2,
+        "top3": [
+          "hyp-xgb-shap-forecast",
+          "dec-elasticidad-loglog",
+          "dec-cobro-por-proyecto"
+        ],
+        "latencyMs": 22.34
+      },
+      {
+        "id": "q26",
+        "class": "cross-en-es",
+        "query": "theory that end-of-aisle displays drive more lift than the price cut",
+        "alt": [
+          "teoría de que las exhibiciones en cabecera de góndola generan más incremento que la rebaja de precio"
+        ],
+        "expected": "hyp-cabeceras-vs-descuento",
+        "rank": null,
+        "top3": [
+          "lex-quiebre-osa-cabecera",
+          "dec-field-app-photos",
+          "hyp-bq-slots-vs-ondemand"
+        ],
+        "latencyMs": 24.71
+      },
+      {
+        "id": "q27",
+        "class": "cross-en-es",
+        "query": "Sunday evening transactions showing up in the following week",
+        "alt": [
+          "las transacciones del domingo por la tarde aparecen en la semana siguiente"
+        ],
+        "expected": "les-utc-semana-corrida",
+        "rank": 1,
+        "top3": [
+          "les-utc-semana-corrida",
+          "com-kiltro-steering-quincenal",
+          "std-iso-week"
+        ],
+        "latencyMs": 25.97
+      },
+      {
+        "id": "q28",
+        "class": "cross-en-es",
+        "query": "local slang for out of stock and shelf availability",
+        "alt": [
+          "jerga local para producto agotado y disponibilidad en góndola"
+        ],
+        "expected": "lex-quiebre-osa-cabecera",
+        "rank": 1,
+        "top3": [
+          "lex-quiebre-osa-cabecera",
+          "les-quiebres-en-promo",
+          "les-universe-changes"
+        ],
+        "latencyMs": 22.87
+      },
+      {
+        "id": "q29",
+        "class": "cross-en-es",
+        "query": "policy on writing a failing check before patching a defect",
+        "alt": [
+          "política de escribir una prueba que falle antes de corregir un defecto"
+        ],
+        "expected": "std-test-reproduce-bug",
+        "rank": 1,
+        "top3": [
+          "std-test-reproduce-bug",
+          "dom-codex-config-path",
+          "les-pbi-gateway-creds"
+        ],
+        "latencyMs": 21.78
+      },
+      {
+        "id": "q30",
+        "class": "cross-en-es",
+        "query": "did I promise to publish an article about agent memory",
+        "alt": [
+          "¿prometí publicar un artículo sobre memoria de agentes?"
+        ],
+        "expected": "com-post-linkedin-memoria",
+        "rank": 1,
+        "top3": [
+          "com-post-linkedin-memoria",
+          "hyp-open-source-leads",
+          "les-npm-publish-dist"
+        ],
+        "latencyMs": 22.01
+      },
+      {
+        "id": "q31",
+        "class": "cross-en-es",
+        "query": "billing model for consulting engagements, hourly or fixed",
+        "alt": [
+          "modelo de cobro para proyectos de consultoría, por hora o precio fijo"
+        ],
+        "expected": "dec-cobro-por-proyecto",
+        "rank": null,
+        "top3": [
+          "les-modelo-local-columnas",
+          "hyp-open-source-leads",
+          "hyp-embeddings-locales"
+        ],
+        "latencyMs": 21.72
+      },
+      {
+        "id": "q32",
+        "class": "cross-en-es",
+        "query": "what model do we use for price sensitivity and why",
+        "alt": [
+          "¿qué modelo usamos para la sensibilidad al precio y por qué?"
+        ],
+        "expected": "dec-elasticidad-loglog",
+        "rank": 4,
+        "top3": [
+          "les-precio-cero-digitacion",
+          "hyp-bq-slots-vs-ondemand",
+          "hyp-xgb-shap-forecast"
+        ],
+        "latencyMs": 21.13
+      },
+      {
+        "id": "q33",
+        "class": "paraphrase-en",
+        "query": "reason we stopped running the in-memory key-value server for reference data",
+        "alt": [
+          "razón por la que dejamos de usar el servidor clave-valor en memoria para datos de referencia"
+        ],
+        "expected": "dec-drop-redis-faro",
+        "rank": null,
+        "top3": [
+          "dec-bm25-no-vectors",
+          "les-obsidian-git-lockfile",
+          "les-api-key-commit"
+        ],
+        "latencyMs": 24.2
+      },
+      {
+        "id": "q34",
+        "class": "paraphrase-en",
+        "query": "the dashboard stopped updating overnight, what was the root cause last time",
+        "alt": [
+          "el tablero dejó de actualizarse durante la noche, ¿cuál fue la causa raíz la última vez?"
+        ],
+        "expected": "les-pbi-gateway-creds",
+        "rank": null,
+        "top3": [
+          "les-obsidian-git-lockfile",
+          "les-fake-timers-flaky",
+          "dec-incremental-refresh-36m"
+        ],
+        "latencyMs": 22.94
+      },
+      {
+        "id": "q35",
+        "class": "paraphrase-en",
+        "query": "deadline for the second version of the promotion return model for the beverage account",
+        "alt": [
+          "fecha límite de la segunda versión del modelo de retorno de promociones para la cuenta de bebidas"
+        ],
+        "expected": "com-faro-v2-kiltro",
+        "rank": 1,
+        "top3": [
+          "com-faro-v2-kiltro",
+          "std-secrets-1password",
+          "les-npm-publish-dist"
+        ],
+        "latencyMs": 22.97
+      },
+      {
+        "id": "q36",
+        "class": "paraphrase-en",
+        "query": "why we push memory in via a startup callback instead of putting it in the instructions file",
+        "alt": [
+          "por qué inyectamos la memoria mediante un callback de inicio en lugar de ponerla en el archivo de instrucciones"
+        ],
+        "expected": "dec-hook-brief-not-claudemd",
+        "rank": 1,
+        "top3": [
+          "dec-hook-brief-not-claudemd",
+          "dom-instruction-files-by-host",
+          "hyp-agents-md-unificado"
+        ],
+        "latencyMs": 27.69
+      },
+      {
+        "id": "q37",
+        "class": "paraphrase-en",
+        "query": "which package manager and interpreter version our repos use",
+        "alt": [
+          "qué gestor de paquetes y versión del intérprete usan nuestros repos"
+        ],
+        "expected": "std-uv-python312",
+        "rank": 1,
+        "top3": [
+          "std-uv-python312",
+          "les-conda-geopandas",
+          "hyp-agents-md-unificado"
+        ],
+        "latencyMs": 22.22
+      },
+      {
+        "id": "q38",
+        "class": "paraphrase-en",
+        "query": "how feature work gets integrated into the primary line",
+        "alt": [
+          "cómo se integra el trabajo de nuevas funcionalidades en la rama principal"
+        ],
+        "expected": "std-trunk-squash",
+        "rank": 1,
+        "top3": [
+          "std-trunk-squash",
+          "hyp-xgb-shap-forecast",
+          "les-codex-sandbox-sin-red"
+        ],
+        "latencyMs": 22.06
+      },
+      {
+        "id": "q39",
+        "class": "paraphrase-en",
+        "query": "the minimal coding agent wasn't following our project rules kept inside a subfolder",
+        "alt": [
+          "el agente de código minimalista no seguía las reglas de nuestro proyecto guardadas en una subcarpeta"
+        ],
+        "expected": "les-pi-agentsmd-root",
+        "rank": null,
+        "top3": [
+          "pref-codex-refactor-claude-explore",
+          "dec-cobro-por-proyecto",
+          "dom-codex-config-path"
+        ],
+        "latencyMs": 22.85
+      },
+      {
+        "id": "q40",
+        "class": "paraphrase-en",
+        "query": "the supermarket chain's weekly drop comes late and with broken characters",
+        "alt": [
+          "la entrega semanal de la cadena de supermercados llega tarde y con caracteres rotos"
+        ],
+        "expected": "les-nandu-sftp-latin1",
+        "rank": 1,
+        "top3": [
+          "les-nandu-sftp-latin1",
+          "les-hook-timeout-5s",
+          "dec-n8n-informe-lunes"
+        ],
+        "latencyMs": 22.52
+      },
+      {
+        "id": "q41",
+        "class": "paraphrase-en",
+        "query": "why the memory lookup has no semantic similarity index",
+        "alt": [
+          "por qué la búsqueda en la memoria no tiene un índice de similitud semántica"
+        ],
+        "expected": "dec-bm25-no-vectors",
+        "rank": 1,
+        "top3": [
+          "dec-bm25-no-vectors",
+          "hyp-embeddings-locales",
+          "les-obsidian-attachments-slow"
+        ],
+        "latencyMs": 23.5
+      },
+      {
+        "id": "q42",
+        "class": "paraphrase-en",
+        "query": "how often do I meet the drinks company and when are slides due",
+        "alt": [
+          "¿con qué frecuencia me reúno con la empresa de bebidas y cuándo hay que entregar las diapositivas?"
+        ],
+        "expected": "com-kiltro-steering-quincenal",
+        "rank": 1,
+        "top3": [
+          "com-kiltro-steering-quincenal",
+          "com-propuesta-tralka",
+          "les-scope-creep-quillay"
+        ],
+        "latencyMs": 23.76
+      },
+      {
+        "id": "q43",
+        "class": "paraphrase-en",
+        "query": "where credentials live and how scripts obtain them at execution time",
+        "alt": [
+          "dónde viven las credenciales y cómo las obtienen los scripts en tiempo de ejecución"
+        ],
+        "expected": "std-secrets-1password",
+        "rank": 1,
+        "top3": [
+          "std-secrets-1password",
+          "pref-codex-refactor-claude-explore",
+          "dec-gcp-secret-manager-n8n"
+        ],
+        "latencyMs": 22.43
+      },
+      {
+        "id": "q44",
+        "class": "paraphrase-en",
+        "query": "difference between counting outlets carrying an item and adjusting by outlet size",
+        "alt": [
+          "diferencia entre contar los locales que tienen un producto y ajustar por tamaño del local"
+        ],
+        "expected": "dom-numeric-weighted-distribution",
+        "rank": 9,
+        "top3": [
+          "les-universe-changes",
+          "les-bq-bi-engine",
+          "pref-ruff-format"
+        ],
+        "latencyMs": 22.9
+      },
+      {
+        "id": "q45",
+        "class": "paraphrase-en",
+        "query": "we experimented with a real-time link from the report to the warehouse, what came of it",
+        "alt": [
+          "probamos un enlace en tiempo real del informe al warehouse, ¿qué resultó?"
+        ],
+        "expected": "ses-directquery-trial",
+        "rank": null,
+        "top3": [
+          "hyp-agents-md-unificado",
+          "pref-graficos-barras",
+          "les-cambio-horario-cron"
+        ],
+        "latencyMs": 26.09
+      },
+      {
+        "id": "q46",
+        "class": "paraphrase-en",
+        "query": "which LLM size do I want for which kind of job",
+        "alt": [
+          "¿qué tamaño de LLM quiero para cada tipo de tarea?"
+        ],
+        "expected": "pref-model-tiers",
+        "rank": 3,
+        "top3": [
+          "les-bq-bi-engine",
+          "dec-opencode-modelo-local",
+          "pref-model-tiers"
+        ],
+        "latencyMs": 22.31
+      },
+      {
+        "id": "q47",
+        "class": "paraphrase-en",
+        "query": "hardware retailer workbooks with two-row combined headings, how did we parse them",
+        "alt": [
+          "libros de Excel de la ferretería con encabezados combinados en dos filas, ¿cómo los procesamos?"
+        ],
+        "expected": "les-tralka-merged-headers",
+        "rank": 2,
+        "top3": [
+          "pref-pedir-csv",
+          "les-tralka-merged-headers",
+          "dom-cadenas-chile"
+        ],
+        "latencyMs": 22.32
+      },
+      {
+        "id": "q48",
+        "class": "paraphrase-en",
+        "query": "reports showing stale figures after IT changed account passwords",
+        "alt": [
+          "informes que muestran cifras desactualizadas después de que TI cambió las contraseñas de las cuentas"
+        ],
+        "expected": "les-pbi-gateway-creds",
+        "rank": 1,
+        "top3": [
+          "les-pbi-gateway-creds",
+          "dec-pulso-bigquery-source",
+          "les-universe-changes"
+        ],
+        "latencyMs": 21.91
+      },
+      {
+        "id": "q49",
+        "class": "cross-es-en",
+        "query": "por qué cambiamos el caché del servicio de promos a un archivo local",
+        "alt": [
+          "why did we switch the promo service's cache to a local file"
+        ],
+        "expected": "dec-drop-redis-faro",
+        "rank": 1,
+        "top3": [
+          "dec-drop-redis-faro",
+          "les-obsidian-git-lockfile",
+          "dom-brujula-services"
+        ],
+        "latencyMs": 22.32
+      },
+      {
+        "id": "q50",
+        "class": "cross-es-en",
+        "query": "por qué el tablero quedó mostrando datos viejos después del fin de semana",
+        "alt": [
+          "why did the dashboard end up showing stale data after the weekend"
+        ],
+        "expected": "les-pbi-gateway-creds",
+        "rank": 2,
+        "top3": [
+          "dom-brujula-services",
+          "les-pbi-gateway-creds",
+          "com-propuesta-tralka"
+        ],
+        "latencyMs": 21.5
+      },
+      {
+        "id": "q51",
+        "class": "cross-es-en",
+        "query": "para cuándo le prometí la nueva versión del modelo al cliente de bebidas",
+        "alt": [
+          "by when did I promise the new version of the model to the beverage client"
+        ],
+        "expected": "com-faro-v2-kiltro",
+        "rank": 1,
+        "top3": [
+          "com-faro-v2-kiltro",
+          "pref-model-tiers",
+          "hyp-embeddings-locales"
+        ],
+        "latencyMs": 22.01
+      },
+      {
+        "id": "q52",
+        "class": "cross-es-en",
+        "query": "por qué no metemos la memoria directo en el archivo de instrucciones del repo",
+        "alt": [
+          "why don't we put the memory directly in the repo's instructions file"
+        ],
+        "expected": "dec-hook-brief-not-claudemd",
+        "rank": 6,
+        "top3": [
+          "dom-instruction-files-by-host",
+          "hyp-agents-md-unificado",
+          "dec-bm25-no-vectors"
+        ],
+        "latencyMs": 21.82
+      },
+      {
+        "id": "q53",
+        "class": "cross-es-en",
+        "query": "con qué herramienta manejamos dependencias y versión de python",
+        "alt": [
+          "what tool do we use to manage dependencies and the Python version"
+        ],
+        "expected": "std-uv-python312",
+        "rank": 1,
+        "top3": [
+          "std-uv-python312",
+          "les-conda-geopandas",
+          "les-n8n-exec-node-libs"
+        ],
+        "latencyMs": 21.84
+      },
+      {
+        "id": "q54",
+        "class": "cross-es-en",
+        "query": "cómo es el flujo de ramas y fusiones en los repos",
+        "alt": [
+          "what is the branching and merging workflow in the repos"
+        ],
+        "expected": "std-trunk-squash",
+        "rank": 1,
+        "top3": [
+          "std-trunk-squash",
+          "dec-worktrees-parallel-agents",
+          "std-uv-python312"
+        ],
+        "latencyMs": 22.59
+      },
+      {
+        "id": "q55",
+        "class": "cross-es-en",
+        "query": "por qué el agente minimalista no seguía las reglas que dejamos en una subcarpeta",
+        "alt": [
+          "why didn't the minimalist agent follow the rules we left in a subfolder"
+        ],
+        "expected": "les-pi-agentsmd-root",
+        "rank": 7,
+        "top3": [
+          "pref-codex-refactor-claude-explore",
+          "std-bq-partition-filter",
+          "std-conventional-commits"
+        ],
+        "latencyMs": 23.44
+      },
+      {
+        "id": "q56",
+        "class": "cross-es-en",
+        "query": "los archivos de la cadena grande llegan atrasados y con tildes rotas",
+        "alt": [
+          "the big chain's files arrive late and with broken accents"
+        ],
+        "expected": "les-nandu-sftp-latin1",
+        "rank": 3,
+        "top3": [
+          "les-hook-timeout-5s",
+          "les-obsidian-attachments-slow",
+          "les-nandu-sftp-latin1"
+        ],
+        "latencyMs": 22.66
+      },
+      {
+        "id": "q57",
+        "class": "cross-es-en",
+        "query": "por qué no usamos una base vectorial para buscar en la memoria",
+        "alt": [
+          "why don't we use a vector database to search the memory"
+        ],
+        "expected": "dec-bm25-no-vectors",
+        "rank": 1,
+        "top3": [
+          "dec-bm25-no-vectors",
+          "hyp-embeddings-locales",
+          "com-post-linkedin-memoria"
+        ],
+        "latencyMs": 22.01
+      },
+      {
+        "id": "q58",
+        "class": "cross-es-en",
+        "query": "cada cuánto es el comité con la empresa de bebidas y cuándo mando la presentación",
+        "alt": [
+          "how often is the meeting with the beverage company and when do I send the presentation"
+        ],
+        "expected": "com-kiltro-steering-quincenal",
+        "rank": 1,
+        "top3": [
+          "com-kiltro-steering-quincenal",
+          "com-propuesta-tralka",
+          "com-informe-quillay-dia5"
+        ],
+        "latencyMs": 21.68
+      },
+      {
+        "id": "q59",
+        "class": "cross-es-en",
+        "query": "dónde guardamos las claves y cómo las ocupan los scripts",
+        "alt": [
+          "where do we store the keys and how do scripts use them"
+        ],
+        "expected": "std-secrets-1password",
+        "rank": null,
+        "top3": [
+          "les-api-key-commit",
+          "dec-drop-redis-faro",
+          "les-universe-changes"
+        ],
+        "latencyMs": 21.89
+      },
+      {
+        "id": "q60",
+        "class": "cross-es-en",
+        "query": "cómo se calcula la cobertura ponderada por venta de la categoría",
+        "alt": [
+          "how is the sales-weighted category coverage calculated"
+        ],
+        "expected": "dom-numeric-weighted-distribution",
+        "rank": 1,
+        "top3": [
+          "dom-numeric-weighted-distribution",
+          "dom-sellout-schema",
+          "dec-drop-redis-faro"
+        ],
+        "latencyMs": 21.26
+      },
+      {
+        "id": "q61",
+        "class": "cross-es-en",
+        "query": "probamos conectar el tablero en vivo a la base y qué pasó",
+        "alt": [
+          "we tried connecting the dashboard live to the database, what happened"
+        ],
+        "expected": "ses-directquery-trial",
+        "rank": 2,
+        "top3": [
+          "hyp-cache-bq-results",
+          "ses-directquery-trial",
+          "dom-brujula-services"
+        ],
+        "latencyMs": 22.95
+      },
+      {
+        "id": "q62",
+        "class": "cross-es-en",
+        "query": "qué modelo de lenguaje uso para clasificar textos y cuál para planificar",
+        "alt": [
+          "which language model do I use to classify texts and which one for planning"
+        ],
+        "expected": "pref-model-tiers",
+        "rank": 1,
+        "top3": [
+          "pref-model-tiers",
+          "hyp-embeddings-locales",
+          "com-post-linkedin-memoria"
+        ],
+        "latencyMs": 22.21
+      },
+      {
+        "id": "q63",
+        "class": "cross-es-en",
+        "query": "cómo leímos las planillas de la tienda de herramientas con encabezados combinados",
+        "alt": [
+          "how did we read the hardware store's spreadsheets with merged headers"
+        ],
+        "expected": "les-tralka-merged-headers",
+        "rank": 7,
+        "top3": [
+          "dec-field-app-photos",
+          "std-uv-python312",
+          "les-hook-timeout-5s"
+        ],
+        "latencyMs": 21.81
+      },
+      {
+        "id": "q64",
+        "class": "cross-es-en",
+        "query": "qué entra y qué queda fuera en lo que le entrego este mes al cliente de gaseosas",
+        "alt": [
+          "what is in and what is out of what I deliver this month to the soda client"
+        ],
+        "expected": "com-faro-v2-kiltro",
+        "rank": null,
+        "top3": [
+          "dom-cadenas-chile",
+          "pref-formato-fechas",
+          "dom-brujula-services"
+        ],
+        "latencyMs": 22.68
+      },
+      {
+        "id": "q65",
+        "class": "vague",
+        "query": "¿en qué quedamos con el sync de las notas?",
+        "alt": [
+          "what did we end up with on the notes sync?"
+        ],
+        "expected": "dec-vault-sync-git",
+        "rank": 1,
+        "top3": [
+          "dec-vault-sync-git",
+          "std-daily-note-naming",
+          "std-uv-python312"
+        ],
+        "latencyMs": 22.34
+      },
+      {
+        "id": "q66",
+        "class": "vague",
+        "query": "why did we get rid of redis",
+        "alt": [
+          "¿por qué eliminamos redis?"
+        ],
+        "expected": "dec-drop-redis-faro",
+        "rank": 2,
+        "top3": [
+          "les-n8n-redis-pool",
+          "dec-drop-redis-faro",
+          "les-stash-pop-perdi-cambios"
+        ],
+        "latencyMs": 22.57
+      },
+      {
+        "id": "q67",
+        "class": "vague",
+        "query": "por qué se cayó la actualización del tablero",
+        "alt": [
+          "why did the dashboard update fail"
+        ],
+        "expected": "les-pbi-gateway-creds",
+        "rank": 9,
+        "top3": [
+          "dom-brujula-services",
+          "std-conventional-commits",
+          "hyp-cache-bq-results"
+        ],
+        "latencyMs": 21.27
+      },
+      {
+        "id": "q68",
+        "class": "vague",
+        "query": "qué le gusta a la clienta de quillay",
+        "alt": [
+          "what does the Quillay client like"
+        ],
+        "expected": "per-camila-rojas-quillay",
+        "rank": 2,
+        "top3": [
+          "per-rodrigo-fuentes-quillay",
+          "per-camila-rojas-quillay",
+          "com-informe-quillay-dia5"
+        ],
+        "latencyMs": 21.97
+      },
+      {
+        "id": "q69",
+        "class": "vague",
+        "query": "qué usamos pa los entornos de python",
+        "alt": [
+          "what do we use for Python environments"
+        ],
+        "expected": "std-uv-python312",
+        "rank": 2,
+        "top3": [
+          "les-conda-geopandas",
+          "std-uv-python312",
+          "les-n8n-exec-node-libs"
+        ],
+        "latencyMs": 22.27
+      },
+      {
+        "id": "q70",
+        "class": "vague",
+        "query": "cómo sale el informe de los lunes",
+        "alt": [
+          "how does the Monday report come out"
+        ],
+        "expected": "dec-n8n-informe-lunes",
+        "rank": 2,
+        "top3": [
+          "std-iso-week",
+          "dec-n8n-informe-lunes",
+          "les-utc-semana-corrida"
+        ],
+        "latencyMs": 20.88
+      },
+      {
+        "id": "q71",
+        "class": "vague",
+        "query": "how should you talk to me",
+        "alt": [
+          "¿cómo debo hablarte?"
+        ],
+        "expected": "pref-idioma-agentes",
+        "rank": null,
+        "top3": [
+          "pref-model-tiers",
+          "com-propuesta-tralka",
+          "ses-minga-crew-test"
+        ],
+        "latencyMs": 26.13
+      },
+      {
+        "id": "q72",
+        "class": "vague",
+        "query": "por qué llegan raros los archivos del super",
+        "alt": [
+          "why do the supermarket's files arrive weird"
+        ],
+        "expected": "les-nandu-sftp-latin1",
+        "rank": null,
+        "top3": [
+          "std-raw-immutable-gcs",
+          "dec-bm25-no-vectors",
+          "dom-instruction-files-by-host"
+        ],
+        "latencyMs": 22.65
+      },
+      {
+        "id": "q73",
+        "class": "vague",
+        "query": "cuándo es la reunión con kiltro",
+        "alt": [
+          "when is the meeting with Kiltro"
+        ],
+        "expected": "com-kiltro-steering-quincenal",
+        "rank": 1,
+        "top3": [
+          "com-kiltro-steering-quincenal",
+          "hyp-cabeceras-vs-descuento",
+          "per-camila-rojas-quillay"
+        ],
+        "latencyMs": 22.78
+      },
+      {
+        "id": "q74",
+        "class": "vague",
+        "query": "why no embeddings?",
+        "alt": [
+          "¿por qué no usamos embeddings?"
+        ],
+        "expected": "dec-bm25-no-vectors",
+        "rank": 2,
+        "top3": [
+          "hyp-embeddings-locales",
+          "dec-bm25-no-vectors",
+          "les-codex-sandbox-sin-red"
+        ],
+        "latencyMs": 22.03
+      },
+      {
+        "id": "q75",
+        "class": "vague",
+        "query": "lo de las fechas que no cuadraban",
+        "alt": [
+          "the thing about the dates that didn't add up"
+        ],
+        "expected": "les-utc-semana-corrida",
+        "rank": 1,
+        "top3": [
+          "les-utc-semana-corrida",
+          "pref-formato-fechas",
+          "les-scope-creep-quillay"
+        ],
+        "latencyMs": 22.21
+      },
+      {
+        "id": "q76",
+        "class": "vague",
+        "query": "qué modelo uso pa clasificar",
+        "alt": [
+          "which model do I use to classify"
+        ],
+        "expected": "pref-model-tiers",
+        "rank": 1,
+        "top3": [
+          "pref-model-tiers",
+          "dec-opencode-modelo-local",
+          "les-modelo-local-columnas"
+        ],
+        "latencyMs": 21.87
+      },
+      {
+        "id": "q77",
+        "class": "vague",
+        "query": "cuánto cobro",
+        "alt": [
+          "how much do I charge"
+        ],
+        "expected": "dec-cobro-por-proyecto",
+        "rank": 1,
+        "top3": [
+          "dec-cobro-por-proyecto",
+          "les-cambio-horario-cron",
+          "dom-tipos-exhibicion"
+        ],
+        "latencyMs": 22.85
+      },
+      {
+        "id": "q78",
+        "class": "vague",
+        "query": "did directquery work out",
+        "alt": [
+          "¿funcionó DirectQuery?"
+        ],
+        "expected": "ses-directquery-trial",
+        "rank": 1,
+        "top3": [
+          "ses-directquery-trial",
+          "std-faro-repo-layout",
+          "les-n8n-redis-pool"
+        ],
+        "latencyMs": 21.46
+      },
+      {
+        "id": "q79",
+        "class": "vague",
+        "query": "what was my theory about displays",
+        "alt": [
+          "¿cuál era mi teoría sobre las exhibiciones?"
+        ],
+        "expected": "hyp-cabeceras-vs-descuento",
+        "rank": 3,
+        "top3": [
+          "dom-tipos-exhibicion",
+          "dec-field-app-photos",
+          "hyp-cabeceras-vs-descuento"
+        ],
+        "latencyMs": 23.36
+      },
+      {
+        "id": "q80",
+        "class": "vague",
+        "query": "por qué no usamos xgboost pa la elasticidad",
+        "alt": [
+          "why don't we use xgboost for elasticity"
+        ],
+        "expected": "dec-elasticidad-loglog",
+        "rank": 1,
+        "top3": [
+          "dec-elasticidad-loglog",
+          "ses-elasticidades-tralka",
+          "hyp-xgb-shap-forecast"
+        ],
+        "latencyMs": 21.58
+      }
+    ]
+  }
+}
