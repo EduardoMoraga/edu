@@ -47,6 +47,52 @@ describe('catalog', () => {
     expect(first).not.toMatch(/Generated|\d{4}-\d{2}-\d{2}T/);
   });
 
+  it('is refreshed by every mutation that changes the live notes, and only rewritten when its content changes', async () => {
+    const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
+    await brain.rebuildIndex();
+    const path = join(root, 'brain', '0-index', 'catalog.md');
+    expect(await readFile(path, 'utf8')).toContain('0 live notes');
+    const { note } = await brain.remember({ tier: 'transitive', kind: 'lesson', title: 'Pin node versions', body: 'Use .nvmrc in every repo.' });
+    expect(await readFile(path, 'utf8')).toContain(`- [[${note.meta.id}]] Pin node versions — Use .nvmrc in every repo.`);
+    await brain.update(note.meta.id, {}, 'Use volta pins instead.');
+    expect(await readFile(path, 'utf8')).toContain('Pin node versions — Use volta pins instead.');
+    const old = await brain.write({ tier: 'transitive', kind: 'decision', title: 'Use Redis', body: 'r' });
+    await brain.write({ tier: 'transitive', kind: 'decision', title: 'Use Valkey', body: 'v', supersedes: old.meta.id });
+    let catalog = await readFile(path, 'utf8');
+    expect(catalog).toContain('Use Valkey');
+    expect(catalog).not.toContain('Use Redis');
+    const proposal = await brain.proposeCanonical({ tier: 'canonical', kind: 'standard', title: 'Review every PR', body: 'b' });
+    expect(await readFile(path, 'utf8')).toContain('Review every PR');
+    await brain.acceptCanonical(proposal.meta.id);
+    const session = await brain.openSession('Debugging', 'claude');
+    await brain.closeSession(session.meta.id, 'Found the leak.');
+    catalog = await readFile(path, 'utf8');
+    expect(catalog).toContain('Debugging — Found the leak.');
+    // Exposure and feedback change nothing listed: the catalog is not rewritten.
+    const mtime = (await stat(path)).mtimeMs;
+    await new Promise(done => setTimeout(done, 20));
+    await brain.recall('node versions');
+    await brain.feedback(note.meta.id, true);
+    expect((await stat(path)).mtimeMs).toBe(mtime);
+    expect(await readFile(path, 'utf8')).toBe(catalog);
+  });
+
+  it('a failing catalog refresh never fails the write', async () => {
+    const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
+    await brain.rebuildIndex();
+    const { mkdir, rm: remove } = await import('node:fs/promises');
+    const path = join(root, 'brain', '0-index', 'catalog.md');
+    await remove(path); await mkdir(path); // a directory where the file should be: the atomic rename fails
+    const warnings: string[] = [];
+    const original = process.emitWarning;
+    process.emitWarning = ((warning: string | Error) => { warnings.push(String(warning)); }) as typeof process.emitWarning;
+    try {
+      const note = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Still written', body: 'x' });
+      expect(await brain.read(note.meta.id)).toBeDefined();
+    } finally { process.emitWarning = original; }
+    expect(warnings.join('\n')).toMatch(/catalog/);
+  });
+
   it('summarizes the first meaningful line', () => {
     expect(noteSummary('# Title\n\n---\n> - [ ] Ship [[a|the thing]]  now')).toBe('Ship the thing now');
     expect(noteSummary('```\ncode\n```\nreal')).toBe('real');
