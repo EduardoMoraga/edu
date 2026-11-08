@@ -45,6 +45,15 @@ export interface CompileResult {
 
 const QUERY_BODY_CHARS = 200;
 
+/** Human-readable lines for a compile report (linked ids, possible conflicts with a supersedes hint, redactions). */
+export function compileReportLines(report: CompileReport): string[] {
+  const lines: string[] = [];
+  if (report.linked.length) lines.push(`Linked: ${report.linked.join(', ')}`);
+  for (const conflict of report.possibleConflicts) lines.push(`Possible conflict: ${conflict.id} · ${conflict.title} (${conflict.reason}); consider supersedes: ${conflict.id}`);
+  if (report.redacted.length) lines.push(`Redacted secrets (${report.redacted.join(', ')}) before writing; the note is tagged redacted.`);
+  return lines;
+}
+
 /** Whether two notes of the same kind may assert competing truths. */
 function competing(draft: Note, other: Note): string | undefined {
   const a = draft.meta, b = other.meta;

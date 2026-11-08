@@ -21,7 +21,7 @@ interface Rule {
 }
 
 const marker = (kind: string) => `[REDACTED:${kind}]`;
-const KEY_WORDS = String.raw`(?:password|passwd|pwd|passphrase|secret|client[_-]?secret|api[_ -]?key|access[_ -]?key(?:[_-]?id)?|secret[_ -]?access[_ -]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|token|private[_-]?key|credentials?)`;
+const KEY_WORDS = String.raw`(?:password|passwd|passphrase|pass|pwd|client[_-]?secret|secret[_ -]?access[_ -]?key|secret|api[_ -]?key|access[_ -]?key(?:[_-]?id)?|auth[_-]?token|access[_-]?token|refresh[_-]?token|token|private[_-]?key|credentials?|conn(?:ection)?[_ -]?str(?:ing)?|auth)`;
 
 const RULES: Rule[] = [
   { kind: 'private-key', pattern: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----/g },
@@ -34,9 +34,16 @@ const RULES: Rule[] = [
   { kind: 'google-api-key', pattern: /\bAIza[0-9A-Za-z_-]{35}/g },
   { kind: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g },
   {
+    // An Authorization header with a scheme: whatever follows is a credential, whatever its character mix.
     kind: 'bearer-token',
-    pattern: /\b(Bearer|bearer|BEARER|Basic)\s+([A-Za-z0-9\-._~+/]{16,}=*)/g,
-    replace: (m, scheme, value) => (/[\d\-._~+/=]/.test(value!) ? `${scheme} ${m}` : `${scheme} ${value}`),
+    pattern: /\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:bearer|basic|token)\s+)([^\s"'`,;]{8,})/gi,
+    replace: (m, prefix, value) => (isPlaceholder(value!) ? `${prefix}${value}` : `${prefix}${m}`),
+  },
+  {
+    // A bare `Bearer <token>` / `Basic <base64>`; a plain (capitalized) word after it is prose, not a credential.
+    kind: 'bearer-token',
+    pattern: /\b(bearer|basic)\s+([A-Za-z0-9\-._~+/]{8,}=*)/gi,
+    replace: (m, scheme, value) => (/^[A-Z]?[a-z]+$/.test(value!) || (scheme!.toLowerCase() === 'bearer' && value!.length < 12) ? `${scheme} ${value}` : `${scheme} ${m}`),
   },
   {
     kind: 'connection-string',
@@ -44,10 +51,15 @@ const RULES: Rule[] = [
     replace: (m, scheme, user, password) => (isPlaceholder(password!) ? `${scheme}${user}:${password}@` : `${scheme}${user}:${m}@`),
   },
   {
-    // key = value, key: value, "key": "value", KEY=value (env files). Only the value is replaced.
+    // key = value, key: value, "key": "value", KEY=value (env files). Only the value is replaced: a quoted value
+    // whole (spaces included), an unquoted one to the end of its token.
     kind: 'assignment',
-    pattern: new RegExp(String.raw`(\b(?:[\w.-]*[_.-])?${KEY_WORDS}["']?\s*[:=]\s*)(["']?)([^\s"'\`,;)}\]]{4,})\2`, 'gi'),
-    replace: (m, prefix, quote, value) => (isPlaceholder(value!) ? `${prefix}${quote}${value}${quote}` : `${prefix}${quote}${m}${quote}`),
+    pattern: new RegExp(String.raw`(\b(?:[\w.-]*[_.-])?${KEY_WORDS}["']?\s*[:=][ \t]*)(?:"([^"\n]+)"|'([^'\n]+)'|([^\s"'\`,;)}\]]{4,}))`, 'gi'),
+    replace: (m, prefix, double, single, bare) => {
+      const quote = double ? '"' : single ? "'" : '';
+      const value = double || single || bare!;
+      return `${prefix}${quote}${isPlaceholder(value) ? value : m}${quote}`;
+    },
   },
   {
     // "the api key is 9f8a…" / "token 9f8a…": a long, high-entropy run right after a key-like word.
@@ -87,5 +99,27 @@ export function redactSecrets(text: string): RedactionResult {
   return { text: out, kinds };
 }
 
-/** Tag Edu adds to a note whose title or body had secrets redacted. */
+/**
+ * `redactSecrets` over every string in a JSON-like value (arrays and plain objects, recursively; keys kept).
+ * Used for free-text metadata (tags, source, owner, provenance records…) at the same write boundary as bodies.
+ */
+export function redactValue<T>(value: T): { value: T; kinds: string[] } {
+  const kinds: string[] = [];
+  const walk = (item: unknown): unknown => {
+    if (typeof item === 'string') {
+      const result = redactSecrets(item);
+      for (const kind of result.kinds) if (!kinds.includes(kind)) kinds.push(kind);
+      return result.text;
+    }
+    if (Array.isArray(item)) return item.map(walk);
+    if (item && typeof item === 'object' && Object.getPrototypeOf(item) === Object.prototype) {
+      return Object.fromEntries(Object.entries(item).map(([key, child]) => [key, walk(child)]));
+    }
+    return item;
+  };
+  const out = walk(value) as T;
+  return { value: kinds.length ? out : value, kinds };
+}
+
+/** Tag Edu adds to a note whose title, body or free-text metadata had secrets redacted. */
 export const REDACTED_TAG = 'redacted';

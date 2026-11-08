@@ -12,9 +12,9 @@ import { assertFeedbackContext, feedbackUsage, applyLearning } from './learning.
 import { rankNotes, rankQueries } from './search.js';
 import { resolveReference, type ResolveResult } from './resolve.js';
 import { ensureLocalIgnored, frontmatterUsage, mergeExposure, nextExposure, readLedger, updateLedger } from './ledger.js';
-import { REDACTED_TAG, redactSecrets } from './redact.js';
+import { REDACTED_TAG, redactSecrets, redactValue } from './redact.js';
 import { compileNote, type CompileReport } from './compile.js';
-import { appendLog, writeCatalog, type LogOp } from './catalog.js';
+import { CATALOG_FILE, appendLog, writeCatalog, type LogOp } from './catalog.js';
 
 export interface NewNote {
   title: string;
@@ -154,12 +154,29 @@ const provenanceOf = (provenance: NoteProvenance | undefined): Partial<NoteMeta>
 const pathExists = (path: string) => access(path).then(() => true, () => false);
 const immutableCanonical = (meta: NoteMeta) => meta.tier === 'canonical' && (meta.status === 'accepted' || meta.status === 'superseded');
 
-/** Redacts secrets from a new note's title and body; a redacted note is tagged `redacted`. */
+/** Free-text fields of a new note redacted with the title and body (ids, links and lifecycle fields are not free text). */
+const NEW_NOTE_TEXT = ['tags', 'source', 'owner', 'stakeholder', 'provenance', 'by'] as const satisfies readonly (keyof NewNote)[];
+/** Free-text frontmatter an update patch may carry. */
+const META_TEXT = ['tags', 'source', 'owner', 'stakeholder', 'aliases', 'origin', 'albert', 'legacy_id', 'import_warning'] as const satisfies readonly (keyof NoteMeta)[];
+
+/** Redacts the listed fields of `record` in place on a copy; returns the copy and the kinds found. */
+function redactFields<T extends object>(record: T, keys: readonly (keyof T)[]): { record: T; kinds: string[] } {
+  const out = { ...record }, kinds: string[] = [];
+  for (const key of keys) {
+    if (out[key] === undefined) continue;
+    const result = redactValue(out[key]);
+    out[key] = result.value;
+    for (const kind of result.kinds) if (!kinds.includes(kind)) kinds.push(kind);
+  }
+  return { record: out, kinds };
+}
+
+/** Redacts secrets from a new note's title, body and free-text metadata; a redacted note is tagged `redacted`. */
 function redactInput(input: NewNote): { input: NewNote; kinds: string[] } {
-  const title = redactSecrets(input.title), body = redactSecrets(input.body);
-  const kinds = [...new Set([...title.kinds, ...body.kinds])];
+  const title = redactSecrets(input.title), body = redactSecrets(input.body), meta = redactFields(input, NEW_NOTE_TEXT);
+  const kinds = [...new Set([...title.kinds, ...body.kinds, ...meta.kinds])];
   if (!kinds.length) return { input, kinds };
-  return { input: { ...input, title: title.text, body: body.text, tags: [...new Set([...(input.tags ?? []), REDACTED_TAG])] }, kinds };
+  return { input: { ...meta.record, title: title.text, body: body.text, tags: [...new Set([...(meta.record.tags ?? []), REDACTED_TAG])] }, kinds };
 }
 
 export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions = {}): Brain {
@@ -223,6 +240,23 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
   };
   const find = async (id: string) => (await all()).find(note => note.meta.id === id);
   /**
+   * Keeps `0-index/catalog.md` fresh after a mutation: rebuilds the catalog of every location whose view includes a
+   * changed file (its own location and the higher-priority ones that overlay it), under those roots' locks. Only the
+   * catalog, not INDEX.md or the Obsidian views; `writeCatalog` leaves an unchanged catalog untouched. Must run after
+   * the mutation's own locks are released (locks are not re-entrant). A failure is a warning, never a failed write.
+   */
+  const refreshCatalogs = async (paths: string[]) => {
+    const deepest = Math.max(0, ...paths.map(path => locations.indexOf(locationOf(path))));
+    const affected = locations.slice(0, deepest + 1);
+    try {
+      await withRoots(affected.map(loc => loc.root), async () => {
+        for (const [index, loc] of affected.entries()) await writeCatalog(brainPath(loc), await overlayNotes(locations.slice(index)), note => note.meta.source !== REJECT_SOURCE);
+      });
+    } catch (error) {
+      process.emitWarning(`catalog not refreshed: ${error instanceof Error ? error.message : String(error)}`, 'EduWarning');
+    }
+  };
+  /**
    * Writes a note. Exposure never reaches the file: the frontmatter keeps the feedback in `note.meta.usage` and
    * whatever legacy exposure the file already had. Returns the note as read paths see it (ledger merged).
    */
@@ -263,8 +297,9 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     }
     const redacted = bodyIn === undefined ? undefined : redactSecrets(bodyIn);
     const body = redacted?.text ?? bodyIn;
-    const patch: Partial<NoteMeta> = { ...patchIn };
-    if (redacted?.kinds.length && !current.meta.tags.includes(REDACTED_TAG)) patch.tags = [...new Set([...(patch.tags ?? current.meta.tags), REDACTED_TAG])];
+    const metaRedacted = redactFields(patchIn, META_TEXT);
+    const patch: Partial<NoteMeta> = metaRedacted.record;
+    if ((redacted?.kinds.length || metaRedacted.kinds.length) && !(patch.tags ?? current.meta.tags).includes(REDACTED_TAG)) patch.tags = [...new Set([...(patch.tags ?? current.meta.tags), REDACTED_TAG])];
     const protectedKeys = new Set(['id', 'tier', 'kind', 'created', 'title', 'source', 'supersedes', 'updated', 'path', 'host', 'agent', 'session']);
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined) throw new Error(`Cannot clear '${key}' through update`);
@@ -370,6 +405,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       const note = { meta, body: input.body, path };
       // The existence check and the creation are one critical section: parallel identical identities cannot overwrite each other.
       let created: Note | undefined;
+      const touched: string[] = [];
       if (meta.kind === 'decision' && meta.supersedes && !input.historical) {
         // Compound: validate the old decision is active -> create the new one -> revert the old, all under the locks of
         // the primary and the old decision's root (taken once, never nested). A competitor then finds the old one
@@ -387,6 +423,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
             const fresh = await persist(note);
             try { await applyUpdate(prior, { status: 'reverted', supersedes: fresh.meta.id }, undefined, 'revert-decision'); }
             catch (error) { await rm(fresh.path, { force: true }); throw error; }
+            touched.push(prior.path);
             return fresh;
           });
         }
@@ -398,8 +435,14 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         });
       }
       // Open sessions are logged when they close; the decision a new one supersedes was logged by its revert.
-      if (!(meta.kind === 'session' && meta.status === 'open-session')) await log(created, 'write');
-      if (meta.kind === 'lesson' && meta.supersedes) await retireSuperseded(created, new Map((await all()).map(note => [note.meta.id, note])));
+      // An open session reaches the catalog when it closes (opening one on every session start would churn it).
+      const openSession = meta.kind === 'session' && meta.status === 'open-session';
+      if (!openSession) await log(created, 'write');
+      if (meta.kind === 'lesson' && meta.supersedes) {
+        const retired = await retireSuperseded(created, new Map((await all()).map(note => [note.meta.id, note])));
+        if (retired) touched.push(retired.path);
+      }
+      if (!openSession) await refreshCatalogs([created.path, ...touched]);
       return created;
     },
     async remember(raw) {
@@ -423,7 +466,10 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       return { note, report };
     },
     async update(id, patch, body, options) {
-      return updateNote(id, patch, body, undefined, options);
+      const updated = await updateNote(id, patch, body, undefined, options);
+      // A usage-only patch changes nothing the catalog lists.
+      if (body !== undefined || Object.keys(patch).some(key => key !== 'usage' && key !== 'updated')) await refreshCatalogs([updated.path]);
+      return updated;
     },
     async hashOf(id) {
       const note = await find(id);
@@ -477,6 +523,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         const seen = await find(id); if (!seen || seen.meta.tier !== 'canonical') throw new Error(`Canonical note not found: ${id}`);
         const seenOld = seen.meta.supersedes ? await find(seen.meta.supersedes) : undefined;
         const roots = [rootOf(seen.path), primary.root, ...(seenOld ? [rootOf(seenOld.path)] : [])];
+        const touched: string[] = [];
         const done = await withRoots(roots, async () => {
           const note = await find(id); if (!note || note.meta.tier !== 'canonical') throw new Error(`Canonical note not found: ${id}`);
           if (note.meta.status !== 'proposed') throw new Error('Only proposed canonical notes can be accepted');
@@ -488,10 +535,11 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
           if (replaces?.meta.status === 'accepted') {
             try { await applyUpdate(replaces, { status: 'superseded' }, undefined, 'supersede-canonical'); }
             catch (error) { await persist(note); throw error; }
+            touched.push(replaces.path);
           }
           return accepted;
         });
-        if (done) return done;
+        if (done) { await refreshCatalogs([done.path, ...touched]); return done; }
       }
       throw new Error(`Canonical note could not settle on a stable location: ${id}`);
     },
@@ -506,16 +554,21 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       });
       const quoted = note.body.trim().split('\n').slice(0, 12).map(line => `> ${line}`);
       await this.closeSession(record.meta.id, [`Rejected ${id} (${note.meta.band ?? 'inferred'}, source ${note.meta.source ?? 'unknown'}).`, ...(reason ? [`Reason: ${reason}`] : []), '', ...quoted].join('\n'));
+      // Closing the record refreshed its catalog; the deleted proposal may have lived in a lower-priority location.
+      if (rootOf(note.path) !== rootOf(record.path)) await refreshCatalogs([note.path]);
       return note;
     },
     async discardEmptySession(id) {
       const seen = await find(id); if (!seen) return false;
-      return withRoots([rootOf(seen.path)], async () => {
+      const removed = await withRoots([rootOf(seen.path)], async () => {
         const current = await readNote(seen.path);
         if (!current || current.meta.id !== id || current.meta.tier !== 'episodic' || current.meta.kind !== 'session' || current.meta.status !== 'open-session' || current.body.trim()) return false;
         await rm(current.path, { force: true });
         return true;
       });
+      // Open sessions enter a catalog only when another mutation rebuilt it meanwhile; rebuild only then.
+      if (removed && (await readFile(join(brainPath(locationOf(seen.path)), INDEX_DIR, CATALOG_FILE), 'utf8').catch(() => '')).includes(id)) await refreshCatalogs([seen.path]);
+      return removed;
     },
     async maintain(now = new Date()) {
       const report: MaintenanceReport = { changed: [], promoted: [], retired: [], overdue: [], indexRebuilt: false };

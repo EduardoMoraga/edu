@@ -2,6 +2,7 @@
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { autoMaintain } from '../../brain/auto-maintain.js';
+import { compileReportLines } from '../../brain/compile.js';
 import { listCanonicalProposals, reviewCanonicalProposals } from '../../brain/proposals.js';
 import { LINT_KINDS, lintBrain, type LintReport } from '../../brain/lint.js';
 import { brainPath, isInside } from '../../brain/location.js';
@@ -152,7 +153,8 @@ export function registerBrain(program: Command, ctx: CliContext): void {
         const kind = oneOf(opts.kind ?? 'lesson', KINDS, '--kind');
         const band = opts.band ? oneOf(opts.band, BANDS, '--band') : undefined;
         const ws = await writableWorkspace(ctx, g.cwd, g.lang);
-        const note = await ws.brain.write({
+        // remember = write + compile: related notes are linked and likely contradictions reported.
+        const { note, report } = await ws.brain.remember({
           tier: 'transitive',
           kind,
           title: (title ?? '').trim(),
@@ -161,8 +163,9 @@ export function registerBrain(program: Command, ctx: CliContext): void {
           ...(band ? { band } : {}),
           ...(opts.due ? { due: opts.due } : {}),
         });
-        if (g.json || opts.json) return printJson(ctx, { id: note.meta.id, path: note.path });
+        if (g.json || opts.json) return printJson(ctx, { id: note.meta.id, path: note.path, report });
         ctx.out(t(g.lang, 'brain.remembered', { id: note.meta.id }));
+        for (const line of compileReportLines(report)) ctx.out(`  ${line}`);
       }),
     );
 
