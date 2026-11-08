@@ -23,6 +23,7 @@ import { registerPluginSetup } from './commands/plugins.js';
 import { registerWatch } from './commands/watch.js';
 import { openHome, registerLive } from './commands/live.js';
 import { registerSetup } from './commands/setup.js';
+import { registerJoin } from './commands/join.js';
 import { registerSync } from './commands/sync.js';
 import { registerUpdate } from './commands/update.js';
 import { registerVault } from './commands/vault.js';
@@ -31,7 +32,7 @@ import { t } from './i18n.js';
 import { packageVersion } from './package.js';
 
 const GROUPS: Array<[string, string[]]> = [
-  ['Get started:', ['create', 'init', 'vault', 'sync', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities']],
+  ['Get started:', ['create', 'init', 'vault', 'sync', 'join', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities']],
   ['Work:', ['run', 'ui', 'demo', 'deck', 'experiment']],
   ['Brain:', ['brief', 'brain', 'context', 'reflect', 'proposals', 'metrics', 'checks', 'eval']],
   ['Integrations:', ['mcp', 'connect', 'statusline', 'hook']],
@@ -82,6 +83,7 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerCreate(program, ctx);
   registerVault(program, ctx);
   registerSync(program, ctx);
+  registerJoin(program, ctx);
   registerLive(program, ctx);
   registerBrain(program, ctx);
   registerLearn(program, ctx);
