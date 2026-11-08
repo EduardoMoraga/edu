@@ -13,6 +13,7 @@
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { INDEX_DIR, type Note, type Tier } from '../core/contracts.js';
+import { withLogLock } from './note-lock.js';
 import { atomicWrite } from './store.js';
 
 export const CATALOG_FILE = 'catalog.md';
@@ -150,12 +151,21 @@ export function parseLog(text: string): LogEntry[] {
  * concurrent writers interleave whole lines. Best effort: a log failure never fails the brain operation.
  */
 export async function appendLog(brainDir: string, entry: { op: LogOp; id: string; title: string; at?: Date }): Promise<void> {
-  try {
+  const write = async () => {
     const dir = join(brainDir, INDEX_DIR);
     const path = join(dir, LOG_FILE);
     await mkdir(dir, { recursive: true });
     await writeFile(path, '# Brain log\n\nAppend-only. One line per operation: `## [YYYY-MM-DD HH:MM] op | id | title` (UTC).\n\n', { flag: 'wx' })
       .catch(error => { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; });
     await appendFile(path, `${formatLogLine(entry)}\n`);
-  } catch { /* the log is an aid, not the source of truth */ }
+  };
+  // Under the log lock, so `edu sync` never rewrites the log between our append and its merge.
+  // If the lock cannot be taken, the line is still appended: losing it would be worse.
+  let locked = false;
+  try {
+    await withLogLock(brainDir, async () => { locked = true; await write(); });
+  } catch {
+    if (!locked) await write().catch(() => undefined);
+    /* the log is an aid, not the source of truth */
+  }
 }

@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { conflictBranches, isAppendOnly, isEmptySession, isGenerated, mergeAppendOnly, remoteUrl, syncBrain, withoutCounters } from './sync.js';
+import { appendLog } from '../brain/catalog.js';
+import { logLockDir } from '../brain/note-lock.js';
+import { conflictBranches, ensureRepoFiles, isAppendOnly, isEmptySession, isGenerated, mergeAppendOnly, remoteUrl, syncBrain, withoutCounters } from './sync.js';
 
 const env = { ...process.env, GIT_AUTHOR_NAME: 'Edu', GIT_AUTHOR_EMAIL: 'edu@example.com', GIT_COMMITTER_NAME: 'Edu', GIT_COMMITTER_EMAIL: 'edu@example.com', GIT_CONFIG_NOSYSTEM: '1' };
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -154,6 +156,70 @@ describe('edu sync', () => {
     expect((await sync(a, 'a')).state).toBe('ok');
     expect(read(a, '.gitignore').split('\n').filter(line => line === '.edu-local/')).toHaveLength(1);
     expect(git(a.vault, 'ls-tree', '-r', '--name-only', 'origin/main')).not.toContain('.edu-local');
+  });
+
+  it.skipIf(process.platform === 'win32')('refuses a repository .gitignore that links outside the vault', async () => {
+    const sentinel = join(root, 'outside.txt');
+    writeFileSync(sentinel, 'do not touch\n');
+    symlinkSync(sentinel, join(a.vault, '.gitignore'));
+    git(a.vault, 'add', '-A');
+    git(a.vault, 'commit', '-qm', 'malicious');
+    git(a.vault, 'push', '-q', 'origin', 'main');
+    const c = machine('c');
+    write(c, '01-CONOCIMIENTO/1-canonical/D-c.md', note('from c'));
+    const result = await sync(c, 'c');
+    expect(result.state).toBe('error');
+    expect(result.message).toMatch(/symbolic link/);
+    expect(readFileSync(sentinel, 'utf8')).toBe('do not touch\n');
+  });
+
+  describe('a log append racing the merge', () => {
+    const log = '01-CONOCIMIENTO/0-index/log.md';
+    const diverge = async () => {
+      write(a, log, '# Log\n\n## [2026-11-01 09:00] seed\n');
+      await sync(a, 'a');
+      await sync(b, 'b');
+      write(a, log, '# Log\n\n## [2026-11-01 09:00] seed\n## [2026-11-02 11:00] from a\n');
+      await sync(a, 'a');
+      write(b, log, '# Log\n\n## [2026-11-01 09:00] seed\n## [2026-11-02 10:30] from b\n');
+    };
+
+    it('waits for the sync: a brain writer appending mid-merge keeps its line', async () => {
+      await diverge();
+      const brain = join(b.home, 'brain');
+      let pending: Promise<void> | undefined;
+      const result = await syncBrain({ eduHome: b.home, host: 'b', env, hooks: { beforeAppendOnlyWrite: async () => {
+        pending = appendLog(brain, { op: 'write', id: 'N-race', title: 'raced the merge', at: new Date('2026-11-03T08:00:00Z') });
+        // Holding the log lock, the writer waits for the sync; without it, it appends now and the merge overwrites it.
+        if (!existsSync(logLockDir(realpathSync(brain)))) await pending;
+      } } });
+      await pending;
+      expect(result.state).toBe('ok');
+      expect(result.merged).toEqual([log]);
+      const text = read(b, log);
+      expect(text).toContain('from a');
+      expect(text).toContain('from b');
+      expect(text).toContain('N-race');
+    });
+
+    it('keeps a line that reached the working tree during the merge', async () => {
+      await diverge();
+      const result = await syncBrain({ eduHome: b.home, host: 'b', env, hooks: { beforeAppendOnlyWrite: async () => {
+        appendFileSync(join(b.vault, log), '## [2026-11-03 09:00] direct append\n');
+      } } });
+      expect(result.state).toBe('ok');
+      expect(read(b, log)).toBe('# Log\n\n## [2026-11-01 09:00] seed\n## [2026-11-02 10:30] from b\n## [2026-11-02 11:00] from a\n## [2026-11-03 09:00] direct append\n');
+    });
+  });
+
+  it('runs no git rm when nothing under .edu-local is tracked', async () => {
+    const trace = join(root, 'trace.txt');
+    await ensureRepoFiles(a.vault, { ...env, GIT_TRACE: trace });
+    expect(readFileSync(trace, 'utf8')).not.toMatch(/git rm\b|'rm'/);
+    write(a, '01-CONOCIMIENTO/.edu-local/usage.json', '{}\n');
+    git(a.vault, 'add', '-f', '--', '01-CONOCIMIENTO/.edu-local/usage.json');
+    expect(await ensureRepoFiles(a.vault, env)).toContain('.edu-local/ (no longer tracked)');
+    expect(git(a.vault, 'ls-files', '--', '01-CONOCIMIENTO/.edu-local')).toBe('');
   });
 
   it('lists conflict branches and redacts the remote', async () => {
