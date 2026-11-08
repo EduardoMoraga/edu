@@ -12,7 +12,7 @@ import { assertFeedbackContext, feedbackUsage, applyLearning } from './learning.
 import { rankNotes, rankQueries } from './search.js';
 import { resolveReference, type ResolveResult } from './resolve.js';
 import { ensureLocalIgnored, frontmatterUsage, mergeExposure, nextExposure, readLedger, updateLedger } from './ledger.js';
-import { REDACTED_TAG, redactSecrets } from './redact.js';
+import { REDACTED_TAG, redactSecrets, redactValue } from './redact.js';
 import { compileNote, type CompileReport } from './compile.js';
 import { appendLog, writeCatalog, type LogOp } from './catalog.js';
 
@@ -154,12 +154,29 @@ const provenanceOf = (provenance: NoteProvenance | undefined): Partial<NoteMeta>
 const pathExists = (path: string) => access(path).then(() => true, () => false);
 const immutableCanonical = (meta: NoteMeta) => meta.tier === 'canonical' && (meta.status === 'accepted' || meta.status === 'superseded');
 
-/** Redacts secrets from a new note's title and body; a redacted note is tagged `redacted`. */
+/** Free-text fields of a new note redacted with the title and body (ids, links and lifecycle fields are not free text). */
+const NEW_NOTE_TEXT = ['tags', 'source', 'owner', 'stakeholder', 'provenance', 'by'] as const satisfies readonly (keyof NewNote)[];
+/** Free-text frontmatter an update patch may carry. */
+const META_TEXT = ['tags', 'source', 'owner', 'stakeholder', 'aliases', 'origin', 'albert', 'legacy_id', 'import_warning'] as const satisfies readonly (keyof NoteMeta)[];
+
+/** Redacts the listed fields of `record` in place on a copy; returns the copy and the kinds found. */
+function redactFields<T extends object>(record: T, keys: readonly (keyof T)[]): { record: T; kinds: string[] } {
+  const out = { ...record }, kinds: string[] = [];
+  for (const key of keys) {
+    if (out[key] === undefined) continue;
+    const result = redactValue(out[key]);
+    out[key] = result.value;
+    for (const kind of result.kinds) if (!kinds.includes(kind)) kinds.push(kind);
+  }
+  return { record: out, kinds };
+}
+
+/** Redacts secrets from a new note's title, body and free-text metadata; a redacted note is tagged `redacted`. */
 function redactInput(input: NewNote): { input: NewNote; kinds: string[] } {
-  const title = redactSecrets(input.title), body = redactSecrets(input.body);
-  const kinds = [...new Set([...title.kinds, ...body.kinds])];
+  const title = redactSecrets(input.title), body = redactSecrets(input.body), meta = redactFields(input, NEW_NOTE_TEXT);
+  const kinds = [...new Set([...title.kinds, ...body.kinds, ...meta.kinds])];
   if (!kinds.length) return { input, kinds };
-  return { input: { ...input, title: title.text, body: body.text, tags: [...new Set([...(input.tags ?? []), REDACTED_TAG])] }, kinds };
+  return { input: { ...meta.record, title: title.text, body: body.text, tags: [...new Set([...(meta.record.tags ?? []), REDACTED_TAG])] }, kinds };
 }
 
 export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions = {}): Brain {
@@ -263,8 +280,9 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     }
     const redacted = bodyIn === undefined ? undefined : redactSecrets(bodyIn);
     const body = redacted?.text ?? bodyIn;
-    const patch: Partial<NoteMeta> = { ...patchIn };
-    if (redacted?.kinds.length && !current.meta.tags.includes(REDACTED_TAG)) patch.tags = [...new Set([...(patch.tags ?? current.meta.tags), REDACTED_TAG])];
+    const metaRedacted = redactFields(patchIn, META_TEXT);
+    const patch: Partial<NoteMeta> = metaRedacted.record;
+    if ((redacted?.kinds.length || metaRedacted.kinds.length) && !(patch.tags ?? current.meta.tags).includes(REDACTED_TAG)) patch.tags = [...new Set([...(patch.tags ?? current.meta.tags), REDACTED_TAG])];
     const protectedKeys = new Set(['id', 'tier', 'kind', 'created', 'title', 'source', 'supersedes', 'updated', 'path', 'host', 'agent', 'session']);
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined) throw new Error(`Cannot clear '${key}' through update`);

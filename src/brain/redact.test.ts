@@ -70,6 +70,74 @@ describe('redactSecrets', () => {
   });
 });
 
+describe('redactSecrets: review bypasses', () => {
+  it('redacts complete quoted values, including spaces, for key-like names', () => {
+    expect(redactSecrets('password="correct horse battery staple"').text).toBe('password="[REDACTED:assignment]"');
+    expect(redactSecrets("secret: 'two words here' ok").text).toBe("secret: '[REDACTED:assignment]' ok");
+    expect(redactSecrets('{"client_secret": "a b c d", "x": 1}').text).toBe('{"client_secret": "[REDACTED:assignment]", "x": 1}');
+    expect(redactSecrets('db:\n  pass: hunter2pass\n').text).toBe('db:\n  pass: [REDACTED:assignment]\n');
+    expect(redactSecrets('auth=s3cretvalue apikey: abcdefgh connection_string="Server=x;Password=y"').text)
+      .toBe('auth=[REDACTED:assignment] apikey: [REDACTED:assignment] connection_string="[REDACTED:assignment]"');
+    for (const text of ['PWD=topsecret1', 'access_key = AbCdEfGh', 'private_key: zzzzyyyy', 'credentials="u p"']) {
+      expect(redactSecrets(text).kinds, text).toEqual(['assignment']);
+    }
+  });
+
+  it('redacts bearer and basic credentials regardless of character mix', () => {
+    const alpha = 'abcdefghijklmnopqrstuvwxyz';
+    expect(redactSecrets(`Authorization: Bearer ${alpha}`).text).toBe('Authorization: Bearer [REDACTED:bearer-token]');
+    expect(redactSecrets('authorization: bearer abcdefgh').text).toBe('authorization: bearer [REDACTED:bearer-token]');
+    expect(redactSecrets('curl -H "Authorization: Basic dXNlcjpwYXNz"').text).toBe('curl -H "Authorization: Basic [REDACTED:bearer-token]"');
+    expect(redactSecrets('use Bearer AbCdEfGhIjKlMnOpQr please').text).toBe('use Bearer [REDACTED:bearer-token] please');
+    expect(redactSecrets('Basic dXNlcjpwYXNzd29yZA==').text).toBe('Basic [REDACTED:bearer-token]');
+    const once = redactSecrets(`Authorization: Bearer ${alpha}`).text;
+    expect(redactSecrets(once)).toEqual({ text: once, kinds: [] });
+  });
+
+  it('keeps ordinary prose about passwords, tokens and authentication', () => {
+    for (const text of [
+      'the password policy requires rotation',
+      'token budget 1500',
+      'Bearer tokens expire hourly; Basic authentication is disabled.',
+      'Use bearer authentication for the API',
+      'Authorization: required for admin routes',
+      'We pass the auth header through the proxy',
+      'password: ""',
+    ]) expect(redactSecrets(text), text).toEqual({ text, kinds: [] });
+  });
+});
+
+describe('redaction of metadata on write', () => {
+  const secret = 'password="correct horse battery staple"';
+  it('sanitizes tags, source, owner, stakeholder, provenance and origin strings', async () => {
+    const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
+    const note = await brain.write({
+      tier: 'transitive', kind: 'commitment', title: 'Ship it', body: 'clean',
+      tags: [`ops ${FAKE.github}`], source: `import token=${rnd}`, owner: `owner ${FAKE.anthropic}`, stakeholder: secret,
+      provenance: { aliases: [`alias ${FAKE.openai}`], origin: `albert:x?${secret}`, albert: { nested: { deep: ['Bearer AbCdEfGhIjKlMnOp'] }, note: FAKE.slack } },
+      by: { agent: 'claude-code', session: `s ${FAKE.gitlab}` },
+    });
+    const disk = await readFile(note.path, 'utf8');
+    for (const value of [FAKE.github, rnd, FAKE.anthropic, 'correct horse', FAKE.openai, 'AbCdEfGhIjKlMnOp', FAKE.slack, FAKE.gitlab]) expect(disk).not.toContain(value);
+    expect(note.meta.tags).toContain('redacted');
+    expect(note.meta.stakeholder).toBe('password="[REDACTED:assignment]"');
+  });
+
+  it('sanitizes metadata patched through update, proposals and the remember report', async () => {
+    const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
+    const hypothesis = await brain.write({ tier: 'transitive', kind: 'hypothesis', title: 'Rate limits', body: 'x' });
+    const updated = await brain.update(hypothesis.meta.id, { owner: secret, tags: [`t ${FAKE.github}`] });
+    const disk = await readFile(updated.path, 'utf8');
+    expect(disk).not.toContain('correct horse');
+    expect(disk).not.toContain(FAKE.github);
+    expect(updated.meta.tags).toContain('redacted');
+    const { report } = await brain.remember({ tier: 'transitive', kind: 'lesson', title: 'Clean', body: 'clean', source: `x ${FAKE.aws}` });
+    expect(report.redacted).toEqual(['aws-access-key']);
+    const proposal = await brain.proposeCanonical({ tier: 'canonical', kind: 'standard', title: 'Std', body: 'b', owner: secret });
+    expect(await readFile(proposal.path, 'utf8')).not.toContain('correct horse');
+  });
+});
+
 describe('redaction on write', () => {
   it('redacts titles and bodies before persisting and tags the note', async () => {
     const root = await temp(); const brain = openBrain([{ scope: 'project', root }]);
