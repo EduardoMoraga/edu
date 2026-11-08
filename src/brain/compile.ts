@@ -65,7 +65,7 @@ export function compileNote(draft: Note, existing: Note[], options: CompileOptio
   const own = Array.isArray(draft.meta.links) ? draft.meta.links : [];
   const query = `${draft.meta.title} ${draft.body.slice(0, QUERY_BODY_CHARS)}`;
   const pool = [...existing.filter(note => note.meta.id !== draft.meta.id), draft];
-  const hits = rankNotes(query, pool, now, pool.length, { includeHistory: true, includePassages: false });
+  const hits = rankNotes(query, pool, now, pool.length, { includeHistory: true, includePassages: false, similarity: true });
   const self = hits.find(hit => hit.note === draft)?.score ?? hits[0]?.score ?? 0;
   if (!(self > 0)) return { links: [...new Set(own)], linked: [], possibleConflicts: [] };
   const related = hits

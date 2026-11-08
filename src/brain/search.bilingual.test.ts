@@ -84,6 +84,57 @@ describe('bilingual and paraphrase-tolerant recall', () => {
     expect(rankNotes('deployment', [exact, bridge], now).map(hit => hit.note.meta.id)).toEqual(['E-bridge', 'S-exact']);
   });
 
+  it('ignores query function words when the query has content words', () => {
+    const answer = note('E-answer', 'Webhook retries', 'Webhooks are retried with backoff.');
+    const filler = note('E-filler', 'Planning', 'When should we meet? Which day should we use for planning, and when?');
+    expect(rankNotes('when should we retry webhooks', [filler, answer], now).map(hit => hit.note.meta.id)).toEqual(['E-answer']);
+    // A query made only of function words still searches them.
+    expect(rankNotes('when should', [filler, answer], now).map(hit => hit.note.meta.id)).toEqual(['E-filler']);
+  });
+
+  it('rewards covering the whole query over repeating part of it', () => {
+    const notes = [
+      note('E-repeat', 'Webhook retry storm', 'Webhook workers retried in a tight loop. Every webhook retry hit the same endpoint, and the retry queue filled with webhook jobs.'),
+      note('E-covers', 'Outbound webhooks', 'Failed deliveries are retried with exponential backoff.'),
+      note('E-n1', 'Backoff for the API client', 'The API client waits with backoff after a 429.'),
+    ];
+    const ratio = (options: { similarity?: boolean }) => {
+      const hits = rankNotes('webhook retry backoff', notes, now, 10, { includePassages: false, ...options });
+      expect(hits.map(hit => hit.note.meta.id).slice(0, 2)).toEqual(['E-covers', 'E-repeat']);
+      return hits[1]!.score / hits[0]!.score;
+    };
+    // The note that misses "backoff" falls further behind than under plain BM25.
+    expect(ratio({})).toBeLessThan(ratio({ similarity: true }) - 0.05);
+  });
+
+  it('boosts the note kind a question asks for', () => {
+    const lesson = note('L-cache', 'Cache invalidation', 'Cache entries expire after one hour.', { kind: 'lesson', status: 'candidate' });
+    const decision = note('D-cache', 'Cache invalidation', 'Cache entries expire after one hour.');
+    expect(rankNotes('what did we decide about cache invalidation', [lesson, decision], now)[0]?.note.meta.id).toBe('D-cache');
+    expect(rankNotes('qué aprendimos sobre la caché', [decision, lesson], now)[0]?.note.meta.id).toBe('L-cache');
+    // Without a cue the tie falls back to the id order.
+    expect(rankNotes('cache invalidation', [lesson, decision], now)[0]?.note.meta.id).toBe('D-cache');
+  });
+
+  it('prefers a distilled note over a session log that matches as well, not over a better-matching one', () => {
+    const decision = note('D-dns', 'Move DNS to Cloudflare', 'DNS zones move to Cloudflare.');
+    const session = note('A-dns', 'Move DNS to Cloudflare', 'DNS zones move to Cloudflare.', { tier: 'episodic', kind: 'session', status: 'closed' });
+    expect(rankNotes('dns cloudflare', [session, decision], now).map(hit => hit.note.meta.id)).toEqual(['D-dns', 'A-dns']);
+    const call = note('S-acme', 'Customer call with Acme', 'Acme wants SSO next quarter.', { tier: 'episodic', kind: 'session', status: 'closed' });
+    const other = note('D-sso', 'SSO through the identity provider', 'SSO uses the identity provider.');
+    expect(rankNotes('acme call', [other, call], now)[0]?.note.meta.id).toBe('S-acme');
+  });
+
+  it('keeps plain BM25 similarity for whole-note comparison', () => {
+    const a = note('D-a', 'Store sessions in Redis', 'Session storage uses Redis with a one hour expiry.');
+    const b = note('D-b', 'Store sessions in Postgres', 'Session storage uses Postgres with a one hour expiry.');
+    const query = `${b.meta.title} ${b.body}`;
+    const [self, other] = rankNotes(query, [a, b], now, 10, { similarity: true, includePassages: false });
+    expect(self?.note.meta.id).toBe('D-b');
+    expect(other!.why).toMatch(/\buse\b/);
+    expect(rankNotes(query, [a, b], now, 10, { includePassages: false })[1]!.why).not.toMatch(/\buse\b/);
+  });
+
   it('chooses a stem-aware passage window', () => {
     const body = 'Contexto general sin relación. '.repeat(60) + 'Desplegamos los servicios con la etiqueta estable.' + ' Relleno.'.repeat(80);
     expect(relevantPassage(body, 'deploying services', 120)).toContain('Desplegamos los servicios');

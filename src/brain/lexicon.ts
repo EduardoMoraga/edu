@@ -18,6 +18,26 @@ export function tokenize(text: string): string[] {
 export const stopwords: ReadonlySet<string> = new Set(('a an the how what which do does we i to of for in on is are be and or ' +
   'como que cual cuales el la los las un una unos unas de del al para en por y o se su sus').split(' '));
 
+/**
+ * Function words and question frames ignored in a *query* only (notes keep the list above, so document
+ * lengths and BM25 statistics do not change). A query made only of these words still searches them.
+ * Negations (not, no, never, nunca) are kept: they carry meaning in rules.
+ */
+export const queryStopwords: ReadonlySet<string> = new Set([
+  // English
+  'about after again all also am any as at because been before being both but by can could did doing does done down during',
+  'each else even ever few from further had has have having he her here hers him his if into it its just me might more most',
+  'must my our ours out over own same she should so some such than that their theirs them then there these they this those',
+  'through too under until up us very was were when where whether while who whom whose why will with within would you your',
+  'often should shall may get gets got make makes made use used using uses need needs want wants way ways thing things',
+  // Spanish
+  'algo alguna algunas alguno algunos ante antes aqui asi aun cada cuando cuanto cuantos desde donde durante e ella ellas ello',
+  'ellos entre era eran es esa esas ese eso esos esta estaba estado estan estar estas este esto estos fue fueron ha haber',
+  'habia han hasta hay hace hacen hacer le les lo mas me mi mis mucho muchos muy nos nosotros otra otras otro otros pero poco',
+  'porque puede pueden pues quien quienes si sido sin sobre solo son soy tambien tan tanto te tiene tienen todo todos tu tus',
+  'usa usamos usar uso ya yo deben debe deberia debemos hay vez veces manera forma cosa cosas',
+].join(' ').split(' '));
+
 const vowels = /[aeiou]/;
 
 /**
@@ -118,7 +138,7 @@ model: model models modelo modelos llm
 benchmark: benchmark benchmarks evaluacion evaluation eval evals
 measure: measure measurement medir medicion metric metrics metrica metricas
 data: data datos dataset
-database: database databases db
+database: database databases db bd
 dashboard: dashboard dashboards tablero tableros panel
 report: report reports reporte reportes informe informes
 sales: sales sale venta ventas vender sell selling seller vendedor
@@ -140,7 +160,7 @@ key: key keys llave clave claves
 backup: backup backups respaldo respaldos
 restore: restore restoration restaurar restauracion recover recovery recuperar recuperacion
 conflict: conflict conflicts conflicto conflictos
-language: language languages idioma idiomas lenguaje
+language: language languages idioma idiomas lenguaje english ingles spanish espanol
 english: english ingles
 spanish: spanish espanol castellano
 translation: translation translate traducir traduccion
@@ -265,7 +285,7 @@ privacy: privacy privacidad gdpr
 license: license licenses licencia licencias
 terms: terms terminos condiciones conditions
 signature: signature firma firmar
-approval: approval approve approved aprobacion aprobar aprobado
+approval: approval approve approved aprobacion aprobar aprobado aprueba aprueban apruebo authorize authorized autorizar autoriza autorizado
 reject: reject rejected rechazar rechazo rechazado
 feedback: feedback retroalimentacion comentario comentarios opinion
 comment: comment comments
@@ -433,11 +453,11 @@ country: country countries pais paises
 city: city ciudad ciudades
 address: address direccion domicilio
 phone_number: whatsapp sms
-name: name names nombre nombres
+name: name names nombre nombres naming named nombrar nombra nombran nombrado llamarse
 identity: identity identidad
 profile: profile profiles perfil perfiles
 avatar: avatar foto photo
-preference: preference preferences preferencia preferencias
+preference: preference preferences preferencia preferencias prefer prefers preferred prefiere prefieren preferido preferida preferir
 default: default predeterminado
 privacy_mode: incognito
 offline: offline desconectado
@@ -464,6 +484,96 @@ synonym: synonym synonyms sinonimo sinonimos
 typo: typo typos errata erratas misspelling
 grammar: grammar gramatica
 writing_style: tone tono voz voice
+# General vocabulary (calendar, quantities, common verbs and adjectives) that notes in any domain use.
+monday: monday mondays lunes
+tuesday: tuesday tuesdays martes
+wednesday: wednesday wednesdays miercoles
+thursday: thursday thursdays jueves
+friday: friday fridays viernes
+saturday: saturday saturdays sabado sabados
+sunday: sunday sundays domingo domingos
+weekend: weekend weekends finde
+morning: morning mornings madrugada
+night: night nights nightly noche noches nocturno nocturna
+quarter: quarter quarters quarterly trimestre trimestres trimestral
+semester: semester semesters semestre semestres semestral
+january: january enero
+february: february febrero
+march_month: marzo
+april: april abril
+june: june junio
+july: july julio
+august: august agosto
+september: september septiembre setiembre
+october: october octubre
+november: november noviembre
+december: december diciembre
+hundred: hundred hundreds cien cientos
+thousand: thousand thousands mil miles
+million: million millions millon millones
+first: first primero primera primer initial inicial
+last: last latest ultimo ultima ultimos ultimas
+next: next upcoming proximo proxima siguiente siguientes
+previous: previous prior anterior anteriores
+new: new nuevo nueva nuevos nuevas
+old: old older legacy antiguo antigua antiguos viejo vieja
+start: start started starting startup boot iniciar inicio arranque arranques arrancar comenzar empezar begin
+stop: stop stopped detener parar pause pausa pausar halt
+run: run running runs execute execution ejecutar ejecucion correr
+send: send sent enviar envio mandar
+receive: receive received recibir recibido
+open_action: open opened abrir abierto abierta
+close: close closed closing cerrar cerrado cerrada cierre
+cold: cold frio fria
+hot: hot caliente
+warm: warm tibio tibia
+spike: spike spikes pico picos peak peaks
+increase: increase increased aumentar aumento incremento incrementar raise
+decrease: decrease decreased reduce reduced reducir reduccion disminuir lower bajar
+high: high higher alto alta altos altas
+low: low bajo baja bajos bajas
+big: big bigger large larger huge grande grandes enorme
+small: small smaller little tiny pequeno pequena pequenos pequenas chico chica
+long: long longer largo larga largos largas lengthy
+short: short shorter corto corta cortos cortas
+fast: fast faster quick quickly rapido rapida rapidamente
+slow: slow slower slowly lento lenta lentos lentitud
+full: full entire whole completo completa completos completas entero entera
+empty: empty vacio vacia
+main: main primary principal principales
+secondary: secondary secundario secundaria
+number: number numbers numero numeros
+card: card cards tarjeta tarjetas
+digit: digit digits digito digitos
+lock: lock locks locking locked bloqueo bloqueos lockear
+batch: batch batches lote lotes
+drill: drill drills simulacro simulacros rehearsal ensayo ensayos
+mask: mask masked masking enmascarar enmascaramiento enmascarado hide ocultar
+never: never nunca jamas
+always: always siempre
+after: after despues luego afterwards
+different: different distinct distinto distinta diferente diferentes
+automatic: automatic automatically automatico automatica automaticamente
+random: random randomly azar aleatorio aleatoria aleatoriamente flaky intermittent intermitente
+expire: expire expires expired expiry expiration expirar expira expiracion caducar caducidad
+renew: renew renewal renewed renovar renovacion
+rotate: rotate rotation rotated rotar rotacion
+leak: leak leaks leaked fuga fugas filtrado filtracion
+verify: verify verified verification verificar verificacion validate validation validar validacion
+confirm: confirm confirmed confirmation confirmar confirmacion
+forget: forget forgets forgot forgotten olvidar olvida olvidan olvido ignore ignored ignorar ignoran
+contradict: contradict contradicts contradiction contradecir contradice contradiccion
+truncate: truncate truncated truncar truncado recortar recortado cut cortar
+lose: lose loses lost losing perder pierde pierden pierdo perdido abandon abandoned abandonar abandonan abandono
+stage: stage stages etapa etapas phase phases fase fases
+signup: signup register registration registro registrar registrarse inscripcion enroll enrollment
+structure: structure structured estructura estructurar organize organizar layout
+frequency: frequency frequent frequently frecuencia frecuente frecuentemente
+cause: cause causes caused reason reasons causa causas razon razones motivo motivos
+problem: problem problems problema problemas
+solution: solution solutions solve solved solucion soluciones resolver
+emit: emit emitted emitir emision emite
+worker: worker workers trabajador trabajadores
 `;
 
 /** Concept key prefix: index terms are [a-z0-9]+, so a prefixed key can never collide with a stem. */

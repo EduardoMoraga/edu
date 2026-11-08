@@ -8,7 +8,7 @@
  *
  * Changing this file changes the baseline: bump CORPUS_VERSION when you do.
  */
-import type { CanonicalKind, Tier, TransitiveKind } from '../../core/contracts.js';
+import type { CanonicalKind, NoteMeta, Tier, TransitiveKind } from '../../core/contracts.js';
 
 export const CORPUS_VERSION = 1;
 
@@ -18,13 +18,16 @@ export const QUERY_CLASSES: readonly QueryClass[] = ['keyword', 'paraphrase', 'c
 export interface FixtureNote {
   /** Stable fixture key; the real note id is assigned by the Brain API when the note is written. */
   key: string;
-  lang: 'es' | 'en';
+  /** Language label, used only for the report's es/en counts (optional in a `--corpus` file). */
+  lang?: 'es' | 'en';
   tier: Tier;
   kind: TransitiveKind | CanonicalKind | 'session';
   title: string;
   body: string;
   tags?: string[];
   due?: string;
+  /** Lifecycle status (defaults: canonical accepted, session closed, transitive by kind); `proposed` keeps a canonical note unaccepted. */
+  status?: NoteMeta['status'];
   /** Imported correlative such as `D-014`; transitive notes then get an id like `D-014-<slug>`. */
   legacyId?: string;
   aliases?: string[];
@@ -32,7 +35,8 @@ export interface FixtureNote {
 
 export interface FixtureQuery {
   id: string;
-  class: QueryClass;
+  /** A QueryClass in the built-in corpus; any name in a `--corpus` file. */
+  class: QueryClass | (string & {});
   /** Query text; `@id` is replaced by the expected note's real id at run time. */
   text: string;
   /** Fixture key of the note that should rank first. */

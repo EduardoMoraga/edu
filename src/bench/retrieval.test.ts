@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CORPUS_NOTES, CORPUS_QUERIES, QUERY_CLASSES } from './fixtures/corpus.js';
-import { percentile, rankMetrics, runRetrievalBench } from './retrieval.js';
+import { parseCorpus, percentile, rankMetrics, runRetrievalBench } from './retrieval.js';
 
 describe('bench metric math', () => {
   it('computes recall@k and MRR on a hand-made case', () => {
@@ -41,4 +41,21 @@ describe('retrieval bench', () => {
     expect(a.byClass.id.recallAt1).toBe(1);
     expect(a.latencyMs.p95).toBeGreaterThanOrEqual(a.latencyMs.p50);
   }, 30_000);
+});
+
+describe('custom corpus parsing', () => {
+  const note = { key: 'a', title: 'A note', body: 'Body', tier: 'transitive', kind: 'decision' };
+  it('maps q/target/class to fixture queries and keeps optional note fields', () => {
+    const corpus = parseCorpus({ version: 3, notes: [{ ...note, status: 'active', tags: ['x'] }], queries: [{ q: 'note', target: 'a', class: 'my-class' }] });
+    expect(corpus.version).toBe(3);
+    expect(corpus.notes[0]).toEqual({ ...note, status: 'active', tags: ['x'] });
+    expect(corpus.queries).toEqual([{ id: 'q1', class: 'my-class', text: 'note', expect: 'a' }]);
+  });
+  it('names the offending field', () => {
+    expect(() => parseCorpus({ notes: [note], queries: [{ q: 'x', target: 'b', class: 'c' }] })).toThrow(/queries\[0\]\.target "b" is not a note key/);
+    expect(() => parseCorpus({ notes: [{ ...note, tier: 'nope' }], queries: [{ q: 'x', target: 'a', class: 'c' }] })).toThrow(/notes\[0\]\.tier/);
+    expect(() => parseCorpus({ notes: [note, note], queries: [{ q: 'x', target: 'a', class: 'c' }] })).toThrow(/duplicated/);
+    expect(() => parseCorpus({ notes: [note], queries: [] })).toThrow(/queries/);
+    expect(() => parseCorpus(null)).toThrow(/JSON object/);
+  });
 });
