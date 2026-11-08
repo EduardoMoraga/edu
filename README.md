@@ -363,6 +363,10 @@ edu uninstall --scope global   # reverses everything edu setup recorded
 npm rm -g edu-agent
 ```
 
+`edu uninstall` also stops and deletes the `edu sync` scheduler and every nightly dream
+(`edu dream --install`; `edu dream --uninstall` removes only the current project's). On Windows
+`edu dream --install` installs nothing, so a Task Scheduler job you created yourself stays yours to remove.
+
 Native alternatives: `claude plugin uninstall edu@edu` · `codex plugin remove edu@edu` ·
 `pi remove git:github.com/EduardoMoraga/edu` · `agy plugin uninstall edu`. Edu refuses to
 overwrite files you edited since install (`--force` to override). Your brain (`~/.edu`,

@@ -8,7 +8,7 @@ import * as store from '../brain/store.js';
 import { openBrain } from '../brain/brain.js';
 import { applyDream, planDream } from './dream.js';
 import { dreamPlanPath, loadDreamPlan, parseDreamPlan, renderDreamPlan, saveDreamPlan, type DreamPlan } from './dream-plan.js';
-import { dreamCronLine, installDreamSchedule } from './dream-schedule.js';
+import { dreamCronLine, dreamRegistryPath, installDreamSchedule, uninstallDreamSchedules } from './dream-schedule.js';
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -238,5 +238,51 @@ describe('dream schedule', () => {
     expect(calls.at(-1)).toEqual(['systemctl', '--user', 'enable', '--now', `${result.name}.timer`]);
     await expect(installDreamSchedule({ home, node: 'node', cli: 'cli.js', cwd: '/w', platform: 'win32', run: async () => 0 })).rejects.toThrow(/Schedule this command yourself/);
     expect(dreamCronLine({ node: 'node', cli: 'cli.js', cwd: '/w' })).toBe('30 3 * * * "node" "cli.js" --cwd "/w" dream');
+  });
+
+  it('records each schedule and removes one project or all of them, stray units included', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'edu-dream-home-')); dirs.push(home);
+    const eduHome = join(home, '.edu');
+    const calls: string[][] = [];
+    const run = async (cmd: string, args: string[]) => { calls.push([cmd, ...args]); return 0; };
+    const a = await installDreamSchedule({ home, eduHome, node: 'node', cli: 'cli.js', cwd: '/work/a', platform: 'linux', run });
+    const b = await installDreamSchedule({ home, eduHome, node: 'node', cli: 'cli.js', cwd: '/work/b', platform: 'linux', run });
+    const registry = JSON.parse(await readFile(dreamRegistryPath(eduHome), 'utf8')) as { schedules: Array<{ name: string; cwd: string }> };
+    expect(registry.schedules.map(s => s.cwd).sort()).toEqual(['/work/a', '/work/b']);
+    // A unit left by an older Edu that never recorded it.
+    const unitDir = join(home, '.config', 'systemd', 'user');
+    await writeFile(join(unitDir, 'edu-dream-deadbeef.timer'), '[Timer]\n');
+    await writeFile(join(unitDir, 'edu-dream-deadbeef.service'), '[Service]\n');
+
+    calls.length = 0;
+    const one = await uninstallDreamSchedules({ home, eduHome, cwd: '/work/a', platform: 'linux', run });
+    expect(one.map(r => r.name)).toEqual([a.name]);
+    expect(calls).toContainEqual(['systemctl', '--user', 'disable', '--now', `${a.name}.timer`]);
+    for (const file of a.files) await expect(access(file)).rejects.toThrow();
+    for (const file of b.files) await access(file);
+
+    calls.length = 0;
+    const rest = await uninstallDreamSchedules({ home, eduHome, platform: 'linux', run });
+    expect(rest.map(r => r.name).sort()).toEqual([b.name, 'edu-dream-deadbeef'].sort());
+    expect(calls).toContainEqual(['systemctl', '--user', 'disable', '--now', 'edu-dream-deadbeef.timer']);
+    expect(calls.at(-1)).toEqual(['systemctl', '--user', 'daemon-reload']);
+    expect((await readdir(unitDir)).filter(f => f.startsWith('edu-dream-'))).toEqual([]);
+    await expect(access(dreamRegistryPath(eduHome))).rejects.toThrow();
+
+    calls.length = 0;
+    expect(await uninstallDreamSchedules({ home, eduHome, platform: 'linux', run })).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('unloads and deletes a LaunchAgent on macOS', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'edu-dream-home-')); dirs.push(home);
+    const calls: string[][] = [];
+    const run = async (cmd: string, args: string[]) => { calls.push([cmd, ...args]); return 0; };
+    const result = await installDreamSchedule({ home, node: 'node', cli: 'cli.js', cwd: '/work/a', platform: 'darwin', run });
+    calls.length = 0;
+    const removed = await uninstallDreamSchedules({ home, platform: 'darwin', run });
+    expect(removed).toEqual([{ kind: 'launchd', name: result.name, removed: result.files, stopped: true }]);
+    expect(calls).toEqual([['launchctl', 'unload', '-w', result.files[0]!]]);
+    await expect(access(result.files[0]!)).rejects.toThrow();
   });
 });

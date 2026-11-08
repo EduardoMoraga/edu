@@ -2,11 +2,11 @@
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import type { CliContext } from '../context.js';
+import { globalHome, type CliContext } from '../context.js';
 import { action, parseIntOption, printJson } from '../kit.js';
 import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
 
-interface DreamOpts { days?: string; staleDays?: string; unusedDays?: string; minSessions?: string; model?: boolean; budget?: string; apply?: boolean; install?: boolean; hour?: string; json?: boolean }
+interface DreamOpts { days?: string; staleDays?: string; unusedDays?: string; minSessions?: string; model?: boolean; budget?: string; apply?: boolean; install?: boolean; uninstall?: boolean; hour?: string; json?: boolean }
 
 export function registerDream(program: Command, ctx: CliContext): void {
   program
@@ -20,17 +20,28 @@ export function registerDream(program: Command, ctx: CliContext): void {
     .option('--budget <n>', 'prompt token budget with --model', '8000')
     .option('--apply', 'apply the checked proposals of the saved plan (edit the checkboxes first)')
     .option('--install', 'write the plan every night (systemd user timer or macOS LaunchAgent); never applies it')
+    .option('--uninstall', 'stop and delete the nightly dream of this project (edu uninstall removes all of them)')
     .option('--hour <n>', 'hour of the nightly run with --install (0-23)', '3')
     .option('--json', 'machine-readable output')
     .action(action<DreamOpts>(ctx, async ({ g, opts }) => {
       const json = g.json || opts.json;
+      if (opts.uninstall) {
+        if (opts.install) throw new Error('Use --install or --uninstall, not both.');
+        const { uninstallDreamSchedules } = await import('../../reflect/dream-schedule.js');
+        const removed = await uninstallDreamSchedules({ home: ctx.home, eduHome: globalHome(ctx), cwd: g.cwd });
+        if (json) return printJson(ctx, { removed });
+        if (!removed.length) ctx.out('No nightly dream is scheduled for this project.');
+        for (const r of removed) ctx.out(`Removed the nightly dream (${r.kind}): ${r.removed.join(', ')}`);
+        if (removed.some(r => !r.stopped)) ctx.err('The schedule files are deleted but the service manager did not confirm the stop.');
+        return;
+      }
       const ws = await openWorkspace(ctx, g.cwd);
       if (!(await exists(join(ws.primary.root, 'EDU.md')))) throw new Error('No brain found — run: edu init');
       const plans = await import('../../reflect/dream-plan.js');
       if (opts.install) {
         const hour = Number(opts.hour ?? '3');
         const { installDreamSchedule } = await import('../../reflect/dream-schedule.js');
-        const result = await installDreamSchedule({ home: ctx.home, node: process.execPath, cli: realpathSync(process.argv[1] ?? ''), cwd: g.cwd, hour, path: ctx.env.PATH });
+        const result = await installDreamSchedule({ home: ctx.home, eduHome: globalHome(ctx), node: process.execPath, cli: realpathSync(process.argv[1] ?? ''), cwd: g.cwd, hour, path: ctx.env.PATH });
         if (json) return printJson(ctx, result);
         ctx.out(`Scheduled a nightly dream (${result.kind}, ${String(hour).padStart(2, '0')}:30): ${result.files.join(', ')}`);
         ctx.out('Each run only writes the plan; review it and run edu dream --apply yourself.');

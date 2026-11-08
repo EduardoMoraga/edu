@@ -63,7 +63,7 @@ export function windowsTask(options: ScheduleOptions): { script: string; content
   };
 }
 
-function scheduleFiles(home: string, eduHome: string | undefined, platform: NodeJS.Platform): { kind: ScheduleKind; files: string[] } | undefined {
+export function scheduleFiles(home: string, eduHome: string | undefined, platform: NodeJS.Platform): { kind: ScheduleKind; files: string[] } | undefined {
   if (platform === 'linux') {
     const dir = join(home, '.config', 'systemd', 'user');
     return { kind: 'systemd', files: [join(dir, 'edu-sync.service'), join(dir, 'edu-sync.timer')] };
@@ -135,17 +135,18 @@ export async function installSchedule(options: ScheduleOptions): Promise<Schedul
 
 export interface UnscheduleResult { kind: ScheduleKind; removed: string[]; stopped: boolean }
 
-export async function uninstallSchedule(options: Pick<ScheduleOptions, 'home' | 'eduHome' | 'platform'>): Promise<UnscheduleResult> {
+export async function uninstallSchedule(options: Pick<ScheduleOptions, 'home' | 'eduHome' | 'platform'> & { run?: (cmd: string, args: string[]) => Promise<number> }): Promise<UnscheduleResult> {
+  const call = options.run ?? run;
   const platform = options.platform ?? process.platform;
   const known = scheduleFiles(options.home, options.eduHome, platform);
   if (!known) throw new Error(`scheduled sync is not supported on ${platform}`);
   let stopped = true;
-  if (known.kind === 'systemd') stopped = await run('systemctl', ['--user', 'disable', '--now', 'edu-sync.timer']) === 0;
-  if (known.kind === 'launchd') stopped = await run('launchctl', ['unload', '-w', known.files[0]!]) === 0;
-  if (known.kind === 'schtasks') stopped = await run('schtasks', windowsTask({ home: options.home, eduHome: options.eduHome, node: '', cli: '' }).remove) === 0;
+  if (known.kind === 'systemd') stopped = await call('systemctl', ['--user', 'disable', '--now', 'edu-sync.timer']) === 0;
+  if (known.kind === 'launchd') stopped = await call('launchctl', ['unload', '-w', known.files[0]!]) === 0;
+  if (known.kind === 'schtasks') stopped = await call('schtasks', windowsTask({ home: options.home, eduHome: options.eduHome, node: '', cli: '' }).remove) === 0;
   const removed: string[] = [];
   for (const file of known.files) if (await exists(file)) { await rm(file, { force: true }); removed.push(file); }
-  if (known.kind === 'systemd') await run('systemctl', ['--user', 'daemon-reload']);
+  if (known.kind === 'systemd') await call('systemctl', ['--user', 'daemon-reload']);
   return { kind: known.kind, removed, stopped };
 }
 

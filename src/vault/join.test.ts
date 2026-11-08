@@ -143,6 +143,9 @@ describe('edu join', () => {
     for (const [url, secret] of [
       ['https://edu:ghp_s3cretT0kenValue@127.0.0.1:9/x/edu-vault.git', 'ghp_s3cretT0kenValue'],
       ['https://127.0.0.1:9/x/edu-vault.git?access_token=abc123', 'abc123'],
+      ['http://127.0.0.1:9/x/edu-vault.git?access%5Ftoken=LEAKTOKEN', 'LEAKTOKEN'],
+      ['http://127.0.0.1:9/x/edu-vault.git?Access-Token=MIXEDCASE', 'MIXEDCASE'],
+      ['http://127.0.0.1:9/x/edu-vault.git#access_token=FRAGMENTTOKEN', 'FRAGMENTTOKEN'],
     ] as const) {
       const home = join(root, `home-${secret}`, '.edu');
       put(join(home, 'brain'), '1-canonical/D-local.md', 'local note\n');

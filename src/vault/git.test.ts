@@ -39,6 +39,45 @@ describe('credential URLs', () => {
   });
 });
 
+describe('credential parameters under any spelling', () => {
+  const leaks = [
+    'https://h/r.git?access%5Ftoken=LEAK1',
+    'https://h/r.git?ACCESS_TOKEN=LEAK1',
+    'https://h/r.git?Access-Token=LEAK1',
+    'https://h/r.git?accessToken=LEAK1',
+    'https://h/r.git?%61ccess_token=LEAK1',
+    'https://h/r.git?ref=main&X-Amz-Signature=LEAK1',
+    'https://h/r.git?ref=main&client%2Dsecret=LEAK1',
+    'https://h/r.git?ref=main&my_api_key=LEAK1',
+    'https://h/r.git?Key=LEAK1',
+    'https://h/r.git?passwd=LEAK1',
+    'https://h/r.git#access_token=LEAK1&state=xyz',
+    'https://h/r.git?ref=main#access%5Ftoken=LEAK1',
+  ];
+
+  it('removes them from a URL to store', () => {
+    for (const url of leaks) {
+      const clean = withoutCredentials(url);
+      expect(clean.url, url).not.toContain('LEAK1');
+      expect(clean.stripped, url).toBe(true);
+      expect(clean.url, url).toMatch(/^https:\/\/h\/r\.git/);
+    }
+    expect(withoutCredentials('https://h/r.git?ref=main&X-Amz-Signature=LEAK1').url).toBe('https://h/r.git?ref=main');
+    expect(withoutCredentials('https://h/r.git#access_token=LEAK1&state=xyz').url).toBe('https://h/r.git#state=xyz');
+    expect(withoutCredentials('https://h/keys/token.git?ref=main')).toEqual({ url: 'https://h/keys/token.git?ref=main', stripped: false });
+  });
+
+  it('redacts them in diagnostic text, also inside an error message', () => {
+    for (const url of leaks) {
+      const out = redact(`fatal: unable to access '${url}': Failed to connect`);
+      expect(out, url).not.toContain('LEAK1');
+      expect(out, url).toContain('Failed to connect');
+    }
+    expect(redact("fatal: 'http://127.0.0.1:1/repo?access%5Ftoken=LEAKTOKEN' failed")).toBe("fatal: 'http://127.0.0.1:1/repo?access%5Ftoken=***' failed");
+    expect(redact('see https://h/keys/token/r.git?ref=main')).toBe('see https://h/keys/token/r.git?ref=main');
+  });
+});
+
 describe('git helpers', () => {
   it('redacts credentials in URLs and token values', () => {
     expect(redact('https://user:ghp_abc123456@github.com/me/edu-vault.git')).toBe('https://***@github.com/me/edu-vault.git');

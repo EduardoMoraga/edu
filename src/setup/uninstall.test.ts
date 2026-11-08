@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CliId } from '../core/contracts.js';
 import { applySetup, planSetup, type SetupCommand, type SetupRunner } from './index.js';
 import { assertPurgeableBrain, uninstallEdu } from './uninstall.js';
+import { installDreamSchedule } from '../reflect/dream-schedule.js';
 
 const packageRoot = process.cwd();
 const templatesDir = join(packageRoot, 'templates');
@@ -219,5 +220,35 @@ describe('purge home protection', () => {
     await expect(readdir(brain)).rejects.toThrow();
     expect(await readFile(join(outside, 'keep.txt'), 'utf8')).toBe('outside');
     expect(await readdir(home)).toEqual([]);
+  });
+});
+
+describe('uninstall removes machine schedules', () => {
+  it('disables and deletes every dream schedule and the sync scheduler; a second run does nothing', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'edu-uninstall-sched-'));
+    dirs.push(home);
+    const brainRoot = join(home, '.edu');
+    const calls: string[][] = [];
+    const serviceRun = async (cmd: string, args: string[]) => { calls.push([cmd, ...args]); return 0; };
+    const dream = await installDreamSchedule({ home, eduHome: brainRoot, node: 'node', cli: 'cli.js', cwd: join(home, 'project'), platform: 'linux', run: serviceRun });
+    const unitDir = join(home, '.config', 'systemd', 'user');
+    await writeFile(join(unitDir, 'edu-dream-0badf00d.timer'), '[Timer]\n');
+    await writeFile(join(unitDir, 'edu-sync.service'), '[Service]\n');
+    await writeFile(join(unitDir, 'edu-sync.timer'), '[Timer]\n');
+    await writeFile(join(unitDir, 'other.timer'), '[Timer]\n');
+    calls.length = 0;
+
+    const report = await uninstallEdu({ home, cwd: home, brainRoot, platform: 'linux', serviceRun });
+    expect(report.schedules.map(s => s.name).sort()).toEqual([dream.name, 'edu-dream-0badf00d', 'edu-sync'].sort());
+    expect(calls).toContainEqual(['systemctl', '--user', 'disable', '--now', `${dream.name}.timer`]);
+    expect(calls).toContainEqual(['systemctl', '--user', 'disable', '--now', 'edu-dream-0badf00d.timer']);
+    expect(calls).toContainEqual(['systemctl', '--user', 'disable', '--now', 'edu-sync.timer']);
+    expect(calls).toContainEqual(['systemctl', '--user', 'daemon-reload']);
+    expect(await readdir(unitDir)).toEqual(['other.timer']);
+
+    calls.length = 0;
+    const again = await uninstallEdu({ home, cwd: home, brainRoot, platform: 'linux', serviceRun });
+    expect(again.schedules).toEqual([]);
+    expect(calls).toEqual([]);
   });
 });
