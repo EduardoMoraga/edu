@@ -59,13 +59,33 @@ export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv, option
   });
 }
 
-/** Query parameters that carry credentials (`?access_token=…`, signed URLs…). */
-const SECRET_PARAMS = ['access_token', 'token', 'private_token', 'password', 'pass', 'pwd', 'key', 'api_key', 'apikey', 'secret', 'sig', 'signature', 'auth', 'client_secret'];
-const SECRET_QUERY = new RegExp(`([?&;](?:${SECRET_PARAMS.join('|')})=)[^&;#\\s'"]+`, 'gi');
+/** Parameter names that carry credentials, compared decoded, lower-cased and without `-`, `_`, `.`… */
+const SECRET_NAMES = new Set(['token', 'pass', 'passwd', 'pwd', 'key', 'secret', 'sig', 'signature', 'auth', 'session', 'sessionid', 'jwt', 'bearer']);
+const SECRET_PARTS = /token|secret|passw|apikey|signature|credential|auth/;
+const SECRET_ENDS = /(?:key|sig|pwd)$/;
+
+/** The decoded name of a query or fragment parameter (`access%5Ftoken` → `access_token`). */
+function paramName(raw: string): string {
+  try { return [...new URLSearchParams(`${raw}=`).keys()][0] ?? raw; } catch { return raw; }
+}
+
+/** A parameter name that carries a credential under any spelling: `access_token`, `Access-Token`, `accessToken`, `access%5Ftoken`, `X-Amz-Signature`… */
+export function isSecretParam(raw: string): boolean {
+  const name = paramName(raw).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return Boolean(name) && (SECRET_NAMES.has(name) || SECRET_PARTS.test(name) || SECRET_ENDS.test(name));
+}
+
+/** Drops credential parameters from a `name=value&…` list; text that is not a parameter list stays as is. */
+function keepParams(list: string): string {
+  if (!list.includes('=')) return list;
+  return list.split(/[&;]/).filter(part => part && !isSecretParam(part.split('=')[0]!)).join('&');
+}
 
 /**
- * A remote URL safe to keep in `.git/config`: no userinfo on http(s) URLs and no credential query parameters.
- * `password` is the secret the userinfo carried (a token alone counts), for in-memory use only.
+ * A remote URL safe to keep in `.git/config`: no userinfo on http(s) URLs and no credential parameters in the
+ * query or the fragment (OAuth implicit style `#access_token=…`), whatever the case, separators or
+ * percent-encoding of their names. `password` is the secret the userinfo carried (a token alone counts), for
+ * in-memory use only.
  */
 export function withoutCredentials(url: string): { url: string; password?: string; stripped: boolean } {
   const original = url.trim();
@@ -76,19 +96,29 @@ export function withoutCredentials(url: string): { url: string; password?: strin
     try { password = decodeURIComponent(secret); } catch { password = secret; }
     return scheme;
   });
+  let fragment = '';
+  const hash = clean.indexOf('#');
+  if (hash >= 0) {
+    const kept = keepParams(clean.slice(hash + 1));
+    fragment = kept ? `#${kept}` : '';
+    clean = clean.slice(0, hash);
+  }
   const query = clean.indexOf('?');
   if (query >= 0) {
-    const hash = clean.indexOf('#', query);
-    const end = hash >= 0 ? hash : clean.length;
-    const kept = clean.slice(query + 1, end).split(/[&;]/).filter(part => part && !SECRET_PARAMS.includes(part.split('=')[0]!.toLowerCase()));
-    clean = `${clean.slice(0, query)}${kept.length ? `?${kept.join('&')}` : ''}${clean.slice(end)}`;
+    const kept = keepParams(clean.slice(query + 1));
+    clean = `${clean.slice(0, query)}${kept ? `?${kept}` : ''}`;
   }
+  clean += fragment;
   return { url: clean, ...(password ? { password } : {}), stripped: clean !== original };
 }
 
-/** `https://user:token@host/…` → `https://***@host/…`, `?access_token=…` → `?access_token=***`, plus any token value from the environment. */
+/** `name=value` after `?`, `&`, `;` or `#` in free text (for example a URL inside an error message). */
+const PARAM = /([?&;#])([^=&;#?\s'"]+)=([^&;#\s'"]+)/g;
+
+/** `https://user:token@host/…` → `https://***@host/…`, `?access_token=…` → `?access_token=***` (any spelling, query or fragment), plus any token value from the environment. */
 export function redact(text: string, env: NodeJS.ProcessEnv = process.env): string {
-  let result = text.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, '$1***@').replace(SECRET_QUERY, '$1***');
+  let result = text.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, '$1***@')
+    .replace(PARAM, (all: string, sep: string, name: string) => isSecretParam(name) ? `${sep}${name}=***` : all);
   for (const name of TOKEN_VARS) {
     const value = env[name];
     if (value && value.length >= 8) result = result.split(value).join('***');
