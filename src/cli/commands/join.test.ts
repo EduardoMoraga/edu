@@ -56,5 +56,5 @@ it('never prints a token from the repository URL', async () => {
   expect(c.exitCode).toBe(1);
   const printed = [...c.stdout, ...c.stderr].join('\n');
   expect(printed).not.toContain('ghp_s3cretT0kenValue');
-  expect(printed).toContain('https://***@127.0.0.1');
+  expect(printed).toContain('https://127.0.0.1:9/me/edu-vault.git');
 });

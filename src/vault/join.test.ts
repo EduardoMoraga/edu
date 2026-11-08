@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -135,8 +135,72 @@ describe('edu join', () => {
     const error = await joinBrain({ url, eduHome, host: 'x', env }).catch((e: Error) => e);
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).not.toContain('ghp_s3cretT0kenValue');
-    expect((error as Error).message).toContain('https://***@127.0.0.1');
+    expect((error as Error).message).toContain('127.0.0.1');
     expect(existsSync(join(eduHome, 'brain', '.git'))).toBe(false);
+  });
+
+  it('never stores credentials from the URL as the remote', async () => {
+    for (const [url, secret] of [
+      ['https://edu:ghp_s3cretT0kenValue@127.0.0.1:9/x/edu-vault.git', 'ghp_s3cretT0kenValue'],
+      ['https://127.0.0.1:9/x/edu-vault.git?access_token=abc123', 'abc123'],
+    ] as const) {
+      const home = join(root, `home-${secret}`, '.edu');
+      put(join(home, 'brain'), '1-canonical/D-local.md', 'local note\n');
+      const error = await joinBrain({ url, eduHome: home, host: 'x', env }).catch((e: Error) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).not.toContain(secret);
+      const config = join(home, 'brain', '.git', 'config');
+      expect(existsSync(config)).toBe(true);
+      expect(readFileSync(config, 'utf8')).toContain('127.0.0.1:9/x/edu-vault.git');
+      expect(readFileSync(config, 'utf8')).not.toContain(secret);
+    }
+  });
+
+  it('never overwrites a conflict copy the remote already has', async () => {
+    seed({ '1-canonical/D-both.md': 'remote version\n', '1-canonical/D-both.local-sandbox.md': 'an older copy from another sandbox\n' });
+    const brain = join(eduHome, 'brain');
+    put(brain, '1-canonical/D-both.md', 'local version\n');
+    const report = await joinBrain({ url: remote, eduHome, host: 'sandbox', env, sync: false });
+    expect(report.keptBoth).toEqual([{ path: '1-canonical/D-both.md', local: '1-canonical/D-both.local-sandbox-2.md' }]);
+    expect(read(brain, '1-canonical/D-both.local-sandbox.md')).toBe('an older copy from another sandbox\n');
+    expect(read(brain, '1-canonical/D-both.local-sandbox-2.md')).toBe('local version\n');
+    expect(remoteFile('1-canonical/D-both.local-sandbox.md')).toBe('an older copy from another sandbox');
+  });
+
+  it('reuses a conflict copy the remote already has with the same content', async () => {
+    seed({ '1-canonical/D-both.md': 'remote version\n', '1-canonical/D-both.local-sandbox.md': 'local version\n' });
+    const brain = join(eduHome, 'brain');
+    put(brain, '1-canonical/D-both.md', 'local version\n');
+    const report = await joinBrain({ url: remote, eduHome, host: 'sandbox', env, sync: false });
+    expect(report.keptBoth).toEqual([{ path: '1-canonical/D-both.md', local: '1-canonical/D-both.local-sandbox.md' }]);
+    expect(existsSync(join(brain, '1-canonical/D-both.local-sandbox-2.md'))).toBe(false);
+  });
+
+  it('never overwrites a conflict copy when importing into a clone', async () => {
+    seed({
+      '01-CONOCIMIENTO/1-canonical/D-both.md': 'remote version\n',
+      '01-CONOCIMIENTO/1-canonical/D-both.local-cloud.md': 'an older copy\n',
+    });
+    put(join(eduHome, 'brain'), '1-canonical/D-both.md', 'local version\n');
+    const report = await joinBrain({ url: remote, eduHome, subdir: '01-CONOCIMIENTO', host: 'cloud', env, sync: false });
+    expect(report.keptBoth).toEqual([{ path: '1-canonical/D-both.md', local: '1-canonical/D-both.local-cloud-2.md' }]);
+    expect(read(report.brain, '1-canonical/D-both.local-cloud.md')).toBe('an older copy\n');
+    expect(read(report.brain, '1-canonical/D-both.local-cloud-2.md')).toBe('local version\n');
+  });
+
+  it.skipIf(process.platform === 'win32')('refuses to import through a folder the remote made a symbolic link', async () => {
+    const outside = join(root, 'outside');
+    mkdirSync(outside);
+    const work = join(root, 'seed');
+    git(root, 'init', '-q', '-b', 'main', work);
+    put(work, '01-CONOCIMIENTO/README.md', 'vault\n');
+    symlinkSync(outside, join(work, '01-CONOCIMIENTO', '1-canonical'));
+    git(work, 'add', '-A');
+    git(work, 'commit', '-qm', 'malicious');
+    git(work, 'push', '-q', remote, 'main');
+    put(join(eduHome, 'brain'), '1-canonical/D-local.md', 'local note\n');
+    await expect(joinBrain({ url: remote, eduHome, subdir: '01-CONOCIMIENTO', host: 'cloud', env, sync: false })).rejects.toThrow(/symbolic link/);
+    expect(readdirSync(outside)).toEqual([]);
   });
 
   it('gives a sandbox without a Git identity one for this repository', async () => {

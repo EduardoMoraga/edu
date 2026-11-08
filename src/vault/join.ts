@@ -11,13 +11,16 @@
  * - Both sides changed the same path: the remote version keeps the name and the local copy is saved as
  *   `<name>.local-<host>.md`. Generated files take the remote copy; append-only logs are unioned.
  * - Already linked to the same remote: nothing to set up, just sync.
- * Credentials come from the environment (Git credential helpers, `GH_TOKEN`); any URL printed is redacted.
+ * Credentials come from the environment (Git credential helpers, `GH_TOKEN`); any URL printed is redacted, and
+ * credentials in the URL itself are never stored as the remote.
+ * Every write lands inside the repository: a path through a symbolic link the remote committed is refused.
  */
 import { copyFile, lstat, mkdir, readdir, readFile, readlink, realpath, rename, symlink, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { createVaultLink } from '../cli/link.js';
-import { git, gitLines, redact, sameRemote } from './git.js';
+import { git, gitLines, redact, sameRemote, withoutCredentials } from './git.js';
+import { assertSafeTarget } from './safe-path.js';
 import { ensureRepoFiles, isAppendOnly, isGenerated, mergeAppendOnly, syncBrain, type SyncResult } from './sync.js';
 
 export type JoinAction = 'cloned' | 'merged' | 'imported' | 'already-joined';
@@ -69,6 +72,43 @@ export function localCopyName(path: string, host: string): string {
   return `${ext ? path.slice(0, -ext.length) : path}.local-${host}${ext}`;
 }
 
+/**
+ * Saves `content` as a conflict copy of `path` under `root` without ever replacing a file: `.local-<host>`,
+ * then `.local-<host>-2`, ... (exclusive create). An existing copy with the same content is reused.
+ */
+async function keepLocalCopy(root: string, path: string, content: Buffer, host: string): Promise<string> {
+  for (let n = 1; n <= 100; n++) {
+    const name = localCopyName(path, n === 1 ? host : `${host}-${n}`);
+    const target = join(root, name);
+    await assertSafeTarget(root, target);
+    try {
+      await writeFile(target, content, { flag: 'wx' });
+      return name;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const existing = await readFile(target).catch(() => undefined);
+      if (existing?.equals(content)) return name;
+    }
+  }
+  throw new Error(`no free name for a local copy of ${path}`);
+}
+
+/** Writes a file Edu merged, refusing any path that leaves `root` through a symbolic link. */
+async function writeInside(root: string, path: string, content: string): Promise<void> {
+  const target = join(root, path);
+  await assertSafeTarget(root, target);
+  await writeFile(target, content);
+}
+
+/** The brain folder inside `repo`; refused when the repository made it (or a folder above it) a symbolic link. */
+async function brainIn(repo: string, subdir: string | undefined): Promise<string> {
+  if (!subdir) return repo;
+  const brain = join(repo, subdir);
+  await assertSafeTarget(repo, brain);
+  await mkdir(brain, { recursive: true });
+  return brain;
+}
+
 /** `.gitignore`-style files: a clash keeps every line of both sides. */
 const isLineSet = (path: string) => /(^|\/)\.git(ignore|attributes)$/.test(path);
 
@@ -95,14 +135,21 @@ export async function joinBrain(options: JoinOptions): Promise<JoinReport> {
   }
 }
 
-async function join_(options: JoinOptions, env: NodeJS.ProcessEnv): Promise<JoinReport> {
+async function join_(options: JoinOptions, givenEnv: NodeJS.ProcessEnv): Promise<JoinReport> {
+  // A URL's credentials never reach .git/config: the remote is stored without them. A github.com token given in
+  // the URL still authenticates this join (in memory, as GH_TOKEN); later syncs need GH_TOKEN or a credential helper.
+  const credentials = withoutCredentials(options.url);
+  const url = credentials.url;
+  let env = givenEnv;
+  if (credentials.password && /^https:\/\/github\.com\//i.test(url) && !env.GH_TOKEN && !env.GITHUB_TOKEN) env = { ...env, GH_TOKEN: credentials.password };
+  const note = credentials.stripped ? ['credentials removed from the remote URL: use GH_TOKEN or a Git credential helper'] : [];
   const host = (options.host ?? `${options.cloud ? 'cloud-' : ''}${hostname().split('.')[0]}`).replace(/[^\w.-]+/g, '-');
   const branch = options.branch ?? 'main';
   const subdir = options.subdir?.replace(/[\\/]+$/, '') || undefined;
   if (subdir && (subdir.split(/[\\/]/).includes('..') || resolve('/', subdir) === resolve('/'))) throw new Error(`invalid --subdir: ${subdir}`);
   const link = join(options.eduHome, 'brain');
   const report = (action: JoinAction, repo: string, brain: string, extra: Partial<JoinReport> = {}): JoinReport =>
-    ({ action, remote: redact(options.url, env), branch, repo, brain, link, added: [], keptBoth: [], setup: [], ...extra });
+    ({ action, remote: redact(url, env), branch, repo, brain, link, added: [], keptBoth: [], setup: [...note], ...extra });
 
   let result: JoinReport;
   if (await exists(link)) {
@@ -111,16 +158,15 @@ async function join_(options: JoinOptions, env: NodeJS.ProcessEnv): Promise<Join
     if (top.code === 0 && !await isInside(current, options.eduHome, top.out.trim())) {
       const repo = top.out.trim();
       const origin = (await git(repo, ['remote', 'get-url', 'origin'], env)).out.trim();
-      if (origin && sameRemote(origin, options.url)) result = report('already-joined', repo, current);
+      if (origin && sameRemote(origin, url)) result = report('already-joined', repo, current);
       else if (origin) throw new Error(`the brain is already linked to ${redact(origin, env)}; refusing to change it`);
-      else result = report('merged', repo, current, await mergeRemote(repo, options.url, branch, host, env));
+      else result = report('merged', repo, current, await mergeRemote(repo, url, branch, host, env));
     } else if (!subdir && (!options.path || await samePath(options.path, current))) {
-      result = report('merged', current, current, await mergeRemote(current, options.url, branch, host, env));
+      result = report('merged', current, current, await mergeRemote(current, url, branch, host, env));
     } else {
       const repo = resolve(options.path ?? join(options.eduHome, 'vault'));
-      const prepared = await prepareRepo(repo, options.url, branch, host, env);
-      const brain = subdir ? join(repo, subdir) : repo;
-      await mkdir(brain, { recursive: true });
+      const prepared = await prepareRepo(repo, url, branch, host, env);
+      const brain = await brainIn(repo, subdir);
       const imported = await importInto(current, brain, host);
       await ensureRepoFiles(repo, env);
       await git(repo, ['add', '-A'], env);
@@ -138,9 +184,8 @@ async function join_(options: JoinOptions, env: NodeJS.ProcessEnv): Promise<Join
     }
   } else {
     const repo = resolve(options.path ?? (subdir ? join(options.eduHome, 'vault') : link));
-    const prepared = await prepareRepo(repo, options.url, branch, host, env);
-    const brain = subdir ? join(repo, subdir) : repo;
-    await mkdir(brain, { recursive: true });
+    const prepared = await prepareRepo(repo, url, branch, host, env);
+    const brain = await brainIn(repo, subdir);
     if (resolve(brain) !== resolve(link)) await createVaultLink(link, brain, options.platform);
     result = report(prepared.action, repo, brain, { added: prepared.added, keptBoth: prepared.keptBoth });
   }
@@ -280,14 +325,13 @@ async function mergeUpstream(dir: string, upstream: string, host: string, env: N
       const remote = await g('show', `:3:${file}`);
       const merged = remote.code === 0 && local.code === 0 ? autoMerge(file, remote.out, local.out) : undefined;
       if (merged !== undefined) {
-        await writeFile(join(dir, file), merged);
+        await writeInside(dir, file, merged);
       } else if (remote.code !== 0) {
         // Deleted upstream, kept here: keep the local file.
-        if (local.code === 0) await writeFile(join(dir, file), local.out);
+        if (local.code === 0) await writeInside(dir, file, local.out);
       } else {
         if (local.code === 0) {
-          const name = localCopyName(file, host);
-          await writeFile(join(dir, name), local.out);
+          const name = await keepLocalCopy(dir, file, Buffer.from(local.out), host);
           await g('add', '--', name);
           keptBoth.push({ path: file, local: name });
         }
@@ -314,6 +358,7 @@ async function importInto(src: string, dest: string, host: string, rel = ''): Pr
       continue;
     }
     if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+    await assertSafeTarget(dest, to);
     if (!await exists(to)) {
       await mkdir(dirname(to), { recursive: true });
       if (entry.isSymbolicLink()) await symlink(await readlink(from), to);
@@ -326,12 +371,7 @@ async function importInto(src: string, dest: string, host: string, rel = ''): Pr
     if (theirs && mine.equals(theirs)) continue;
     const merged = theirs ? autoMerge(path, theirs.toString('utf8'), mine.toString('utf8')) : undefined;
     if (merged !== undefined) { if (merged !== theirs!.toString('utf8')) await writeFile(to, merged); continue; }
-    const name = localCopyName(path, host);
-    const target = join(dest, name);
-    const previous = await readFile(target).catch(() => undefined);
-    if (previous && previous.equals(mine)) continue;
-    await copyFile(from, target);
-    out.keptBoth.push({ path, local: name });
+    out.keptBoth.push({ path, local: await keepLocalCopy(dest, path, mine, host) });
   }
   return out;
 }
