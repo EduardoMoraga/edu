@@ -76,6 +76,31 @@ describe('edu bench', () => {
     expect(out(t)).toMatch(/misses \(1\):\n {2}q4 +hopeless +rank - +expected lang/);
   }, 30_000);
 
+  it('fuses corpus alt phrasings unless --no-alt', async () => {
+    const corpus = {
+      notes: [
+        { key: 'pager', title: 'On-call escalation', body: 'When the pager fires twice in an hour, escalate to the platform lead.', tier: 'transitive', kind: 'decision' },
+        { key: 'vac', title: 'Vacaciones', body: 'Las vacaciones se piden con dos semanas de anticipación.', tier: 'transitive', kind: 'decision' },
+      ],
+      queries: [{ q: '¿a quién avisamos cuando suena el buscapersonas?', alt: ['who do we escalate to when the pager fires'], target: 'pager', class: 'cross' }],
+    };
+    const run = async (...extra: string[]) => {
+      const c = await captureContext();
+      await writeFile(join(c.dirs.cwd, 'corpus.json'), JSON.stringify(corpus));
+      await runCli(c, ['bench', 'retrieval', '--corpus', 'corpus.json', '--json', ...extra]);
+      expect(c.exitCode).toBeUndefined();
+      return JSON.parse(out(c)).retrieval;
+    };
+    const fused = await run();
+    expect(fused.queries[0]).toMatchObject({ alt: corpus.queries[0]!.alt, rank: 1 });
+    const alone = await run('--no-alt');
+    expect(alone.queries[0].alt).toBeUndefined();
+    expect(alone.queries[0].rank).not.toBe(1);
+    const d = await captureContext();
+    await runCli(d, ['bench', 'context', '--no-alt']);
+    expect(d.exitCode).toBe(1);
+  }, 30_000);
+
   it('rejects an invalid --corpus file and --corpus outside retrieval', async () => {
     const c = await captureContext();
     await writeFile(join(c.dirs.cwd, 'bad.json'), JSON.stringify({ notes: [{ key: 'a', title: 'A', body: '', tier: 'transitive', kind: 'decision' }], queries: [{ q: 'a', target: 'missing', class: 'x' }] }));

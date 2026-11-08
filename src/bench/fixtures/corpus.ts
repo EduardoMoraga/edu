@@ -41,6 +41,8 @@ export interface FixtureQuery {
   text: string;
   /** Fixture key of the note that should rank first. */
   expect: string;
+  /** Up to 3 rephrasings or translations, fused with `text` (what an agent passes as `edu_recall` alt). */
+  alt?: string[];
 }
 
 const d = (key: string, lang: FixtureNote['lang'], title: string, body: string, extra: Partial<FixtureNote> = {}): FixtureNote =>

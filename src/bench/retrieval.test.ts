@@ -50,6 +50,10 @@ describe('custom corpus parsing', () => {
     expect(corpus.version).toBe(3);
     expect(corpus.notes[0]).toEqual({ ...note, status: 'active', tags: ['x'] });
     expect(corpus.queries).toEqual([{ id: 'q1', class: 'my-class', text: 'note', expect: 'a' }]);
+    expect(parseCorpus({ notes: [note], queries: [{ q: 'nota', alt: ['note'], target: 'a', class: 'x' }] }).queries[0]?.alt).toEqual(['note']);
+    for (const alt of ['note', [''], [1], ['a', 'b', 'c', 'd']]) {
+      expect(() => parseCorpus({ notes: [note], queries: [{ q: 'nota', alt, target: 'a', class: 'x' }] })).toThrow(/alt must be/);
+    }
   });
   it('names the offending field', () => {
     expect(() => parseCorpus({ notes: [note], queries: [{ q: 'x', target: 'b', class: 'c' }] })).toThrow(/queries\[0\]\.target "b" is not a note key/);

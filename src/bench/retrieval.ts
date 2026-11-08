@@ -1,7 +1,8 @@
 /**
  * `edu bench retrieval`: recall quality of the brain on a deterministic bilingual corpus.
  *
- * Retrieval goes through `brain.recall(query, { limit: 10 })`, the same call the `edu_recall` MCP tool makes.
+ * Retrieval goes through `brain.recall(query, { limit: 10 })`, the same call the `edu_recall` MCP tool makes
+ * (`[q, ...alt]` for a corpus query with `alt` phrasings, unless disabled).
  * `recall` records exposure on the notes it returns (a write), and exposure feeds the learned weight, so every
  * query runs against a fresh copy of the seeded brain: results never depend on query order or on earlier runs,
  * and the measured latency includes the exposure write a real recall pays.
@@ -26,6 +27,8 @@ export interface QueryResult {
   /** Query class: the built-in corpus uses keyword | paraphrase | cross-language | id; a custom corpus any name. */
   class: string;
   query: string;
+  /** The alternative phrasings fused with `query`, when the corpus gave some and alts were not disabled. */
+  alt?: string[];
   /** Fixture key of the expected note (note ids of sessions carry a random suffix, keys do not). */
   expected: string;
   /** 1-based rank of the expected note in the top 10, or null when it was not returned. */
@@ -97,6 +100,8 @@ export interface RetrievalOptions {
   /** Reported corpus source and version (defaults: `builtin`, the built-in CORPUS_VERSION). */
   source?: string;
   version?: number;
+  /** Fuse each query's `alt` phrasings with it (multi-query recall). Default true; false ranks `q` alone. */
+  useAlt?: boolean;
 }
 
 export interface CustomCorpus { version: number; notes: FixtureNote[]; queries: FixtureQuery[] }
@@ -104,10 +109,13 @@ export interface CustomCorpus { version: number; notes: FixtureNote[]; queries: 
 const TIERS = new Set(['canonical', 'episodic', 'transitive']);
 const KINDS = new Set(['decision', 'hypothesis', 'commitment', 'lesson', 'identity', 'standard', 'lexicon', 'domain', 'person', 'preference', 'session']);
 const isText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
+/** A query plus its alternatives is at most the 4 variants recall fuses (as with `edu_recall` alt). */
+const MAX_ALT = 3;
 
 /**
  * Validates a `--corpus` JSON document: `{ version?, notes: [{ key, title, body, tier, kind, status?, tags?, due?,
- * lang?, legacyId?, aliases? }], queries: [{ q, target, class, id? }] }`. Class names are free-form.
+ * lang?, legacyId?, aliases? }], queries: [{ q, target, class, id?, alt? }] }`. Class names are free-form; `alt` holds
+ * up to 3 rephrasings or translations of `q`.
  */
 export function parseCorpus(raw: unknown): CustomCorpus {
   const fail = (message: string): never => { throw new Error(`Invalid corpus: ${message}`); };
@@ -150,7 +158,11 @@ export function parseCorpus(raw: unknown): CustomCorpus {
     if (!keys.has(q.target as string)) fail(`${where}.target "${String(q.target)}" is not a note key`);
     if (!isText(q.class)) fail(`${where}.class must be a non-empty string`);
     if (q.id !== undefined && !isText(q.id)) fail(`${where}.id must be a string`);
-    return { id: (q.id as string | undefined) ?? `q${index + 1}`, class: q.class as string, text: q.q as string, expect: q.target as string };
+    if (q.alt !== undefined && (!Array.isArray(q.alt) || q.alt.length > MAX_ALT || !q.alt.every(isText))) fail(`${where}.alt must be an array of at most ${MAX_ALT} non-empty strings`);
+    return {
+      id: (q.id as string | undefined) ?? `q${index + 1}`, class: q.class as string, text: q.q as string, expect: q.target as string,
+      ...(Array.isArray(q.alt) && q.alt.length ? { alt: q.alt as string[] } : {}),
+    };
   });
   return { version: (version as number | undefined) ?? 0, notes: parsedNotes, queries: parsedQueries };
 }
@@ -181,12 +193,13 @@ export async function runRetrievalBench(options: RetrievalOptions = {}): Promise
       await cp(template, root, { recursive: true });
       const brain = openBrain([{ scope: 'project', root }]);
       const started = performance.now();
-      const hits = await brain.recall(text, { limit: 10 });
+      const alt = options.useAlt !== false && query.alt?.length ? query.alt : undefined;
+      const hits = await brain.recall(alt ? [text, ...alt] : text, { limit: 10 });
       const latencyMs = performance.now() - started;
       await rm(join(base, `q${index}`), { recursive: true, force: true });
       const position = hits.findIndex(hit => hit.note.meta.id === expected);
       const top3 = hits.slice(0, 3).map(hit => keys.get(hit.note.meta.id) ?? hit.note.meta.id);
-      results.push({ id: query.id, class: query.class, query: query.text, expected: query.expect, rank: position >= 0 ? position + 1 : null, top3, latencyMs: round(latencyMs, 2) });
+      results.push({ id: query.id, class: query.class, query: query.text, ...(alt ? { alt } : {}), expected: query.expect, rank: position >= 0 ? position + 1 : null, top3, latencyMs: round(latencyMs, 2) });
     }
     const classes = [...new Set(results.map(r => r.class))];
     const byClass = Object.fromEntries(classes.map(cls => [cls, rankMetrics(results.filter(r => r.class === cls).map(r => r.rank))]));
