@@ -6,12 +6,12 @@
  * query runs against a fresh copy of the seeded brain: results never depend on query order or on earlier runs,
  * and the measured latency includes the exposure write a real recall pays.
  */
-import { cp, mkdtemp, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBrain } from '../brain/index.js';
-import type { BrainLocation } from '../core/contracts.js';
-import { CORPUS_NOTES, CORPUS_QUERIES, CORPUS_VERSION, QUERY_CLASSES, fixtureCreated, type FixtureNote, type FixtureQuery, type QueryClass } from './fixtures/corpus.js';
+import type { BrainLocation, NoteMeta } from '../core/contracts.js';
+import { CORPUS_NOTES, CORPUS_QUERIES, CORPUS_VERSION, fixtureCreated, type FixtureNote, type FixtureQuery } from './fixtures/corpus.js';
 
 export interface RankMetrics {
   n: number;
@@ -23,7 +23,8 @@ export interface RankMetrics {
 
 export interface QueryResult {
   id: string;
-  class: QueryClass;
+  /** Query class: the built-in corpus uses keyword | paraphrase | cross-language | id; a custom corpus any name. */
+  class: string;
   query: string;
   /** Fixture key of the expected note (note ids of sessions carry a random suffix, keys do not). */
   expected: string;
@@ -35,9 +36,11 @@ export interface QueryResult {
 }
 
 export interface RetrievalReport {
-  corpus: { version: number; notes: number; queries: number; byLang: Record<'es' | 'en', number> };
+  /** `source` is `builtin` or the path of a `--corpus` file; a custom corpus has version 0 unless it declares one. */
+  corpus: { source: string; version: number; notes: number; queries: number; byLang: Record<'es' | 'en', number> };
   overall: RankMetrics;
-  byClass: Record<QueryClass, RankMetrics>;
+  /** Metrics per query class, in order of first appearance. */
+  byClass: Record<string, RankMetrics>;
   latencyMs: { p50: number; p95: number };
   queries: QueryResult[];
 }
@@ -76,11 +79,11 @@ export async function seedCorpus(root: string, notes: readonly FixtureNote[] = C
     const base = { title: fixture.title, body: fixture.body, tier: fixture.tier, kind: fixture.kind, created, source: 'bench:fixture', provenance, ...(fixture.tags ? { tags: fixture.tags } : {}) };
     if (fixture.tier === 'canonical') {
       const proposed = await brain.proposeCanonical(base);
-      ids.set(fixture.key, (await brain.acceptCanonical(proposed.meta.id)).meta.id);
+      ids.set(fixture.key, fixture.status === 'proposed' ? proposed.meta.id : (await brain.acceptCanonical(proposed.meta.id)).meta.id);
     } else if (fixture.kind === 'session') {
-      ids.set(fixture.key, (await brain.write({ ...base, status: 'closed' })).meta.id);
+      ids.set(fixture.key, (await brain.write({ ...base, status: fixture.status ?? 'closed' })).meta.id);
     } else {
-      ids.set(fixture.key, (await brain.write({ ...base, ...(fixture.due ? { due: fixture.due } : {}) })).meta.id);
+      ids.set(fixture.key, (await brain.write({ ...base, ...(fixture.due ? { due: fixture.due } : {}), ...(fixture.status ? { status: fixture.status } : {}) })).meta.id);
     }
   }
   return ids;
@@ -91,6 +94,74 @@ export interface RetrievalOptions {
   tmpRoot?: string;
   queries?: readonly FixtureQuery[];
   notes?: readonly FixtureNote[];
+  /** Reported corpus source and version (defaults: `builtin`, the built-in CORPUS_VERSION). */
+  source?: string;
+  version?: number;
+}
+
+export interface CustomCorpus { version: number; notes: FixtureNote[]; queries: FixtureQuery[] }
+
+const TIERS = new Set(['canonical', 'episodic', 'transitive']);
+const KINDS = new Set(['decision', 'hypothesis', 'commitment', 'lesson', 'identity', 'standard', 'lexicon', 'domain', 'person', 'preference', 'session']);
+const isText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
+
+/**
+ * Validates a `--corpus` JSON document: `{ version?, notes: [{ key, title, body, tier, kind, status?, tags?, due?,
+ * lang?, legacyId?, aliases? }], queries: [{ q, target, class, id? }] }`. Class names are free-form.
+ */
+export function parseCorpus(raw: unknown): CustomCorpus {
+  const fail = (message: string): never => { throw new Error(`Invalid corpus: ${message}`); };
+  if (!raw || typeof raw !== 'object') fail('expected a JSON object with notes and queries');
+  const { notes, queries, version } = raw as Record<string, unknown>;
+  if (!Array.isArray(notes) || !notes.length) fail('"notes" must be a non-empty array');
+  if (!Array.isArray(queries) || !queries.length) fail('"queries" must be a non-empty array');
+  if (version !== undefined && typeof version !== 'number') fail('"version" must be a number');
+  const keys = new Set<string>();
+  const parsedNotes = (notes as unknown[]).map((entry, index): FixtureNote => {
+    const n = (entry ?? {}) as Record<string, unknown>;
+    const where = `notes[${index}]`;
+    if (!isText(n.key)) fail(`${where}.key must be a non-empty string`);
+    if (keys.has(n.key as string)) fail(`${where}.key "${String(n.key)}" is duplicated`);
+    keys.add(n.key as string);
+    if (!isText(n.title)) fail(`${where}.title must be a non-empty string`);
+    if (typeof n.body !== 'string') fail(`${where}.body must be a string`);
+    if (!TIERS.has(n.tier as string)) fail(`${where}.tier must be one of ${[...TIERS].join(', ')}`);
+    if (!KINDS.has(n.kind as string)) fail(`${where}.kind must be one of ${[...KINDS].join(', ')}`);
+    if (n.tags !== undefined && (!Array.isArray(n.tags) || !n.tags.every(isText))) fail(`${where}.tags must be an array of strings`);
+    if (n.aliases !== undefined && (!Array.isArray(n.aliases) || !n.aliases.every(isText))) fail(`${where}.aliases must be an array of strings`);
+    for (const field of ['status', 'due', 'legacyId'] as const) if (n[field] !== undefined && !isText(n[field])) fail(`${where}.${field} must be a string`);
+    if (n.lang !== undefined && n.lang !== 'es' && n.lang !== 'en') fail(`${where}.lang must be es or en`);
+    return {
+      key: n.key as string, title: n.title as string, body: n.body as string,
+      tier: n.tier as FixtureNote['tier'], kind: n.kind as FixtureNote['kind'],
+      ...(n.lang ? { lang: n.lang as 'es' | 'en' } : {}),
+      ...(n.status ? { status: n.status as NoteMeta['status'] } : {}),
+      ...(n.tags ? { tags: n.tags as string[] } : {}),
+      ...(n.due ? { due: n.due as string } : {}),
+      ...(n.legacyId ? { legacyId: n.legacyId as string } : {}),
+      ...(n.aliases ? { aliases: n.aliases as string[] } : {}),
+    };
+  });
+  const parsedQueries = (queries as unknown[]).map((entry, index): FixtureQuery => {
+    const q = (entry ?? {}) as Record<string, unknown>;
+    const where = `queries[${index}]`;
+    if (!isText(q.q)) fail(`${where}.q must be a non-empty string`);
+    if (!isText(q.target)) fail(`${where}.target must be a non-empty string`);
+    if (!keys.has(q.target as string)) fail(`${where}.target "${String(q.target)}" is not a note key`);
+    if (!isText(q.class)) fail(`${where}.class must be a non-empty string`);
+    if (q.id !== undefined && !isText(q.id)) fail(`${where}.id must be a string`);
+    return { id: (q.id as string | undefined) ?? `q${index + 1}`, class: q.class as string, text: q.q as string, expect: q.target as string };
+  });
+  return { version: (version as number | undefined) ?? 0, notes: parsedNotes, queries: parsedQueries };
+}
+
+/** Reads and validates a `--corpus` JSON file. */
+export async function loadCorpus(path: string): Promise<CustomCorpus> {
+  let raw: unknown;
+  try { raw = JSON.parse(await readFile(path, 'utf8')); } catch (error) {
+    throw new Error(`Cannot read corpus ${path}: ${(error as Error).message}`);
+  }
+  return parseCorpus(raw);
 }
 
 export async function runRetrievalBench(options: RetrievalOptions = {}): Promise<RetrievalReport> {
@@ -117,10 +188,11 @@ export async function runRetrievalBench(options: RetrievalOptions = {}): Promise
       const top3 = hits.slice(0, 3).map(hit => keys.get(hit.note.meta.id) ?? hit.note.meta.id);
       results.push({ id: query.id, class: query.class, query: query.text, expected: query.expect, rank: position >= 0 ? position + 1 : null, top3, latencyMs: round(latencyMs, 2) });
     }
-    const byClass = Object.fromEntries(QUERY_CLASSES.map(cls => [cls, rankMetrics(results.filter(r => r.class === cls).map(r => r.rank))])) as Record<QueryClass, RankMetrics>;
+    const classes = [...new Set(results.map(r => r.class))];
+    const byClass = Object.fromEntries(classes.map(cls => [cls, rankMetrics(results.filter(r => r.class === cls).map(r => r.rank))]));
     const latencies = results.map(r => r.latencyMs);
     return {
-      corpus: { version: CORPUS_VERSION, notes: notes.length, queries: queries.length, byLang: { es: notes.filter(n => n.lang === 'es').length, en: notes.filter(n => n.lang === 'en').length } },
+      corpus: { source: options.source ?? 'builtin', version: options.version ?? CORPUS_VERSION, notes: notes.length, queries: queries.length, byLang: { es: notes.filter(n => n.lang === 'es').length, en: notes.filter(n => n.lang === 'en').length } },
       overall: rankMetrics(results.map(r => r.rank)),
       byClass,
       latencyMs: { p50: round(percentile(latencies, 50), 2), p95: round(percentile(latencies, 95), 2) },

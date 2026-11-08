@@ -42,6 +42,50 @@ describe('edu bench', () => {
     expect(grade.checks).toHaveLength(5);
   });
 
+  it('runs retrieval on a --corpus JSON file with free-form classes and lists misses', async () => {
+    const c = await captureContext();
+    const corpus = {
+      notes: [
+        { key: 'lock', title: 'Use advisory locks for the scheduler', body: 'Workers take a Postgres advisory lock before a job runs.', tier: 'transitive', kind: 'decision', tags: ['jobs'] },
+        { key: 'invoice', title: 'Facturación mensual', body: 'Las facturas se emiten el día 25.', tier: 'transitive', kind: 'lesson', status: 'proven' },
+        { key: 'lang', title: 'Respond in Spanish', body: 'Replies to the owner are in Spanish.', tier: 'canonical', kind: 'preference' },
+      ],
+      queries: [
+        { q: 'advisory lock scheduler', target: 'lock', class: 'exact' },
+        { q: 'facturas día 25', target: 'invoice', class: 'exact' },
+        { q: 'monthly invoices', target: 'invoice', class: 'bridge' },
+        { q: 'nothing matches zzzz', target: 'lang', class: 'hopeless' },
+      ],
+    };
+    await writeFile(join(c.dirs.cwd, 'corpus.json'), JSON.stringify(corpus));
+    await runCli(c, ['bench', 'retrieval', '--corpus', 'corpus.json', '--json']);
+    expect(c.exitCode).toBeUndefined();
+    const report = JSON.parse(out(c)).retrieval;
+    expect(report.corpus).toMatchObject({ source: 'corpus.json', version: 0, notes: 3, queries: 4 });
+    expect(Object.keys(report.byClass)).toEqual(['exact', 'bridge', 'hopeless']);
+    expect(report.byClass.exact).toMatchObject({ n: 2, recallAt1: 1 });
+    expect(report.byClass.bridge.recallAt1).toBe(1);
+    expect(report.byClass.hopeless).toMatchObject({ n: 1, recallAt10: 0, mrr: 0 });
+    expect(report.overall).toMatchObject({ n: 4, recallAt1: 0.75 });
+    expect(report.queries.map((q: { id: string }) => q.id)).toEqual(['q1', 'q2', 'q3', 'q4']);
+
+    const t = await captureContext();
+    await writeFile(join(t.dirs.cwd, 'corpus.json'), JSON.stringify(corpus));
+    await runCli(t, ['bench', 'retrieval', '--corpus', 'corpus.json', '--misses']);
+    expect(out(t)).toContain('corpus corpus.json: 3 notes');
+    expect(out(t)).toMatch(/misses \(1\):\n {2}q4 +hopeless +rank - +expected lang/);
+  }, 30_000);
+
+  it('rejects an invalid --corpus file and --corpus outside retrieval', async () => {
+    const c = await captureContext();
+    await writeFile(join(c.dirs.cwd, 'bad.json'), JSON.stringify({ notes: [{ key: 'a', title: 'A', body: '', tier: 'transitive', kind: 'decision' }], queries: [{ q: 'a', target: 'missing', class: 'x' }] }));
+    await runCli(c, ['bench', 'retrieval', '--corpus', 'bad.json']);
+    expect(c.exitCode).toBe(1);
+    const d = await captureContext();
+    await runCli(d, ['bench', 'context', '--corpus', 'bad.json']);
+    expect(d.exitCode).toBe(1);
+  });
+
   it('rejects unknown suites and misplaced activation flags', async () => {
     const c = await captureContext();
     await runCli(c, ['bench', 'nope']);
