@@ -34,18 +34,31 @@ async function nativeFixture(platform: NodeJS.Platform = 'linux', baseline: stri
   await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot, native: ['codex'], fallback: [] }));
   const other = join(home, 'codex home/plugins/cache/other/other/custom.txt'); await mkdir(dirname(other), { recursive: true }); await writeFile(other, 'OTHER CUSTOM');
   const calls: string[] = []; let installedVersion = baseline; let mode = 'ok'; let registeredRoot = packageRoot;
+  // Host registration state, with one-shot failure injection; `failRest` also fails every later mutation (rollback).
+  let pluginPresent = true; let marketPresent = true; const failing = new Set<string>(); let failRest = false; let failed = false;
   const runner: SetupRunner = async c => {
     const args = c.args.join(' '); calls.push(args);
+    const mutating = !args.startsWith('plugin list') && args !== '--version';
+    if (mutating && (failing.delete(args) || (failRest && failed))) { failed = true; return { exitCode: 1, stderr: 'injected host failure' }; }
     if (mode === 'throw' && args === 'plugin add edu@edu --json') throw new Error('spawn failed');
     if (args === '--version') return { exitCode: 0, stdout: mode === 'old-host' ? 'codex-cli 0.162.0' : mode === 'newer' ? 'codex-cli 0.167.0' : 'codex-cli 0.163.0' };
     if (args.startsWith('plugin list')) {
       const root = mode === 'origin' ? '/another/package' : registeredRoot;
-      return { exitCode: 0, stdout: JSON.stringify({ installed: [{ pluginId: 'edu@edu', name: 'edu', marketplaceName: 'edu', version: installedVersion, installed: true, enabled: true, source: { source: 'local', path: join(root, 'plugins/codex') }, marketplaceSource: { sourceType: mode === 'remote-source' ? 'git' : 'local', source: root } }] }) };
+      return { exitCode: 0, stdout: JSON.stringify({ installed: pluginPresent ? [{ pluginId: 'edu@edu', name: 'edu', marketplaceName: 'edu', version: installedVersion, installed: true, enabled: true, source: { source: 'local', path: join(root, 'plugins/codex') }, marketplaceSource: { sourceType: mode === 'remote-source' ? 'git' : 'local', source: root } }] : [] }) };
     }
-    if (args === 'plugin remove edu@edu') { await rm(base, { recursive: true, force: true }); return { exitCode: 0 }; }
-    if (args === 'plugin marketplace remove edu') return { exitCode: 0 };
-    if (args.startsWith('plugin marketplace add ')) { registeredRoot = c.args[3]!; return { exitCode: 0 }; }
+    if (args === 'plugin remove edu@edu') { if (!pluginPresent) return { exitCode: 1, stderr: 'not installed' }; await rm(base, { recursive: true, force: true }); pluginPresent = false; return { exitCode: 0 }; }
+    if (args === 'plugin marketplace remove edu') { if (!marketPresent) return { exitCode: 1, stderr: 'not found' }; marketPresent = false; return { exitCode: 0 }; }
+    if (args.startsWith('plugin marketplace add ')) { if (marketPresent) return { exitCode: 1, stderr: 'already exists' }; registeredRoot = c.args[3]!; marketPresent = true; return { exitCode: 0 }; }
     expect(args).toBe('plugin add edu@edu --json');
+    if (!marketPresent) return { exitCode: 1, stderr: 'no marketplace' };
+    if (registeredRoot !== packageRoot) {
+      // Re-adding a previous package root (rollback): the host copies that root's plugin.
+      const from = join(registeredRoot, 'plugins/codex');
+      const previous = JSON.parse(await readFile(join(from, '.codex-plugin/plugin.json'), 'utf8')).version;
+      await rm(base, { recursive: true, force: true }); await cp(from, join(base, previous), { recursive: true });
+      installedVersion = previous; pluginPresent = true;
+      return { exitCode: 0, stdout: JSON.stringify({ pluginId: 'edu@edu', version: previous, installedPath: join(base, previous) }) };
+    }
     // Native mutation cannot begin until the original cache is backed up.
     const backups = await readdir(join(brainRoot, 'backups')); let found = false;
     for (const backup of backups) {
@@ -59,12 +72,22 @@ async function nativeFixture(platform: NodeJS.Platform = 'linux', baseline: stri
     expect(JSON.parse(await readFile(join(source, '.mcp.json'), 'utf8'))).toEqual({ mcpServers: { edu: launch } });
 
     if (mode === 'failure') return { exitCode: 1, stderr: 'simulated host failure' };
-    if (mode !== 'retained-old') await rm(base, { recursive: true, force: true }); await cp(source, nextRoot, { recursive: true }); installedVersion = manifest.version;
+    if (mode !== 'retained-old') await rm(base, { recursive: true, force: true }); await cp(source, nextRoot, { recursive: true }); installedVersion = manifest.version; pluginPresent = true;
     if (mode === 'corrupt') await writeFile(join(nextRoot, 'skills/edu-brief/SKILL.md'), 'STALE');
     return { exitCode: 0, stdout: JSON.stringify({ pluginId: 'edu@edu', version: manifest.version, installedPath: mode === 'wrong-path' ? '/other/cache' : nextRoot }) };
   };
   const run = async () => applySetup(await planSetup({ home, packageRoot, clis: ['codex'], runner }), { runner, brainRoot, platform });
-  return { home, brainRoot, packageRoot, runner, source, base, oldRoot, nextRoot, other, calls, run, files, setRegisteredRoot: (value: string) => { registeredRoot = value; }, setInstalledVersion: (value: string) => { installedVersion = value; }, setMode: (value: string) => { mode = value; } };
+  return { home, brainRoot, packageRoot, runner, source, base, oldRoot, nextRoot, other, calls, run, files, setRegisteredRoot: (value: string) => { registeredRoot = value; }, setInstalledVersion: (value: string) => { installedVersion = value; }, setMode: (value: string) => { mode = value; },
+  failOnce: (args: string) => { failing.add(args); }, failRollback: (value: boolean) => { failRest = value; failed = false; },
+  host: () => ({ plugin: pluginPresent, marketplace: marketPresent, root: registeredRoot, version: installedVersion }),
+  /** A previous package root on disk (as a Node manager leaves it), holding the published `baseline` plugin. */
+  oldPackage: async () => {
+    const root = join(home, 'old-node/lib/node_modules/edu-agent');
+    for (const [path, content] of Object.entries(files)) { await mkdir(dirname(join(root, 'plugins/codex', path)), { recursive: true }); await writeFile(join(root, 'plugins/codex', path), content); }
+    registeredRoot = root;
+    await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot: root, native: ['codex'], fallback: [] }));
+    return root;
+  } };
 }
 async function backedUp(brainRoot: string, path: string): Promise<string | undefined> {
   for (const backup of await readdir(join(brainRoot, 'backups'))) {
@@ -266,4 +289,74 @@ it.each(['after-preflight', 'during-backup'] as const)('rechecks source and cach
   }
 });
 
+});
+
+const recoveryFile = (home: string) => join(home, '.edu/state/plugin-recovery.json');
+const present = (path: string) => readFile(path).then(() => true, () => false);
+const mutations = (calls: string[]) => calls.filter(c => !c.startsWith('plugin list') && c !== '--version');
+it('upgrades a normal 4.x cache (no recorded baseline) at an unchanged root through a backed-up remove + add', async () => {
+  const f = await nativeFixture('linux', '0.10.2');
+  await cp(f.oldRoot, join(f.base, '4.1.0'), { recursive: true }); f.setInstalledVersion('4.1.0');
+  await f.run();
+  expect(mutations(f.calls)).toEqual(['plugin remove edu@edu', 'plugin add edu@edu --json']);
+  expect(await backedUp(f.brainRoot, join(f.base, '4.1.0/.codex-plugin/plugin.json'))).toBe(f.files['.codex-plugin/plugin.json']);
+  expect(f.host()).toEqual({ plugin: true, marketplace: true, root: f.packageRoot, version: candidateVersion });
+  expect(await present(recoveryFile(f.home))).toBe(false);
+});
+it('rolls back a failed same-root reinstall to the previous registration', async () => {
+  const f = await nativeFixture('linux', '0.10.2');
+  await writeFile(join(f.oldRoot, 'skills/edu-brief/SKILL.md'), 'CUSTOM');
+  f.failOnce('plugin add edu@edu --json');
+  await expect(f.run()).rejects.toThrow(/native refresh failed.*rolled back/i);
+  expect(f.host()).toMatchObject({ plugin: true, marketplace: true, root: f.packageRoot });
+  expect(await present(recoveryFile(f.home))).toBe(false);
+});
+
+describe('relocation rollback', () => {
+  const steps = (root: string) => ['plugin remove edu@edu', 'plugin marketplace remove edu', `plugin marketplace add ${root}`, 'plugin add edu@edu --json'];
+  it.each([0, 1, 2, 3])('restores the previous registration when destructive step %i fails', async index => {
+    const f = await nativeFixture('linux', '0.10.2');
+    const old = await f.oldPackage();
+    f.failOnce(steps(f.packageRoot)[index]!);
+    await expect(f.run()).rejects.toThrow(/native refresh failed.*rolled back.*registration/i);
+    expect(f.host()).toEqual({ plugin: true, marketplace: true, root: old, version: '0.10.2' });
+    expect(await readFile(join(f.base, '0.10.2/.codex-plugin/plugin.json'), 'utf8')).toBe(f.files['.codex-plugin/plugin.json']);
+    expect(await present(recoveryFile(f.home))).toBe(false);
+    expect(JSON.parse(await readFile(join(f.brainRoot, 'plugin-setup.json'), 'utf8')).packageRoot).toBe(old);
+  });
+  it('restores the previous registration when post-install validation fails', async () => {
+    const f = await nativeFixture('linux', '0.10.2');
+    const old = await f.oldPackage();
+    f.setMode('corrupt');
+    await expect(f.run()).rejects.toThrow(/native refresh failed.*rolled back/i);
+    expect(f.host()).toEqual({ plugin: true, marketplace: true, root: old, version: '0.10.2' });
+  });
+  it('keeps a recovery record with exact restore commands when rollback fails, and the next setup repairs it', async () => {
+    const f = await nativeFixture('linux', '0.10.2');
+    const old = await f.oldPackage();
+    f.failOnce('plugin add edu@edu --json'); f.failRollback(true);
+    const error = await f.run().then(() => undefined, (e: Error) => e);
+    expect(error?.message).toMatch(/rollback failed/i);
+    expect(error?.message).toContain(recoveryFile(f.home));
+    expect(error?.message).toContain(`codex plugin marketplace add ${old} && codex plugin add edu@edu --json`);
+    const record = JSON.parse(await readFile(recoveryFile(f.home), 'utf8'));
+    expect(record.hosts.codex).toMatchObject({ previous: { root: old, version: '0.10.2' }, target: f.packageRoot });
+    expect(f.host()).toMatchObject({ plugin: false });
+    // The next setup repairs the registration first (the old root still exists), then relocates again.
+    f.failRollback(false);
+    await f.run();
+    expect(f.host()).toEqual({ plugin: true, marketplace: true, root: f.packageRoot, version: candidateVersion });
+    expect(await present(recoveryFile(f.home))).toBe(false);
+  });
+  it('repairs toward the current package when the previous root is gone', async () => {
+    const f = await nativeFixture('linux', '0.10.2');
+    const old = await f.oldPackage();
+    f.failOnce('plugin add edu@edu --json'); f.failRollback(true);
+    await expect(f.run()).rejects.toThrow(/rollback failed/i);
+    await rm(old, { recursive: true });
+    f.failRollback(false);
+    await f.run();
+    expect(f.host()).toMatchObject({ plugin: true, marketplace: true, root: f.packageRoot, version: candidateVersion });
+    expect(await present(recoveryFile(f.home))).toBe(false);
+  });
 });
