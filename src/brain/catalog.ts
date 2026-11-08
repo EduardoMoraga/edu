@@ -21,7 +21,7 @@ const SUMMARY_MAX = 120;
 const TIER_ORDER: Tier[] = ['canonical', 'transitive', 'episodic'];
 
 /** Operations recorded in `log.md`. `status:<new>` for other lifecycle changes, `maintain:<new>` for maintenance. */
-export type LogOp = 'write' | 'supersede' | 'accept' | 'reject' | 'close-session' | `status:${string}` | `maintain:${string}`;
+export type LogOp = 'write' | 'supersede' | 'accept' | 'reject' | 'close-session' | `status:${string}` | `maintain:${string}` | `move:${string}`;
 
 export interface LogEntry { at: string; op: string; id: string; title: string }
 

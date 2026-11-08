@@ -1,10 +1,10 @@
-/** `edu brain status|recall|remember|maintain|tidy|lint|import|link|proposals|approve`. */
+/** `edu brain status|recall|read|remember|share|maintain|tidy|lint|import|link|proposals|approve`. */
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { autoMaintain } from '../../brain/auto-maintain.js';
 import { listCanonicalProposals, reviewCanonicalProposals } from '../../brain/proposals.js';
 import { LINT_KINDS, lintBrain, type LintReport } from '../../brain/lint.js';
-import { brainPath } from '../../brain/location.js';
+import { brainPath, isInside } from '../../brain/location.js';
 import { TIDY_KINDS, applyTidy, loadTidyPlan, planTidy, saveTidyPlan } from '../../brain/tidy.js';
 import type { ClaimBand, TransitiveKind } from '../../core/contracts.js';
 import type { CliContext } from '../context.js';
@@ -160,6 +160,33 @@ export function registerBrain(program: Command, ctx: CliContext): void {
         });
         if (g.json || opts.json) return printJson(ctx, { id: note.meta.id, path: note.path });
         ctx.out(t(g.lang, 'brain.remembered', { id: note.meta.id }));
+      }),
+    );
+
+  brain
+    .command('share')
+    .description('move a note to the shared global brain (default) or back to this project, keeping its id')
+    .argument('<id>', 'note id, alias, unique prefix or exact title')
+    .option('--to <scope>', 'global | project', 'global')
+    .option('--json', 'machine-readable output')
+    .action(
+      action<{ to?: string; json?: boolean }>(ctx, async ({ g, opts }, reference) => {
+        const scope = oneOf(opts.to ?? 'global', ['global', 'project'] as const, '--to');
+        const ws = await openWorkspace(ctx, g.cwd);
+        const target = ws.locations.find(loc => loc.scope === scope);
+        const es = g.lang === 'es';
+        if (!target || !(await exists(join(target.root, 'EDU.md')))) {
+          throw new Error(scope === 'global'
+            ? (es ? 'No hay cerebro global inicializado — ejecuta: edu init --global' : 'No global brain found — run: edu init --global')
+            : (es ? 'No hay cerebro de proyecto aquí — ejecuta: edu init' : 'No project brain here — run: edu init'));
+        }
+        const result = await ws.brain.resolve(reference ?? '');
+        if (!result) throw new Error(t(g.lang, 'brain.readMissing', { reference: reference ?? '' }));
+        if ('candidates' in result) throw new Error(`${t(g.lang, 'brain.readAmbiguous', { reference: reference ?? '', via: result.via, count: result.candidates.length })} ${result.candidates.map(note => note.meta.id).join(', ')}`);
+        const from = ws.locations.find(loc => isInside(brainPath(loc), result.note.path))?.scope ?? ws.primary.scope;
+        const moved = await ws.brain.move(result.note.meta.id, target.root);
+        if (g.json || opts.json) return printJson(ctx, { id: moved.meta.id, from, to: scope, path: moved.path });
+        ctx.out(es ? `Compartida ${moved.meta.id}: ${from} → ${scope} (${moved.path})` : `Shared ${moved.meta.id}: ${from} → ${scope} (${moved.path})`);
       }),
     );
 

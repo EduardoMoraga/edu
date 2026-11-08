@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import type { BrainLocation, CanonicalKind, ClaimBand, FeedbackContext, Note, NoteMeta, NoteOrigin, RecallHit, Tier } from '../core/contracts.js';
 import { brainPath, isInside } from './location.js';
 import { writeObsidianViews, type ViewOptions } from './views.js';
-import { INDEX_DIR, NoteConflictError, atomicWrite, contentHash, createId, encodeNote, notePath, overlayNotes, readNote, slugify } from './store.js';
+import { INDEX_DIR, NoteConflictError, atomicWrite, contentHash, createId, encodeNote, listLocation, notePath, overlayNotes, readNote, slugify } from './store.js';
 import { withUsageLock } from './note-lock.js';
 import { assertDecisionReversion, isClosedEpisode, validateTransition, validateStatus } from './lifecycle.js';
 import { assertFeedbackContext, feedbackUsage, applyLearning } from './learning.js';
@@ -108,6 +108,13 @@ export interface Brain {
   discardEmptySession(id: string): Promise<boolean>;
   rebuildIndex(): Promise<void>;
   stats(): Promise<BrainStats>;
+  /**
+   * Moves a note to another location of this brain (e.g. project → global), keeping its id, file content and
+   * frontmatter verbatim; its machine-local exposure follows it. Under the locks of both roots: refused when the
+   * target already has the id (or the file), or for an open session. The target is written and read back first;
+   * the source file is removed only after that. Both brains log `move:<target scope>` and get a fresh catalog.
+   */
+  move(id: string, targetRoot: string): Promise<Note>;
 }
 
 const fallbackEdu = `# EDU\n\nEdu is the durable, engine-independent memory contract.\n\n- Keep canonical notes human-confirmed.\n- Never edit closed session notes.\n- Record decisions as new notes when they change.\n`;
@@ -551,6 +558,37 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       await atomicWrite(join(brainPath(primary), INDEX_DIR, 'INDEX.md'), `${lines.join('\n')}\n`);
       await writeCatalog(brainPath(primary), notes, note => note.meta.source !== REJECT_SOURCE);
       await writeObsidianViews(primary, viewOptions);
+    },
+    async move(id, targetRoot) {
+      const target = locations.find(loc => resolve(loc.root) === resolve(targetRoot));
+      if (!target) throw new Error(`Not a location of this brain: ${targetRoot}`);
+      const seen = await find(id); if (!seen) throw new Error(`Note not found: ${id}`);
+      const source = locationOf(seen.path);
+      if (source === target) throw new Error(`${id} is already in the ${target.scope} brain (${target.root})`);
+      const moved = await withRoots([source.root, target.root], async () => {
+        const current = (await listLocation(source)).find(note => note.meta.id === id);
+        if (!current) throw new Error(`Note not found in the ${source.scope} brain: ${id}`);
+        if (current.meta.kind === 'session' && current.meta.status === 'open-session') throw new Error(`${id} is an open session; close it before moving it`);
+        if ((await listLocation(target)).some(note => note.meta.id === id)) throw new Error(`Note id already exists in the ${target.scope} brain: ${id}; nothing was moved`);
+        const path = notePath(brainPath(target), current.meta, new Date(current.meta.created));
+        if (await pathExists(path)) throw new Error(`${path} already exists; nothing was moved`);
+        await atomicWrite(path, await readFile(current.path, 'utf8'));
+        const copy = await readNote(path);
+        if (copy?.meta.id !== id) { await rm(path, { force: true }); throw new Error(`The copy of ${id} in the ${target.scope} brain could not be read back; nothing was moved`); }
+        const exposure = (await readLedger(source.root)).notes[id];
+        if (exposure) {
+          await updateLedger(target.root, ledger => { if (ledger.notes[id]) return false; ledger.notes[id] = exposure; return true; });
+          await updateLedger(source.root, ledger => { delete ledger.notes[id]; return true; });
+        }
+        await rm(current.path);
+        return copy;
+      });
+      for (const loc of [source, target]) await appendLog(brainPath(loc), { op: `move:${target.scope}`, id, title: moved.meta.title });
+      for (const loc of [source, target]) {
+        if (loc === primary) await this.rebuildIndex();
+        else await writeCatalog(brainPath(loc), await overlayNotes(locations.slice(locations.indexOf(loc))), note => note.meta.source !== REJECT_SOURCE);
+      }
+      return (await withExposure([moved]))[0]!;
     },
     async stats() {
       const notes = await all();

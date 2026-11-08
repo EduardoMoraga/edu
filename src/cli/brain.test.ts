@@ -231,4 +231,33 @@ describe('edu context / proposals / doctor', () => {
     expect(out(c)).toContain('warnings 1');
     expect(c.stderr.join('\n')).toMatch(/warning: .*L-007_broken\.md: invalid-frontmatter/);
   });
+
+  it('share moves a note to the global brain and back, and needs an initialized global brain', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'remember', 'Prefer', 'small', 'diffs', '--body', 'Small diffs get reviewed faster.']);
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'share', 'L-prefer-small-diffs']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('edu init --global');
+    c.exitCode = undefined; c.stderr.length = 0;
+
+    await runCli(c, ['init', '--global']);
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'share', 'Prefer small diffs', '--json']);
+    expect(c.exitCode).toBeUndefined();
+    const shared = JSON.parse(out(c));
+    expect(shared).toMatchObject({ id: 'L-prefer-small-diffs', from: 'project', to: 'global' });
+    expect(shared.path.startsWith(c.dirs.eduHome)).toBe(true);
+    expect(await openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]).read('L-prefer-small-diffs')).toBeUndefined();
+    c.stdout.length = 0;
+
+    await runCli(c, ['brain', 'share', 'L-prefer-small-diffs']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('already in the global brain');
+    c.exitCode = undefined; c.stderr.length = 0;
+
+    await runCli(c, ['brain', 'share', 'L-prefer-small-diffs', '--to', 'project']);
+    expect(c.exitCode).toBeUndefined();
+    expect(out(c)).toMatch(/Shared L-prefer-small-diffs: global → project/);
+  });
 });
