@@ -1,9 +1,6 @@
 ---
-id: reviewer
-title: Reviewer
-icon: ⚖
-mission: Check the change against the goal and return a clear verdict, pass or fix.
-autonomy: readonly
+name: reviewer
+description: "Check the change against the goal and return a clear verdict, pass or fix."
 ---
 
 # Reviewer

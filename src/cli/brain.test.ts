@@ -24,6 +24,14 @@ describe('edu brain', () => {
     expect(hits[0]).toMatchObject({ title: 'Use atomic writes', tier: 'transitive' });
     c.stdout.length = 0;
 
+    await runCli(c, ['brain', 'recall', 'escrituras', 'zzqx', '--alt', 'temp file rename', '--alt', 'atomic', '--json']);
+    expect(JSON.parse(out(c))[0]).toMatchObject({ title: 'Use atomic writes' });
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'recall', 'x', '--alt', 'a', '--alt', 'b', '--alt', 'c', '--alt', 'd']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('--alt');
+    c.exitCode = undefined; c.stderr.length = 0; c.stdout.length = 0;
+
     await runCli(c, ['brain', 'status', '--json']);
     const status = JSON.parse(out(c));
     expect(status.total).toBe(1);
@@ -230,5 +238,57 @@ describe('edu context / proposals / doctor', () => {
     await runCli(c, ['brain', 'import', 'albert', 'vault']);
     expect(out(c)).toContain('warnings 1');
     expect(c.stderr.join('\n')).toMatch(/warning: .*L-007_broken\.md: invalid-frontmatter/);
+  });
+
+  it('remember compiles the note: links, possible conflicts with a supersedes hint, redactions, fresh catalog', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'remember', 'Store', 'sessions', 'in', 'Redis', '--kind', 'decision', '--body', 'Session storage uses Redis with a one hour expiry.']);
+    const first = out(c).match(/Remembered (D-\S+)/)![1]!;
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'remember', 'Store', 'sessions', 'in', 'Postgres', '--kind', 'decision', '--body', 'Session storage uses Postgres with a one hour expiry.']);
+    const text = out(c);
+    expect(text).toMatch(/Remembered D-/);
+    expect(text).toContain(`Linked: ${first}`);
+    expect(text).toMatch(new RegExp(`Possible conflict: ${first} .*consider supersedes: ${first}`));
+    const catalog = await readFile(join(c.dirs.cwd, '.edu', 'brain', '0-index', 'catalog.md'), 'utf8');
+    expect(catalog).toContain('Store sessions in Postgres');
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'remember', 'Store', 'sessions', 'in', 'Valkey', '--kind', 'decision', '--body', 'Session storage uses Valkey with a one hour expiry.', '--json']);
+    const json = JSON.parse(out(c));
+    expect(json).toMatchObject({ id: expect.stringMatching(/^D-/), report: { redacted: [] } });
+    expect(json.report.linked.length).toBeGreaterThan(0);
+    expect(Array.isArray(json.report.possibleConflicts)).toBe(true);
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'remember', 'Rotate', 'the', 'staging', 'database', '--body', 'Old value was password="correct horse battery staple".']);
+    expect(out(c)).toMatch(/Redacted secrets \(assignment\)/);
+  });
+
+  it('share moves a note to the global brain and back, and needs an initialized global brain', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'remember', 'Prefer', 'small', 'diffs', '--body', 'Small diffs get reviewed faster.']);
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'share', 'L-prefer-small-diffs']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('edu init --global');
+    c.exitCode = undefined; c.stderr.length = 0;
+
+    await runCli(c, ['init', '--global']);
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'share', 'Prefer small diffs', '--json']);
+    expect(c.exitCode).toBeUndefined();
+    const shared = JSON.parse(out(c));
+    expect(shared).toMatchObject({ id: 'L-prefer-small-diffs', from: 'project', to: 'global' });
+    expect(shared.path.startsWith(c.dirs.eduHome)).toBe(true);
+    expect(await openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]).read('L-prefer-small-diffs')).toBeUndefined();
+    c.stdout.length = 0;
+
+    await runCli(c, ['brain', 'share', 'L-prefer-small-diffs']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('already in the global brain');
+    c.exitCode = undefined; c.stderr.length = 0;
+
+    await runCli(c, ['brain', 'share', 'L-prefer-small-diffs', '--to', 'project']);
+    expect(c.exitCode).toBeUndefined();
+    expect(out(c)).toMatch(/Shared L-prefer-small-diffs: global → project/);
   });
 });

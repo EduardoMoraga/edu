@@ -5,6 +5,18 @@ export function getCapabilities(version = packageVersion()) {
   return {
     version,
     features: [
+      'edu bench: deterministic retrieval (ES/EN recall@k, MRR), context cost (brief and MCP tool tokens, brief stability) and a live-agent activation scenario',
+      'Bilingual recall: light ES/EN stemming, an ES-EN term bridge and a fuzzy fallback; no new dependency or server',
+      'Cache-stable session brief: content-only ordering, volatile sections last, a pointer to 0-index/catalog.md',
+      'Recall and injection exposure live in a machine-local ledger, not in note files (no sync churn); feedback stays in the note',
+      'Compile on write: edu_remember accepts links and supersedes, links related notes and reports possible conflicts; 0-index/catalog.md and an append-only 0-index/log.md',
+      'edu brain lint: read-only health check (contradictions, stale claims, orphans, missing pages, duplicates)',
+      'edu dream: nightly reviewable consolidation plan over every host\'s sessions; nothing applies until you tick it',
+      'Hash-guarded writes (edu_read shows the hash, expected_hash refuses a stale update) and provenance (host, agent, session)',
+      'Secrets are redacted before any note is written',
+      'edu join <repo>: attach a machine or cloud sandbox to the shared brain in one command',
+      'edu brain share <id>: move a note to the global brain (or back) with the same id',
+      'edu create proposes every extracted canonical note for approval, verified or not',
       'edu sync: one Git sync for every machine; generated files and counter-only conflicts never block, real conflicts go to a sync-conflict branch',
       'edu sync --install schedules it (systemd user timer or macOS LaunchAgent); --status and edu doctor report the last run',
       'edu brain tidy: a reviewable plan for empty sessions, stale hypotheses and broken links with a known target, applied with a backup',
@@ -30,8 +42,10 @@ export function getCapabilities(version = packageVersion()) {
       'Explicitly approved baseline/candidate experiments retain frozen-input and artifact evidence',
     ],
     limitations: [
+      'Secret redaction is pattern-based and best effort; it is not a data-loss-prevention system.',
+      'edu brain share moves a note between this machine\'s project and global brains; other projects lose a note moved into one project.',
       'edu sync resolves only generated files and counter-only differences; other conflicts wait on a sync-conflict branch for a person or agent to merge.',
-      '4.0.0 builds on the 3.0 candidate; what was verified and what was not is in docs/edu-4.0.md.',
+      '5.0.0 builds on 4.x; what was measured and verified, and what was not, is in docs/edu-5.0.md.',
       'edu brain tidy never confirms or refutes a hypothesis: stale ones become no-evidence; accepted canonical notes and closed episodes are reported, not edited.',
       'Crew redaction is best effort and may withhold long lines; run logs retain raw local evidence.',
       'Run budgets cover Edu-owned invocations, not native CLI tools, descendants, provider cost or internal turns.',
@@ -47,7 +61,7 @@ export function getCapabilities(version = packageVersion()) {
       'Experiments run only trusted approved commands; artifact matches do not prove general quality or causal benefit.',
       'Experiments do not automatically invoke models, adopt candidates or grant verified learning credit.',
     ],
-    commands: ['edu doctor --integrations --json', 'edu run --resume <runId>', 'edu --version', 'edu capabilities --json', 'edu brief', 'edu brain recall', 'edu brain tidy', 'edu brain tidy --apply', 'edu sync', 'edu sync --status', 'edu sync --install', 'edu reflect --since 7d', 'edu eval suite --json', 'edu experiment inspect <manifest>', 'edu experiment run <manifest> --approve <sha256> --evidence <directory>', 'edu update --check', 'edu internal migrate-workspaces --json'],
+    commands: ['edu doctor --integrations --json', 'edu run --resume <runId>', 'edu --version', 'edu capabilities --json', 'edu brief', 'edu brain recall', 'edu brain tidy', 'edu brain tidy --apply', 'edu brain lint', 'edu brain share <id> --to global|project', 'edu bench', 'edu bench context --json', 'edu dream', 'edu dream --apply', 'edu join <repo-url>', 'edu sync', 'edu sync --status', 'edu sync --install', 'edu reflect --since 7d', 'edu eval suite --json', 'edu experiment inspect <manifest>', 'edu experiment run <manifest> --approve <sha256> --evidence <directory>', 'edu update --check', 'edu internal migrate-workspaces --json'],
     restartRequired: true,
   };
 }

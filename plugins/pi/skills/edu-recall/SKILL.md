@@ -13,7 +13,8 @@ description: "Search the Edu second brain for past decisions, lessons, conventio
 ## Steps
 
 1. Call `edu_recall` with a short topic `query` (add `tiers` such as `["transitive"]`
-   or `["canonical"]` to narrow it; `limit` defaults to 10).
+   or `["canonical"]` to narrow it; `limit` defaults to 10). When the brain mixes languages,
+   pass the question in both Spanish and English via `alt`.
 2. Pick at most three relevant hits and open them with `edu_read` by id.
 3. Answer from those notes. If a note clearly helped or misled, call `edu_feedback`
    with its `id` and `helpful: true|false`. Feedback is advisory opinion, not externally

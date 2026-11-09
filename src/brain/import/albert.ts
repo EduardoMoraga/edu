@@ -136,7 +136,12 @@ function findExisting(notes: Note[], origin: string, mapping: Pick<NewNote, 'tie
     ?? notes.find(note => !note.meta.origin && note.meta.source?.startsWith(SOURCE) && note.meta.tier === mapping.tier && note.meta.kind === mapping.kind && note.meta.title === title);
 }
 
+/** Imports in one batch: the catalog is rebuilt once at the end, not after every note. */
 export async function importAlbert(sourceRoot: string, brain: Brain): Promise<ImportReport> {
+  return brain.batch ? brain.batch(() => importAlbertUnbatched(sourceRoot, brain)) : importAlbertUnbatched(sourceRoot, brain);
+}
+
+async function importAlbertUnbatched(sourceRoot: string, brain: Brain): Promise<ImportReport> {
   const root = await resolveAlbertRoot(sourceRoot);
   const files = [
     ...(await markdownFiles(join(root, '1-CANONICO'))),

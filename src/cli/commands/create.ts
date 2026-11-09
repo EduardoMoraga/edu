@@ -23,7 +23,7 @@ const M = {
     fallback: '{cli} no devolvió un JSON válido ({error}); uso la extracción por títulos.',
     created: 'Espacio de {name} listo en {root}',
     added: 'Agregado al cerebro {brain}',
-    notes: 'Notas: {accepted} aceptadas · {proposed} propuestas para aprobar · {terms} términos de glosario · {playbooks} playbooks',
+    notes: 'Notas: {proposed} propuestas para aprobar (edu brain proposals / approve) · {terms} términos de glosario · {playbooks} playbooks',
     sources: 'Fuentes copiadas a {dir}: {list}',
     mode: { llm: 'Extracción: {cli}', 'no-llm': 'Extracción: por títulos (--no-llm)', 'no-cli': 'Extracción: por títulos (no hay CLI)', fallback: 'Extracción: por títulos (falló {cli})' },
     registry: { registered: 'Registrado en {path}', already: 'Ya estaba registrado en {path}' },
@@ -41,7 +41,7 @@ const M = {
     fallback: '{cli} did not return valid JSON ({error}); using the heading extraction.',
     created: "{name}'s workspace is ready at {root}",
     added: 'Added to the brain at {brain}',
-    notes: 'Notes: {accepted} accepted · {proposed} proposed for approval · {terms} glossary terms · {playbooks} playbooks',
+    notes: 'Notes: {proposed} proposed for approval (edu brain proposals / approve) · {terms} glossary terms · {playbooks} playbooks',
     sources: 'Sources copied to {dir}: {list}',
     mode: { llm: 'Extraction: {cli}', 'no-llm': 'Extraction: by headings (--no-llm)', 'no-cli': 'Extraction: by headings (no CLI found)', fallback: 'Extraction: by headings ({cli} failed)' },
     registry: { registered: 'Registered in {path}', already: 'Already registered in {path}' },
@@ -127,6 +127,6 @@ export function registerCreate(program: Command, ctx: CliContext, deps: CreateCo
     }));
 }
 
-function notesLine(lang: Lang, report: { accepted: number; proposed: number; glossaryTerms: number; playbooks: string[] }): string {
-  return fill(M[lang].notes, { accepted: report.accepted, proposed: report.proposed, terms: report.glossaryTerms, playbooks: report.playbooks.length });
+function notesLine(lang: Lang, report: { proposed: number; glossaryTerms: number; playbooks: string[] }): string {
+  return fill(M[lang].notes, { proposed: report.proposed, terms: report.glossaryTerms, playbooks: report.playbooks.length });
 }

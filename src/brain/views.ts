@@ -10,6 +10,8 @@ import type { BrainLocation } from '../core/contracts.js';
 import { readProjects, type ProjectEntry } from '../vault/registry.js';
 import { DASHBOARD_PATHS, buildBases, buildDashboard, isEduOwned, staleBaseFiles, type BaseLang, type BaseScope, type DashboardWorkspace } from './bases.js';
 import { brainPath, readWorkspaceSettings, vaultFolder, vaultPlacement } from './location.js';
+import { warnUnsafe } from './catalog.js';
+import { assertInsideBrain } from './safe-path.js';
 import { INDEX_DIR, atomicWrite } from './store.js';
 
 export interface ViewOptions {
@@ -50,11 +52,18 @@ export async function writeObsidianViews(primary: BrainLocation, options: ViewOp
   const scope: BaseScope = orchestrator
     ? { mode: 'orchestrator', brainRel: placed!.brainRel }
     : { mode: 'workspace', brainRel: vaultFolder(primary, '').replace(/\/$/, '') };
-  const indexDir = join(brainPath(primary), INDEX_DIR);
+  const brain = brainPath(primary);
+  const indexDir = join(brain, INDEX_DIR);
   const report: ViewReport = { bases: [], removed: [] };
-  for (const file of buildBases(lang, scope)) { await atomicWrite(join(indexDir, file.name), file.content); report.bases.push(file.name); }
+  // A view behind a symbolic link (e.g. one committed in a synced remote) is skipped with a warning, never written through.
+  for (const file of buildBases(lang, scope)) {
+    try { await atomicWrite(join(indexDir, file.name), file.content, { root: brain }); report.bases.push(file.name); }
+    catch (error) { warnUnsafe(error); }
+  }
   for (const name of staleBaseFiles(lang)) {
-    if (existsSync(join(indexDir, name))) { await rm(join(indexDir, name), { force: true }); report.removed.push(name); }
+    if (!existsSync(join(indexDir, name))) continue;
+    try { await assertInsideBrain(brain, join(indexDir, name)); } catch (error) { warnUnsafe(error); continue; }
+    await rm(join(indexDir, name), { force: true }); report.removed.push(name);
   }
   if (!orchestrator) return report;
 
@@ -66,11 +75,15 @@ export async function writeObsidianViews(primary: BrainLocation, options: ViewOp
   try { entries = await (options.projects ?? (async () => (await readProjects(defaultEduHome(primary))).projects))(); }
   catch { /* an unreadable registry must not break maintenance: the dashboard just lists no workspaces */ }
   const content = buildDashboard(lang, `${placed!.brainRel}/${INDEX_DIR}`, entries.map(entry => dashboardWorkspace(vault, entry)));
-  if (existing !== content) await atomicWrite(target, content);
+  if (existing !== content) {
+    try { await atomicWrite(target, content, { root: vault }); }
+    catch (error) { warnUnsafe(error); report.dashboard = { path: target, written: false }; return report; }
+  }
   report.dashboard = { path: target, written: true };
   const other = join(vault, ...DASHBOARD_PATHS[lang === 'es' ? 'en' : 'es'].split('/'));
   const otherText = await readText(other);
   if (otherText !== undefined && isEduOwned(otherText)) {
+    try { await assertInsideBrain(vault, other); } catch (error) { warnUnsafe(error); return report; }
     await rm(other, { force: true });
     await rmdir(dirname(other)).catch(() => { /* keep a folder that still holds the user's files */ });
   }

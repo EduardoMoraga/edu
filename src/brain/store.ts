@@ -1,9 +1,10 @@
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { INDEX_DIR, TRANSITIVE_PREFIX, TIER_DIRS, type BrainLocation, type Note, type NoteMeta, type TransitiveKind } from '../core/contracts.js';
 import { parseMarkdown, serializeMarkdown } from './frontmatter.js';
 import { brainPath } from './location.js';
+import { assertInsideBrain } from './safe-path.js';
 
 export function slugify(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'note';
@@ -74,8 +75,13 @@ const isLocked = (error: unknown) => LOCKED.has(String((error as NodeJS.ErrnoExc
  * Writes through a temp file renamed over the target. When the rename keeps failing because another process
  * holds the target (common on Windows), it retries with backoff and finally copies the temp file over the
  * target in place. The temp file never survives, and a write that cannot land at all throws.
+ *
+ * With `root`, the target must stay inside that brain root with no symbolic link on the way or as the file
+ * itself (see `assertInsideBrain`); otherwise an `UnsafeBrainPathError` is thrown before anything is written.
+ * Without it the rename still never follows a symlinked target: it replaces the link itself.
  */
-export async function atomicWrite(path: string, content: string): Promise<void> {
+export async function atomicWrite(path: string, content: string, options: { root?: string } = {}): Promise<void> {
+  if (options.root !== undefined) await assertInsideBrain(options.root, path);
   noteCache.delete(resolve(path));
   await atomicFs.mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${randomUUID()}.tmp`;
@@ -114,6 +120,17 @@ export function noteCacheStats(): { entries: number; parses: number } { return {
 // Callers spread and patch notes freely, so every hit hands out its own meta (including tags/links/usage).
 const fresh = (note: Note | undefined): Note | undefined => note && { meta: structuredClone(note.meta), body: note.body, path: note.path };
 
+/**
+ * Before 5.0 a reverted decision stored its successor in `supersedes`, so it read as if it replaced the decision
+ * that actually replaced it. Read it as `superseded_by`, the field every other replaced note uses; the file is
+ * rewritten in the new form only when something else changes it.
+ */
+export function normalizeLegacyMeta(meta: NoteMeta): NoteMeta {
+  if (meta.kind !== 'decision' || meta.status !== 'reverted' || !meta.supersedes || meta.superseded_by) return meta;
+  const { supersedes, ...rest } = meta;
+  return { ...rest, superseded_by: supersedes };
+}
+
 export async function readNote(path: string): Promise<Note | undefined> {
   const key = resolve(path);
   try {
@@ -122,7 +139,7 @@ export async function readNote(path: string): Promise<Note | undefined> {
     if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size && cached.ino === info.ino) return fresh(cached.note);
     noteParses++;
     const parsed = parseMarkdown<NoteMeta>(await readFile(path, 'utf8'));
-    const note = parsed.meta.id && parsed.meta.tier && parsed.meta.title ? { meta: parsed.meta, body: parsed.body, path } : undefined;
+    const note = parsed.meta.id && parsed.meta.tier && parsed.meta.title ? { meta: normalizeLegacyMeta(parsed.meta), body: parsed.body, path } : undefined;
     noteCache.set(key, { mtimeMs: info.mtimeMs, size: info.size, ino: info.ino, note });
     return fresh(note);
   } catch { noteCache.delete(key); return undefined; }
@@ -157,4 +174,35 @@ export async function overlayNotes(locations: BrainLocation[]): Promise<Note[]> 
 }
 
 export function encodeNote(note: Note): string { return serializeMarkdown(note.meta as unknown as Record<string, unknown>, note.body); }
+
+/** Frontmatter keys that are not content: learning signal (`usage`) and the write timestamp (`updated`). */
+const VOLATILE_KEYS = new Set(['usage', 'updated']);
+const canonicalJson = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([key, item]) => [key, canonicalJson(item)]));
+  }
+  return value;
+};
+
+/**
+ * Stable 12-hex content hash of a note: sha256 over its frontmatter (keys sorted, undefined dropped, without
+ * `usage` and `updated`) and its normalized body. Recall, exposure and feedback never change it; any edit
+ * of title, body, status, links, tags or provenance does. Used for hash-guarded writes (`expectedHash`).
+ */
+export function contentHash(note: Pick<Note, 'meta' | 'body'>): string {
+  const meta = Object.fromEntries(Object.entries(note.meta).filter(([key]) => !VOLATILE_KEYS.has(key)));
+  const body = note.body.replace(/\r\n/g, '\n').trim();
+  return createHash('sha256').update(JSON.stringify({ meta: canonicalJson(meta), body })).digest('hex').slice(0, 12);
+}
+
+/** Thrown by a hash-guarded update when the note changed since the caller read it. */
+export class NoteConflictError extends Error {
+  readonly code = 'note-conflict' as const;
+  constructor(readonly id: string, readonly expectedHash: string, readonly currentHash: string) {
+    super(`Note ${id} changed since it was read (expected ${expectedHash}, current ${currentHash}); re-read it and retry`);
+    this.name = 'NoteConflictError';
+  }
+}
 export { INDEX_DIR };

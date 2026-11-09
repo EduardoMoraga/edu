@@ -1,0 +1,20 @@
+Según la memoria de Edu:
+
+**Decisión vigente**
+`D-usar-postgres-con-pg-boss-para-la-cola-de-trabajos` (verificada, activa): la cola de trabajos en segundo plano usa **Postgres con pg-boss**.
+
+**Evidencia** (citada en la nota)
+- **INC-42**: Redis desalojó 312 trabajos encolados por presión de memoria.
+- **Prueba de carga**: pg-boss sostuvo 1.200 trabajos por segundo.
+- Fuente: `docs/adr/0007-cola-de-trabajos.md`. Ese ADR no está en este workspace (`docs/adr/` no existe aquí), así que no pude contrastarlo con el original. La evidencia viene solo de la nota de memoria.
+
+**Opción descartada**
+**Redis con BullMQ**, que pg-boss reemplazó.
+
+**Hipótesis abierta obsoleta**
+`H-redis-aguanta-el-pico-de-black-friday-sin-perder-trabajos` (banda *hypothesis*, abierta desde 2026-08-10, "pendiente de medir"). Ya no sirve: trata sobre la capacidad de Redis como cola, y Redis ya no es la cola. Además, INC-42 apunta en contra de lo que supone. Sigue siendo una hipótesis, no un hecho, y no conviene medirla.
+
+**Siguiente paso seguro**
+No gastar esfuerzo en medir Redis para Black Friday. Hay que cerrar o retirar la hipótesis H-redis en la memoria, citando la decisión D-pg-boss como motivo. Cambiar el estado de una nota requiere tu aprobación, así que no lo he tocado. Si quieres comprobar la capacidad para Black Friday, la pregunta correcta es si **pg-boss/Postgres** aguanta ese pico, con una prueba de carga contra el volumen esperado. Antes de nada, conviene abrir el ADR 0007 en el repo real para confirmar que la decisión sigue como la registra la memoria.
+
+¿Quieres que retire la hipótesis H-redis y registre en su lugar la de capacidad de pg-boss en Black Friday?

@@ -33,7 +33,7 @@ function parseScope(value: string | undefined): InstallScope {
 
 interface InitOpts { global?: boolean; name?: string; cli?: string }
 interface InstallOpts { cli?: string; scope?: string; dryRun?: boolean; yes?: boolean; json?: boolean }
-interface UninstallOpts { scope?: string; force?: boolean }
+interface UninstallOpts { scope?: string; force?: boolean; yes?: boolean; keepBrain?: boolean; purgeBrain?: boolean }
 
 export function registerSetup(program: Command, ctx: CliContext): void {
   program
@@ -116,24 +116,39 @@ export function registerSetup(program: Command, ctx: CliContext): void {
 
   program
     .command('uninstall')
-    .description('reverse an Edu installation from its manifest')
-    .option('--scope <scope>', 'project or global', 'project')
+    .description('remove exactly what edu setup / edu install added (global and this project); the brain is kept')
+    .option('--scope <scope>', 'only project or only global (default: both)')
     .option('--force', 'restore even if Edu-managed files were edited since install')
+    .option('-y, --yes', 'do not ask; with --purge-brain, confirms the deletion when no terminal is available')
+    .option('--keep-brain', 'keep the brain (the default)')
+    .option('--purge-brain', 'also delete the global brain (EDU_HOME or ~/.edu); asks first')
     .action(
       action<UninstallOpts>(ctx, async ({ g, opts }) => {
-        const scope = parseScope(opts.scope);
-        const { uninstall, getManifestPath } = await import('../../adapters/index.js');
-        if (scope === 'global') {
-          // `edu setup` installs native plugins and records them in its own manifest.
-          const { setupManifestPath, uninstallSetup } = await import('../../setup/index.js');
-          if (await exists(await setupManifestPath(ctx.home))) {
-            await uninstallSetup({ home: ctx.home, force: Boolean(opts.force) });
-            ctx.out(t(g.lang, 'uninstall.done', { scope }));
-            return;
+        const es = g.lang === 'es';
+        if (opts.keepBrain && opts.purgeBrain) throw new Error(es ? 'Use --keep-brain o --purge-brain, no ambos.' : 'Use --keep-brain or --purge-brain, not both.');
+        const scope = opts.scope === undefined ? undefined : parseScope(opts.scope);
+        const brainRoot = globalHome(ctx);
+        let purgeBrain = false;
+        if (opts.purgeBrain) {
+          const { assertPurgeableBrain } = await import('../../setup/uninstall.js');
+          if (await exists(brainRoot)) {
+            await assertPurgeableBrain(brainRoot, ctx.home);
+            const question = es ? `¿Borrar el cerebro ${brainRoot} con todas sus notas? Esto no se puede deshacer.` : `Delete the brain ${brainRoot} and all its notes? This cannot be undone.`;
+            if (ctx.isTTY && ctx.stdinIsTTY) purgeBrain = await ctx.confirm(question);
+            else if (opts.yes) purgeBrain = true;
+            else throw new Error(es ? '--purge-brain sin terminal necesita también --yes.' : '--purge-brain without a terminal also needs --yes.');
+            if (!purgeBrain) ctx.out(es ? 'El cerebro se conserva.' : 'Keeping the brain.');
           }
         }
-        await uninstall({ manifestPath: getManifestPath(scope, g.cwd, ctx.home), force: Boolean(opts.force) });
-        ctx.out(t(g.lang, 'uninstall.done', { scope }));
+        const { uninstallEdu } = await import('../../setup/uninstall.js');
+        const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain });
+        if (g.json) { printJson(ctx, report); return; }
+        if (!report.removed.length) ctx.out(es ? 'Nada que eliminar: no hay instalación de Edu registrada.' : 'Nothing to remove: no recorded Edu installation.');
+        for (const scopeName of [...new Set(report.removed.map(r => r.scope))]) ctx.out(t(g.lang, 'uninstall.done', { scope: scopeName }));
+        for (const s of report.schedules) ctx.out(es ? `Programación eliminada (${s.kind}): ${s.name}` : `Schedule removed (${s.kind}): ${s.name}`);
+        if (report.brain.action === 'purged') ctx.out(es ? `Cerebro borrado: ${report.brain.path} (un remoto de edu sync/join no se toca).` : `Brain deleted: ${report.brain.path} (any edu sync/join remote is untouched).`);
+        else if (report.brain.action === 'kept') ctx.out(es ? `Cerebro conservado: ${report.brain.path} (bórrelo con edu uninstall --purge-brain).` : `Brain kept: ${report.brain.path} (delete it with edu uninstall --purge-brain).`);
+        ctx.out(es ? 'Para quitar el comando: npm uninstall -g edu-agent' : 'To remove the command too: npm uninstall -g edu-agent');
       }),
     );
 }

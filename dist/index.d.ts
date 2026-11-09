@@ -32,7 +32,10 @@ type TransitiveStatus = 'active' | 'reverted' | 'open' | 'confirmed' | 'refuted'
 type CanonicalStatus = 'proposed' | 'accepted' | 'superseded';
 /** Learning signal kept on lessons and canonical notes to drive self-improvement. */
 interface UsageStats {
-    /** Times the note was injected into context or recalled. */
+    /**
+     * Times the note was injected into context or recalled. Exposure (`uses`, `lastUsed`) lives in the machine-local
+     * ledger (`<root>/.edu-local/usage.json`); reads merge it in. Values still found in frontmatter are legacy.
+     */
     uses: number;
     /** Times feedback said it helped (advisory and verified; ranking signal only, never promotion proof). */
     wins: number;
@@ -88,6 +91,21 @@ interface NoteMeta {
     albert?: Record<string, unknown>;
     /** Set by an importer when the source frontmatter could not be parsed; the raw source text is the body. */
     import_warning?: 'invalid-frontmatter';
+    /** Provenance: machine that last wrote the note (defaults to `os.hostname()` on write). */
+    host?: string;
+    /** Provenance: agent that last wrote the note, e.g. `claude-code`, `codex`, `pi`, `opencode`, `antigravity`, `cli`. */
+    agent?: string;
+    /** Provenance: Edu session id the note was last written in. */
+    session?: string;
+}
+/**
+ * Who is writing a note (provenance). Every field is optional; `host` defaults to `os.hostname()`.
+ * Recorded on the note as `host`/`agent`/`session` (undefined fields are omitted from frontmatter).
+ */
+interface NoteOrigin {
+    host?: string;
+    agent?: string;
+    session?: string;
 }
 interface Note {
     meta: NoteMeta;
@@ -543,4 +561,4 @@ interface ProgramOptions {
 }
 declare function createProgram(overrides?: Partial<CliContext>, options?: ProgramOptions): Command;
 
-export { type AgentStatus, type ApprovalPolicy, type Autonomy, type BrainLocation, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewJob, type CrewJobMode, type CrewJobStatus, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineCapabilities, type EngineRunRequest, type FailureType, type FeedbackContext, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type InvocationPurpose, type Note, type NoteMeta, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageField, type UsageStats, type WorkspaceIdentity, createProgram };
+export { type AgentStatus, type ApprovalPolicy, type Autonomy, type BrainLocation, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewJob, type CrewJobMode, type CrewJobStatus, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineCapabilities, type EngineRunRequest, type FailureType, type FeedbackContext, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type InvocationPurpose, type Note, type NoteMeta, type NoteOrigin, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageField, type UsageStats, type WorkspaceIdentity, createProgram };

@@ -7,12 +7,28 @@
 # 2. npm install -g <release asset>, then `edu setup --yes`.
 # 3. Next steps, in Spanish or English (EDU_LANG, else LC_ALL / LC_MESSAGES / LANG).
 #
-# Environment:
-#   EDU_ASSET        package to install (default: the latest GitHub release asset)
+# Environment (or the matching flags, e.g. `curl ... | sh -s -- --yes --hosts claude,codex --join <url>`):
+#   EDU_ASSET        package to install (default: the latest GitHub release asset; a local .tgz works)
 #   EDU_LANG         es | en
 #   EDU_DRY_RUN=1    print what would run instead of running it (used by scripts/smoke-install.sh)
-#   EDU_YES=1        accept the fnm offer without asking (no terminal needed)
+#   EDU_YES=1        --yes: never ask (accepts the fnm offer); any failed step makes the exit status 1
+#   EDU_HOSTS=a,b    --hosts: only set up these CLIs (claude, codex, pi, opencode, agy); default: detected
+#   EDU_JOIN=<url>   --join: after setup, run `edu join <url> --cloud` (shared brain for cloud sandboxes).
+#                    Credentials come from GH_TOKEN or a credential helper; never put them in the URL.
 set -eu
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --yes|-y) EDU_YES=1 ;;
+    --hosts) shift; EDU_HOSTS="${1:-}" ;;
+    --hosts=*) EDU_HOSTS="${1#--hosts=}" ;;
+    --join) shift; EDU_JOIN="${1:-}" ;;
+    --join=*) EDU_JOIN="${1#--join=}" ;;
+    --dry-run) EDU_DRY_RUN=1 ;;
+    *) printf '  Unknown option: %s\n' "$1" >&2; exit 2 ;;
+  esac
+  [ $# -gt 0 ] && shift
+done
 
 ASSET="${EDU_ASSET:-https://github.com/EduardoMoraga/edu/releases/latest/download/edu-agent.tgz}"
 NODE_MAJOR=22
@@ -27,13 +43,18 @@ say() { printf '  %s\n' "$1"; }
 # msg <english> <spanish>
 msg() { if [ "$L" = es ]; then say "$2"; else say "$1"; fi; }
 
+# Credentials in a URL (https://user:token@host/...) are never printed.
+redact() { printf '%s' "$1" | sed 's#//[^/@]*@#//***@#g'; }
+
 run() {
   if [ "$DRY_RUN" = 1 ]; then
-    printf '  [dry-run] %s\n' "$*"
+    printf '  [dry-run] %s\n' "$(redact "$*")"
   else
     "$@"
   fi
 }
+
+FAILED=0
 
 node_major() {
   command -v node >/dev/null 2>&1 || { echo 0; return; }
@@ -109,8 +130,17 @@ if [ "$DRY_RUN" != 1 ] && ! command -v edu >/dev/null 2>&1; then
 fi
 if [ "$DRY_RUN" != 1 ]; then msg "Edu $("$EDU" --version) installed." "Edu $("$EDU" --version) instalado."; fi
 echo
-run "$EDU" setup --yes || msg 'Setup did not finish; run: edu setup --yes' 'El setup no terminó; ejecuta: edu setup --yes'
+if [ -n "${EDU_HOSTS:-}" ]; then
+  run "$EDU" setup --yes --cli "$EDU_HOSTS" || { FAILED=1; msg "Setup did not finish; run: edu setup --yes --cli $EDU_HOSTS" "El setup no terminó; ejecuta: edu setup --yes --cli $EDU_HOSTS"; }
+else
+  run "$EDU" setup --yes || { FAILED=1; msg 'Setup did not finish; run: edu setup --yes' 'El setup no terminó; ejecuta: edu setup --yes'; }
+fi
 echo
+if [ -n "${EDU_JOIN:-}" ]; then
+  msg "Joining the shared brain $(redact "$EDU_JOIN")..." "Uniendo el cerebro compartido $(redact "$EDU_JOIN")..."
+  run "$EDU" join "$EDU_JOIN" --cloud || { FAILED=1; msg 'Join did not finish; check GH_TOKEN and run: edu join <url> --cloud' 'La unión no terminó; revisa GH_TOKEN y ejecuta: edu join <url> --cloud'; }
+  echo
+fi
 if [ "$L" = es ]; then
   say 'Listo. Siguientes pasos:'
   say '  1. Crea tu primer espacio desde un documento:'
@@ -126,3 +156,5 @@ else
   say '  3. Open it with your CLI (claude, codex, pi, opencode) and ask: "who are you?"'
   say '  4. Stay current: edu update'
 fi
+# Non-interactive callers (EDU_YES=1, cloud sandboxes, CI) need a failing status, not just a message.
+if [ "$FAILED" = 1 ] && [ "${EDU_YES:-0}" = 1 ]; then exit 1; fi

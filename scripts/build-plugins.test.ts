@@ -42,7 +42,7 @@ describe('buildPlugins', () => {
     expect(claudeMcp.edu).toEqual({ command: 'edu', args: ['mcp'] });
     expect(codexMcp.mcpServers.edu).toEqual({ command: 'edu', args: ['mcp'] });
     expect(claudeHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start');
-    expect(codexHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start');
+    expect(codexHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start --host codex');
     // Large imported brains on slow Windows disks need headroom: the hook timeout is in seconds.
     expect(claudeHooks.hooks.SessionStart[0].hooks[0].timeout).toBeGreaterThanOrEqual(30);
     expect(codexHooks.hooks.SessionStart[0].hooks[0].timeout).toBeGreaterThanOrEqual(30);
@@ -53,6 +53,11 @@ describe('buildPlugins', () => {
     expect(await readFile(join(root, 'plugins/opencode/commands/edu-brief.md'), 'utf8')).toContain('$ARGUMENTS');
     expect(await readFile(join(root, 'plugins/pi/prompts/edu-brief.md'), 'utf8')).toContain('$ARGUMENTS');
     expect(await readFile(join(root, '.claude-plugin/marketplace.json'), 'utf8')).toContain('"version": "2.3.4"');
+    // agy: plugin-root hooks.json with a named hook, an always-on rule, agents with name/description.
+    const agyHooks = JSON.parse(await readFile(join(root, 'plugins/agy/hooks.json'), 'utf8'));
+    expect(agyHooks.edu.SessionStart).toEqual([{ type: 'command', command: 'edu hook agy-session-start', timeout: 30 }]);
+    expect(await readFile(join(root, 'plugins/agy/rules/edu.md'), 'utf8')).toMatch(/^---\ntrigger: always_on\n---\n/);
+    expect(await readFile(join(root, 'plugins/agy/agents/lead.md'), 'utf8')).toMatch(/^---\nname: lead\ndescription: /);
   });
 
   it('ships the Pi and OpenCode Edu Deck sources and themes from templates when present', async () => {

@@ -33,12 +33,26 @@ async function nativeFixture(platform: NodeJS.Platform = 'linux', baseline: stri
   await mkdir(brainRoot); await writeFile(join(brainRoot, 'EDU.md'), '# CUSTOM IDENTITY');
   await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot, native: ['claude'], fallback: [] }));
   const other = join(home, 'claude home/plugins/cache/other/other/custom.txt'); await mkdir(dirname(other), { recursive: true }); await writeFile(other, 'OTHER CUSTOM');
-  const calls: string[] = []; let installedVersion = baseline; let mode = 'ok';
+  const calls: string[] = []; let installedVersion = baseline; let mode = 'ok'; let registeredRoot = packageRoot; let inPlace = false;
+  // Host registration state, with one-shot failure injection; `failRest` also fails every later mutation (rollback).
+  let pluginPresent = true; let marketPresent = true; const failing = new Set<string>(); let failRest = false; let failed = false;
   const runner: SetupRunner = async c => {
     const args = c.args.join(' '); calls.push(args);
+    const mutating = !args.startsWith('plugin list') && args !== 'plugin marketplace list --json';
+    if (mutating && (failing.delete(args) || (failRest && failed))) { failed = true; return { exitCode: 1, stderr: 'injected host failure' }; }
     if (mode === 'throw' && args === 'plugin update edu@edu --scope user') throw new Error('spawn failed');
-    if (args === 'plugin marketplace list --json') return { exitCode: 0, stdout: JSON.stringify([{ name: 'edu', source: mode === 'origin' ? 'git' : 'directory', path: packageRoot, installLocation: packageRoot }]) };
-    if (args.startsWith('plugin list')) return { exitCode: 0, stdout: JSON.stringify([{ id: 'edu@edu', scope: mode === 'unsupported' ? 'project' : 'user', version: installedVersion, enabled: true, installPath: mode === 'wrong-path' && installedVersion === manifest.version ? '/other/cache' : join(base, installedVersion) }]) };
+    if (args === 'plugin marketplace list --json') return { exitCode: 0, stdout: JSON.stringify(marketPresent ? [{ name: 'edu', source: mode === 'origin' ? 'git' : 'directory', path: registeredRoot, installLocation: registeredRoot }] : []) };
+    if (args.startsWith('plugin list')) return { exitCode: 0, stdout: JSON.stringify(pluginPresent ? [{ id: 'edu@edu', scope: mode === 'unsupported' ? 'project' : 'user', version: installedVersion, enabled: true, installPath: mode === 'wrong-path' && installedVersion === manifest.version ? '/other/cache' : join(base, installedVersion), ...(inPlace ? { readFromFolder: join(registeredRoot, 'plugins/claude-code') } : {}) }] : []) };
+    if (args === 'plugin uninstall edu@edu --scope user') { if (!pluginPresent) return { exitCode: 1, stderr: 'not installed' }; pluginPresent = false; return { exitCode: 0 }; }
+    if (args === 'plugin marketplace remove edu') { if (!marketPresent) return { exitCode: 1, stderr: 'not found' }; marketPresent = false; return { exitCode: 0 }; }
+    if (args.startsWith('plugin marketplace add ')) { if (marketPresent) return { exitCode: 1, stderr: 'already exists' }; registeredRoot = c.args[3]!; marketPresent = true; return { exitCode: 0 }; }
+    if (args === 'plugin install edu@edu --scope user') {
+      if (!marketPresent) return { exitCode: 1, stderr: 'no marketplace' };
+      const from = registeredRoot === packageRoot ? source : join(registeredRoot, 'plugins/claude-code');
+      const next = registeredRoot === packageRoot ? manifest.version : JSON.parse(await readFile(join(from, '.claude-plugin/plugin.json'), 'utf8')).version;
+      if (!inPlace) await cp(from, join(base, next), { recursive: true });
+      installedVersion = next; pluginPresent = true; return { exitCode: 0 };
+    }
     expect(args).toBe('plugin update edu@edu --scope user');
     // Native mutation cannot begin until the original cache is backed up.
     const backups = await readdir(join(brainRoot, 'backups')); let found = false;
@@ -59,13 +73,31 @@ async function nativeFixture(platform: NodeJS.Platform = 'linux', baseline: stri
     return { exitCode: 0, stdout: JSON.stringify({ pluginId: 'edu@edu', version: manifest.version, installedPath: mode === 'wrong-path' ? '/other/cache' : nextRoot }) };
   };
   const run = async () => applySetup(await planSetup({ home, packageRoot, clis: ['claude'], runner }), { runner, brainRoot, platform });
-  return { home, brainRoot, packageRoot, runner, source, base, oldRoot, nextRoot, other, calls, run, replaceCandidate: async (contents: Record<string, string>) => {
+  return { home, brainRoot, packageRoot, runner, source, base, oldRoot, nextRoot, other, calls, run, files, setRegisteredRoot: (value: string) => { registeredRoot = value; }, setInPlace: (value: boolean) => { inPlace = value; }, replaceCandidate: async (contents: Record<string, string>) => {
     await rm(source, { recursive: true });
     for (const [path, content] of Object.entries(contents)) { await mkdir(dirname(join(source, path)), { recursive: true }); await writeFile(join(source, path), content); }
     manifest.version = JSON.parse(contents['.claude-plugin/plugin.json']!).version;
     await writeFile(join(packageRoot, '.claude-plugin/marketplace.json'), JSON.stringify({ name: 'edu', plugins: [{ name: 'edu', source: './plugins/claude-code', version: manifest.version }] }));
-  }, setInstalledVersion: (value: string) => { installedVersion = value; }, setMode: (value: string) => { mode = value; } };
+  }, setInstalledVersion: (value: string) => { installedVersion = value; }, setMode: (value: string) => { mode = value; },
+  failOnce: (args: string) => { failing.add(args); }, failRollback: (value: boolean) => { failRest = value; failed = false; },
+  host: () => ({ plugin: pluginPresent, marketplace: marketPresent, root: registeredRoot, version: installedVersion }),
+  /** A previous package root on disk (as a Node manager leaves it), holding the published `baseline` plugin. */
+  oldPackage: async () => {
+    const root = join(home, 'old-node/lib/node_modules/edu-agent');
+    for (const [path, content] of Object.entries(files)) { await mkdir(dirname(join(root, 'plugins/claude-code', path)), { recursive: true }); await writeFile(join(root, 'plugins/claude-code', path), content); }
+    registeredRoot = root;
+    await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot: root, native: ['claude'], fallback: [] }));
+    return root;
+  } };
 }
+async function backedUp(brainRoot: string, path: string): Promise<string | undefined> {
+  for (const backup of await readdir(join(brainRoot, 'backups'))) {
+    const record = JSON.parse(await readFile(join(brainRoot, 'backups', backup, 'manifest.json'), 'utf8'));
+    for (const file of record.files) if (file.path === path && file.file) return readFile(join(brainRoot, 'backups', backup, file.file), 'utf8');
+  }
+  return undefined;
+}
+const mutations = (calls: string[]) => calls.filter(c => !c.startsWith('plugin list') && c !== 'plugin marketplace list --json');
 describe.each(cases)('$baseline on $platform', ({ platform, baseline }) => {
 const fixture = (override: NodeJS.Platform = platform) => nativeFixture(override, baseline);
 it('refreshes a pristine public cache with backup and candidate validation; repeat does not reinstall', async () => {
@@ -76,19 +108,29 @@ it('refreshes a pristine public cache with backup and candidate validation; repe
   expect(JSON.parse(await readFile(join(f.nextRoot, '.mcp.json'), 'utf8'))).toEqual({ edu: launch });
   await f.run(); expect(f.calls.filter(c => c === 'plugin update edu@edu --scope user')).toHaveLength(1);
 });
-it.each(['edited', 'extra', 'missing', 'symlink', 'origin', 'unsupported', 'unknown-version', 'unknown-directory', 'empty-directory'])('preserves custom/unknown cache (%s) without invoking install', async mode => {
-  const f = await fixture(); f.setMode(mode);
+it.each(['edited', 'extra', 'missing', 'unknown-directory'])('backs up an Edu-owned non-baseline cache (%s) and reinstalls through public commands', async mode => {
+  const f = await fixture();
   const path = join(f.oldRoot, 'skills/brief/SKILL.md');
   if (mode === 'edited') await writeFile(path, 'CUSTOM');
   if (mode === 'extra') await writeFile(join(f.oldRoot, 'custom.txt'), 'CUSTOM');
-  if (mode === 'missing') await rm(path);
-  if (mode === 'unknown-version') f.setInstalledVersion('8.0.0');
+  if (mode === 'missing') await rm(join(f.oldRoot, '.mcp.json'));
   if (mode === 'unknown-directory') { await mkdir(join(f.base, 'unknown')); await writeFile(join(f.base, 'unknown/custom'), 'CUSTOM'); }
+  await f.run();
+  expect(mutations(f.calls)).toEqual(['plugin uninstall edu@edu --scope user', 'plugin install edu@edu --scope user']);
+  if (mode === 'edited') expect(await backedUp(f.brainRoot, path)).toBe('CUSTOM');
+  if (mode === 'extra') expect(await backedUp(f.brainRoot, join(f.oldRoot, 'custom.txt'))).toBe('CUSTOM');
+  expect(await readFile(join(f.nextRoot, 'skills/brief/SKILL.md'), 'utf8')).toBe('NEW PROTOCOL');
+  expect(await readFile(f.other, 'utf8')).toBe('OTHER CUSTOM');
+  expect(f.host()).toMatchObject({ plugin: true, marketplace: true, root: f.packageRoot, version: candidateVersion });
+});
+it.each(['symlink', 'origin', 'unsupported', 'unknown-version', 'empty-directory'])('preserves custom/unknown cache (%s) without invoking install', async mode => {
+  const f = await fixture(); f.setMode(mode);
+  const path = join(f.oldRoot, 'skills/brief/SKILL.md');
+  if (mode === 'unknown-version') f.setInstalledVersion('8.0.0');
   if (mode === 'empty-directory') await mkdir(join(f.base, 'empty'));
   if (mode === 'symlink') { await rm(path); await symlink(f.other, path); }
   await expect(f.run()).rejects.toThrow(/manual conflict/i);
   expect(f.calls).not.toContain('plugin update edu@edu --scope user');
-  if (mode === 'edited') expect(await readFile(path, 'utf8')).toBe('CUSTOM');
   expect(await readFile(f.other, 'utf8')).toBe('OTHER CUSTOM');
 });
 it.each(['failure', 'corrupt', 'wrong-path', 'throw', 'noop'])('does not claim success when native runner/postvalidation fails (%s)', async mode => {
@@ -117,12 +159,13 @@ it('refuses arbitrary Windows MCP variants without overwriting custom source or 
   expect(await readFile(path, 'utf8')).toBe(custom);
   expect(f.calls).not.toContain('plugin update edu@edu --scope user');
 });
-it('refuses a modified old Windows launch instead of blessing any cmd wrapper', async () => {
+it('backs up a modified old Windows launch before replacing it instead of blessing any cmd wrapper', async () => {
   const f = await fixture('win32'); const path = join(f.oldRoot, '.mcp.json');
   const custom = (await readFile(path, 'utf8')).replace('"/c"', '"/k"'); await writeFile(path, custom);
-  await expect(f.run()).rejects.toThrow(/manual conflict/i);
-  expect(await readFile(path, 'utf8')).toBe(custom);
+  await f.run();
+  expect(await backedUp(f.brainRoot, path)).toBe(custom);
   expect(f.calls).not.toContain('plugin update edu@edu --scope user');
+  expect(f.calls).toContain('plugin uninstall edu@edu --scope user');
 });
 
 it('Windows localization backs up the candidate and leaves other host package MCP files untouched', async () => {
@@ -228,4 +271,110 @@ it.each(platforms)('requires the registered active Claude tree even when another
   f.setInstalledVersion('2.0.0-rc.1');
   await expect(f.run()).rejects.toThrow(/manual conflict/i);
   expect(f.calls).not.toContain('plugin update edu@edu --scope user');
+});
+
+it.each([false, true])('re-registers a relocated package root (load in place: %s), records it, and a second run is a no-op', async inPlace => {
+  const f = await nativeFixture('linux', '0.10.2'); f.setInPlace(inPlace);
+  const oldPackage = join(f.home, 'old-node/lib/node_modules/edu-agent');
+  f.setRegisteredRoot(oldPackage);
+  // The previous release's cache is not a published baseline: it is backed up, never trusted.
+  const custom = join(f.oldRoot, 'skills/brief/SKILL.md'); await writeFile(custom, 'OLD UNPUBLISHED');
+  await writeFile(join(f.brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot: oldPackage, native: ['claude'], fallback: [] }));
+  await f.run();
+  expect(mutations(f.calls)).toEqual(['plugin uninstall edu@edu --scope user', 'plugin marketplace remove edu', `plugin marketplace add ${f.packageRoot}`, 'plugin install edu@edu --scope user']);
+  expect(await backedUp(f.brainRoot, custom)).toBe('OLD UNPUBLISHED');
+  if (!inPlace) expect(await readFile(join(f.nextRoot, 'skills/brief/SKILL.md'), 'utf8')).toBe('NEW PROTOCOL');
+  expect(JSON.parse(await readFile(join(f.brainRoot, 'plugin-setup.json'), 'utf8')).packageRoot).toBe(f.packageRoot);
+  const count = f.calls.length; const backups = await readdir(join(f.brainRoot, 'backups'));
+  if (!inPlace) await rm(f.oldRoot, { recursive: true }); // Claude prunes the uninstalled release.
+  await f.run();
+  expect(mutations(f.calls.slice(count))).toEqual([]);
+  expect(await readdir(join(f.brainRoot, 'backups'))).toEqual(backups);
+});
+it('refuses to re-register a marketplace that points at an unrecorded custom checkout', async () => {
+  const f = await nativeFixture('linux', '0.10.2'); f.setInPlace(true);
+  f.setRegisteredRoot(join(f.home, 'dev/edu'));
+  await expect(f.run()).rejects.toThrow(/manual conflict.*not an Edu package/i);
+  expect(mutations(f.calls)).toEqual([]);
+});
+it('refuses a relocated marketplace that is not a local directory (not Edu-owned)', async () => {
+  const f = await nativeFixture('linux', '0.10.2');
+  f.setRegisteredRoot(join(f.home, 'old-node/lib/node_modules/edu-agent')); f.setMode('origin');
+  await expect(f.run()).rejects.toThrow(/manual conflict/i);
+  expect(mutations(f.calls)).toEqual([]);
+});
+
+const recoveryFile = (home: string) => join(home, '.edu/state/plugin-recovery.json');
+const present = (path: string) => readFile(path).then(() => true, () => false);
+/** A pristine install of a release with no recorded baseline (as every 4.x is). */
+async function unrecordedRelease(release: string) {
+  const f = await nativeFixture('linux', '0.10.2');
+  await rename(f.oldRoot, join(f.base, release));
+  const path = join(f.base, release, '.claude-plugin/plugin.json');
+  await writeFile(path, JSON.stringify({ ...JSON.parse(await readFile(path, 'utf8')), version: release }));
+  f.setInstalledVersion(release);
+  return f;
+}
+it.each(['4.0.0', '4.1.0'])('upgrades a normal %s cache at an unchanged package root through a backed-up public reinstall', async release => {
+  const f = await unrecordedRelease(release);
+  await f.run();
+  expect(mutations(f.calls)).toEqual(['plugin uninstall edu@edu --scope user', 'plugin install edu@edu --scope user']);
+  expect(await backedUp(f.brainRoot, join(f.base, release, '.claude-plugin/plugin.json'))).toContain(release);
+  expect(await readFile(join(f.nextRoot, 'skills/brief/SKILL.md'), 'utf8')).toBe('NEW PROTOCOL');
+  expect(f.host()).toEqual({ plugin: true, marketplace: true, root: f.packageRoot, version: candidateVersion });
+  expect(await present(recoveryFile(f.home))).toBe(false);
+  // Claude may keep the old release next to the new one: the repeat is a no-op.
+  const count = f.calls.length;
+  await f.run();
+  expect(mutations(f.calls.slice(count))).toEqual([]);
+});
+it('rolls back a failed same-root reinstall to the previous registration', async () => {
+  const f = await unrecordedRelease('4.1.0');
+  f.failOnce('plugin install edu@edu --scope user');
+  await expect(f.run()).rejects.toThrow(/native refresh failed.*rolled back/i);
+  expect(f.host()).toMatchObject({ plugin: true, marketplace: true, root: f.packageRoot });
+  expect(await present(recoveryFile(f.home))).toBe(false);
+});
+it('still refuses a same-root registration that is not an Edu directory marketplace', async () => {
+  const f = await unrecordedRelease('4.1.0'); f.setMode('origin');
+  await expect(f.run()).rejects.toThrow(/manual conflict/i);
+  expect(mutations(f.calls)).toEqual([]);
+});
+
+describe('relocation rollback', () => {
+  const steps = (root: string) => ['plugin uninstall edu@edu --scope user', 'plugin marketplace remove edu', `plugin marketplace add ${root}`, 'plugin install edu@edu --scope user'];
+  it.each([0, 1, 2, 3])('restores the previous registration when destructive step %i fails', async index => {
+    const f = await nativeFixture('linux', '0.10.2');
+    const old = await f.oldPackage();
+    f.failOnce(steps(f.packageRoot)[index]!);
+    await expect(f.run()).rejects.toThrow(/native refresh failed.*rolled back.*registration/i);
+    expect(f.host()).toEqual({ plugin: true, marketplace: true, root: old, version: '0.10.2' });
+    expect(await present(recoveryFile(f.home))).toBe(false);
+    expect(JSON.parse(await readFile(join(f.brainRoot, 'plugin-setup.json'), 'utf8')).packageRoot).toBe(old);
+  });
+  it('restores the previous registration when post-install validation fails', async () => {
+    const f = await nativeFixture('linux', '0.10.2');
+    const old = await f.oldPackage();
+    f.setMode('wrong-path');
+    await expect(f.run()).rejects.toThrow(/native refresh failed.*rolled back/i);
+    expect(f.host()).toEqual({ plugin: true, marketplace: true, root: old, version: '0.10.2' });
+  });
+  it('keeps a recovery record with exact restore commands when rollback fails, and the next setup repairs it', async () => {
+    const f = await nativeFixture('linux', '0.10.2');
+    const old = await f.oldPackage();
+    f.failOnce(`plugin marketplace add ${f.packageRoot}`); f.failRollback(true);
+    const error = await f.run().then(() => undefined, (e: Error) => e);
+    expect(error?.message).toMatch(/rollback failed/i);
+    expect(error?.message).toContain(recoveryFile(f.home));
+    expect(error?.message).toContain(`claude plugin marketplace add ${old} && claude plugin install edu@edu --scope user`);
+    const record = JSON.parse(await readFile(recoveryFile(f.home), 'utf8'));
+    expect(record.hosts.claude).toMatchObject({ previous: { root: old, version: '0.10.2' }, target: f.packageRoot, completed: ['plugin uninstall edu@edu --scope user', 'plugin marketplace remove edu'] });
+    expect(f.host()).toMatchObject({ plugin: false, marketplace: false });
+    // The host works again: the next setup repairs the registration first, then completes the relocation.
+    f.failRollback(false);
+    await f.run();
+    expect(f.host()).toEqual({ plugin: true, marketplace: true, root: f.packageRoot, version: candidateVersion });
+    expect(await present(recoveryFile(f.home))).toBe(false);
+    expect(JSON.parse(await readFile(join(f.brainRoot, 'plugin-setup.json'), 'utf8')).packageRoot).toBe(f.packageRoot);
+  });
 });

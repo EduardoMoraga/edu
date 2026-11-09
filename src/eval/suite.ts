@@ -16,8 +16,17 @@ export const SUITE_ORACLE = 'fixed-expected-answer';
 
 interface Task { id: string; phase: 'transfer' | 'distractor' | 'correction'; query: string; expected: string; /** Oracle-supplied fix, applied only by the adaptive arm after a failure. */ correction?: { title: string; body: string } }
 
-const GOOD = { title: 'Run schema migrations with the make target', body: 'Procedure for running database schema migrations.\nAnswer: make db-migrate' };
-const DISTRACTOR = { title: 'Database migrations rollback for staging', body: 'Rolling back database migrations in staging.\nAnswer: make db-rollback' };
+/**
+ * The distractor phase only demonstrates something when, on the staging queries, the distractor out-ranks GOOD by
+ * more than GOOD's verified transfer win makes up and by less than one verified loss on the distractor takes away.
+ * Recall scores `bm25 × (0.5 + weight)`: a win lifts GOOD from ×1.0 to ×1.17, a loss drops the distractor to ×0.83,
+ * so its lexical lead must sit between 1.17x and 1.4x. With ES/EN stemming ("running" now matches "run") the old
+ * pair was 1.12x: the transfer win alone made GOOD win, and the distractor never won (3/3). The distractor now
+ * leans on staging in title and body and GOOD's procedure is spelled out, for a 1.25x lead: the distractor wins
+ * the first staging query, verified feedback recovers the next two.
+ */
+const GOOD = { title: 'Run schema migrations with the make target', body: 'Procedure for running database schema migrations from the repository root, after pulling the latest code and before starting the service.\nAnswer: make db-migrate' };
+const DISTRACTOR = { title: 'Staging database migrations rollback', body: 'Rolling back database migrations in staging, on the staging database.\nAnswer: make db-rollback' };
 const UPGRADED = { title: 'Migrations now use db-upgrade after the tooling change', body: 'Since the tooling change, schema migrations are run with a different target.\nAnswer: make db-upgrade' };
 
 export const SUITE_TASKS: Task[] = [

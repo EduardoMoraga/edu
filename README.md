@@ -19,7 +19,38 @@ them, hand work to the others and watch it happen.
 
 ---
 
-## Edu 4.1.0
+## Edu 5.0
+
+Memory that costs less context, finds more, and is safe to share between machines and agents.
+
+- **Measured:** `edu bench` scores retrieval (ES/EN recall@k, MRR), context cost (brief and MCP
+  tool tokens) and brief stability on a fixed corpus; `edu bench activation` checks a live agent.
+- **Bilingual recall:** light ES/EN stemming, an ES↔EN term bridge and a fuzzy fallback. No new
+  dependency, no server.
+- **Cheaper context:** the session brief is cache-stable (content-only order, volatile sections
+  last, a pointer to `0-index/catalog.md`), and MCP tool definitions are about 30% smaller with the
+  same names and parameters.
+- **No sync churn:** recall and injection counts go to a machine-local exposure ledger, not the
+  notes; feedback stays in the note.
+- **Compiled memory:** `edu_remember` (now with `links` and `supersedes`) links related notes and
+  reports possible conflicts; `0-index/catalog.md` lists every note and `0-index/log.md` records
+  every operation. `edu brain lint` is a read-only health check; `edu dream` turns recent sessions
+  from every host into a plan you review, and nothing applies until you tick it.
+- **Safe sharing:** hash-guarded writes (`edu_read` shows the hash, `expected_hash` refuses a stale
+  update), provenance (host, agent, session) on every note, and secrets redacted before writing.
+  `edu join <repo>` attaches a machine or cloud sandbox to the shared brain;
+  `edu brain share <id>` moves a note to the global brain.
+- **Approval first:** `edu create` proposes every extracted canonical note, even the ones the
+  extractor calls verified; accept them with `edu brain approve`.
+- **One command, every agent:** `edu setup --yes` configures every detected CLI and survives Node
+  upgrades; `edu uninstall` restores host configs exactly. Cloud sandboxes:
+  `curl -fsSL https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.sh | EDU_YES=1 EDU_JOIN=https://github.com/<you>/<brain>.git sh`
+  with a `GH_TOKEN` secret ([guide](docs/guides/install-5.0.md)).
+
+Held-out retrieval: recall@10 56% → 76% (85% when the agent also passes a translation in `alt`);
+cross-language MRR 0.10 → 0.45–0.61. [What changed, measured and verified](docs/edu-5.0.md)
+
+## Previous: Edu 4.1.0
 
 One brain on every machine. `edu sync` replaces hand-made sync scripts: files Edu regenerates
 and counter-only differences never stop it, and a real conflict goes to a `sync-conflict/` branch
@@ -120,8 +151,9 @@ albert/
 ```
 
 - Extraction runs headless through the first installed CLI (claude, codex, pi, opencode) or
-  `--cli`. What a document states becomes **accepted** canonical notes (band `verified`, source
-  `file#heading`); interpretations stay **proposed** for you to approve. Procedures become
+  `--cli`. Every extracted note becomes a **proposed** canonical note awaiting your approval, even
+  what a document states outright (band `verified`, source `file#heading`); nothing is accepted
+  without you. Procedures become
   playbooks, terms one glossary note. Invalid answers are retried once, then Edu falls back to
   the heading split. Review them with `edu brain proposals` (title, source, band, why) and decide
   with `edu brain approve <id>` / `--all` / `--reject <id>` (a rejected proposal is deleted and a
@@ -330,6 +362,10 @@ OpenCode TUI plugins count too: `edu detach gentle-ai` removes its logo plugin f
 edu uninstall --scope global   # reverses everything edu setup recorded
 npm rm -g edu-agent
 ```
+
+`edu uninstall` also stops and deletes the `edu sync` scheduler and every nightly dream
+(`edu dream --install`; `edu dream --uninstall` removes only the current project's). On Windows
+`edu dream --install` installs nothing, so a Task Scheduler job you created yourself stays yours to remove.
 
 Native alternatives: `claude plugin uninstall edu@edu` · `codex plugin remove edu@edu` ·
 `pi remove git:github.com/EduardoMoraga/edu` · `agy plugin uninstall edu`. Edu refuses to

@@ -245,6 +245,54 @@ it.each([
   expect(calls.every(c => c === 'list' || c.startsWith('plugin list'))).toBe(true);
 });
 
+async function relocatedPi() {
+  const { home, brainRoot } = await fixture();
+  const packageRoot = await installedPackage(home);
+  const oldRoot = join(home, 'old-node/lib/node_modules/edu-agent');
+  await mkdir(oldRoot, { recursive: true });
+  await writeFile(join(brainRoot, 'plugin-setup.json'), JSON.stringify({ version: 1, packageRoot: oldRoot, native: ['pi'], fallback: [] }));
+  const calls: string[] = []; const registered = new Set([oldRoot]); const failing = new Set<string>(); let failRest = false; let failed = false;
+  const runner: SetupRunner = async c => {
+    const args = c.args.join(' '); calls.push(args);
+    if (args !== 'list' && (failing.delete(args) || (failRest && failed))) { failed = true; return { exitCode: 1, stderr: 'injected host failure' }; }
+    if (args.startsWith('remove ')) { if (!registered.delete(c.args[1]!)) return { exitCode: 1, stderr: 'not installed' }; return { exitCode: 0 }; }
+    if (args.startsWith('install ')) { registered.add(c.args[1]!); return { exitCode: 0 }; }
+    return { exitCode: 0, stdout: `User packages:\n${[...registered].map(r => `  ${r}\n`).join('')}` };
+  };
+  const run = async () => applySetup(await planSetup({ home, packageRoot, clis: ['pi'], runner }), { runner, brainRoot, platform: 'linux' });
+  return { home, brainRoot, packageRoot, oldRoot, calls, registered, run, failOnce: (args: string) => failing.add(args), failRollback: (value: boolean) => { failRest = value; failed = false; } };
+}
+it('re-points Pi at a relocated package root (install the new package before removing the old), records it, and repeats as a no-op', async () => {
+  const f = await relocatedPi();
+  await f.run();
+  expect(f.calls.filter(c => c !== 'list')).toEqual([`install ${f.packageRoot}`, `remove ${f.oldRoot}`]);
+  expect([...f.registered]).toEqual([f.packageRoot]);
+  expect(JSON.parse(await readFile(join(f.brainRoot, 'plugin-setup.json'), 'utf8')).packageRoot).toBe(f.packageRoot);
+  f.calls.length = 0;
+  await f.run();
+  expect(f.calls.every(c => c === 'list')).toBe(true);
+});
+it.each(['install', 'remove'])('restores the previous Pi package when the %s step fails', async step => {
+  const f = await relocatedPi();
+  f.failOnce(step === 'install' ? `install ${f.packageRoot}` : `remove ${f.oldRoot}`);
+  await expect(f.run()).rejects.toThrow(/Pi native refresh failed.*rolled back/i);
+  expect([...f.registered]).toEqual([f.oldRoot]);
+  await expect(stat(join(f.home, '.edu/state/plugin-recovery.json'))).rejects.toThrow();
+  expect(JSON.parse(await readFile(join(f.brainRoot, 'plugin-setup.json'), 'utf8')).packageRoot).toBe(f.oldRoot);
+});
+it('keeps a Pi recovery record with restore commands when rollback fails, and the next setup repairs it', async () => {
+  const f = await relocatedPi();
+  f.failOnce(`remove ${f.oldRoot}`); f.failRollback(true);
+  const error = await f.run().then(() => undefined, (e: Error) => e);
+  expect(error?.message).toMatch(/rollback failed/i);
+  expect(error?.message).toContain(`pi remove ${f.packageRoot} && pi install ${f.oldRoot}`);
+  expect(JSON.parse(await readFile(join(f.home, '.edu/state/plugin-recovery.json'), 'utf8')).hosts.pi).toMatchObject({ previous: { root: f.oldRoot }, target: f.packageRoot });
+  f.failRollback(false);
+  await f.run();
+  expect([...f.registered]).toEqual([f.packageRoot]);
+  await expect(stat(join(f.home, '.edu/state/plugin-recovery.json'))).rejects.toThrow();
+});
+
 it('upgrades a pristine owned skill with new declared helpers, retires old helpers and refuses custom collisions', async () => {
   const { home, brainRoot } = await fixture();
   const { applyInstall } = await import('../adapters/installer.js');

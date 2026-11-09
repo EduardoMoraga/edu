@@ -5,7 +5,8 @@ argument-hint: "<topic or question>"
 
 Follow the `edu-recall` skill for this query: $ARGUMENTS
 
-1. Call `edu_recall` with a short topic query derived from it.
+1. Call `edu_recall` with a short topic query derived from it. When the brain mixes languages,
+   pass the question in both Spanish and English via `alt`.
 2. Open at most three relevant hits with `edu_read`.
 3. Answer first, then list sources (id, title, claim band). Call `edu_feedback` on any note
    that clearly helped or misled; this is advisory opinion, never externally verified

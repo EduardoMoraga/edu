@@ -1,8 +1,11 @@
-/** `edu brain status|recall|remember|maintain|tidy|import|link|proposals|approve`. */
+/** `edu brain status|recall|read|remember|share|maintain|tidy|lint|import|link|proposals|approve`. */
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { autoMaintain } from '../../brain/auto-maintain.js';
+import { compileReportLines } from '../../brain/compile.js';
 import { listCanonicalProposals, reviewCanonicalProposals } from '../../brain/proposals.js';
+import { LINT_KINDS, lintBrain, type LintReport } from '../../brain/lint.js';
+import { brainPath, isInside } from '../../brain/location.js';
 import { TIDY_KINDS, applyTidy, loadTidyPlan, planTidy, saveTidyPlan } from '../../brain/tidy.js';
 import type { ClaimBand, TransitiveKind } from '../../core/contracts.js';
 import type { CliContext } from '../context.js';
@@ -55,7 +58,7 @@ const collect = (value: string, previous: string[]) => [...previous, value];
 
 interface ApproveOpts { all?: boolean; reject?: string[]; reason?: string; json?: boolean }
 
-interface RecallOpts { limit?: string; json?: boolean }
+interface RecallOpts { limit?: string; json?: boolean; alt?: string[] }
 interface RememberOpts { kind?: string; body?: string; band?: string; due?: string; json?: boolean }
 
 export function registerBrain(program: Command, ctx: CliContext): void {
@@ -83,12 +86,15 @@ export function registerBrain(program: Command, ctx: CliContext): void {
     .command('recall')
     .description('search the brain (relevance × learned weight)')
     .argument('<query...>', 'what to look for')
+    .option('--alt <query>', 'the same question rephrased or translated, fused with it (repeatable, up to 3)', collect, [])
     .option('--limit <n>', 'maximum hits', '8')
     .option('--json', 'machine-readable output')
     .action(
       action<RecallOpts>(ctx, async ({ g, opts }, query) => {
+        const alt = opts.alt ?? [];
+        if (alt.length > 3) throw new Error('--alt accepts at most 3 phrasings');
         const ws = await openWorkspace(ctx, g.cwd);
-        const hits = await ws.brain.recall(query ?? '', { limit: parseIntOption(opts.limit ?? '8', '--limit') });
+        const hits = await ws.brain.recall(alt.length ? [query ?? '', ...alt] : query ?? '', { limit: parseIntOption(opts.limit ?? '8', '--limit') });
         if (g.json || opts.json) {
           return printJson(ctx, hits.map((h) => ({ id: h.note.meta.id, title: h.note.meta.title, tier: h.note.meta.tier, band: h.note.meta.band, score: h.score, why: h.why })));
         }
@@ -147,7 +153,8 @@ export function registerBrain(program: Command, ctx: CliContext): void {
         const kind = oneOf(opts.kind ?? 'lesson', KINDS, '--kind');
         const band = opts.band ? oneOf(opts.band, BANDS, '--band') : undefined;
         const ws = await writableWorkspace(ctx, g.cwd, g.lang);
-        const note = await ws.brain.write({
+        // remember = write + compile: related notes are linked and likely contradictions reported.
+        const { note, report } = await ws.brain.remember({
           tier: 'transitive',
           kind,
           title: (title ?? '').trim(),
@@ -156,8 +163,36 @@ export function registerBrain(program: Command, ctx: CliContext): void {
           ...(band ? { band } : {}),
           ...(opts.due ? { due: opts.due } : {}),
         });
-        if (g.json || opts.json) return printJson(ctx, { id: note.meta.id, path: note.path });
+        if (g.json || opts.json) return printJson(ctx, { id: note.meta.id, path: note.path, report });
         ctx.out(t(g.lang, 'brain.remembered', { id: note.meta.id }));
+        for (const line of compileReportLines(report)) ctx.out(`  ${line}`);
+      }),
+    );
+
+  brain
+    .command('share')
+    .description('move a note to the shared global brain (default) or back to this project, keeping its id')
+    .argument('<id>', 'note id, alias, unique prefix or exact title')
+    .option('--to <scope>', 'global | project', 'global')
+    .option('--json', 'machine-readable output')
+    .action(
+      action<{ to?: string; json?: boolean }>(ctx, async ({ g, opts }, reference) => {
+        const scope = oneOf(opts.to ?? 'global', ['global', 'project'] as const, '--to');
+        const ws = await openWorkspace(ctx, g.cwd);
+        const target = ws.locations.find(loc => loc.scope === scope);
+        const es = g.lang === 'es';
+        if (!target || !(await exists(join(target.root, 'EDU.md')))) {
+          throw new Error(scope === 'global'
+            ? (es ? 'No hay cerebro global inicializado — ejecuta: edu init --global' : 'No global brain found — run: edu init --global')
+            : (es ? 'No hay cerebro de proyecto aquí — ejecuta: edu init' : 'No project brain here — run: edu init'));
+        }
+        const result = await ws.brain.resolve(reference ?? '');
+        if (!result) throw new Error(t(g.lang, 'brain.readMissing', { reference: reference ?? '' }));
+        if ('candidates' in result) throw new Error(`${t(g.lang, 'brain.readAmbiguous', { reference: reference ?? '', via: result.via, count: result.candidates.length })} ${result.candidates.map(note => note.meta.id).join(', ')}`);
+        const from = ws.locations.find(loc => isInside(brainPath(loc), result.note.path))?.scope ?? ws.primary.scope;
+        const moved = await ws.brain.move(result.note.meta.id, target.root);
+        if (g.json || opts.json) return printJson(ctx, { id: moved.meta.id, from, to: scope, path: moved.path });
+        ctx.out(es ? `Compartida ${moved.meta.id}: ${from} → ${scope} (${moved.path})` : `Shared ${moved.meta.id}: ${from} → ${scope} (${moved.path})`);
       }),
     );
 
@@ -206,6 +241,23 @@ export function registerBrain(program: Command, ctx: CliContext): void {
         for (const a of plan.aliases) ctx.out(`  A ${a.id} ← ${a.add.join(', ')}`);
         for (const m of plan.manual) ctx.out(`  ! [[${m.link}]] → ${m.target} (${m.reason})`);
         ctx.out(t(g.lang, 'brain.tidySaved', { path }));
+      }),
+    );
+
+  brain
+    .command('lint')
+    .description('read-only health check: orphans, missing pages, possible contradictions, stale claims, overdue commitments, duplicates')
+    .option('--stale-days <n>', 'age in days after which a time-sensitive claim without "(as of YYYY-MM-DD)" is stale', '90')
+    .option('--strict', 'exit with code 1 when a finding has severity error')
+    .option('--json', 'machine-readable output')
+    .action(
+      action<{ staleDays?: string; strict?: boolean; json?: boolean }>(ctx, async ({ g, opts }) => {
+        const ws = await openWorkspace(ctx, g.cwd);
+        const staleDays = parseIntOption(opts.staleDays ?? '90', '--stale-days');
+        const report = await lintBrain(ws.brain, { staleDays, root: brainPath(ws.primary) });
+        if (opts.strict && report.summary.error) ctx.setExitCode(1);
+        if (g.json || opts.json) return printJson(ctx, report);
+        for (const line of lintTable(report)) ctx.out(line);
       }),
     );
 
@@ -303,4 +355,24 @@ export function registerBrain(program: Command, ctx: CliContext): void {
         ctx.out(fill(m.summary, { accepted: result.accepted.length, rejected: result.rejected.length, errors: result.errors.length }));
       }),
     );
+}
+
+/** Findings grouped by kind (most actionable first), then the summary counts. */
+export function lintTable(report: LintReport): string[] {
+  const lines: string[] = [];
+  for (const kind of LINT_KINDS) {
+    const group = report.findings.filter(finding => finding.kind === kind);
+    if (!group.length) continue;
+    lines.push(`${kind} (${group.length})`);
+    for (const finding of group) {
+      lines.push(`  ${finding.severity.padEnd(7)} ${finding.ids.join(', ')}`);
+      lines.push(`          ${finding.message}`);
+      lines.push(`          fix: ${finding.fix}`);
+    }
+    lines.push('');
+  }
+  const { summary } = report;
+  if (!summary.total) lines.push(`No findings in ${report.notes} notes.`);
+  else lines.push(`${summary.total} finding(s) in ${report.notes} notes: ${summary.error} error · ${summary.warning} warning · ${summary.info} info — ${LINT_KINDS.filter(kind => summary[kind]).map(kind => `${kind} ${summary[kind]}`).join(', ')}`);
+  return lines;
 }

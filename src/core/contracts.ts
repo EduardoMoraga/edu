@@ -57,7 +57,10 @@ export type CanonicalStatus = 'proposed' | 'accepted' | 'superseded';
 
 /** Learning signal kept on lessons and canonical notes to drive self-improvement. */
 export interface UsageStats {
-  /** Times the note was injected into context or recalled. */
+  /**
+   * Times the note was injected into context or recalled. Exposure (`uses`, `lastUsed`) lives in the machine-local
+   * ledger (`<root>/.edu-local/usage.json`); reads merge it in. Values still found in frontmatter are legacy.
+   */
   uses: number;
   /** Times feedback said it helped (advisory and verified; ranking signal only, never promotion proof). */
   wins: number;
@@ -115,6 +118,22 @@ export interface NoteMeta {
   albert?: Record<string, unknown>;
   /** Set by an importer when the source frontmatter could not be parsed; the raw source text is the body. */
   import_warning?: 'invalid-frontmatter';
+  /** Provenance: machine that last wrote the note (defaults to `os.hostname()` on write). */
+  host?: string;
+  /** Provenance: agent that last wrote the note, e.g. `claude-code`, `codex`, `pi`, `opencode`, `antigravity`, `cli`. */
+  agent?: string;
+  /** Provenance: Edu session id the note was last written in. */
+  session?: string;
+}
+
+/**
+ * Who is writing a note (provenance). Every field is optional; `host` defaults to `os.hostname()`.
+ * Recorded on the note as `host`/`agent`/`session` (undefined fields are omitted from frontmatter).
+ */
+export interface NoteOrigin {
+  host?: string;
+  agent?: string;
+  session?: string;
 }
 
 export interface Note {

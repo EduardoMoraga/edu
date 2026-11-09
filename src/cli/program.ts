@@ -5,6 +5,7 @@
  */
 import { Command } from 'commander';
 import { detectTheme, getGlyphs, renderBanner } from '../identity/index.js';
+import { registerBench } from './commands/bench.js';
 import { registerBrain } from './commands/brain.js';
 import { registerCapabilities } from './commands/capabilities.js';
 import { registerCreate } from './commands/create.js';
@@ -12,6 +13,7 @@ import { registerConnect } from './commands/connect.js';
 import { registerCrew } from './commands/crew.js';
 import { registerDeck } from './commands/deck.js';
 import { registerDoctor } from './commands/doctor.js';
+import { registerDream } from './commands/dream.js';
 import { registerDetach } from './commands/detach.js';
 import { registerEvidence } from './commands/evidence.js';
 import { registerExperiment } from './commands/experiment.js';
@@ -23,6 +25,7 @@ import { registerPluginSetup } from './commands/plugins.js';
 import { registerWatch } from './commands/watch.js';
 import { openHome, registerLive } from './commands/live.js';
 import { registerSetup } from './commands/setup.js';
+import { registerJoin } from './commands/join.js';
 import { registerSync } from './commands/sync.js';
 import { registerUpdate } from './commands/update.js';
 import { registerVault } from './commands/vault.js';
@@ -31,9 +34,9 @@ import { t } from './i18n.js';
 import { packageVersion } from './package.js';
 
 const GROUPS: Array<[string, string[]]> = [
-  ['Get started:', ['create', 'init', 'vault', 'sync', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities']],
+  ['Get started:', ['create', 'init', 'vault', 'sync', 'join', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities']],
   ['Work:', ['run', 'ui', 'demo', 'deck', 'experiment']],
-  ['Brain:', ['brief', 'brain', 'context', 'reflect', 'proposals', 'metrics', 'checks', 'eval']],
+  ['Brain:', ['brief', 'brain', 'context', 'reflect', 'dream', 'proposals', 'metrics', 'checks', 'eval', 'bench']],
   ['Integrations:', ['mcp', 'connect', 'statusline', 'hook']],
 ];
 
@@ -82,13 +85,16 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerCreate(program, ctx);
   registerVault(program, ctx);
   registerSync(program, ctx);
+  registerJoin(program, ctx);
   registerLive(program, ctx);
   registerBrain(program, ctx);
   registerLearn(program, ctx);
+  registerDream(program, ctx);
   registerDoctor(program, ctx);
   registerDetach(program, ctx);
   registerEvidence(program, ctx);
   registerEvaluation(program, ctx);
+  registerBench(program, ctx);
   registerExperiment(program, ctx);
   registerCapabilities(program, ctx);
   registerIntegrations(program, ctx);
