@@ -140,6 +140,9 @@ async function treeOrEmpty(root) {
   }
   return tree(root);
 }
+function nativePath(value) {
+  return typeof value === "string" && /^\\\\\?\\[A-Za-z]:\\/.test(value) ? value.slice(4) : value;
+}
 function eduOwnedRoot(registered, previousPackageRoot) {
   return typeof registered === "string" && isAbsolute(registered) && (registered === previousPackageRoot || /[\\/]node_modules[\\/]edu-agent$/.test(registered));
 }
@@ -273,7 +276,7 @@ async function registeredAt(host, runner, root, other) {
     const parsed = json(await run(["plugin", "list", "--json"]));
     const matches = Array.isArray(parsed?.installed) ? parsed.installed.filter((e) => e?.pluginId === "edu@edu") : [];
     const entry = matches[0];
-    return matches.length === 1 && entry.installed === true && entry.enabled === true && entry.marketplaceSource?.sourceType === "local" && entry.marketplaceSource.source === root && entry.source?.path === join3(root, "plugins/codex");
+    return matches.length === 1 && entry.installed === true && entry.enabled === true && entry.marketplaceSource?.sourceType === "local" && nativePath(entry.marketplaceSource.source) === root && nativePath(entry.source?.path) === join3(root, "plugins/codex");
   }
   const plugins = json(await run(["plugin", "list", "--json"]));
   const entries = Array.isArray(plugins) ? plugins.filter((e) => e?.id === "edu@edu") : [];
@@ -558,8 +561,8 @@ async function planCodexRefresh(options) {
   let previous;
   try {
     const entry = await listed();
-    const registeredRoot = entry.marketplaceSource?.source;
-    if (!entry.installed || !entry.enabled || entry.name !== "edu" || entry.marketplaceName !== "edu" || entry.source?.source !== "local" || entry.marketplaceSource?.sourceType !== "local" || typeof registeredRoot !== "string" || entry.source.path !== join5(registeredRoot, "plugins/codex") || !version(entry.version)) {
+    const registeredRoot = nativePath(entry.marketplaceSource?.source);
+    if (!entry.installed || !entry.enabled || entry.name !== "edu" || entry.marketplaceName !== "edu" || entry.source?.source !== "local" || entry.marketplaceSource?.sourceType !== "local" || typeof registeredRoot !== "string" || nativePath(entry.source.path) !== join5(registeredRoot, "plugins/codex") || !version(entry.version)) {
       throw new Error("installed plugin identity or local provenance is unknown");
     }
     relocated = registeredRoot !== packageRoot;
@@ -597,7 +600,7 @@ async function planCodexRefresh(options) {
     const verify = async (result) => {
       const installed = JSON.parse(result.stdout ?? "");
       const expectedPath = join5(base, nextVersion);
-      if (installed.pluginId !== "edu@edu" || installed.version !== nextVersion || installed.installedPath !== expectedPath) throw new Error("unexpected install identity/version/path");
+      if (installed.pluginId !== "edu@edu" || installed.version !== nextVersion || nativePath(installed.installedPath) !== expectedPath) throw new Error("unexpected install identity/version/path");
       const expected = Object.fromEntries(Object.entries(candidate).map(([p, hash]) => [`${nextVersion}/${p}`, hash]));
       if (!equal(await tree(base), expected)) throw new Error("installed cache does not match candidate hashes");
     };
@@ -611,7 +614,7 @@ async function planCodexRefresh(options) {
           }
           await verify(await step(["plugin", "add", "edu@edu", "--json"]));
           const entry = await listed();
-          if (entry.marketplaceSource?.sourceType !== "local" || entry.marketplaceSource.source !== packageRoot || entry.source?.path !== sourceRoot || entry.version !== nextVersion) throw new Error("registration does not point at the current package");
+          if (entry.marketplaceSource?.sourceType !== "local" || nativePath(entry.marketplaceSource.source) !== packageRoot || nativePath(entry.source?.path) !== sourceRoot || entry.version !== nextVersion) throw new Error("registration does not point at the current package");
         });
       } catch (error) {
         throw new Error(`Codex native refresh failed: ${error instanceof Error ? error.message : error}. Backup: ${backup}. Restart only after the registration is confirmed.`);
@@ -1522,4 +1525,4 @@ export {
   uninstallSetup,
   needsFirstRunSetup
 };
-//# sourceMappingURL=chunk-QVQ75XWO.js.map
+//# sourceMappingURL=chunk-XCZK4L4L.js.map

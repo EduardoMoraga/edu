@@ -6,7 +6,7 @@ import {
   applySetup,
   needsFirstRunSetup,
   planSetup
-} from "./chunk-QVQ75XWO.js";
+} from "./chunk-XCZK4L4L.js";
 import {
   globalHome,
   resolveGlobals
@@ -181,4 +181,4 @@ export {
   registerPluginSetup,
   shouldRunFirstSetup
 };
-//# sourceMappingURL=chunk-AOXMDQGG.js.map
+//# sourceMappingURL=chunk-BOFGUZFX.js.map

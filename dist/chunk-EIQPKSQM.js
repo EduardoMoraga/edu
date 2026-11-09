@@ -31,7 +31,7 @@ import {
   printJson,
   registerPluginSetup,
   statusLine
-} from "./chunk-AOXMDQGG.js";
+} from "./chunk-BOFGUZFX.js";
 import {
   detectTheme,
   formatTokens,
@@ -46,7 +46,7 @@ import {
   editContent,
   editInstructions,
   ownerOf
-} from "./chunk-QVQ75XWO.js";
+} from "./chunk-XCZK4L4L.js";
 import {
   classifyPackage,
   loadChecks,
@@ -1794,7 +1794,7 @@ function registerSetup(program, ctx) {
       const brainRoot = globalHome(ctx);
       let purgeBrain = false;
       if (opts.purgeBrain) {
-        const { assertPurgeableBrain } = await import("./uninstall-QLWXVXXA.js");
+        const { assertPurgeableBrain } = await import("./uninstall-OKPR2N3Y.js");
         if (await exists(brainRoot)) {
           await assertPurgeableBrain(brainRoot, ctx.home);
           const question = es ? `\xBFBorrar el cerebro ${brainRoot} con todas sus notas? Esto no se puede deshacer.` : `Delete the brain ${brainRoot} and all its notes? This cannot be undone.`;
@@ -1804,7 +1804,7 @@ function registerSetup(program, ctx) {
           if (!purgeBrain) ctx.out(es ? "El cerebro se conserva." : "Keeping the brain.");
         }
       }
-      const { uninstallEdu } = await import("./uninstall-QLWXVXXA.js");
+      const { uninstallEdu } = await import("./uninstall-OKPR2N3Y.js");
       const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain });
       if (g.json) {
         printJson(ctx, report);
@@ -4793,7 +4793,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-MT4P3BDQ.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-DNOHBYUZ.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -5843,4 +5843,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-R4YF5YL6.js.map
+//# sourceMappingURL=chunk-EIQPKSQM.js.map

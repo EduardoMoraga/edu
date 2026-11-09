@@ -10,6 +10,7 @@
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { SetupResult, SetupRunner } from './index.js';
+import { nativePath } from './native-files.js';
 
 export type RecoverableHost = 'claude' | 'codex' | 'pi';
 
@@ -96,7 +97,7 @@ export async function registeredAt(host: RecoverableHost, runner: SetupRunner, r
     const matches = Array.isArray(parsed?.installed) ? parsed.installed.filter(e => e?.pluginId === 'edu@edu') : [];
     const entry = matches[0];
     return matches.length === 1 && entry!.installed === true && entry!.enabled === true && entry!.marketplaceSource?.sourceType === 'local' &&
-      entry!.marketplaceSource.source === root && entry!.source?.path === join(root, 'plugins/codex');
+      nativePath(entry!.marketplaceSource.source) === root && nativePath(entry!.source?.path) === join(root, 'plugins/codex');
   }
   const plugins = json(await run(['plugin', 'list', '--json']));
   const entries = Array.isArray(plugins) ? plugins.filter(e => e?.id === 'edu@edu') : [];
