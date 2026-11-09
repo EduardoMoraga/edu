@@ -44,7 +44,7 @@ async function nativeFixture(platform: NodeJS.Platform = 'linux', baseline: stri
     if (args === '--version') return { exitCode: 0, stdout: mode === 'old-host' ? 'codex-cli 0.162.0' : mode === 'newer' ? 'codex-cli 0.167.0' : 'codex-cli 0.163.0' };
     if (args.startsWith('plugin list')) {
       const root = mode === 'origin' ? '/another/package' : registeredRoot;
-      return { exitCode: 0, stdout: JSON.stringify({ installed: pluginPresent ? [{ pluginId: 'edu@edu', name: 'edu', marketplaceName: 'edu', version: installedVersion, installed: true, enabled: true, source: { source: 'local', path: join(root, 'plugins/codex') }, marketplaceSource: { sourceType: mode === 'remote-source' ? 'git' : 'local', source: root } }] : [] }) };
+      return { exitCode: 0, stdout: JSON.stringify({ installed: pluginPresent ? [{ pluginId: 'edu@edu', name: 'edu', marketplaceName: 'edu', version: installedVersion, installed: true, enabled: true, source: { source: 'local', path: join(root, 'plugins/codex') }, marketplaceSource: { sourceType: mode === 'remote-source' ? 'git' : 'local', source: mode === 'extended' ? `\\\\?\\${root}` : root } }] : [] }) };
     }
     if (args === 'plugin remove edu@edu') { if (!pluginPresent) return { exitCode: 1, stderr: 'not installed' }; await rm(base, { recursive: true, force: true }); pluginPresent = false; return { exitCode: 0 }; }
     if (args === 'plugin marketplace remove edu') { if (!marketPresent) return { exitCode: 1, stderr: 'not found' }; marketPresent = false; return { exitCode: 0 }; }
@@ -358,5 +358,21 @@ describe('relocation rollback', () => {
     await f.run();
     expect(f.host()).toMatchObject({ plugin: true, marketplace: true, root: f.packageRoot, version: candidateVersion });
     expect(await present(recoveryFile(f.home))).toBe(false);
+  });
+});
+describe('Codex extended Windows paths', () => {
+  it('reduces only the drive-letter extended form', async () => {
+    const { nativePath } = await import('./native-files.js');
+    expect(nativePath(String.raw`\\?\C:\Users\me\npm\node_modules\edu-agent`)).toBe(String.raw`C:\Users\me\npm\node_modules\edu-agent`);
+    expect(nativePath(String.raw`C:\plain`)).toBe(String.raw`C:\plain`);
+    expect(nativePath(String.raw`\\?\UNC\server\share`)).toBe(String.raw`\\?\UNC\server\share`);
+    expect(nativePath('/tmp/edu')).toBe('/tmp/edu');
+    expect(nativePath(undefined)).toBeUndefined();
+  });
+  it.runIf(process.platform === 'win32')('refreshes a registration whose marketplace root Codex reports in extended form', async () => {
+    const f = await nativeFixture('win32'); f.setMode('extended');
+    await f.run();
+    expect(await readFile(join(f.nextRoot, 'skills/edu-brief/SKILL.md'), 'utf8')).toBe('NEW PROTOCOL');
+    expect(f.calls).not.toContain('plugin marketplace remove edu');
   });
 });

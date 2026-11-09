@@ -2,7 +2,7 @@ import { captureNativeProvenance } from './native-provenance.js';
 /** Codex native refresh through public `codex plugin` commands. Never write a native cache directly. */
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { tree, treeOrEmpty, equal, version, eduOwnedRoot, type Hashes } from './native-files.js';
+import { tree, treeOrEmpty, equal, version, eduOwnedRoot, nativePath, type Hashes } from './native-files.js';
 import { backupUpgradeFiles } from '../update/migrate.js';
 import { compareVersions } from '../update/release.js';
 import { codexBaselineForVersion } from './codex-baseline.js';
@@ -38,11 +38,11 @@ export async function planCodexRefresh(options: { home: string; packageRoot: str
   let previous: { root: string; pluginId: string; version: string; enabled: boolean };
   try {
     const entry = await listed();
-    const registeredRoot = entry.marketplaceSource?.source;
+    const registeredRoot = nativePath(entry.marketplaceSource?.source);
     // Edu-owned: edu@edu from a local marketplace named edu whose plugin path lives in that marketplace.
     if (!entry.installed || !entry.enabled || entry.name !== 'edu' || entry.marketplaceName !== 'edu' ||
         entry.source?.source !== 'local' || entry.marketplaceSource?.sourceType !== 'local' || typeof registeredRoot !== 'string' ||
-        entry.source.path !== join(registeredRoot, 'plugins/codex') || !version(entry.version)) {
+        nativePath(entry.source.path) !== join(registeredRoot, 'plugins/codex') || !version(entry.version)) {
       throw new Error('installed plugin identity or local provenance is unknown');
     }
     relocated = registeredRoot !== packageRoot;
@@ -81,7 +81,7 @@ export async function planCodexRefresh(options: { home: string; packageRoot: str
     const verify = async (result: { stdout?: string }) => {
       const installed = JSON.parse(result.stdout ?? '');
       const expectedPath = join(base, nextVersion);
-      if (installed.pluginId !== 'edu@edu' || installed.version !== nextVersion || installed.installedPath !== expectedPath) throw new Error('unexpected install identity/version/path');
+      if (installed.pluginId !== 'edu@edu' || installed.version !== nextVersion || nativePath(installed.installedPath) !== expectedPath) throw new Error('unexpected install identity/version/path');
       const expected = Object.fromEntries(Object.entries(candidate).map(([p, hash]) => [`${nextVersion}/${p}`, hash]));
       if (!equal(await tree(base), expected)) throw new Error('installed cache does not match candidate hashes');
     };
@@ -96,7 +96,7 @@ export async function planCodexRefresh(options: { home: string; packageRoot: str
           }
           await verify(await step(['plugin', 'add', 'edu@edu', '--json']));
           const entry = await listed();
-          if (entry.marketplaceSource?.sourceType !== 'local' || entry.marketplaceSource.source !== packageRoot || entry.source?.path !== sourceRoot || entry.version !== nextVersion) throw new Error('registration does not point at the current package');
+          if (entry.marketplaceSource?.sourceType !== 'local' || nativePath(entry.marketplaceSource.source) !== packageRoot || nativePath(entry.source?.path) !== sourceRoot || entry.version !== nextVersion) throw new Error('registration does not point at the current package');
         });
       } catch (error) {
         throw new Error(`Codex native refresh failed: ${error instanceof Error ? error.message : error}. Backup: ${backup}. Restart only after the registration is confirmed.`);

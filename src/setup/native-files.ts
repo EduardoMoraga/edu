@@ -32,6 +32,13 @@ export async function treeOrEmpty(root: string): Promise<Hashes> {
  * A registered marketplace root Edu may re-register: the root setup recorded, or an installed
  * edu-agent package (a Node version manager moved the global package root). Anything else is custom.
  */
+/**
+ * Codex on Windows reports some local paths in extended form (`\\?\C:\...`) and others in plain
+ * form. Only the drive-letter form is reduced to its plain path; UNC and device paths stay as they are.
+ */
+export function nativePath<T>(value: T): T | string {
+  return typeof value === 'string' && /^\\\\\?\\[A-Za-z]:\\/.test(value) ? value.slice(4) : value;
+}
 export function eduOwnedRoot(registered: unknown, previousPackageRoot: string | undefined): registered is string {
   return typeof registered === 'string' && isAbsolute(registered) &&
     (registered === previousPackageRoot || /[\\/]node_modules[\\/]edu-agent$/.test(registered));

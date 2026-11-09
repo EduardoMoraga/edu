@@ -8,7 +8,7 @@ import {
 import {
   setupManifestPath,
   uninstallSetup
-} from "./chunk-QVQ75XWO.js";
+} from "./chunk-XCZK4L4L.js";
 import "./chunk-VCQJ5W3U.js";
 import "./chunk-YAIL4E7R.js";
 import "./chunk-ZFF2VUTT.js";
@@ -152,4 +152,4 @@ export {
   assertPurgeableBrain,
   uninstallEdu
 };
-//# sourceMappingURL=uninstall-QLWXVXXA.js.map
+//# sourceMappingURL=uninstall-OKPR2N3Y.js.map
