@@ -139,7 +139,7 @@ albert/
 
 | CLI | Instalación (o simplemente `edu setup`) | Qué obtiene | Cómo usarlo |
 |---|---|---|---|
-| **Claude Code** | `/plugin marketplace add EduardoMoraga/edu` y luego `/plugin install edu@edu` | skills, comandos, roles, MCP, hook de identidad, statusline | `/edu:brief`, `/edu:crew …` o en lenguaje natural |
+| **Claude Code** | `/plugin marketplace add EduardoMoraga/edu` y luego `/plugin install edu@edu` | skills, comandos, roles, MCP, hook de identidad, statusline, panel Edu Deck en vivo ([guía](guides/claude-code-deck.md)) | `/edu-deck`, `/edu:brief`, `/edu:crew …` o en lenguaje natural |
 | **Codex** | `codex plugin marketplace add EduardoMoraga/edu` y luego `codex plugin add edu@edu` | skills, MCP, hook de identidad | en lenguaje natural o nombrando la skill: `edu-crew` |
 | **Pi** | `pi install git:github.com/EduardoMoraga/edu` | extensión (MCP + identidad + Edu Deck en vivo), tema `edu`, prompts, skills | `/edu-deck`, `/edu-brief`, `/edu-crew …` |
 | **OpenCode** | `edu setup` | comandos, agentes, plugin, MCP, Edu Deck en vivo (logo + sidebar), tema `edu` | `/edu-deck`, `/edu-brief`, `/edu-crew …` |
