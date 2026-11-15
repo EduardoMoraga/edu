@@ -5,16 +5,20 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { readMaintainState } from '../../brain/auto-maintain.js';
-import { brainPath, stopsAtCeiling, withBrainDir } from '../../brain/location.js';
+import { brainPath } from '../../brain/location.js';
 import { parseMarkdownLenient } from '../../brain/frontmatter.js';
-import { TIER_DIRS, type Tier } from '../../core/contracts.js';
+import { TIER_DIRS, type BrainLocation, type Tier } from '../../core/contracts.js';
+import { resolveBrainLocations } from '../../mcp/locations.js';
 import { getGlyphs } from '../../identity/index.js';
 import { resolveGlobals, type CliContext } from '../context.js';
 import { identityName, lessonCount } from '../workspace.js';
 
 export interface DeckSnapshot {
   version: 1;
+  /** The session's project: the folder holding the project `.edu/`, else the folder asked about. */
   project: { name: string; root: string };
+  /** Which brain this is, as every other command resolves it: the nearest project `.edu/`, else the global one. */
+  scope: 'project' | 'global';
   identity: string;
   /** `toApprove`: canonical notes with status proposed, waiting for a human. */
   brain: { present: boolean; canonical: number; proposed: number; toApprove: number; episodic: number; transitive: number; lessons: number };
@@ -115,21 +119,23 @@ async function crewJobs(root: string): Promise<DeckSnapshot['jobs']> {
   return parsed.filter((job): job is NonNullable<typeof job> => job !== null);
 }
 
-/** Reads only the project's `.edu` directory; absent or unreadable data degrades to empty fields. */
+/**
+ * Reads the brain the other commands use (the nearest project `.edu/` above `root`, else the global
+ * `EDU_HOME` or `~/.edu`), so crew jobs and session notes match `edu crew` and the SessionStart hook.
+ * Absent or unreadable data degrades to empty fields.
+ */
 export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = process.env, options: DeckOptions = {}): Promise<DeckSnapshot> {
-  let projectRoot = resolve(root);
-  while (true) {
-    try {
-      if ((await stat(join(projectRoot, '.edu'))).isDirectory()) break;
-    } catch { /* Keep looking for the nearest project brain. */ }
-    const parent = dirname(projectRoot);
-    if (parent === projectRoot || stopsAtCeiling(parent, env)) { projectRoot = resolve(root); break; }
-    projectRoot = parent;
-  }
-  const eduRoot = join(projectRoot, '.edu');
+  const cwd = resolve(root);
+  let primary: BrainLocation | undefined;
+  try { primary = (await resolveBrainLocations(cwd, env))[0]; }
+  catch { /* An unreadable folder on the way up: no brain. */ }
+  const scope = primary?.scope === 'project' ? 'project' : 'global';
+  const projectRoot = primary?.scope === 'project' ? dirname(primary.root) : cwd;
+  const eduRoot = primary?.root ?? join(cwd, '.edu');
   const empty: DeckSnapshot = {
     version: 1,
     project: { name: basename(projectRoot), root: projectRoot },
+    scope,
     identity: 'Edu',
     brain: { present: false, canonical: 0, proposed: 0, toApprove: 0, episodic: 0, transitive: 0, lessons: 0 },
     maintenance: { lastRun: null, promoted: 0, retired: 0, overdue: 0 },
@@ -142,7 +148,8 @@ export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = proces
   const hostTag = options.hostSession ? `host:${options.host || 'claude'}:${options.hostSession}` : undefined;
   if (hostTag) empty.session = null;
   try {
-    const brainDir = brainPath(await withBrainDir({ scope: 'project', root: eduRoot }));
+    if (!primary) return empty;
+    const brainDir = brainPath(primary);
     if (!(await stat(brainDir)).isDirectory()) return empty;
     const tiers = Object.entries(TIER_DIRS) as Array<[Tier, string]>;
     const noteFiles: NoteFile[] = (await Promise.all(tiers.map(async ([tier, dir]) =>
@@ -199,7 +206,7 @@ export function registerDeck(program: Command, ctx: CliContext): void {
       const deck = await deckSnapshot(g.cwd, ctx.env, { hostSession: opts.session, host: opts.host });
       if (g.json) { ctx.out(JSON.stringify(deck)); return; }
       const glyphs = getGlyphs(ctx.env);
-      ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}`);
+      ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}${deck.scope === 'global' ? ` ${glyphs.sep} global brain` : ''}`);
       const brain = deck.brain;
       const attention = [brain.toApprove ? `${brain.toApprove} to approve` : '', deck.maintenance.overdue ? `${deck.maintenance.overdue} overdue` : ''].filter(Boolean).join(' · ');
       ctx.out(`Brain  ${brain.present ? `${brain.canonical} canonical · ${brain.proposed} proposed · ${brain.episodic} episodic · ${brain.transitive} transitive · ${brain.lessons} lessons${attention ? ` · ${attention}` : ''}` : 'not found'}`);

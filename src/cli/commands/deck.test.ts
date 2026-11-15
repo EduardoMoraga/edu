@@ -141,6 +141,35 @@ describe('edu deck', () => {
     expect(JSON.parse(out(c)).session).toMatchObject({ id: '2026-11-15-claude-code-session-aaaa', status: 'open-session' });
   });
 
+  it('reads the global brain from a folder with no project brain, as edu crew and the hook do', async () => {
+    const c = await captureContext();
+    const home = c.ctx.env.EDU_HOME!;
+    await mkdir(join(home, 'brain', '2-episodic'), { recursive: true });
+    await writeFile(join(home, 'brain', '2-episodic', 's.md'), '# Session\n');
+    await mkdir(join(home, 'crew'), { recursive: true });
+    await writeFile(join(home, 'crew', 'job.json'), JSON.stringify({ id: 'abcdef123456', cli: 'codex', task: 'Global job', status: 'running' }));
+
+    const snapshot = await deckSnapshot(c.dirs.cwd, c.ctx.env);
+    expect(snapshot).toMatchObject({ scope: 'global', project: { name: 'project', root: c.dirs.cwd }, brain: { present: true, episodic: 1 } });
+    expect(snapshot.jobs.map(job => job.task)).toEqual(['Global job']);
+    await runCli(c, ['deck']);
+    expect(out(c)).toContain('global brain');
+  });
+
+  it('prefers the nearest project brain over the global one', async () => {
+    const c = await captureContext();
+    const home = c.ctx.env.EDU_HOME!;
+    await mkdir(join(home, 'brain', '2-episodic'), { recursive: true });
+    await writeFile(join(home, 'brain', '2-episodic', 'g.md'), '# Global\n');
+    await fixture(c.dirs.cwd, 'brain/2-episodic/p.md', '# Project\n', 1000);
+    await fixture(c.dirs.cwd, 'brain/2-episodic/q.md', '# Project two\n', 2000);
+    const nested = join(c.dirs.cwd, 'src', 'deep');
+    await mkdir(nested, { recursive: true });
+
+    const snapshot = await deckSnapshot(nested, c.ctx.env);
+    expect(snapshot).toMatchObject({ scope: 'project', project: { root: c.dirs.cwd }, brain: { present: true, episodic: 2 } });
+  });
+
   it('answers session null without a brain when a session is asked', async () => {
     const c = await captureContext();
     expect((await deckSnapshot(c.dirs.cwd, c.ctx.env, { hostSession: 'nobody' })).session).toBeNull();

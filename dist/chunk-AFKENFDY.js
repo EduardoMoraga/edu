@@ -107,6 +107,9 @@ import {
   openWorkspace
 } from "./chunk-QVL23RLF.js";
 import {
+  resolveBrainLocations
+} from "./chunk-KQ7WE6FL.js";
+import {
   DASHBOARD_PATHS,
   compileReportLines,
   ledgerPath,
@@ -133,9 +136,7 @@ import {
 } from "./chunk-YBSX67PD.js";
 import {
   brainPath,
-  isInside,
-  stopsAtCeiling,
-  withBrainDir
+  isInside
 } from "./chunk-YPR7PZSQ.js";
 
 // src/cli/program.ts
@@ -2374,23 +2375,19 @@ async function crewJobs(root) {
   return parsed.filter((job) => job !== null);
 }
 async function deckSnapshot(root, env = process.env, options = {}) {
-  let projectRoot = resolve6(root);
-  while (true) {
-    try {
-      if ((await stat2(join10(projectRoot, ".edu"))).isDirectory()) break;
-    } catch {
-    }
-    const parent = dirname5(projectRoot);
-    if (parent === projectRoot || stopsAtCeiling(parent, env)) {
-      projectRoot = resolve6(root);
-      break;
-    }
-    projectRoot = parent;
+  const cwd = resolve6(root);
+  let primary;
+  try {
+    primary = (await resolveBrainLocations(cwd, env))[0];
+  } catch {
   }
-  const eduRoot = join10(projectRoot, ".edu");
+  const scope = primary?.scope === "project" ? "project" : "global";
+  const projectRoot = primary?.scope === "project" ? dirname5(primary.root) : cwd;
+  const eduRoot = primary?.root ?? join10(cwd, ".edu");
   const empty = {
     version: 1,
     project: { name: basename2(projectRoot), root: projectRoot },
+    scope,
     identity: "Edu",
     brain: { present: false, canonical: 0, proposed: 0, toApprove: 0, episodic: 0, transitive: 0, lessons: 0 },
     maintenance: { lastRun: null, promoted: 0, retired: 0, overdue: 0 },
@@ -2403,7 +2400,8 @@ async function deckSnapshot(root, env = process.env, options = {}) {
   const hostTag2 = options.hostSession ? `host:${options.host || "claude"}:${options.hostSession}` : void 0;
   if (hostTag2) empty.session = null;
   try {
-    const brainDir2 = brainPath(await withBrainDir({ scope: "project", root: eduRoot }));
+    if (!primary) return empty;
+    const brainDir2 = brainPath(primary);
     if (!(await stat2(brainDir2)).isDirectory()) return empty;
     const tiers = Object.entries(TIER_DIRS);
     const noteFiles = (await Promise.all(tiers.map(
@@ -2455,7 +2453,7 @@ function registerDeck(program, ctx) {
       return;
     }
     const glyphs = getGlyphs(ctx.env);
-    ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}`);
+    ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}${deck.scope === "global" ? ` ${glyphs.sep} global brain` : ""}`);
     const brain = deck.brain;
     const attention = [brain.toApprove ? `${brain.toApprove} to approve` : "", deck.maintenance.overdue ? `${deck.maintenance.overdue} overdue` : ""].filter(Boolean).join(" \xB7 ");
     ctx.out(`Brain  ${brain.present ? `${brain.canonical} canonical \xB7 ${brain.proposed} proposed \xB7 ${brain.episodic} episodic \xB7 ${brain.transitive} transitive \xB7 ${brain.lessons} lessons${attention ? ` \xB7 ${attention}` : ""}` : "not found"}`);
@@ -5852,4 +5850,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-FQW4ZNQD.js.map
+//# sourceMappingURL=chunk-AFKENFDY.js.map
