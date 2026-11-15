@@ -121,4 +121,28 @@ describe('edu deck', () => {
     expect(out(c)).not.toContain('to approve');
     expect(out(c)).not.toContain('overdue');
   });
+
+  it('reports the Edu session a host session opened only when asked', async () => {
+    const c = await captureContext();
+    const root = c.dirs.cwd;
+    const note = (id: string, tag: string, status: string) =>
+      `---\nid: ${id}\ntier: episodic\ntitle: Claude Code session ${id.slice(-4)}\nkind: session\nstatus: ${status}\ntags:\n  - ${tag}\n  - session\n---\n`;
+    await fixture(root, 'brain/2-episodic/a.md', note('2026-11-15-claude-code-session-aaaa', 'host:claude:host-a', 'open-session'), 1000);
+    await fixture(root, 'brain/2-episodic/b.md', note('2026-11-15-codex-session-bbbb', 'host:codex:host-b', 'closed'), 2000);
+
+    expect(await deckSnapshot(root)).not.toHaveProperty('session');
+    expect((await deckSnapshot(root, c.ctx.env, { hostSession: 'host-a' })).session).toEqual({
+      id: '2026-11-15-claude-code-session-aaaa', status: 'open-session', title: 'Claude Code session aaaa',
+    });
+    expect((await deckSnapshot(root, c.ctx.env, { hostSession: 'host-b', host: 'codex' })).session).toMatchObject({ status: 'closed' });
+    expect((await deckSnapshot(root, c.ctx.env, { hostSession: 'host-b' })).session).toBeNull();
+
+    await runCli(c, ['deck', '--json', '--session', 'host-a']);
+    expect(JSON.parse(out(c)).session).toMatchObject({ id: '2026-11-15-claude-code-session-aaaa', status: 'open-session' });
+  });
+
+  it('answers session null without a brain when a session is asked', async () => {
+    const c = await captureContext();
+    expect((await deckSnapshot(c.dirs.cwd, c.ctx.env, { hostSession: 'nobody' })).session).toBeNull();
+  });
 });

@@ -24,8 +24,16 @@ export interface DeckSnapshot {
   jobs: Array<{ id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number; tokensKnown?: boolean }>;
   approvals: number;
   recent: Array<{ title: string; tier: Tier; at: number }>;
+  /**
+   * Only when asked with `--session`: the Edu session note the host session opened (SessionStart tags it
+   * `host:<host>:<session id>`), or null when none is recorded. Absent otherwise, so older readers see no change.
+   */
+  session?: { id: string; status: string; title: string } | null;
   updatedAt: number;
 }
+
+/** Which host session to look up (`edu deck --session <id> --host <name>`). */
+export interface DeckOptions { host?: string; hostSession?: string }
 
 type DatedFile = { path: string; name: string; at: number };
 type NoteFile = DatedFile & { tier: Tier };
@@ -46,7 +54,9 @@ async function files(dir: string, recursive = false): Promise<DatedFile[]> {
   } catch { return []; }
 }
 
-function noteText(source: string): { title: string; status: string; kind: string } {
+type NoteText = { title: string; status: string; kind: string; id: string; tags: string[] };
+
+function noteText(source: string): NoteText {
   try {
     const { meta, body } = parseMarkdownLenient(source);
     const heading = /^#\s+(.+)$/m.exec(body)?.[1]?.trim();
@@ -54,8 +64,10 @@ function noteText(source: string): { title: string; status: string; kind: string
       title: heading || (typeof meta.title === 'string' ? meta.title : ''),
       status: typeof meta.status === 'string' ? meta.status : '',
       kind: typeof meta.kind === 'string' ? meta.kind : '',
+      id: typeof meta.id === 'string' ? meta.id : '',
+      tags: Array.isArray(meta.tags) ? meta.tags.filter((tag): tag is string => typeof tag === 'string') : [],
     };
-  } catch { return { title: /^#\s+(.+)$/m.exec(source)?.[1]?.trim() ?? '', status: '', kind: '' }; }
+  } catch { return { title: /^#\s+(.+)$/m.exec(source)?.[1]?.trim() ?? '', status: '', kind: '', id: '', tags: [] }; }
 }
 
 async function latestSpec(root: string): Promise<DeckSnapshot['spec']> {
@@ -104,7 +116,7 @@ async function crewJobs(root: string): Promise<DeckSnapshot['jobs']> {
 }
 
 /** Reads only the project's `.edu` directory; absent or unreadable data degrades to empty fields. */
-export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = process.env): Promise<DeckSnapshot> {
+export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = process.env, options: DeckOptions = {}): Promise<DeckSnapshot> {
   let projectRoot = resolve(root);
   while (true) {
     try {
@@ -127,6 +139,8 @@ export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = proces
     recent: [],
     updatedAt: Date.now(),
   };
+  const hostTag = options.hostSession ? `host:${options.host || 'claude'}:${options.hostSession}` : undefined;
+  if (hostTag) empty.session = null;
   try {
     const brainDir = brainPath(await withBrainDir({ scope: 'project', root: eduRoot }));
     if (!(await stat(brainDir)).isDirectory()) return empty;
@@ -138,7 +152,7 @@ export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = proces
     ))).flat();
     const notes = await Promise.all(noteFiles.map(async file => {
       try { return { ...file, ...noteText(await readFile(file.path, 'utf8')) }; }
-      catch { return { ...file, title: '', status: '', kind: '' }; }
+      catch { return { ...file, title: '', status: '', kind: '', id: '', tags: [] as string[] }; }
     }));
     const byStatus: Record<string, number> = {};
     for (const note of notes) {
@@ -151,6 +165,10 @@ export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = proces
         if (note.kind === 'lesson' || note.name.startsWith('L-')) byStatus[note.status] = (byStatus[note.status] ?? 0) + 1;
         if ((note.kind === 'commitment' || note.name.startsWith('C-')) && note.status === 'overdue') empty.maintenance.overdue++;
       }
+    }
+    if (hostTag) {
+      const session = notes.find(note => note.tier === 'episodic' && note.kind === 'session' && note.tags.includes(hostTag));
+      if (session) empty.session = { id: session.id || session.name.replace(/\.md$/, ''), status: session.status, title: session.title };
     }
     empty.brain.toApprove = empty.brain.proposed;
     empty.brain.present = true;
@@ -174,9 +192,11 @@ export function registerDeck(program: Command, ctx: CliContext): void {
   program.command('deck')
     .description('show the Edu brain, latest spec and crew jobs')
     .option('--json', 'print the versioned snapshot for host renderers')
-    .action(async (_opts: unknown, cmd: Command) => {
+    .option('--session <id>', "also report the Edu session this host session opened (the host's own session id)")
+    .option('--host <name>', 'the host that opened that session', 'claude')
+    .action(async (opts: { session?: string; host?: string }, cmd: Command) => {
       const g = resolveGlobals(ctx, cmd.optsWithGlobals());
-      const deck = await deckSnapshot(g.cwd, ctx.env);
+      const deck = await deckSnapshot(g.cwd, ctx.env, { hostSession: opts.session, host: opts.host });
       if (g.json) { ctx.out(JSON.stringify(deck)); return; }
       const glyphs = getGlyphs(ctx.env);
       ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}`);
@@ -186,5 +206,6 @@ export function registerDeck(program: Command, ctx: CliContext): void {
       ctx.out(`Spec   ${deck.spec ? `${deck.spec.name} · ${deck.spec.requirements} requirements · ${deck.spec.checks} ${deck.spec.checks === 1 ? 'check' : 'checks'}` : 'none'}`);
       ctx.out(`Crew   ${deck.jobs.length} ${deck.jobs.length === 1 ? 'job' : 'jobs'} · ${deck.approvals} ${deck.approvals === 1 ? 'approval' : 'approvals'}`);
       for (const job of deck.jobs) ctx.out(`  ${job.status} ${job.cli} ${job.id} ${glyphs.sep} ${job.task}`);
+      if (deck.session !== undefined) ctx.out(`Session ${deck.session ? `${deck.session.id} · ${deck.session.status}` : 'not recorded'}`);
     });
 }

@@ -2322,10 +2322,12 @@ function noteText(source) {
     return {
       title: heading || (typeof meta.title === "string" ? meta.title : ""),
       status: typeof meta.status === "string" ? meta.status : "",
-      kind: typeof meta.kind === "string" ? meta.kind : ""
+      kind: typeof meta.kind === "string" ? meta.kind : "",
+      id: typeof meta.id === "string" ? meta.id : "",
+      tags: Array.isArray(meta.tags) ? meta.tags.filter((tag) => typeof tag === "string") : []
     };
   } catch {
-    return { title: /^#\s+(.+)$/m.exec(source)?.[1]?.trim() ?? "", status: "", kind: "" };
+    return { title: /^#\s+(.+)$/m.exec(source)?.[1]?.trim() ?? "", status: "", kind: "", id: "", tags: [] };
   }
 }
 async function latestSpec(root) {
@@ -2371,7 +2373,7 @@ async function crewJobs(root) {
   }));
   return parsed.filter((job) => job !== null);
 }
-async function deckSnapshot(root, env = process.env) {
+async function deckSnapshot(root, env = process.env, options = {}) {
   let projectRoot = resolve6(root);
   while (true) {
     try {
@@ -2398,6 +2400,8 @@ async function deckSnapshot(root, env = process.env) {
     recent: [],
     updatedAt: Date.now()
   };
+  const hostTag2 = options.hostSession ? `host:${options.host || "claude"}:${options.hostSession}` : void 0;
+  if (hostTag2) empty.session = null;
   try {
     const brainDir2 = brainPath(await withBrainDir({ scope: "project", root: eduRoot }));
     if (!(await stat2(brainDir2)).isDirectory()) return empty;
@@ -2409,7 +2413,7 @@ async function deckSnapshot(root, env = process.env) {
       try {
         return { ...file, ...noteText(await readFile5(file.path, "utf8")) };
       } catch {
-        return { ...file, title: "", status: "", kind: "" };
+        return { ...file, title: "", status: "", kind: "", id: "", tags: [] };
       }
     }));
     const byStatus = {};
@@ -2423,6 +2427,10 @@ async function deckSnapshot(root, env = process.env) {
         if (note.kind === "lesson" || note.name.startsWith("L-")) byStatus[note.status] = (byStatus[note.status] ?? 0) + 1;
         if ((note.kind === "commitment" || note.name.startsWith("C-")) && note.status === "overdue") empty.maintenance.overdue++;
       }
+    }
+    if (hostTag2) {
+      const session = notes.find((note) => note.tier === "episodic" && note.kind === "session" && note.tags.includes(hostTag2));
+      if (session) empty.session = { id: session.id || session.name.replace(/\.md$/, ""), status: session.status, title: session.title };
     }
     empty.brain.toApprove = empty.brain.proposed;
     empty.brain.present = true;
@@ -2439,9 +2447,9 @@ async function deckSnapshot(root, env = process.env) {
   return empty;
 }
 function registerDeck(program, ctx) {
-  program.command("deck").description("show the Edu brain, latest spec and crew jobs").option("--json", "print the versioned snapshot for host renderers").action(async (_opts, cmd) => {
+  program.command("deck").description("show the Edu brain, latest spec and crew jobs").option("--json", "print the versioned snapshot for host renderers").option("--session <id>", "also report the Edu session this host session opened (the host's own session id)").option("--host <name>", "the host that opened that session", "claude").action(async (opts, cmd) => {
     const g = resolveGlobals(ctx, cmd.optsWithGlobals());
-    const deck = await deckSnapshot(g.cwd, ctx.env);
+    const deck = await deckSnapshot(g.cwd, ctx.env, { hostSession: opts.session, host: opts.host });
     if (g.json) {
       ctx.out(JSON.stringify(deck));
       return;
@@ -2454,6 +2462,7 @@ function registerDeck(program, ctx) {
     ctx.out(`Spec   ${deck.spec ? `${deck.spec.name} \xB7 ${deck.spec.requirements} requirements \xB7 ${deck.spec.checks} ${deck.spec.checks === 1 ? "check" : "checks"}` : "none"}`);
     ctx.out(`Crew   ${deck.jobs.length} ${deck.jobs.length === 1 ? "job" : "jobs"} \xB7 ${deck.approvals} ${deck.approvals === 1 ? "approval" : "approvals"}`);
     for (const job of deck.jobs) ctx.out(`  ${job.status} ${job.cli} ${job.id} ${glyphs.sep} ${job.task}`);
+    if (deck.session !== void 0) ctx.out(`Session ${deck.session ? `${deck.session.id} \xB7 ${deck.session.status}` : "not recorded"}`);
   });
 }
 
@@ -5843,4 +5852,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-EIQPKSQM.js.map
+//# sourceMappingURL=chunk-FQW4ZNQD.js.map
