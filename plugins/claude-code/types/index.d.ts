@@ -216,6 +216,8 @@ export type DeckEdu = {
   error?: string
   checkedAt?: number
   project?: { name: string; root: string }
+  /** Which brain the CLI read: the nearest project `.edu/`, or the global one (absent from older CLIs). */
+  scope?: 'project' | 'global'
   identity?: string
   brain?: DeckEduBrain
   maintenance?: { lastRun?: number; promoted: number; retired: number; overdue: number }

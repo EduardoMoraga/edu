@@ -1,6 +1,6 @@
 // Edu Deck engine tests: run with `npm run test:deck` (claude plugin test on a copy of plugins/claude-code).
 // The engine stubs follow Agent Tree's tests (MIT, (c) 2026 Mike Pollow, Digitalroots; see THIRD_PARTY_NOTICES.md).
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
@@ -9,6 +9,7 @@ const usage = { input_tokens: 2000, output_tokens: 40, cache_read_input_tokens: 
 const SNAPSHOT = {
   version: 1,
   project: { name: 'edu', root: '/work/edu' },
+  scope: 'global',
   identity: 'Edu',
   brain: { present: true, canonical: 11, proposed: 1, toApprove: 1, episodic: 235, transitive: 76, lessons: 48 },
   maintenance: { lastRun: 1000, promoted: 0, retired: 0, overdue: 2 },
@@ -24,7 +25,7 @@ const SNAPSHOT = {
   updatedAt: 3000,
 }
 
-type EduCli = { missing?: boolean; old?: boolean; broken?: boolean; crewFails?: boolean }
+type EduCli = { missing?: boolean; old?: boolean; broken?: boolean; crewFails?: boolean; idle?: boolean; slow?: { sleep: (ms: number) => Promise<void> } }
 type Appended = { agentId?: string; message: { type: string; content: { type: string; text: string }[] } }
 
 function engine(on: On, cli: EduCli = {}) {
@@ -44,9 +45,10 @@ function engine(on: On, cli: EduCli = {}) {
     stored[key] = value
     return { value: undefined } as never
   })
-  on('process.run', (_, e) => {
+  on('process.run', async (_, e) => {
     const argv = [...(e as { argv: readonly string[] }).argv]
     runs.push(argv)
+    if (cli.slow && argv[1] === 'deck') await cli.slow.sleep(20_000)
     // A hook's deny rejects the caller, as a command that cannot start does.
     if (cli.missing) return { deny: `spawn ${argv[0]} ENOENT` } as never
     if (argv[0] !== 'edu') return { deny: `spawn ${argv[0]} ENOENT` } as never
@@ -54,7 +56,8 @@ function engine(on: On, cli: EduCli = {}) {
       if (cli.broken) return { value: { exitCode: 1, stdout: '', stderr: 'Error: brain is locked\n    at x' } } as never
       if (cli.old && argv.includes('--session')) return { value: { exitCode: 1, stdout: '', stderr: "error: unknown option '--session'" } } as never
       const { session: _session, ...older } = SNAPSHOT
-      return { value: { exitCode: 0, stdout: JSON.stringify(cli.old ? older : SNAPSHOT), stderr: '' } } as never
+      const shown = cli.idle ? { ...SNAPSHOT, jobs: SNAPSHOT.jobs.filter(job => job.status === 'done'), approvals: 0 } : cli.old ? older : SNAPSHOT
+      return { value: { exitCode: 0, stdout: JSON.stringify(shown), stderr: '' } } as never
     }
     if (argv[1] === 'crew') {
       return { value: cli.crewFails ? { exitCode: 1, stdout: '', stderr: 'Error: Crew job is not awaiting approval' } : { exitCode: 0, stdout: '{}', stderr: '' } } as never
@@ -189,6 +192,8 @@ describe('Edu Deck', () => {
     const ui = await $.ui.mount(pane(100))
     await ui.press({ key: 'tab:edu' })
     const text = await screen(ui)
+    expect(text).toMatch(/ · edu/)
+    expect(text).toMatch(/ · global brain/)
     expect(text).toMatch(/canonical 11/)
     expect(text).toMatch(/episodic 235/)
     expect(text).toMatch(/lessons 48/)
@@ -306,6 +311,33 @@ describe('Edu Deck', () => {
     const reads = seen.runs.length
     await $.tool.call({ tool: 'Read', file_path: '/x/a.ts' } as never)
     expect(seen.runs.length).toBe(reads)
+  })
+
+  for (const idle of [false, true]) {
+    test(`the timer reads Edu every ${idle ? '60 s when no crew job is active' : '10 s while a crew job is active'}`, async ($, on) => {
+      const clock = mock.clock(on, { now: 100_000 })
+      const seen = engine(on, { idle })
+      await start($)
+      const reads = () => seen.runs.filter(argv => argv[1] === 'deck').length
+      const first = reads()
+      await clock.advance(5_000)
+      expect(reads()).toBe(first)
+      await clock.advance(5_000)
+      expect(reads()).toBe(idle ? first : first + 1)
+      await clock.advance(50_000)
+      expect(reads()).toBe(idle ? first + 1 : first + 6)
+    })
+  }
+
+  test('a slow edu deck never overlaps with the next read', async ($, on) => {
+    const clock = mock.clock(on, { now: 0 })
+    const seen = engine(on, { slow: clock })
+    await $.session.start({ cwd: '/work/edu', surface: 'terminal', isInteractive: true })
+    await clock.advance(15_000)
+    expect(seen.runs.filter(argv => argv[1] === 'deck')).toHaveLength(1)
+    await clock.advance(5_000)
+    await clock.advance(10_000)
+    expect(seen.runs.filter(argv => argv[1] === 'deck')).toHaveLength(2)
   })
 
   test('the status line counts active crew jobs', async ($, on) => {

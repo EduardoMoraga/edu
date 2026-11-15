@@ -768,7 +768,8 @@ async function decideCrew($: EngineInterface): Promise<void> {
 export const register: Register = (on, options) => {
   const columns = paneColumns(options.columns)
   const keep = agentLimit(options.maxAgents)
-  const openOnStart = options.openOnStart === true
+  // Unset options read as their manifest defaults; an install that never set them still opens the pane.
+  const openOnStart = options.openOnStart !== false
   animate = options.animate !== false
   lang = resolveLang()
 

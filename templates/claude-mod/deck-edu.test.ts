@@ -56,6 +56,9 @@ describe('eduFrom', () => {
       approvals: 1,
       sessionKnown: false,
     });
+    expect(edu.scope).toBeUndefined();
+    expect(eduFrom(snapshot({ scope: 'global' }), 1).scope).toBe('global');
+    expect(eduFrom(snapshot({ scope: 'elsewhere' }), 1).scope).toBeUndefined();
     expect(edu.jobs[0]).toEqual({ id: 'abcd1234', cli: 'codex', task: 'Build the deck', status: 'awaiting-approval', mode: 'run', startedAt: 1000, tokens: 12, tokensKnown: true });
     expect(edu.jobs[1]?.endedAt).toBe(9000);
     expect(edu.recent).toEqual([{ title: 'A note', tier: 'transitive', at: 500 }]);

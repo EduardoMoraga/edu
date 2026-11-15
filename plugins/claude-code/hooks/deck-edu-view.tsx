@@ -120,6 +120,7 @@ export function drawEdu(ui: Ui, o: EduInput) {
         <Text wrap="truncate-end">
           <Text bold color={palette.main}>{edu?.identity ?? 'Edu'}</Text>
           {edu?.project?.name ? <Text color={palette.dim}>{` · ${edu.project.name}`}</Text> : null}
+          {edu?.scope ? <Text color={palette.dim}>{` · ${words.scope[edu.scope]}`}</Text> : null}
           {edu?.checkedAt !== undefined ? <Text color={palette.dim}>{` · ${words.updated(ago(edu.checkedAt, now))}`}</Text> : null}
         </Text>
       </Box>

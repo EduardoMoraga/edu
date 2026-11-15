@@ -209,6 +209,7 @@ export type Words = {
     stripNotes: (n: number) => string
     stripCrew: (n: number) => string
     stripFailed: string
+    scope: Record<'project' | 'global', string>
     stripApprovals: (n: number) => string
     missingReason: (reason: string) => string
     statusCrew: (n: number) => string
@@ -444,6 +445,7 @@ export const WORDS: Record<Lang, Words> = {
       stripNotes: n => `brain ${n}`,
       stripCrew: n => `crew ${n} active`,
       stripFailed: 'Edu could not be read: see the Edu tab',
+      scope: { project: 'project brain', global: 'global brain' },
       stripApprovals: n => `${n} crew ${n === 1 ? 'run needs' : 'runs need'} approval`,
       missingReason: reason => `The engine said: ${reason}`,
       statusCrew: n => `Crew [${n}]`,

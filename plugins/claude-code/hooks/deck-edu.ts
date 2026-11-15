@@ -99,12 +99,14 @@ export function eduFrom(stdout: string, now: number): DeckEdu {
     .map(note => ({ title: oneLine(text(note.title)), tier: text(note.tier), at: time(note.at) ?? 0 }))
     .filter(note => note.title)
     .slice(0, RECENT_KEPT)
+  const scope = raw.scope === 'project' || raw.scope === 'global' ? raw.scope : undefined
   const sessionKnown = 'session' in raw
   const session = sessionKnown ? sessionFrom(raw.session) : undefined
   return {
     state: 'ready',
     checkedAt: now,
     ...(project ? { project } : {}),
+    ...(scope ? { scope } : {}),
     identity: text(raw.identity, 'Edu') || 'Edu',
     ...(brain ? { brain } : {}),
     ...(maintenance ? { maintenance } : {}),
