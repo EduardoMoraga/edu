@@ -53,8 +53,9 @@ Click a box, or press `ctrl+x tab`, then Tab and Enter:
 
 The pane runs `edu deck --json --session <this session's id>`: once at start, after each finished
 main turn, after each Edu tool call, every 10 seconds while a crew job is active or the Edu tab is
-open, and every 60 seconds otherwise. It never runs two reads at once. The brain is found as the
-`edu` command finds it (the nearest `.edu/`, else the global `~/.edu`).
+open, and every 60 seconds otherwise. It never runs two reads at once. It reads the brain every other
+`edu` command uses: the nearest project `.edu/` above the session's folder, else the global one
+(`EDU_HOME`, or `~/.edu`). The Edu tab says which (project brain or global brain).
 
 - `edu` not on `PATH`: the pane says so and the agent tree keeps working.
 - An older `edu` without `deck --session`: the pane reads again without it and shows the session as
