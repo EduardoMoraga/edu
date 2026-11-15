@@ -19,10 +19,10 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   const skills = await readSkills(join(templates, 'skills'));
   const agents = await readMarkdown(join(templates, 'agents'));
   const commands = await readMarkdown(join(templates, 'commands'));
-  // Optional: the Edu Deck pane for Claude Code (absent in minimal template sets).
-  const deckModule = await readFile(join(templates, 'claude-mod', 'deck.tsx'), 'utf8').catch(() => undefined);
-  const deckState = await readFile(join(templates, 'claude-mod', 'deck-state.d.ts'), 'utf8').catch(() => undefined);
-  const deck = deckModule && deckState ? { deckModule, deckState } : undefined;
+  // Optional: the Edu Deck pane for Claude Code (absent in minimal template sets): the entry module
+  // deck.tsx and the modules it imports, its state contract, and the notice for the code it ports.
+  const deck = await readClaudeMod(join(templates, 'claude-mod'));
+  const notices = deck ? await readFile(join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8').catch(() => undefined) : undefined;
   // Optional: the Edu Deck for Pi (extension + theme) and OpenCode (TUI plugin + theme).
   const optional = (path: string) => readFile(join(templates, path), 'utf8').catch(() => undefined);
   const [piSource, piTheme, openCodeTui, openCodeTheme] = await Promise.all([
@@ -46,13 +46,14 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
     plugins: [{ name: 'edu', source: { source: 'local', path: './plugins/codex' }, policy: { installation: 'AVAILABLE' }, category: 'Productivity' }],
   }));
 
-  add('plugins/claude-code/.claude-plugin/plugin.json', json({ name: 'edu', version: pkg.version, description: DESCRIPTION, author: AUTHOR, ...(deck ? { types: './types/index.d.ts' } : {}) }));
+  add('plugins/claude-code/.claude-plugin/plugin.json', json({ name: 'edu', version: pkg.version, description: DESCRIPTION, author: AUTHOR, ...(deck ? { types: './types/index.d.ts', userConfig: DECK_OPTIONS } : {}) }));
   add('plugins/claude-code/.mcp.json', json({ edu: mcp }));
   // Command hooks (identity at session start) plus the Edu Deck pane module, in one plugin.
   add('plugins/claude-code/hooks/hooks.json', json(deck ? { ...claudeHook, modules: ['./deck.tsx'] } : claudeHook));
   if (deck) {
-    add('plugins/claude-code/hooks/deck.tsx', deck.deckModule);
-    add('plugins/claude-code/types/index.d.ts', deck.deckState);
+    for (const [name, content] of deck.modules) add(`plugins/claude-code/hooks/${name}`, content);
+    add('plugins/claude-code/types/index.d.ts', deck.state);
+    if (notices) add('plugins/claude-code/THIRD_PARTY_NOTICES.md', notices);
   }
   add('plugins/claude-code/output-styles/edu.md', core);
   for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('claude')) {
@@ -160,6 +161,31 @@ async function scan(directory: string, relative: string, files: Map<string, stri
     if (entry.isDirectory()) await scan(path, key, files);
     else if (entry.isFile()) files.set(key, await readFile(path, 'utf8'));
   }
+}
+
+/** The Claude Code pane's options, set in /config (or `pluginConfigs.edu` in settings). */
+const DECK_OPTIONS = {
+  columns: { type: 'number', title: 'Edu Deck width', description: 'Columns of the docked Edu Deck; a width dragged by hand wins', default: 90 },
+  maxAgents: { type: 'number', title: 'Agents kept', description: 'How many sub-agents the Edu Deck keeps; the oldest finished ones go first', default: 30 },
+  openOnStart: { type: 'boolean', title: 'Open Edu Deck on start', description: 'Open the Edu Deck when an interactive session starts (Claude Code seats it where the terminal is wide enough)', default: true },
+  animate: { type: 'boolean', title: 'Edu Deck motion', description: 'Draw the spinner and the flow while agents work', default: true },
+};
+
+/**
+ * Every `.ts`/`.tsx` module of templates/claude-mod (tests excluded) keyed by file name, and the state
+ * contract `deck-state.d.ts`; undefined unless both the entry `deck.tsx` and the contract exist.
+ */
+async function readClaudeMod(directory: string): Promise<{ modules: Map<string, string>; state: string } | undefined> {
+  let names: string[];
+  try { names = await readdir(directory); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+  if (!names.includes('deck.tsx') || !names.includes('deck-state.d.ts')) return undefined;
+  const modules = new Map<string, string>();
+  for (const name of names.sort()) {
+    if (!/\.tsx?$/.test(name) || name.endsWith('.d.ts') || /\.test\.tsx?$/.test(name)) continue;
+    modules.set(name, await readFile(join(directory, name), 'utf8'));
+  }
+  return { modules, state: await readFile(join(directory, 'deck-state.d.ts'), 'utf8') };
 }
 
 async function readMarkdown(directory: string): Promise<Array<{ name: string; content: string; frontmatter: Record<string, string>; body: string }>> {

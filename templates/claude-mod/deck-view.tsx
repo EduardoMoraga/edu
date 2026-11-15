@@ -1,0 +1,1582 @@
+// Edu Deck. Ported from Agent Tree 0.7.5 (https://github.com/MikeGT4/agent-tree, commit 2b5ab2d).
+// Copyright (c) 2026 Mike Pollow, Digitalroots. MIT License, full text in THIRD_PARTY_NOTICES.md.
+// Edu changes: Copyright (c) 2026 Eduardo Moraga. MIT License.
+import type { Elements, RenderChildren } from 'claude-code'
+
+import type {
+  DeckAdvisorCall,
+  DeckCorrectionState,
+  DeckEdu,
+  DeckGroup,
+  DeckLimit,
+  DeckLogSource,
+  DeckLook,
+  DeckNode,
+  DeckReport,
+  DeckState,
+  DeckStatus,
+  DeckTab,
+} from '../types'
+import {
+  EFFORT_LEVELS,
+  WORKFLOW_PREFIX,
+  clashShown,
+  contextLevel,
+  familyOf,
+  feedbackFor,
+  mainFeedback,
+  selectionOf,
+  contextPercent,
+  windowOf,
+  MAIN,
+  MENU_DEFAULT,
+  MODEL_FAMILIES,
+  NEW_AGENTS,
+  choicesOf,
+  clockTime,
+  counts,
+  cut,
+  effortBar,
+  effortLabel,
+  familyLabel,
+  fmtShortDuration,
+  fmtTokens,
+  groups,
+  modelLabel,
+  phaseOf,
+  resetTime,
+  typeLabel,
+  hasClash,
+  hasNewReport,
+  reportAgent,
+  tabOf,
+  TABS,
+} from './deck-model.ts'
+import type { Feedback } from './deck-model.ts'
+import { LOOK_OPTIONS, LOOK_ROWS, PALETTES, STYLES, frameEdges, isLookChoice, lightColor, lookFrom, restyleLine } from './deck-looks.ts'
+import type { Glyphs, LookRow, Palette } from './deck-looks.ts'
+import { WORDS, activityText, familyOr, helpItems, logLine, lookOptionLabel, toolText, wordsFor } from './deck-words.ts'
+import type { Lang, Words } from './deck-words.ts'
+import { drawFiles, drawHelp, drawLog, drawReports, drawTabBar, drawUsage, tabNames, tabRows } from './deck-tabs.tsx'
+import { drawEdu, drawEduStrip, eduStripRows } from './deck-edu-view.tsx'
+import { activeJobs } from './deck-edu.ts'
+
+export { WORDS, logLine, wordsFor }
+export type { Lang }
+
+type Ui = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button'> & Partial<Pick<Elements['terminal'], 'Markdown'>>
+
+export const WIDE_FROM = 84
+export const TIGHT_BELOW = 36
+export const ADVISOR_WIDTH = 20
+export const AGENT_WIDTH = 19
+export const AGENT_GAP = 2
+export const MAIN_WIDTH = 31
+export const BACK_WIDTH = 35
+export const MAX_GROUPS = 9
+export const MAX_ROWS = 12
+export const LOG_ROWS = 6
+export const MIN_LOG_ROWS = 2
+export const ADVISOR_ROWS = 4
+export const ADVISOR_BASE_ROWS = 15
+export const ADVISOR_COMPACT_ROWS = 4
+export const LEGEND_EFFORT_FROM = 60
+export const BAR_WIDTH = 15
+export const DETAIL_ROWS = 7
+export const LIGHT_SAMPLE = 9
+
+const SIZE = { title: 'heading', detail: 'footnote', note: 'caption' } as const
+
+const CORRECTION_MARK: Partial<Record<DeckCorrectionState, string>> = { sent: '✉', read: '✓' }
+
+function correctionGlyph(s: DeckState, agentId: string): string {
+  const state = s.corrections?.[agentId]?.state
+  return (state ? CORRECTION_MARK[state] : undefined) ?? ''
+}
+
+export function statusWithMark(head: string, mark: string, tail: string, width: number, shortTail = tail): string {
+  const joined = (end: string) => (mark ? `${head} ${mark}${end}` : head + end)
+  if ([...joined(tail)].length <= width) return joined(tail)
+  if ([...joined(shortTail)].length <= width || !mark) return joined(shortTail)
+  if ([...head].length + 1 + [...mark].length <= width) return joined(shortTail)
+  return `${clip(head, width - [...mark].length)}${mark}`
+}
+
+export function runningMark(frame: number, animate: boolean, spinner: readonly string[] = STYLES.line.spinner): string {
+  const first = spinner[0] ?? '◐'
+  if (!animate || spinner.length === 0) return first
+  return spinner[((frame % spinner.length) + spinner.length) % spinner.length] ?? first
+}
+
+function statusMark(glyphs: Glyphs, status: DeckStatus): string {
+  return status === 'running' ? runningMark(0, false, glyphs.spinner) : glyphs.marks[status]
+}
+
+function statusColor(palette: Palette, status: DeckStatus): string {
+  return status === 'running' ? palette.agent : status === 'done' ? palette.done : status === 'failed' ? palette.failed : palette.dim
+}
+
+function sourceColor(palette: Palette, source: DeckLogSource): string {
+  return source === 'session' ? palette.dim : palette[source]
+}
+
+export type TreeActions = {
+  select: (target: string) => void
+  pick: (target: string) => void
+  choose: (target: string, family: string | undefined) => void
+  effort: (target: string, effort: string | undefined) => void
+  close: () => void
+  detail: (agentId: string) => void
+  stop: (agentId: string) => void
+  write: (agentId: string) => void
+  advisor: () => void
+  fast: () => void
+  look: () => void
+  restyle: (row: LookRow, id: string) => void
+  restyleDefault: () => void
+  deselect: () => void
+  tab: (id: DeckTab) => void
+  logFilter: (source: string) => void
+  report: (agentId: string) => void
+  eduRefresh: () => void
+  eduAsk: (jobId: string, verdict: 'approve' | 'reject') => void
+  eduConfirm: () => void
+  eduCancel: () => void
+}
+
+export type TreeLook = {
+  frame: number
+  animate: boolean
+  now?: number
+  lang?: Lang
+  actions?: TreeActions
+  appearance?: DeckLook
+  canAdvise?: boolean
+  docked?: boolean
+  reports?: Record<string, DeckReport>
+  edu?: DeckEdu
+}
+
+export function pressKey(actions: TreeActions, key: string): boolean {
+  const colon = key.indexOf(':')
+  if (colon < 0) return false
+  const kind = key.slice(0, colon)
+  const rest = key.slice(colon + 1)
+  if (kind === 'edu') return eduKey(actions, rest)
+  if (key === 'picker:close' || key === 'detail:close' || key === 'look:close') actions.close()
+  else if (key === 'advisor:toggle') actions.advisor()
+  else if (key === 'fast:toggle') actions.fast()
+  else if (key === 'actions:close') actions.deselect()
+  else if (kind === 'tab' && TABS.some(t => t === rest)) actions.tab(rest as DeckTab)
+  else if (kind === 'logfilter') actions.logFilter(rest)
+  else if (kind === 'report') actions.report(rest)
+  else if (kind === 'look') return lookKey(actions, rest)
+  else if (kind === 'select') actions.select(rest)
+  else if (kind === 'pick' || kind === 'level') actions.pick(rest)
+  else if (kind === 'choose') return targetKey(rest, (target, value) => actions.choose(target, value))
+  else if (kind === 'detail') actions.detail(rest)
+  else if (kind === 'write') actions.write(rest)
+  else if (kind === 'stop' || kind === 'halt') actions.stop(rest)
+  else if (kind === 'effort') return targetKey(rest, (target, value) => actions.effort(target, value))
+  else return false
+  return true
+}
+
+
+function eduKey(actions: TreeActions, rest: string): boolean {
+  if (rest === 'refresh') actions.eduRefresh()
+  else if (rest === 'open') actions.tab('edu')
+  else if (rest === 'confirm') actions.eduConfirm()
+  else if (rest === 'cancel') actions.eduCancel()
+  else if (rest.startsWith('approve:') && rest.length > 8) actions.eduAsk(rest.slice(8), 'approve')
+  else if (rest.startsWith('reject:') && rest.length > 7) actions.eduAsk(rest.slice(7), 'reject')
+  else return false
+  return true
+}
+
+function targetKey(rest: string, apply: (target: string, value: string | undefined) => void): boolean {
+  const colon = rest.lastIndexOf(':')
+  if (colon < 1 || colon + 1 >= rest.length) return false
+  const value = rest.slice(colon + 1)
+  apply(rest.slice(0, colon), value === 'default' ? undefined : value)
+  return true
+}
+
+function lookKey(actions: TreeActions, rest: string): boolean {
+  if (rest === 'open') actions.look()
+  else if (rest === 'default') actions.restyleDefault()
+  else {
+    const colon = rest.indexOf(':')
+    const row = rest.slice(0, colon)
+    const id = rest.slice(colon + 1)
+    if (colon < 1 || !isLookChoice(row, id)) return false
+    actions.restyle(row, id)
+  }
+  return true
+}
+
+const GLYPH: Record<string, string> = {
+  udlr: '┼',
+  udl: '┤',
+  udr: '├',
+  ud: '│',
+  ulr: '┴',
+  ul: '┘',
+  ur: '└',
+  u: '│',
+  dlr: '┬',
+  dl: '┐',
+  dr: '┌',
+  d: '│',
+  lr: '─',
+  l: '─',
+  r: '─',
+}
+
+export function statusText(s: DeckState, lang: Lang = 'en', edu?: DeckEdu): string | undefined {
+  const w = wordsFor(lang)
+  const c = counts(s)
+  const crew = activeJobs(edu)
+  if (c.running + c.done + c.failed + c.stopped === 0 && s.advisor.total === 0 && crew === 0) return undefined
+  const parts = c.running + c.done + c.failed + c.stopped || s.advisor.total ? [`${w.agents} [${c.running}/${c.running + c.done + c.failed + c.stopped}]`] : []
+  if (crew) parts.push(w.edu.statusCrew(crew))
+  if (c.failed) parts.push(`${c.failed} ${w.status.failed}`)
+  if (c.stopped) parts.push(`${c.stopped} ${w.status.stopped}`)
+  if (s.advisor.total) parts.push(`${w.advisorShort} [${s.advisor.total}×]`)
+  if (s.main.percent !== undefined) parts.push(`${w.contextShort} [${w.percent(s.main.percent)}]`)
+  if (s.main.costUsd !== undefined) parts.push(w.cost(s.main.costUsd))
+  return parts.join(' · ')
+}
+
+export type RowPlanInput = {
+  height?: number
+  wide: boolean
+  tight: boolean
+  asRows: boolean
+  perRow: number
+  total: number
+  advisorRows: number
+  earlier: boolean
+  pickerRows?: number
+  detailRows?: number
+  helpRows?: number
+  labelRows?: number
+  limitRows?: number
+  actionRows?: number
+  hintRows?: number
+  tabRows?: number
+  eduRows?: number
+}
+
+export type RowPlan = { shown: number; logRows: number; advisor?: false }
+
+export const LIMIT_BAR = 8
+export const CONTEXT_BAR = 3
+export const LIMIT_WARN = 80
+
+function cellBar(percent: number, cells: Glyphs['bar'], size: number): string {
+  const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * size)
+  return cells.full.repeat(filled) + cells.empty.repeat(size - filled)
+}
+
+function limitBar(percent: number, cells: Glyphs['bar']): string {
+  return cellBar(percent, cells, LIMIT_BAR)
+}
+
+function levelColor(palette: Palette, percent: number | undefined, otherwise: string): string {
+  const level = contextLevel(percent)
+  return level === 'alert' ? palette.failed : level === 'warn' ? palette.warn : otherwise
+}
+
+export function limitSegments(limits: readonly DeckLimit[], w: Words, glyphs: Glyphs, width: number): string[] {
+  const build = (bars: boolean) =>
+    limits.map((l, i) => {
+      const reset = resetTime(l.kind, l.resetsAt, w.locale)
+      const parts = [w.limitKind(l.kind), ...(bars ? [limitBar(l.percent, glyphs.bar)] : []), w.percent(Math.round(l.percent)), ...(reset ? [w.limitReset(reset)] : [])]
+      return `${i ? ' · ' : ''}${parts.join(' ')}`
+    })
+  const full = build(true)
+  return [...full.join('')].length <= width ? full : build(false)
+}
+
+function treeRows(o: RowPlanInput, shown: number): number {
+  const top = 7 + 1
+  const label = Math.max(1, o.labelRows ?? 1)
+  const later = o.earlier ? 1 : 0
+  if (o.total === 0) return top + label + later
+  const hidden = shown < o.total ? 1 : 0
+  const back = 1 + 5 + hidden + later
+  if (o.asRows) return top + label + shown + back
+  const boxRows = Math.ceil(shown / o.perRow)
+  return top + 3 + label + (10 * boxRows - 1) + 1 + back
+}
+
+const LOG_FRAME_ROWS = 4
+
+function usedRows(o: RowPlanInput, shown: number, logRows: number | undefined): number {
+  const header = 1 + (o.tabRows ?? 3) + (o.eduRows ?? 0) + (o.pickerRows ?? 0)
+  const tree = treeRows(o, shown)
+  const body = o.wide ? Math.max(o.advisorRows, tree) : o.advisorRows + tree
+  const log = logRows === undefined ? 0 : LOG_FRAME_ROWS + logRows
+  const foot = o.detailRows ? 0 : (o.limitRows ?? 0) + (o.helpRows ?? 0)
+  return header + 1 + body + (o.actionRows ?? 0) + (o.hintRows ?? 0) + (o.detailRows ?? 0) + log + foot
+}
+
+function leanest(o: RowPlanInput, cap: number): number {
+  let best = cap
+  for (let candidate = cap - 1; candidate >= 1; candidate--) if (usedRows(o, candidate, undefined) < usedRows(o, best, undefined)) best = candidate
+  return best
+}
+
+export function planRows(o: RowPlanInput): RowPlan {
+  const cap = Math.min(o.total, o.asRows ? MAX_ROWS : MAX_GROUPS)
+  if (o.height === undefined) return { shown: cap, logRows: LOG_ROWS }
+  const height = o.height
+  const withLog = !o.detailRows
+  let shown = 0
+  for (let candidate = cap; candidate >= 1 && !shown; candidate--) {
+    if (usedRows(o, candidate, withLog ? MIN_LOG_ROWS : undefined) <= height) shown = candidate
+  }
+  if (!shown) shown = leanest(o, cap)
+  const rest = height - usedRows(o, shown, undefined)
+  const logRows = withLog && rest > LOG_FRAME_ROWS ? Math.min(LOG_ROWS, rest - LOG_FRAME_ROWS) : 0
+  if (!o.wide && !logRows && usedRows(o, shown, undefined) > height) return { shown, logRows, advisor: false }
+  return { shown, logRows }
+}
+
+function oddFloor(n: number): number {
+  return n % 2 === 0 ? n - 1 : n
+}
+
+function rowWidth(boxes: number): number {
+  return boxes * AGENT_WIDTH + Math.max(0, boxes - 1) * AGENT_GAP + (boxes % 2 === 0 ? 1 : 0)
+}
+
+function boxGap(boxes: number, index: number): number {
+  if (index === 0) return 0
+  return AGENT_GAP + (boxes % 2 === 0 && index === boxes / 2 ? 1 : 0)
+}
+
+function rowCenters(boxes: number, offset: number): number[] {
+  const result: number[] = []
+  let left = offset
+  for (let i = 0; i < boxes; i++) {
+    left += boxGap(boxes, i)
+    result.push(left + (AGENT_WIDTH - 1) / 2)
+    left += AGENT_WIDTH
+  }
+  return result
+}
+
+export function connector(width: number, points: readonly number[], join: number, kind: 'split' | 'merge', step?: number): string {
+  const lo = Math.min(join, ...points)
+  const hi = Math.max(join, ...points)
+  const flow = (p: number): string | undefined => {
+    if (step === undefined || p === join) return undefined
+    const arm = p < join ? join - lo - 1 : hi - join - 1
+    if (arm < 2) return undefined
+    const out = p < join ? join - p : p - join
+    const head = kind === 'split' ? (step % arm) + 1 : arm - (step % arm)
+    const tail = kind === 'split' ? head - 1 : head + 1
+    return out === head ? '•' : out === tail && tail >= 1 && tail <= arm ? '·' : undefined
+  }
+  let line = ''
+  for (let p = 0; p < width; p++) {
+    if (p < lo || p > hi) {
+      line += ' '
+      continue
+    }
+    const atPoint = points.includes(p)
+    const up = kind === 'split' ? p === join : atPoint
+    const down = kind === 'split' ? atPoint : p === join
+    const key = `${up ? 'u' : ''}${down ? 'd' : ''}${p > lo ? 'l' : ''}${p < hi ? 'r' : ''}`
+    line += (key === 'lr' ? flow(p) : undefined) ?? GLYPH[key] ?? ' '
+  }
+  return line
+}
+
+export function timelineBar(
+  start: number,
+  end: number,
+  from: number,
+  to: number,
+  width = BAR_WIDTH,
+  cells: Glyphs['bar'] = STYLES.line.bar,
+): string {
+  if (!(to > from)) return cells.full.repeat(width)
+  const scale = (t: number) => Math.round(((Math.min(Math.max(t, from), to) - from) / (to - from)) * width)
+  const a = Math.min(width - 1, scale(start))
+  const b = Math.max(a + 1, scale(end))
+  return cells.empty.repeat(a) + cells.full.repeat(b - a) + cells.empty.repeat(width - b)
+}
+
+export const LIGHT_CELLS = 3
+
+export function litCells(size: number, frame: number, length = LIGHT_CELLS): number[] {
+  if (size <= 0) return []
+  const head = ((frame % size) + size) % size
+  const lit = new Set<number>()
+  for (let k = 0; k < Math.min(length, size); k++) lit.add((head - k + size) % size)
+  return [...lit].sort((a, b) => a - b)
+}
+
+export function shimmer(line: string, frame: number, cells: Glyphs['bar'] = STYLES.line.bar): string {
+  const chars = [...line]
+  if (chars.length === 0) return line
+  const at = ((frame % chars.length) + chars.length) % chars.length
+  return chars.map((c, i) => (i === at ? (c === cells.full ? cells.litFull : cells.litEmpty) : c)).join('')
+}
+
+function marks(width: number, points: readonly number[], glyph: string): string {
+  return Array.from({ length: width }, (_, p) => (points.includes(p) ? glyph : ' ')).join('')
+}
+
+function mostCommon(values: readonly (string | undefined)[]): string | undefined {
+  const tally = new Map<string, number>()
+  for (const v of values) if (v) tally.set(v, (tally.get(v) ?? 0) + 1)
+  let best: string | undefined
+  for (const [v, n] of tally) if (best === undefined || n > (tally.get(best) ?? 0)) best = v
+  return best
+}
+
+function effortCells(effort: string | undefined, glyphs: Glyphs): string {
+  return [...effortBar(effort)].map(cell => (cell === '▮' ? glyphs.effort[0] : glyphs.effort[1])).join('')
+}
+
+function effortLine(effort: string | undefined, glyphs: Glyphs): string {
+  if (!effort) return ' '
+  const bar = effortCells(effort, glyphs)
+  return bar ? `${bar} ${effort}` : `Effort ${effort}`
+}
+
+function contextLine(s: DeckState, w: Words): string {
+  const { contextTokens, window, percent } = s.main
+  const share = percent !== undefined ? w.percent(percent) : ''
+  if (contextTokens === undefined) return share ? `${w.context} ${share}` : w.contextNone
+  const amount = window ? `${fmtTokens(contextTokens, w.decimal)} / ${fmtTokens(window, w.decimal)}` : fmtTokens(contextTokens, w.decimal)
+  return `${w.context} ${amount}${share ? ` · ${share}` : ''}`
+}
+
+function isRunning(g: DeckGroup): boolean {
+  return g.kind === 'agent' ? g.node.status === 'running' : g.running > 0
+}
+
+function startOf(g: DeckGroup): number {
+  return g.kind === 'agent' ? g.node.startedAt : g.startedAt
+}
+
+function endedSince(g: DeckGroup, since: number): boolean {
+  return g.kind === 'agent' && g.node.endedAt !== undefined && g.node.endedAt >= since
+}
+
+function parentOf(s: DeckState, n: DeckNode): string | undefined {
+  if (n.parentId === undefined) return undefined
+  const parent = s.agents.find(p => p.id === n.parentId)
+  return parent ? typeLabel(parent.type) : '?'
+}
+
+function callPlace(call: DeckAdvisorCall, w: Words): string {
+  return call.agentId === undefined ? w.fromMain : w.fromSub
+}
+
+export function pickerLines(name: string, width: number, lang: Lang = 'en', running = false): number {
+  const w = wordsFor(lang)
+  const models = wrappedLines([w.pickerFor(name), `[ ${w.standard} ]`, ...MODEL_FAMILIES.map(family => `[ ${familyLabel(family)} ]`), '[ × ]'], width)
+  const efforts = wrappedLines([w.effortFor, `[ ${w.standard} ]`, ...EFFORT_LEVELS.map(level => `[ ${effortLabel(level)} ]`)], width)
+  return models + efforts + (running ? textRows(w.effortNextMessage, width) : 0)
+}
+
+function textRows(text: string, width: number): number {
+  let rows = 1
+  let used = 0
+  for (const word of text.split(' ')) {
+    const size = [...word].length
+    if (used === 0) used = size
+    else if (used + 1 + size <= width) used += 1 + size
+    else {
+      rows += 1
+      used = size
+    }
+  }
+  return rows
+}
+
+export function mainPickerLines(width: number, lang: Lang = 'en', offer?: readonly string[]): number {
+  const w = wordsFor(lang)
+  const efforts = wrappedLines([w.mainEffortFor, `[ ${w.standard} ]`, ...EFFORT_LEVELS.map(level => `[ ${effortLabel(level)} ]`), '[ × ]'], width)
+  const models = offer?.length ? wrappedLines([w.mainModelFor, `[ ${w.standard} ]`, ...offer.map(family => `[ ${familyLabel(family)} ]`)], width) + textRows(w.mainModelHint, width) : 0
+  return models + efforts + wrappedLines(w.mainEffortHint, width)
+}
+
+function lookLabelWidth(w: Words): number {
+  return Math.max(...LOOK_ROWS.map(row => w.lookRow[row].length))
+}
+
+export function lookLines(width: number, lang: Lang = 'en'): number {
+  const w = wordsFor(lang)
+  const label = ' '.repeat(lookLabelWidth(w))
+  const rows = LOOK_ROWS.map(row =>
+    wrappedLines(
+      [
+        label,
+        ...(LOOK_OPTIONS[row] as readonly string[]).map(id => `[ ${lookOptionLabel(w, row, id)} ]`),
+        ...(row === 'light' ? [' '.repeat(LIGHT_SAMPLE)] : []),
+      ],
+      width,
+    ),
+  )
+  return 2 + rows.reduce((sum, n) => sum + n, 0) + wrappedLines([`[ ${w.lookReset} ]`, '[ × ]'], width)
+}
+
+function wrappedLines(parts: readonly string[], width: number, gap = 1): number {
+  let lines = 1
+  let used = 0
+  for (const part of parts) {
+    const need = used === 0 ? part.length : used + gap + part.length
+    if (need > width && used > 0) {
+      lines += 1
+      used = part.length
+    } else {
+      used = need
+    }
+  }
+  return lines
+}
+
+export function clip(text: string, width: number): string {
+  return text.length > width ? `${cut(text, Math.max(0, width - 1))}…` : text
+}
+
+export function centered(text: string, width: number): string {
+  const shown = clip(text, width)
+  const free = Math.max(0, width - [...shown].length)
+  const left = Math.floor(free / 2)
+  return `${' '.repeat(left)}${shown}${' '.repeat(free - left)}`
+}
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const rows: T[][] = []
+  for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size))
+  return rows
+}
+
+export function helpLine(items: readonly string[], width: number): string {
+  let line = items[0] ?? ''
+  for (const item of items.slice(1)) {
+    const next = `${line} · ${item}`
+    if (next.length > width) break
+    line = next
+  }
+  return line
+}
+
+export function drawTree(ui: Ui, s: DeckState, width: number, height?: number, look: TreeLook = { frame: 0, animate: false }) {
+  const { Box, Text, Button } = ui
+  const lang: Lang = look.lang ?? 'en'
+  const w = wordsFor(lang)
+  const appearance = lookFrom(look.appearance)
+  const palette = PALETTES[appearance.colors]
+  const glyphs = STYLES[appearance.style]
+  const light = lightColor(appearance)
+  const spin = runningMark(look.frame, look.animate, glyphs.spinner)
+  const choices = choicesOf(s)
+  const actions = look.actions
+  const now = look.now ?? Date.now()
+  const detail = s.detail
+  const tight = height !== undefined && height < TIGHT_BELOW
+  const wide = width >= WIDE_FROM && !tight
+  const tab = tabOf(s)
+  const names = tabNames(w.tabs, { ...(hasClash(s) ? { files: '⚠' } : {}), ...(hasNewReport(s) ? { reports: glyphs.marks.done } : {}) })
+  const treeWidth = Math.max(1, oddFloor(wide ? width - ADVISOR_WIDTH - 2 : width))
+  const perRow = Math.max(1, Math.floor((treeWidth + AGENT_GAP) / (AGENT_WIDTH + AGENT_GAP)))
+  const asRows = tight || perRow < 2
+  const mainWidth = Math.min(MAIN_WIDTH, treeWidth)
+  const backWidth = Math.min(BACK_WIDTH, treeWidth)
+  const phase = phaseOf(s)
+  const roundStart = s.main.roundStartedAt ?? 0
+  const all = groups(s)
+  const endedThisRound = (g: DeckGroup) =>
+    g.kind === 'agent'
+      ? endedSince(g, roundStart)
+      : g.running === 0 && s.agents.some(n => n.workflowRunId === g.runId && (n.endedAt ?? 0) >= roundStart)
+  const current = all.filter(g => isRunning(g) || startOf(g) >= roundStart || endedThisRound(g))
+  const earlier = all.length - current.length
+  const recentCalls = s.advisor.calls.slice(-ADVISOR_ROWS)
+  const pickerTarget = choices.picker
+  const pickerNode = pickerTarget && pickerTarget !== NEW_AGENTS ? s.agents.find(n => n.id === pickerTarget) : undefined
+  const pickerName = pickerTarget === NEW_AGENTS ? w.newAgents : pickerNode ? `${typeLabel(pickerNode.type)} · ${pickerNode.description}` : '?'
+  const detailNode = detail ? s.agents.find(n => n.id === detail.agentId) : undefined
+  const agentEffort =
+    mostCommon(s.agents.filter(n => n.status === 'running').map(n => n.effort)) ?? mostCommon(s.agents.map(n => n.effort))
+  const modelText = (n: DeckNode, room = Infinity) => {
+    const pending = choices.agents[n.id]
+    if (!pending || pending === familyOf(n.model) || n.status !== 'running') return modelLabel(n.model) || ' '
+    const full = `${modelLabel(n.model) || w.model} → ${familyLabel(pending)}`
+    if ([...full].length <= room) return full
+    const from = familyOf(n.model)
+    return `${from ? familyLabel(from) : modelLabel(n.model) || w.model} → ${familyLabel(pending)}`
+  }
+  const feedbackText = (f: Feedback | undefined, main = false): string | undefined => {
+    if (!f) return undefined
+    const t = w.feedback
+    if (f.kind === 'stop') return f.phase === 'done' ? t.stopDone : t.stopPending
+    if (f.kind === 'write') return f.phase === 'done' ? t.writeDone : f.phase === 'failed' ? t.writeFailed : t.writePending
+    const named = f.value ? (f.kind === 'model' ? familyLabel(f.value) : effortLabel(f.value)) : w.standard
+    if (f.kind === 'model') return f.phase === 'done' ? t.modelDone(named) : t.modelPending(named)
+    const level = named
+    if (main) return t.mainEffortPending(level)
+    return f.phase === 'done' ? t.effortDone(level) : t.effortPending(level)
+  }
+  const fastLabel = s.main.fast === undefined ? undefined : s.main.fast ? w.fastOn : w.fastOff
+  const chosenOne = actions ? selectionOf(s) : undefined
+  const selection =
+    chosenOne?.kind === 'agent' && !current.some(g => g.kind === 'agent' && g.node.id === chosenOne.node.id)
+      ? undefined
+      : chosenOne?.kind === 'workflow' && !current.some(g => g.kind === 'workflow' && g.runId === chosenOne.runId)
+        ? undefined
+        : chosenOne
+  const barNode = selection?.kind === 'agent' ? selection.node : undefined
+  const barRunning = barNode?.status === 'running'
+  const barStopping = barNode !== undefined && (s.stopping ?? []).includes(barNode.id)
+  const barLevel = (n: DeckNode) => {
+    const now = n.effort ? effortLabel(n.effort) : w.standard
+    const next = choices.efforts?.[n.id]
+    return next && next !== n.effort ? `${now} → ${effortLabel(next)}` : now
+  }
+  const barButtons =
+    barNode && actions
+      ? [
+          ...(barRunning && !barStopping ? [{ key: `halt:${barNode.id}`, label: `■ ${w.stopButton}`, hotkey: 's', press: () => actions.stop(barNode.id) }] : []),
+          { key: `write:${barNode.id}`, label: `✎ ${w.writeButton}`, press: () => actions.write(barNode.id) },
+          ...(barRunning ? [{ key: `pick:${barNode.id}`, label: `${w.model}: ${modelText(barNode).trim() || w.model} ▾`, press: () => actions.pick(barNode.id) }] : []),
+          ...(barRunning ? [{ key: `level:${barNode.id}`, label: `${w.effortFor} ${barLevel(barNode)} ▾`, press: () => actions.pick(barNode.id) }] : []),
+          { key: `detail:${barNode.id}`, label: w.detailsButton, press: () => actions.detail(barNode.id) },
+        ]
+      : []
+  const barFeedback = barNode ? feedbackFor(s, barNode.id, now) : selection === undefined ? mainFeedback(s, now) : undefined
+  const barFeedbackText = feedbackText(barFeedback, barNode === undefined)
+  const shownClash = barNode ? clashShown(s, barNode.id) : undefined
+  const barClashWith = shownClash
+    ? shownClash.with === MAIN
+      ? w.main
+      : s.agents.find(n => n.id === shownClash.with)?.description || shownClash.with
+    : undefined
+  const barClash = shownClash && barClashWith ? w.alsoChanges(shownClash.file, barClashWith) : undefined
+  const barWorkflow =
+    selection?.kind === 'workflow'
+      ? (() => {
+          const members = s.agents.filter(n => n.workflowRunId === selection.runId)
+          const busy = members.filter(n => n.status === 'running').length
+          return `Workflow · ${members.length} · ${w.running(busy)}`
+        })()
+      : undefined
+  const actionRows = actions
+    ? selection
+      ? 2 + (barButtons.length ? wrappedLines(barButtons.map(b => `[ ${b.label} ]`), width, 1) : 0) + (barFeedbackText ? 1 : 0) + (barClash ? 1 : 0)
+      : 0
+    : 0
+  const hintRows = actions && !selection ? 1 + (barFeedbackText ? 1 : 0) : 0
+  const plan = planRows({
+    height,
+    wide,
+    tight,
+    asRows,
+    perRow,
+    total: current.length,
+    advisorRows: wide ? ADVISOR_BASE_ROWS + recentCalls.length : ADVISOR_COMPACT_ROWS,
+    earlier: earlier > 0,
+    pickerRows: (pickerTarget && actions ? 1 + (pickerTarget === MAIN ? mainPickerLines(width, lang, s.main.modelOffer) : pickerLines(pickerName, width, lang, pickerTarget !== NEW_AGENTS)) : 0) + (s.lookOpen && actions ? lookLines(width, lang) : 0),
+    detailRows: detailNode && actions ? DETAIL_ROWS : 0,
+    helpRows: tight ? 0 : 1,
+    limitRows: s.main.limits?.length ? 1 : 0,
+    actionRows,
+    hintRows,
+    tabRows: tabRows(names, width, tight),
+    eduRows: eduStripRows(look.edu, w),
+    labelRows: actions
+      ? wrappedLines(
+          [
+            current.length ? `${glyphs.node} ${w.toAgents}` : w.noAgents,
+            ` · m: ${w.subModel}: ${familyOr(choices.newAgents, w.standard)}${choices.newEffort ? ` · ${effortLabel(choices.newEffort)}` : ''} ▾`,
+            ` · a: ${w.look} ▾`,
+            ...(fastLabel ? [` · f: ${fastLabel}`] : []),
+          ],
+          treeWidth,
+          0,
+        )
+      : 1,
+  })
+  const keepId = detail?.agentId ?? (selection?.kind === 'agent' ? selection.node.id : undefined)
+  const keepAt =
+    keepId !== undefined
+      ? current.findIndex(g => g.kind === 'agent' && g.node.id === keepId)
+      : selection?.kind === 'workflow'
+        ? current.findIndex(g => g.kind === 'workflow' && g.runId === selection.runId)
+        : -1
+  const shown =
+    keepAt >= plan.shown && plan.shown > 0
+      ? [...current.slice(0, plan.shown - 1), current[keepAt] as DeckGroup]
+      : current.slice(0, plan.shown)
+  const rest = current.filter(g => !shown.includes(g))
+  const hiddenRunning = rest.filter(isRunning).length
+  const mainModel = modelLabel(s.main.model)
+  const advisorModel = modelLabel(s.advisor.model)
+  const lastCall = s.advisor.calls.at(-1)
+  const consulted = lastCall !== undefined && lastCall.at >= roundStart && roundStart > 0
+  const legendEffort = width >= LEGEND_EFFORT_FROM
+  const groupEnd = (g: DeckGroup) => {
+    if (g.kind === 'agent') return g.node.endedAt ?? now
+    const members = s.agents.filter(n => n.workflowRunId === g.runId)
+    return members.some(n => n.status === 'running') ? now : Math.max(...members.map(n => n.endedAt ?? n.startedAt))
+  }
+  const spanFrom = current.length ? Math.min(...current.map(startOf)) : now
+  const spanTo = current.length ? Math.max(...current.map(groupEnd)) : now
+
+  const bar = (g: DeckGroup) => timelineBar(startOf(g), groupEnd(g), spanFrom, spanTo, BAR_WIDTH, glyphs.bar)
+
+  const streakLine = (line: string, tint: string, at: number) => {
+    if (!light) return <Text color={tint}>{shimmer(line, at, glyphs.bar)}</Text>
+    const cells = [...line]
+    const lit = new Set(litCells(cells.length, at))
+    const runs: { text: string; lit: boolean }[] = []
+    cells.forEach((cell, i) => {
+      const last = runs.at(-1)
+      if (last && last.lit === lit.has(i)) last.text += cell
+      else runs.push({ text: cell, lit: lit.has(i) })
+    })
+    return (
+      <Text color={tint}>
+        {runs.map((run, i) => (run.lit ? <Text key={`lit:${i}`} color={light}>{run.text}</Text> : run.text))}
+      </Text>
+    )
+  }
+
+  const barLine = (line: string, tint: string, lit: boolean) => (lit ? streakLine(line, tint, look.frame) : <Text color={tint}>{line}</Text>)
+
+  const sideRows = height ?? 60
+
+  const frameProps = (color: string, strong = false) =>
+    glyphs.border
+      ? { borderStyle: strong ? (glyphs.strongBorder ?? glyphs.border) : glyphs.border, borderColor: color }
+      : { paddingX: 1, paddingY: 1 }
+
+  const frameParts = (key: string, boxWidth: number, color: string, strong = false) => {
+    if (glyphs.border) return null
+    const { top, bottom } = frameEdges(glyphs, boxWidth)
+    const column = (glyph: string) => Array.from({ length: sideRows }, () => glyph).join('\n')
+    const side = (edge: 'left' | 'right', glyph: string) =>
+      glyph.trim() ? (
+        <Box key={`${key}:${edge}`} position="absolute" top={1} bottom={1} left={edge === 'left' ? 0 : undefined} right={edge === 'right' ? 0 : undefined} width={1} overflow="hidden">
+          <Text color={color} bold={strong}>{column(glyph)}</Text>
+        </Box>
+      ) : null
+    return [
+      <Box key={`${key}:top`} position="absolute" top={0} left={0} width={boxWidth} height={1} overflow="hidden">
+        <Text color={color} bold={strong}>{top}</Text>
+      </Box>,
+      <Box key={`${key}:bottom`} position="absolute" bottom={0} left={0} width={boxWidth} height={1} overflow="hidden">
+        <Text color={color} bold={strong}>{bottom}</Text>
+      </Box>,
+      side('left', glyphs.frame.l),
+      side('right', glyphs.frame.r),
+    ]
+  }
+
+  const boxLines = (lines: readonly RenderChildren[]) => lines.flatMap((line, i) => (i ? ['\n', line] : [line]))
+
+  const agentBox = (g: DeckGroup, marginLeft: number) => {
+    if (g.kind === 'workflow') {
+      const wfTarget = `${WORKFLOW_PREFIX}${g.runId}`
+      const wfClash = s.agents.some(n => n.workflowRunId === g.runId && clashShown(s, n.id))
+      const color = s.selected === wfTarget ? palette.main : g.running > 0 ? palette.agent : g.failed > 0 ? palette.failed : palette.dim
+      const wfInner = AGENT_WIDTH - 2
+      const wfLabel = clip(`${s.selected === wfTarget ? '▸ ' : ''}Workflow · ${g.size}${wfClash ? ' ⚠' : ''}`, wfInner)
+      const wfLine = (key: string, text: string, tint?: string) => (
+        <Text key={key} size={SIZE.detail} color={tint}>
+          {centered(text, wfInner)}
+        </Text>
+      )
+      const wfRows = (title: RenderChildren) => [
+        title,
+        wfLine('wf-running', `${spin} ${w.running(g.running)}`, palette.agent),
+        wfLine('wf-done', `${glyphs.marks.done} ${g.done} ${w.done}`, palette.done),
+        wfLine('wf-failed', `${glyphs.marks.failed} ${g.failed} ${w.status.failed}`, g.failed ? palette.failed : palette.dim),
+        wfLine('wf-last', g.lastDescription || ' '),
+        wfLine('wf-stopped', g.stopped ? `${glyphs.marks.stopped} ${g.stopped} ${w.status.stopped}` : ' ', palette.dim),
+        <Text key="wf-bar">
+          {' '}
+          {barLine(bar(g), color, g.running > 0 && look.animate)}
+        </Text>,
+      ]
+      return (
+        <Box key={`wf:${g.runId}`} width={AGENT_WIDTH} marginLeft={marginLeft} {...frameProps(color)} flexDirection="column" alignItems="center">
+          {actions ? (
+            <Button key={`select:${wfTarget}`} plain label={wfLabel} onPress={() => actions.select(wfTarget)}>
+              {boxLines(
+                wfRows(
+                  <Text key="wf-title" bold size={SIZE.title} color={g.running > 0 ? palette.agent : undefined}>
+                    {centered(wfLabel, wfInner)}
+                  </Text>,
+                ),
+              )}
+            </Button>
+          ) : (
+            <Text>
+              {boxLines(
+                wfRows(
+                  <Text key="wf-title" bold size={SIZE.title} color={g.running > 0 ? palette.agent : undefined}>
+                    {centered(`Workflow · ${g.size}`, wfInner)}
+                  </Text>,
+                ),
+              )}
+            </Text>
+          )}
+          {frameParts(`wf:${g.runId}`, AGENT_WIDTH, color)}
+        </Box>
+      )
+    }
+    const n = g.node
+    const running = n.status === 'running'
+    const nested = parentOf(s, n)
+    const stopping = (s.stopping ?? []).includes(n.id)
+    const mark = `${correctionGlyph(s, n.id)}${clashShown(s, n.id) ? '⚠' : ''}`
+    const inner = AGENT_WIDTH - 2
+    const filledShare = running ? contextPercent(n.contextTokens, windowOf(s, n)) : undefined
+    const statusLine =
+      n.status === 'running'
+        ? stopping
+          ? statusWithMark(`${spin} ${w.stopping}`, mark, '', inner)
+          : statusWithMark(
+              `${spin} ${w.status.running}`,
+              mark,
+              filledShare !== undefined
+                ? ` ${cellBar(filledShare, glyphs.bar, CONTEXT_BAR)} ${w.percent(filledShare)}`
+                : n.contextTokens
+                  ? ` · ${fmtTokens(n.contextTokens, w.decimal)}`
+                  : '',
+              inner,
+              filledShare !== undefined ? ` ${w.percent(filledShare)}` : undefined,
+            )
+        : n.status === 'done' && n.endedAt !== undefined
+          ? statusWithMark(`${glyphs.marks.done} ${w.status.done}`, mark, ` · ${fmtShortDuration(n.endedAt - n.startedAt)}`, inner)
+          : statusWithMark(`${statusMark(glyphs, n.status)} ${w.status[n.status]}`, mark, '', inner)
+    const edge = s.selected === n.id ? palette.main : running ? palette.agent : n.status === 'failed' ? palette.failed : palette.dim
+    const typeText = clip(`${actions && s.selected === n.id ? '▸ ' : ''}${typeLabel(n.type)}`, inner)
+    const effortText =
+      running && n.effort !== undefined && choices.efforts?.[n.id] && choices.efforts[n.id] !== n.effort
+        ? `${n.effort} → ${choices.efforts[n.id]}`
+        : nested
+          ? `↳ ${w.under} ${nested}`
+          : effortLine(n.effort, glyphs)
+    const rows = boxLines([
+      <Text key="box-type" bold size={SIZE.title} color={running ? palette.agent : undefined}>
+        {centered(typeText, inner)}
+      </Text>,
+      <Text key="box-model" color={running ? undefined : palette.dim}>
+        {centered(modelText(n, inner), inner)}
+      </Text>,
+      <Text key="box-effort" size={SIZE.detail} color={palette.dim}>
+        {centered(effortText, inner)}
+      </Text>,
+      <Text key="box-task" size={SIZE.detail} color={running ? undefined : palette.dim}>
+        {centered(n.description || ' ', inner)}
+      </Text>,
+      <Text key="box-activity" size={SIZE.detail} color={palette.dim}>
+        {centered(activityText(n.lastTool, lang) ?? `${w.tools}: ${n.toolCount}`, inner)}
+      </Text>,
+      <Text key="box-status" size={SIZE.detail} color={levelColor(palette, filledShare, statusColor(palette, n.status))}>
+        {centered(statusLine, inner)}
+      </Text>,
+      <Text key="box-bar">
+        {' '}
+        {barLine(bar(g), statusColor(palette, n.status), running && look.animate)}
+      </Text>,
+    ])
+    return (
+      <Box key={`ag:${n.id}`} width={AGENT_WIDTH} marginLeft={marginLeft} {...frameProps(edge)} flexDirection="column" alignItems="center">
+        {actions ? (
+          <Button key={`select:${n.id}`} plain label={typeText} onPress={() => actions.select(n.id)}>
+            {rows}
+          </Button>
+        ) : (
+          <Text>{rows}</Text>
+        )}
+        {frameParts(`ag:${n.id}`, AGENT_WIDTH, edge)}
+      </Box>
+    )
+  }
+
+  const agentRow = (g: DeckGroup) => {
+    if (g.kind === 'workflow') {
+      const color = g.running > 0 ? palette.agent : g.failed > 0 ? palette.failed : palette.dim
+      const state =
+        g.running > 0
+          ? `${spin} ${w.running(g.running)}`
+          : g.failed > 0
+            ? `${glyphs.marks.failed} ${g.failed} ${w.status.failed}`
+            : g.done > 0
+              ? `${glyphs.marks.done} ${w.done}`
+              : `${glyphs.marks.stopped} ${w.status.stopped}`
+      const wfTarget = `${WORKFLOW_PREFIX}${g.runId}`
+      return (
+        <Box key={`wf:${g.runId}`} width={treeWidth}>
+          {actions ? (
+            <Button key={`select:${wfTarget}`} plain label={clip(`${s.selected === wfTarget ? '▸ ' : ''}${state} · Workflow · ${g.size}`, treeWidth - 2)} onPress={() => actions.select(wfTarget)} />
+          ) : (
+            <Text color={color} wrap="truncate-end">
+              {`${state} · Workflow · ${g.size}`}
+            </Text>
+          )}
+        </Box>
+      )
+    }
+    const n = g.node
+    const indent = parentOf(s, n) ? '↳ ' : ''
+    const share = n.status === 'running' ? contextPercent(n.contextTokens, windowOf(s, n)) : undefined
+    const size = share !== undefined ? ` · ${w.percent(share)}` : n.status === 'running' && n.contextTokens ? ` · ${fmtTokens(n.contextTokens, w.decimal)}` : ''
+    const mark = `${correctionGlyph(s, n.id)}${clashShown(s, n.id) ? '⚠' : ''}`
+    const text = `${s.selected === n.id ? '▸ ' : ''}${indent}${n.status === 'running' ? spin : statusMark(glyphs, n.status)} ${n.status === 'running' && (s.stopping ?? []).includes(n.id) ? w.stopping : w.status[n.status]}${mark ? ` ${mark}` : ''} · ${typeLabel(n.type)} · ${n.description}${size}`
+    return (
+      <Box key={`ag:${n.id}`} width={treeWidth} flexDirection="row" columnGap={1}>
+        {actions ? (
+          <Button key={`select:${n.id}`} plain label={clip(text, treeWidth - 2)} onPress={() => actions.select(n.id)} />
+        ) : (
+          <Text color={statusColor(palette, n.status)} wrap="truncate-end">
+            {text}
+          </Text>
+        )}
+      </Box>
+    )
+  }
+
+  const arrowRow = (key: string, boxWidth: number, box: RenderChildren) => {
+    const side = Math.max(0, (treeWidth - boxWidth) / 2)
+    const arrow = wide && side >= 3 ? `${glyphs.rail.h.repeat(side - 2)}${glyphs.rail.head} ` : ' '
+    return (
+      <Box key={key} flexDirection="row" width={treeWidth}>
+        <Box width={side} flexShrink={0} flexDirection="column" justifyContent="center" alignItems="flex-end">
+          <Text color={consulted ? palette.advisor : palette.dim}>{side > 0 ? arrow : ''}</Text>
+        </Box>
+        {box}
+        <Box width={side} flexShrink={0} />
+      </Box>
+    )
+  }
+
+  const verb = phase === 'idle' ? w.idle : w.working
+  const header = (
+    <Box key="head" flexDirection="row" justifyContent="center" width={width}>
+      <Box key="title" flexShrink={1}>
+        {tight ? (
+          <Text bold size={SIZE.title} wrap="truncate-end">
+            {`EDU DECK${mainModel ? ` · ${mainModel.toUpperCase()}` : ''} · ${verb}`}
+          </Text>
+        ) : (
+          <Text bold size={SIZE.title} wrap="truncate-end">
+            {'EDU DECK'}
+            {mainModel ? <Text color={palette.main}>{` · ${mainModel.toUpperCase()} ${verb}`}</Text> : null}
+            {advisorModel && wide ? <Text color={palette.advisor}>{` · ${w.advisorOnCall(advisorModel.toUpperCase())}`}</Text> : null}
+          </Text>
+        )}
+      </Box>
+    </Box>
+  )
+  const legend = (
+    <Box key="legend" justifyContent="center" width={width}>
+      <Text size={SIZE.note} wrap="truncate-end">
+        <Text color={palette.main}>{glyphs.marks.legend}</Text>
+        {` ${w.main}${legendEffort && s.main.effort ? ` · ${s.main.effort}` : ''}   `}
+        <Text color={palette.agent}>{glyphs.marks.legend}</Text>
+        {` ${w.agents}${legendEffort && agentEffort ? ` · ${agentEffort}` : ''}   `}
+        <Text color={palette.advisor}>{glyphs.marks.legend}</Text>
+        {` ${w.advisor}`}
+      </Text>
+    </Box>
+  )
+  const tabBar = drawTabBar(ui, { names, tab, width, tight, palette, glyphs, ...(actions ? { press: (id: DeckTab) => actions.tab(id) } : {}) })
+  const eduActions = actions
+    ? {
+        refresh: () => actions.eduRefresh(),
+        ask: (jobId: string, verdict: 'approve' | 'reject') => actions.eduAsk(jobId, verdict),
+        confirm: () => actions.eduConfirm(),
+        cancel: () => actions.eduCancel(),
+        open: () => actions.tab('edu'),
+      }
+    : undefined
+  const eduInput = { edu: look.edu, ...(s.confirming ? { confirming: s.confirming } : {}), width, palette, w, now, ...(eduActions ? { actions: eduActions } : {}) }
+  const eduStrip = drawEduStrip(ui, eduInput)
+
+  const mainSent = s.main.effortless ? undefined : s.main.effort
+  const mainChosen = choices.mainEffort
+  const mainEffortPending = mainChosen !== undefined && !s.main.effortless && mainChosen !== mainSent
+  const mainEffortLabel = mainEffortPending
+    ? `Effort ${mainSent ? `${mainSent} ` : ''}→ ${mainChosen} ▾`
+    : `${mainSent ? `Effort ${mainSent}` : s.main.effortless ? w.effortNone : 'Effort'} ▾`
+
+  const roundLine = s.main.turn ? `${w.round} ${s.main.turn}${s.main.costUsd !== undefined ? ` · ${w.cost(s.main.costUsd)}` : ''}` : w.noRound
+
+  const mainOffer = s.main.modelOffer ?? []
+  const mainTitle = [mainModel, w.main].filter(Boolean).join(' · ')
+
+  const mainBox = (
+    <Box key="main" width={mainWidth} flexShrink={0} {...frameProps(palette.main)} flexDirection="column" alignItems="center">
+      {actions && mainOffer.length > 0 ? (
+        <Box key="main-title" justifyContent="center" width={Math.max(1, mainWidth - 2)}>
+          <Button key="model:main" plain label={`${mainTitle} ▾`} onPress={() => actions.pick(MAIN)}>
+            <Text bold size={SIZE.title} color={palette.main} wrap="truncate-end">
+              {`${mainTitle} ▾`}
+            </Text>
+          </Button>
+        </Box>
+      ) : (
+        <Text bold size={SIZE.title} color={palette.main} wrap="truncate-end">
+          {mainTitle}
+        </Text>
+      )}
+      <Text wrap="truncate-end">{w.phase[phase]}</Text>
+      {actions ? (
+        <Box key="main-effort" justifyContent="center" width={Math.max(1, mainWidth - 2)}>
+        <Button key="pick:main" plain hotkey="e" label={mainEffortLabel} onPress={() => actions.pick(MAIN)}>
+          {mainEffortPending ? (
+            <Text wrap="truncate-end">
+              <Text color={palette.dim}>{`Effort ${mainSent ? `${mainSent} ` : ''}`}</Text>
+              <Text color={palette.main}>{`→ ${mainChosen}`}</Text>
+              {' ▾'}
+            </Text>
+          ) : mainSent && effortCells(mainSent, glyphs) ? (
+            <Text wrap="truncate-end">
+              <Text color={palette.dim}>{'Effort '}</Text>
+              <Text color={palette.main}>{effortCells(mainSent, glyphs)}</Text>
+              {` ${mainSent} ▾`}
+            </Text>
+          ) : (
+            <Text color={palette.dim} wrap="truncate-end">
+              {mainEffortLabel}
+            </Text>
+          )}
+        </Button>
+        </Box>
+      ) : s.main.effort && effortCells(s.main.effort, glyphs) ? (
+        <Text size={SIZE.detail} wrap="truncate-end">
+          <Text color={palette.dim}>{'Effort '}</Text>
+          <Text color={palette.main}>{effortCells(s.main.effort, glyphs)}</Text>
+          {` ${s.main.effort}`}
+        </Text>
+      ) : (
+        <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
+          {s.main.effort ? `Effort ${s.main.effort}` : w.effortNone}
+        </Text>
+      )}
+      <Text size={SIZE.detail} color={levelColor(palette, s.main.percent, palette.dim)} wrap="truncate-end">
+        {contextLine(s, w)}
+      </Text>
+      <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
+        {roundLine}
+      </Text>
+      {frameParts('main', mainWidth, palette.main)}
+    </Box>
+  )
+
+  const backBox = (
+    <Box key="back" width={backWidth} flexShrink={0} {...frameProps(palette.main, phase === 'reviewing')} flexDirection="column" alignItems="center">
+      <Text bold size={SIZE.title} color={palette.main} wrap="truncate-end">
+        {`${w.back}${s.main.effort ? ` · ${s.main.effort}` : ''}`}
+      </Text>
+      <Text wrap="truncate-end">{phase === 'reviewing' ? w.phase.reviewing : phase === 'delegating' ? w.waiting : w.ready}</Text>
+      <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
+        {`${w.answers(s.main.returned)} · ↑ ${fmtTokens(s.main.returnedTokens, w.decimal) || '0'}`}
+      </Text>
+      {frameParts('back', backWidth, palette.main, phase === 'reviewing')}
+    </Box>
+  )
+
+  const notes = [
+    rest.length > 0 ? (
+      <Text key="hidden" size={SIZE.note} color={palette.dim} wrap="truncate-end">
+        {w.more(rest.length, hiddenRunning)}
+      </Text>
+    ) : null,
+    earlier > 0 ? (
+      <Text key="earlier" size={SIZE.note} color={palette.dim} wrap="truncate-end">
+        {w.earlier(earlier)}
+      </Text>
+    ) : null,
+  ]
+
+  const lookButton = actions ? <Button key="look:open" plain hotkey="a" label={`${w.look} ▾`} onPress={() => actions.look()} /> : null
+
+  const fastButton =
+    actions && fastLabel ? (
+      <Button key="fast:toggle" plain hotkey="f" label={fastLabel} onPress={() => actions.fast()}>
+        <Text color={s.main.fast ? palette.main : undefined}>{fastLabel}</Text>
+      </Button>
+    ) : null
+
+  const pickNew = actions ? (
+    <Button key="pick:new" plain hotkey="m" label={`${w.subModel}: ${familyOr(choices.newAgents, w.standard)}${choices.newEffort ? ` · ${effortLabel(choices.newEffort)}` : ''} ▾`} onPress={() => actions.pick(NEW_AGENTS)} />
+  ) : null
+
+  const delegationLabel = (
+    <Box key="label" flexDirection="row" flexWrap="wrap">
+      <Text color={palette.agent} wrap="truncate-end">
+        {`${glyphs.node} ${w.toAgents}`}
+      </Text>
+      {pickNew ? (
+        <Box key="pick-group" flexDirection="row">
+          <Text color={palette.dim}>{' · '}</Text>
+          {pickNew}
+        </Box>
+      ) : null}
+      {lookButton ? (
+        <Box key="look-group" flexDirection="row">
+          <Text color={palette.dim}>{' · '}</Text>
+          {lookButton}
+        </Box>
+      ) : null}
+      {fastButton ? (
+        <Box key="fast-group" flexDirection="row">
+          <Text color={palette.dim}>{' · '}</Text>
+          {fastButton}
+        </Box>
+      ) : null}
+    </Box>
+  )
+
+  const flowing = look.animate && phase === 'delegating'
+  const returning = look.animate && (phase === 'reviewing' || (phase === 'delegating' && s.main.returned > 0))
+  const vertical = restyleLine('│', glyphs)
+  const stemTop = flowing && look.frame % 2 === 0 ? glyphs.node : vertical
+  const stemMid = flowing && look.frame % 2 === 1 ? glyphs.node : vertical
+  const backMark = returning && look.frame % 2 === 0 ? glyphs.node : restyleLine('▼', glyphs)
+
+  const flowText = (key: string, line: string, color: string) => (
+    <Text key={key} color={palette.dim}>
+      {line
+        .split(/([•·]+)/)
+        .map((part, i) =>
+          /^[•·]+$/.test(part) ? <Text key={`${key}:${i}`} color={color}>{restyleLine(part, glyphs)}</Text> : restyleLine(part, glyphs),
+        )}
+    </Text>
+  )
+
+  const boxRows = chunk(shown, perRow)
+  const frame = rowWidth(Math.max(1, boxRows[0]?.length ?? 1))
+  const join = (frame - 1) / 2
+  const centersOf = (row: readonly DeckGroup[]) => rowCenters(row.length, (frame - rowWidth(row.length)) / 2)
+
+  const delegation =
+    shown.length === 0 ? (
+      <Box key="agents" flexDirection="column" alignItems="center">
+        <Box key="none" flexDirection="row" flexWrap="wrap">
+          <Text size={SIZE.note} color={palette.dim}>{w.noAgents}</Text>
+          {pickNew ? (
+            <Box key="pick-group" flexDirection="row">
+              <Text color={palette.dim}>{' · '}</Text>
+              {pickNew}
+            </Box>
+          ) : null}
+          {lookButton ? (
+            <Box key="look-group" flexDirection="row">
+              <Text color={palette.dim}>{' · '}</Text>
+              {lookButton}
+            </Box>
+          ) : null}
+          {fastButton ? (
+            <Box key="fast-group" flexDirection="row">
+              <Text color={palette.dim}>{' · '}</Text>
+              {fastButton}
+            </Box>
+          ) : null}
+        </Box>
+        {notes}
+      </Box>
+    ) : asRows ? (
+      <Box key="agents" flexDirection="column" alignItems="center">
+        {delegationLabel}
+        <Box key="rows" flexDirection="column" width={treeWidth}>
+          {shown.map(agentRow)}
+        </Box>
+        <Text color={backMark === glyphs.node ? (light ?? palette.main) : palette.main}>{backMark}</Text>
+        {arrowRow('back-row', backWidth, backBox)}
+        {notes}
+      </Box>
+    ) : (
+      <Box key="agents" flexDirection="column" alignItems="center">
+        {delegationLabel}
+        <Text color={stemMid === glyphs.node ? (light ?? palette.agent) : palette.dim}>{stemMid}</Text>
+        {flowText('split', connector(frame, centersOf(boxRows[0] ?? []), join, 'split', flowing ? look.frame * 2 : undefined), light ?? palette.agent)}
+        <Text color={palette.agent}>{restyleLine(marks(frame, centersOf(boxRows[0] ?? []), '▼'), glyphs)}</Text>
+        <Box key="boxes" flexDirection="column" alignItems="center" rowGap={1} width={frame}>
+          {boxRows.map((row, r) => (
+            <Box key={`row:${r}`} flexDirection="row" width={rowWidth(row.length)}>
+              {row.map((g, i) => agentBox(g, boxGap(row.length, i)))}
+            </Box>
+          ))}
+        </Box>
+        {flowText('merge', connector(frame, centersOf(boxRows.at(-1) ?? []), join, 'merge', returning ? look.frame * 2 : undefined), light ?? palette.main)}
+        <Text color={backMark === glyphs.node ? (light ?? palette.main) : palette.main}>{backMark}</Text>
+        {arrowRow('back-row', backWidth, backBox)}
+        {notes}
+      </Box>
+    )
+
+  const tree = (
+    <Box key="tree" flexDirection="column" alignItems="center" width={treeWidth}>
+      {arrowRow('main-row', mainWidth, mainBox)}
+      <Text color={stemTop === glyphs.node ? (light ?? palette.agent) : palette.dim}>{stemTop}</Text>
+      {delegation}
+    </Box>
+  )
+
+  const advisorState = advisorModel ? advisorModel : w.off
+
+  const railLine = (key: string, text: string, plain = false) => (
+    <Text key={key} size={SIZE.detail} wrap="truncate-end">
+      <Text color={palette.advisor} dimColor>{`${glyphs.rail.v} `}</Text>
+      <Text color={plain ? undefined : palette.dim}>{text || ' '}</Text>
+    </Text>
+  )
+
+  const advisorColumn = (
+    <Box key="advisor" width={ADVISOR_WIDTH} flexShrink={0} {...frameProps(palette.advisor)} flexDirection="column">
+      <Text bold size={SIZE.title} color={palette.advisor} wrap="truncate-end">
+        {w.advisorTitle}
+      </Text>
+      <Text size={SIZE.detail} color={palette.advisor} wrap="truncate-end">
+        {advisorState}
+      </Text>
+      {actions && look.canAdvise !== false ? (
+        <Box key="advisor-toggle-row" flexDirection="row">
+          <Button key="advisor:toggle" plain label={advisorModel ? w.advisorOff : w.advisorOn} onPress={() => actions.advisor()} />
+        </Box>
+      ) : (
+        <Text size={SIZE.detail} color={palette.advisor} wrap="truncate-end">
+          {advisorModel ? w.onCall : ' '}
+        </Text>
+      )}
+      {railLine('reads-0', w.reads[0])}
+      {railLine('reads-1', w.reads[1])}
+      {railLine('gap-1', '')}
+      {railLine('calls', `${w.calls} ${s.advisor.total}`, true)}
+      {railLine('places', `${w.fromMain} ${s.advisor.fromMain} · ${w.fromSub} ${s.advisor.fromAgents}`)}
+      {railLine('last', lastCall ? `${w.last} ${clockTime(lastCall.at)}` : w.notAsked)}
+      {railLine('took', lastCall?.durationMs !== undefined ? `${w.duration} ${fmtShortDuration(lastCall.durationMs)}` : '')}
+      {railLine('gap-2', '')}
+      {recentCalls.map(call => (
+        <Box key={`adv:${call.id}`}>
+          <Text size={SIZE.detail} color={palette.advisor} wrap="truncate-end">
+            {`◆ ${clockTime(call.at)} ${callPlace(call, w)}`}
+          </Text>
+        </Box>
+      ))}
+      <Box key="advisor-fill" flexGrow={1} />
+      {railLine('writes-0', w.writes[0])}
+      {railLine('writes-1', w.writes[1])}
+      {frameParts('advisor', ADVISOR_WIDTH, palette.advisor)}
+    </Box>
+  )
+
+  const advisorCompact = (
+    <Box key="advisor" width={width} {...frameProps(palette.advisor)} flexDirection="column">
+      <Box key="advisor-head" flexDirection="row" columnGap={1}>
+        <Box key="advisor-head-text" flexShrink={1}>
+          <Text color={palette.advisor} wrap="truncate-end">
+            {`${w.advisor} · ${advisorModel ? `${advisorModel} · ${w.onCall}` : w.off} · ${w.calls} ${s.advisor.total}`}
+          </Text>
+        </Box>
+        {actions && look.canAdvise !== false ? (
+          <Button key="advisor:toggle" plain label={advisorModel ? w.advisorOff : w.advisorOn} onPress={() => actions.advisor()} />
+        ) : null}
+      </Box>
+      <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
+        {lastCall ? `${w.fromMain} ${s.advisor.fromMain} · ${w.fromSub} ${s.advisor.fromAgents} · ${w.last} ${clockTime(lastCall.at)}` : w.notAsked}
+      </Text>
+      {frameParts('advisor', width, palette.advisor)}
+    </Box>
+  )
+
+  const pickerCurrent = pickerTarget === NEW_AGENTS ? choices.newAgents : pickerTarget ? choices.agents[pickerTarget] : undefined
+  const effortCurrent = pickerTarget === NEW_AGENTS ? choices.newEffort : pickerTarget ? choices.efforts?.[pickerTarget] : undefined
+  const mainPicker =
+    pickerTarget === MAIN && actions ? (
+      <Box key="picker" flexDirection="column" width={width} marginTop={1}>
+        {mainOffer.length > 0 ? (
+          <Box key="picker-main-models" flexDirection="row" flexWrap="wrap" columnGap={1}>
+            <Text color={palette.main}>{w.mainModelFor}</Text>
+            <Button key="choose:main:default" label={w.standard} variant={s.main.modelHeld === MENU_DEFAULT ? 'primary' : undefined} onPress={() => actions.choose(MAIN, undefined)} />
+            {mainOffer.map(family => (
+              <Button key={`choose:main:${family}`} label={familyLabel(family)} variant={s.main.modelHeld === family ? 'primary' : undefined} onPress={() => actions.choose(MAIN, family)} />
+            ))}
+          </Box>
+        ) : null}
+        {mainOffer.length > 0 ? (
+          <Text key="picker-main-model-hint" color={palette.dim} wrap="wrap">
+            {w.mainModelHint}
+          </Text>
+        ) : null}
+        <Box key="picker-main" flexDirection="row" flexWrap="wrap" columnGap={1}>
+          <Text color={palette.main}>{w.mainEffortFor}</Text>
+          <Button key="effort:main:default" hotkey="0" label={w.standard} variant={mainChosen === undefined ? 'primary' : undefined} onPress={() => actions.effort(MAIN, undefined)} />
+          {EFFORT_LEVELS.map((level, i) => (
+            <Button key={`effort:main:${level}`} hotkey={String(i + 1)} label={effortLabel(level)} variant={mainChosen === level ? 'primary' : undefined} onPress={() => actions.effort(MAIN, level)} />
+          ))}
+          <Button key="picker:close" hotkey="x" label="×" onPress={() => actions.close()} />
+        </Box>
+        <Box key="picker-main-hint" flexDirection="row" flexWrap="wrap" columnGap={1}>
+          {w.mainEffortHint.map((part, i) => (
+            <Text key={`main-hint:${i}`} color={palette.dim}>
+              {part}
+            </Text>
+          ))}
+        </Box>
+      </Box>
+    ) : null
+
+  const agentPicker = pickerTarget !== undefined && pickerTarget !== MAIN && pickerTarget !== NEW_AGENTS
+  const pickerRow =
+    pickerTarget === MAIN ? mainPicker : pickerTarget && actions ? (
+      <Box key="picker" flexDirection="column" width={width} marginTop={1}>
+        <Box key="picker-models" flexDirection="row" flexWrap="wrap" columnGap={1}>
+          <Text color={palette.agent} wrap="truncate-end">
+            {w.pickerFor(pickerName)}
+          </Text>
+          <Button key={`choose:${pickerTarget}:default`} hotkey="0" label={w.standard} variant={pickerCurrent === undefined ? 'primary' : undefined} onPress={() => actions.choose(pickerTarget, undefined)} />
+          {MODEL_FAMILIES.map((family, i) => (
+            <Button
+              key={`choose:${pickerTarget}:${family}`}
+              hotkey={String(i + 1)}
+              label={familyLabel(family)}
+              variant={pickerCurrent === family ? 'primary' : undefined}
+              onPress={() => actions.choose(pickerTarget, family)}
+            />
+          ))}
+          <Button key="picker:close" hotkey="x" label="×" onPress={() => actions.close()} />
+        </Box>
+        <Box key="picker-efforts" flexDirection="row" flexWrap="wrap" columnGap={1}>
+          <Text color={palette.agent}>{w.effortFor}</Text>
+          <Button key={`effort:${pickerTarget}:default`} label={w.standard} variant={effortCurrent === undefined ? 'primary' : undefined} onPress={() => actions.effort(pickerTarget, undefined)} />
+          {EFFORT_LEVELS.map(level => (
+            <Button key={`effort:${pickerTarget}:${level}`} label={effortLabel(level)} variant={effortCurrent === level ? 'primary' : undefined} onPress={() => actions.effort(pickerTarget, level)} />
+          ))}
+        </Box>
+        {pickerTarget !== NEW_AGENTS ? (
+          <Text key="picker-hint" color={palette.dim} wrap="wrap">
+            {w.effortNextMessage}
+          </Text>
+        ) : null}
+      </Box>
+    ) : null
+
+  const fileList = (names: readonly string[] | undefined) =>
+    !names?.length ? '0' : `${names.slice(-6).reverse().join(' · ')}${names.length > 6 ? ` · +${names.length - 6}` : ''}`
+  const missing = (value: string | undefined, empty: string) =>
+    detail?.state === 'loading' ? w.loading : value || (detail?.state === 'denied' ? w.noAccess : empty)
+  const detailRunning = detailNode?.status === 'running'
+  const detailCorrection = detailNode ? s.corrections?.[detailNode.id] : undefined
+  const detailBox =
+    detail && detailNode && actions ? (
+      <Box key="detail" width={width} flexDirection="column">
+        <Box key="detail-head" flexDirection="row" justifyContent="space-between" columnGap={1}>
+          <Box key="detail-task" flexShrink={1}>
+            <Text wrap="truncate-end">{`${w.task}: ${missing(detailNode.task, '?')}`}</Text>
+          </Box>
+          <Button key={`report:${detailNode.id}`} plain label={w.fullReport} onPress={() => actions.report(detailNode.id)} />
+          <Button key="detail:close" plain hotkey="x" label={w.close} onPress={() => actions.close()} />
+        </Box>
+        {detailCorrection ? (
+          <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
+            {`${w.correctionLabel}: ${w.correction[detailCorrection.state]} · ${clockTime(detailCorrection.at)}${detailCorrection.text ? ` · „${detailCorrection.text}“` : ''}`}
+          </Text>
+        ) : null}
+        <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
+          {`${w.tools}: ${detailNode.toolCount}${detailNode.tools?.length ? ` · ${detailNode.tools.map(t => activityText(t, lang)).join(' · ')}` : ''}`}
+        </Text>
+        <Text key="detail-read" size={SIZE.detail} wrap="truncate-end">
+          {`${w.readFiles}: ${fileList(detailNode.read)}`}
+        </Text>
+        <Text key="detail-changed" size={SIZE.detail} wrap="truncate-end">
+          {`${w.changedFiles}: ${fileList(detailNode.changed)}`}
+        </Text>
+        <Text wrap="truncate-end">{`${detailRunning ? w.latest : w.reply}: ${missing(detailNode.answer, w.noReply)}`}</Text>
+        <Text size={SIZE.detail} color={palette.dim} wrap="truncate-end">
+          {`${modelLabel(detailNode.model) || w.model} · ${w.status[detailNode.status]} · ${fmtShortDuration((detailNode.endedAt ?? now) - detailNode.startedAt)}`}
+        </Text>
+      </Box>
+    ) : null
+
+  const rows = s.log.slice(-plan.logRows)
+  const logBox = (
+    <Box key="log" width={width} {...frameProps(palette.dim)} flexDirection="column" marginTop={1}>
+      <Text size={SIZE.note} color={palette.dim}>{w.log}</Text>
+      {rows.length === 0 ? (
+        <Text size={SIZE.note} color={palette.dim}>{w.logEmpty}</Text>
+      ) : (
+        rows.map((row, i) => (
+          <Box key={`log:${i}:${row.at}`} flexDirection="row">
+            <Box width={10} flexShrink={0}>
+              <Text size={SIZE.detail} color={palette.dim}>{clockTime(row.at)}</Text>
+            </Box>
+            <Box width={9} flexShrink={0}>
+              <Text bold size={SIZE.detail} color={sourceColor(palette, row.source)}>
+                {w.source[row.source]}
+              </Text>
+            </Box>
+            <Box flexGrow={1} flexShrink={1}>
+              <Text size={SIZE.detail} wrap="truncate-end">{logLine(row, lang)}</Text>
+            </Box>
+          </Box>
+        ))
+      )}
+      {frameParts('log', width, palette.dim)}
+    </Box>
+  )
+
+  const actionBar = actions ? (
+    <Box key="actions" flexDirection="column" width={width} marginTop={selection ? 1 : 0}>
+      {barNode || barWorkflow ? (
+        <Box key="actions-head" flexDirection="row" justifyContent="space-between" columnGap={1} width={width}>
+          <Box key="actions-title" flexShrink={1}>
+            <Text key="actions-name" bold color={palette.main} wrap="truncate-end">
+              {barNode ? `${typeLabel(barNode.type)} · ${barNode.description}` : barWorkflow}
+            </Text>
+          </Box>
+          <Button key="actions:close" label="×" onPress={() => actions.deselect()} />
+        </Box>
+      ) : (
+        <Text key="actions-hint" color={palette.dim} wrap="truncate-end">
+          {w.actionHint}
+        </Text>
+      )}
+      {barButtons.length ? (
+        <Box key="actions-buttons" flexDirection="row" flexWrap="wrap" columnGap={1} width={width}>
+          {barButtons.map(b => (
+            <Button key={b.key} label={b.label} hotkey={'hotkey' in b ? b.hotkey : undefined} onPress={b.press} />
+          ))}
+        </Box>
+      ) : null}
+      {barFeedbackText ? (
+        <Text key="actions-feedback" color={barFeedback?.phase === 'failed' ? palette.failed : palette.done} wrap="truncate-end">
+          {barFeedbackText}
+        </Text>
+      ) : null}
+      {barClash ? (
+        <Text key="actions-clash" color={palette.warn} wrap="truncate-end">
+          {barClash}
+        </Text>
+      ) : null}
+    </Box>
+  ) : null
+
+  const limits = s.main.limits ?? []
+  const limitTexts = limitSegments(limits, w, glyphs, width)
+  const limitRow = limits.length ? (
+    <Box key="limits" flexDirection="row" width={width}>
+      {limits.map((l, i) => (
+        <Text key={`limit:${l.kind}`} size={SIZE.note} color={l.percent >= LIMIT_WARN ? palette.failed : palette.dim} wrap="truncate-end">
+          {limitTexts[i]}
+        </Text>
+      ))}
+    </Box>
+  ) : null
+
+  const labelWidth = lookLabelWidth(w)
+  const lookRow =
+    s.lookOpen && actions ? (
+      <Box key="look" flexDirection="column" width={width} marginTop={1}>
+        <Text color={palette.agent} wrap="truncate-end">
+          {w.look}
+        </Text>
+        {LOOK_ROWS.map(row => (
+          <Box key={`look-row:${row}`} flexDirection="row" flexWrap="wrap" columnGap={1} width={width}>
+            <Box key={`look-label:${row}`} width={labelWidth} flexShrink={0}>
+              <Text color={palette.dim}>{w.lookRow[row]}</Text>
+            </Box>
+            {(LOOK_OPTIONS[row] as readonly string[]).map(id => (
+              <Button
+                key={`look:${row}:${id}`}
+                label={lookOptionLabel(w, row, id)}
+                variant={appearance[row] === id ? 'primary' : undefined}
+                onPress={() => actions.restyle(row, id)}
+              />
+            ))}
+            {row === 'light' ? <Box key="look-light-sample">{streakLine(glyphs.bar.full.repeat(LIGHT_SAMPLE), palette.agent, 5)}</Box> : null}
+          </Box>
+        ))}
+        <Box key="look-end" flexDirection="row" columnGap={1}>
+          <Button key="look:default" hotkey="0" label={w.lookReset} onPress={() => actions.restyleDefault()} />
+          <Button key="look:close" hotkey="x" label="×" onPress={() => actions.close()} />
+        </Box>
+      </Box>
+    ) : null
+
+  if (tab !== 'tree') {
+    return (
+      <Box flexDirection="column" width={width}>
+        {header}
+        {tabBar}
+        {tab === 'edu' ? drawEdu(ui, eduInput) : null}
+        {tab === 'help' ? legend : null}
+        {tab === 'help' ? drawHelp(ui, { s, width, palette, glyphs, w, lang, docked: look.docked }) : null}
+        {tab === 'reports'
+          ? drawReports(ui, {
+              s,
+              width,
+              palette,
+              glyphs,
+              w,
+              lang,
+              now,
+              ...(reportAgent(s) !== undefined ? { agentId: reportAgent(s) } : {}),
+              ...(look.reports?.[reportAgent(s) ?? ''] ? { report: look.reports[reportAgent(s) ?? ''] } : {}),
+              ...(actions ? { pick: (agentId: string) => actions.report(agentId) } : {}),
+            })
+          : null}
+        {tab === 'files' ? drawFiles(ui, { s, width, palette, glyphs, w, lang }) : null}
+        {tab === 'usage'
+          ? drawUsage(ui, {
+              s,
+              width,
+              palette,
+              glyphs,
+              w,
+              lang,
+              now,
+              limits: (s.main.limits ?? []).map(l => ({ text: limitSegments([l], w, glyphs, width)[0] ?? '', warn: l.percent >= LIMIT_WARN })),
+              mainLine: `${contextLine(s, w)} · ${roundLine}`,
+            })
+          : null}
+        {tab === 'log' ? drawLog(ui, { s, width, palette, glyphs, w, lang, ...(actions ? { filter: (source: string) => actions.logFilter(source) } : {}) }) : null}
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="column" width={width}>
+      {header}
+      {tabBar}
+      {eduStrip}
+      {agentPicker ? null : pickerRow}
+      {lookRow}
+      {wide ? (
+        <Box key="body" flexDirection="row" columnGap={2} marginTop={1}>
+          {advisorColumn}
+          {tree}
+        </Box>
+      ) : (
+        <Box key="body" flexDirection="column" marginTop={1}>
+          {plan.advisor === false ? null : advisorCompact}
+          {tree}
+        </Box>
+      )}
+      {actionBar}
+      {agentPicker ? pickerRow : null}
+      {detailBox ?? (plan.logRows > 0 ? logBox : null)}
+      {detailBox ? null : limitRow}
+      {tight || detailBox ? null : (
+        <Text key="help" size={SIZE.note} color={palette.dim} wrap="truncate-end">
+          {helpLine(helpItems(w, s.main.fast !== undefined), width)}
+        </Text>
+      )}
+    </Box>
+  )
+}

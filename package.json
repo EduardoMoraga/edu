@@ -11,11 +11,14 @@
   "files": [
     "dist",
     "templates",
+    "!templates/**/*.test.ts",
+    "!templates/**/*.test.tsx",
     "plugins",
     ".claude-plugin",
     ".agents/plugins",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
     "node": ">=22"
@@ -27,6 +30,7 @@
     "test": "vitest run",
     "build:plugins": "node --experimental-strip-types scripts/build-plugins.ts",
     "test:watch": "vitest",
+    "test:deck": "node scripts/test-claude-mod.mjs",
     "check": "npm run typecheck && npm test -- --maxWorkers=2 && npm run build",
     "prepack": "npm run build",
     "smoke": "bash scripts/smoke-install.sh",
