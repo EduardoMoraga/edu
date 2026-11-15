@@ -2,6 +2,7 @@ import { performance } from 'node:perf_hooks';
 import { expect, it } from 'vitest';
 import type { Note } from '../core/contracts.js';
 import { rankNotes, relevantPassage } from './search.js';
+import { expectWithinBudget } from '../test-support/perf.js';
 
 const now = new Date('2026-10-20T00:00:00Z');
 const note = (id: string, body: string): Note => ({ path: `/fixture/${id}.md`, body,
@@ -41,7 +42,7 @@ it('handles a large corpus and a full-body passage window within a broad latency
   const passageMs = performance.now() - passageStart;
   console.log(JSON.stringify({ notes: notes.length, bodyChars: body.length, rankingMs, passageMs }));
   // A coarse regression guard, not a CPU microbenchmark or an LLM-efficiency claim.
-  expect(rankingMs + passageMs).toBeLessThan(20_000);
+  expectWithinBudget(rankingMs + passageMs, 20_000);
 }, 30_000);
 
 it('returns bounded default passages for repeated terms in long notes', () => {

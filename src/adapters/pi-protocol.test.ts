@@ -8,7 +8,15 @@ import ts from 'typescript';
 
 // Real installed Pi loader; dispatch its registered handlers without a provider or LLM.
 const require = createRequire(import.meta.url);
-const piRoot = process.env.PI_PROTOCOL_ROOT ?? dirname(dirname(require.resolve('@earendil-works/pi-coding-agent')));
+/** Pi's package root: PI_PROTOCOL_ROOT (explicit, so a wrong path fails), else an installed package. */
+function findPiRoot(): string | undefined {
+  if (process.env.PI_PROTOCOL_ROOT) return process.env.PI_PROTOCOL_ROOT;
+  try { return dirname(dirname(require.resolve('@earendil-works/pi-coding-agent'))); } catch { return undefined; }
+}
+const foundPiRoot = findPiRoot();
+// A fresh checkout has no Pi: skip loudly instead of failing `npm test`. CI installs Pi 1.2.0 and runs these.
+if (!foundPiRoot) process.stderr.write('Pi contract tests skipped: Pi is not installed. Set PI_PROTOCOL_ROOT to an installed @earendil-works/pi-coding-agent package root (see CONTRIBUTING.md).\n');
+const piRoot = foundPiRoot ?? '';
 const windows = process.platform === 'win32';
 const template = resolve('templates/pi/edu.ts');
 let temp: string;
@@ -61,7 +69,7 @@ afterEach(async () => {
   await rm(temp, { recursive: true, force: true });
 });
 
-describe('Pi template runtime protocol', () => {
+describe.skipIf(!foundPiRoot)('Pi template runtime protocol (needs Pi: PI_PROTOCOL_ROOT or an installed @earendil-works/pi-coding-agent)', () => {
   it('typechecks against the installed Pi API, not an invented interface', () => {
     // Resolve types from Pi's own module location, supporting nested and hoisted npm layouts.
     const tui = ts.resolveModuleName('@earendil-works/pi-tui', join(piRoot, 'dist/index.d.ts'), {

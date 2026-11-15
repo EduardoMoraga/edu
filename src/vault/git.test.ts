@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
+import { expectWithinBudget } from '../test-support/perf.js';
 import { git, gitEnv, redact, remoteKey, sameRemote, withoutCredentials } from './git.js';
 
 describe('git runner', () => {
@@ -7,7 +8,7 @@ describe('git runner', () => {
     const started = Date.now();
     const result = await git(tmpdir(), ['-c', 'alias.readin=!cat', 'readin'], process.env, { timeoutMs: 5000 });
     expect(result.code).toBe(0);
-    expect(Date.now() - started).toBeLessThan(4000);
+    expectWithinBudget(Date.now() - started, 4000);
   });
 
   it('kills a hung Git call and reports exit code 124', async () => {
@@ -15,7 +16,7 @@ describe('git runner', () => {
     const result = await git(tmpdir(), ['-c', 'alias.hang=!sleep 5', 'hang'], process.env, { timeoutMs: 300 });
     expect(result.code).toBe(124);
     expect(result.err).toMatch(/timed out/);
-    expect(Date.now() - started).toBeLessThan(4000);
+    expectWithinBudget(Date.now() - started, 4000);
   });
 
   it('never lets Git Credential Manager prompt', () => {

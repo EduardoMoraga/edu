@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain, rankNotes } from '../brain/index.js';
 import { noteCacheStats, resetNoteCache } from '../brain/store.js';
+import { expectWithinBudget } from '../test-support/perf.js';
 import { ALBERT_COUNTS, writeSyntheticBrain } from '../test-support/synthetic-brain.js';
 import { brief } from './brief.js';
 import { buildContext } from './pack.js';
@@ -46,7 +47,7 @@ describe('session-start brief on a large imported brain', () => {
     const text = await brief(brain, 1500, { eduMdPath, now: NOW });
     const elapsed = performance.now() - started;
     expect(text).toContain('## Active commitments & open hypotheses');
-    expect(elapsed).toBeLessThan(3000);
+    expectWithinBudget(elapsed, 3000);
     expect(noteCacheStats().parses).toBe(total);
   });
 });
