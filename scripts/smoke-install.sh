@@ -10,6 +10,8 @@ trap cleanup EXIT
 
 export HOME="$TMP/home"
 export npm_config_cache="$TMP/npm-cache"
+# Never prompt: install.sh asks on /dev/tty, which would hang a smoke run started from a terminal.
+export EDU_ASSUME_NO=1
 mkdir -p "$HOME" "$npm_config_cache" "$TMP/prefix"
 
 VERSION=$(cd "$ROOT" && node -p "require('./package.json').version")

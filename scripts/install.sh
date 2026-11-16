@@ -12,6 +12,7 @@
 #   EDU_LANG         es | en
 #   EDU_DRY_RUN=1    print what would run instead of running it (used by scripts/smoke-install.sh)
 #   EDU_YES=1        --yes: never ask (accepts the fnm offer); any failed step makes the exit status 1
+#   EDU_ASSUME_NO=1  never ask and answer no (declines the fnm offer); EDU_YES=1 wins if both are set
 #   EDU_HOSTS=a,b    --hosts: only set up these CLIs (claude, codex, pi, opencode, agy); default: detected
 #   EDU_JOIN=<url>   --join: after setup, run `edu join <url> --cloud` (shared brain for cloud sandboxes).
 #                    Credentials come from GH_TOKEN or a credential helper; never put them in the URL.
@@ -65,6 +66,7 @@ node_ok() { [ "$(node_major)" -ge "$NODE_MAJOR" ]; }
 
 ask_yes() {
   [ "${EDU_YES:-0}" = 1 ] && return 0
+  [ "${EDU_ASSUME_NO:-0}" = 1 ] && return 1
   # A terminal must be openable (curl | sh keeps stdin busy; CI and Docker have no tty).
   (: </dev/tty) 2>/dev/null || return 1
   printf '  %s [y/N] ' "$1"
