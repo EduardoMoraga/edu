@@ -4,21 +4,23 @@
  * Contract: never force-push, never lose a change, never block future syncs.
  * - Files Edu regenerates (indexes, panels, Obsidian bases) never stop a sync: on conflict the
  *   upstream copy wins and Edu rewrites it on the next brain write.
- * - Conflicts where both sides differ only in usage counters take upstream too.
- * - Any other conflict pushes this machine's commits to `sync-conflict/<host>-<sha>` (also kept as a
- *   local branch), moves the vault to upstream and keeps syncing; a person or agent merges the branch.
+ * - Counter-only conflicts merge the largest counters and newest dates.
+ * - Other note conflicts keep upstream at the original path and publish a distinct local copy beside it.
+ *   The original local commits also remain on a `sync-conflict/*` backup branch.
  * - Append-only files (`0-index/log.md`) merge as the union of both sides, in chronological order.
  * - Cloud mode keeps usage counters and Obsidian bases local and never publishes empty session notes.
  * - The local exposure ledger (`.edu-local/`) is always ignored and never published.
  */
 import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
-import { join, resolve } from 'node:path';
+import { extname, join, resolve } from 'node:path';
+import { parseMarkdownLenient, serializeMarkdown } from '../brain/frontmatter.js';
 import { DASHBOARD_PATHS } from '../brain/bases.js';
 import { isInside } from '../brain/location.js';
 import { withLogLock, withUsageLock } from '../brain/note-lock.js';
 import { withHostLock } from '../platform/file-lock.js';
 import { git, gitLines as lines, redact } from './git.js';
+import { keepBothCopy } from './keep-both.js';
 import { assertSafeTarget } from './safe-path.js';
 
 export type SyncState = 'ok' | 'conflict' | 'offline' | 'busy' | 'error';
@@ -29,8 +31,10 @@ export interface SyncResult {
   head?: string;
   /** Branch holding this machine's commits after a real conflict. */
   branch?: string;
-  /** Generated or counter-only files resolved automatically (upstream kept). */
+  /** Generated files resolved automatically (upstream kept). */
   resolved: string[];
+  /** Original paths and visible local copies created for real file conflicts. */
+  conflictCopies?: { path: string; local: string }[];
   /** Append-only files resolved as the union of both sides. */
   merged?: string[];
   message: string;
@@ -63,7 +67,7 @@ export interface SyncHooks {
 /** Runs a body under the locks brain writers use, so no note or log write lands while sync rewrites the working tree. */
 type Critical = <T>(body: () => Promise<T>) => Promise<T>;
 
-const COUNTER = /^\s*(usage|uses|wins|losses|lastUsed|updated):/;
+const COUNTER = /^(usage|uses|wins|losses|lastUsed|updated):/;
 
 /** Dashboards Edu writes, in every language (`00-INICIO/Panel.md`, `00-START/Dashboard.md`). */
 const DASHBOARDS = Object.values(DASHBOARD_PATHS);
@@ -145,6 +149,16 @@ export async function conflictBranches(vault: string, env?: NodeJS.ProcessEnv): 
   return [...new Set(lines(refs.out).map(ref => ref.replace(/^origin\//, '')))].sort();
 }
 
+/** Conflict copies still tracked in the shared vault, including copies from older syncs. */
+export async function trackedConflictCopies(vault: string, env?: NodeJS.ProcessEnv): Promise<{ path: string; local: string }[]> {
+  const result = await git(vault, ['-c', 'core.quotepath=off', 'ls-files'], env);
+  if (result.code !== 0) return [];
+  return lines(result.out).flatMap(local => {
+    const path = local.replace(/\.conflict-[^/]+-[0-9a-f]{7,}(?:-\d+)?(?=\.[^./]+$|$)/, '');
+    return path === local ? [] : [{ path, local }];
+  });
+}
+
 /** The vault's `origin` URL with any credentials redacted; undefined when there is none. */
 export async function remoteUrl(vault: string, env?: NodeJS.ProcessEnv): Promise<string | undefined> {
   const url = (await git(vault, ['remote', 'get-url', 'origin'], env)).out.trim();
@@ -153,11 +167,42 @@ export async function remoteUrl(vault: string, env?: NodeJS.ProcessEnv): Promise
 
 /** Note text with its frontmatter usage counters removed, to compare real content. */
 export function withoutCounters(text: string): string {
-  const lines = text.split('\n');
-  if (lines[0] !== '---') return text;
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  if (lines[0] !== '---') return lines.join('\n');
   const end = lines.indexOf('---', 1);
-  if (end < 0) return text;
-  return [...lines.slice(0, end).filter(line => !COUNTER.test(line)), ...lines.slice(end)].join('\n');
+  if (end < 0) return lines.join('\n');
+  let usage = false;
+  return [...lines.slice(0, end).filter(line => {
+    if (/^usage:/.test(line)) { usage = true; return false; }
+    if (usage && /^\s+/.test(line)) return false;
+    usage = false;
+    return !COUNTER.test(line);
+  }), ...lines.slice(end)].join('\n');
+}
+
+const larger = (a: unknown, b: unknown): unknown => typeof a === 'number' && typeof b === 'number' ? Math.max(a, b) : b ?? a;
+const newer = (a: unknown, b: unknown): unknown => {
+  const left = typeof a === 'string' ? Date.parse(a) : NaN;
+  const right = typeof b === 'string' ? Date.parse(b) : NaN;
+  return Number.isNaN(left) ? b ?? a : Number.isNaN(right) || left >= right ? a : b;
+};
+
+/** Both versions have the same content; combine their usage signals without reducing either side. */
+export function mergeCounters(upstream: string, local: string): string {
+  const up = parseMarkdownLenient(upstream);
+  const mine = parseMarkdownLenient(local);
+  const meta = { ...up.meta };
+  for (const key of ['uses', 'wins', 'losses']) if (key in up.meta || key in mine.meta) meta[key] = larger(up.meta[key], mine.meta[key]);
+  for (const key of ['lastUsed', 'updated']) if (key in up.meta || key in mine.meta) meta[key] = newer(up.meta[key], mine.meta[key]);
+  const first = typeof up.meta.usage === 'object' && up.meta.usage !== null ? up.meta.usage as Record<string, unknown> : {};
+  const second = typeof mine.meta.usage === 'object' && mine.meta.usage !== null ? mine.meta.usage as Record<string, unknown> : {};
+  if ('usage' in up.meta || 'usage' in mine.meta) {
+    const usage = { ...first, ...second };
+    for (const key of ['uses', 'wins', 'losses']) if (key in first || key in second) usage[key] = larger(first[key], second[key]);
+    for (const key of ['lastUsed', 'updated']) if (key in first || key in second) usage[key] = newer(first[key], second[key]);
+    meta.usage = usage;
+  }
+  return serializeMarkdown(meta, up.body);
 }
 
 /** A new session note with nothing but the automatic end line and transcript path. */
@@ -187,7 +232,7 @@ export async function syncBrain(options: SyncOptions): Promise<SyncResult> {
   const env = options.env ?? process.env;
   const at = (options.now ?? (() => new Date()))().toISOString();
   const reason = options.reason ?? 'manual';
-  const base: Base = { resolved: [], merged: [], reason, at };
+  const base: Base = { resolved: [], merged: [], conflictCopies: [], reason, at };
   let vault: string;
   try {
     vault = options.vault ?? await findVault(options.eduHome, env);
@@ -224,9 +269,9 @@ async function brainLock(eduHome: string, vault: string): Promise<Critical> {
   return body => withUsageLock(home, () => withLogLock(brain, body));
 }
 
-type Base = Pick<SyncResult, 'resolved' | 'reason' | 'at'> & { merged: string[] };
+type Base = Pick<SyncResult, 'resolved' | 'reason' | 'at'> & { merged: string[]; conflictCopies: { path: string; local: string }[] };
 
-type Step = { error: string } | { conflict: string } | { ok: true };
+type Step = { error: string } | { ok: true };
 
 async function run(vault: string, host: string, cloud: boolean, env: NodeJS.ProcessEnv, base: Base, critical: Critical, hooks: SyncHooks): Promise<SyncResult> {
   const g = (...args: string[]) => git(vault, args, env);
@@ -271,6 +316,10 @@ async function run(vault: string, host: string, cloud: boolean, env: NodeJS.Proc
   const failed = await critical(commitLocal);
   if (failed) return done('error', failed);
 
+  const originalHead = (await g('rev-parse', '--short', 'HEAD')).out.trim();
+  const saved = `sync-conflict/${host.replace(/[^\w.-]+/g, '-')}-${originalHead}`;
+  let backedUp = false;
+
   for (let attempt = 1; attempt <= 3; attempt++) {
     // The network stays outside the brain lock: writers only wait for local Git work.
     const fetch = await g('fetch', '-q', 'origin', branch);
@@ -282,18 +331,32 @@ async function run(vault: string, host: string, cloud: boolean, env: NodeJS.Proc
         const again = await commitLocal();
         if (again) return { error: again };
       }
+      const diverged = (await g('rev-list', '--count', `${upstream}..HEAD`)).out.trim() !== '0';
+      if (diverged && !backedUp) {
+        const branchResult = await g('branch', '-f', saved, 'HEAD');
+        if (branchResult.code !== 0) return { error: `cannot save local commits: ${branchResult.err.trim()}` };
+        backedUp = true;
+      }
       if ((await g('rebase', '-q', '--autostash', upstream)).code === 0) return { ok: true };
       let outcome: Awaited<ReturnType<typeof settle>>;
-      try { outcome = await settle(vault, env, base.resolved, base.merged, hooks); }
+      try { outcome = await settle(vault, env, host, originalHead, base, hooks); }
       catch (error) { await g('rebase', '--abort'); throw error; }
-      if (outcome === 'conflict') return { conflict: await saveConflict(vault, host, env) };
       if (outcome === 'error') { await g('rebase', '--abort'); return { error: 'rebase failed' }; }
       return { ok: true };
     });
     if ('error' in step) return done('error', step.error);
-    if ('conflict' in step) return conflict(vault, step.conflict, upstream, env, critical, done);
-    if ((await g('rev-list', '--count', `${upstream}..HEAD`)).out.trim() === '0') return done('ok', 'up to date');
-    if ((await g('push', '-q', 'origin', `HEAD:${branch}`)).code === 0) return done('ok', 'pushed');
+    if (base.conflictCopies.length && (await g('push', '-q', 'origin', `${saved}:refs/heads/${saved}`)).code !== 0)
+      return done('error', `conflict copies are in the vault, but pushing backup ${saved} failed`, { branch: saved });
+    if ((await g('rev-list', '--count', `${upstream}..HEAD`)).out.trim() === '0') {
+      if (backedUp && !base.conflictCopies.length) await g('branch', '-D', saved);
+      return done('ok', 'up to date');
+    }
+    if ((await g('push', '-q', 'origin', `HEAD:${branch}`)).code === 0) {
+      if (!base.conflictCopies.length && backedUp) await g('branch', '-D', saved);
+      return base.conflictCopies.length
+        ? done('conflict', `pushed ${base.conflictCopies.length} visible conflict ${base.conflictCopies.length === 1 ? 'copy' : 'copies'}; backup ${saved}`, { branch: saved })
+        : done('ok', 'pushed');
+    }
     await new Promise(resolve => setTimeout(resolve, attempt * 500));
   }
   return done('error', 'push rejected three times');
@@ -320,20 +383,12 @@ function newEntries(current: string, ...known: string[]): string {
   return out.join('\n').trim();
 }
 
-/** Resolves rebase stops that never need a person; 'conflict' means a real one is left. Must run under the brain lock. */
-async function settle(vault: string, env: NodeJS.ProcessEnv, resolved: string[], merged: string[], hooks: SyncHooks): Promise<'done' | 'conflict' | 'error'> {
+/** Resolves each rebase stop while preserving both sides of real conflicts. Must run under the brain lock. */
+async function settle(vault: string, env: NodeJS.ProcessEnv, host: string, sha: string, base: Base, hooks: SyncHooks): Promise<'done' | 'error'> {
   const g = (...args: string[]) => git(vault, args, env);
   for (let step = 0; step < 500 && await rebasing(vault); step++) {
     const conflicted = lines((await g('-c', 'core.quotepath=off', 'diff', '--name-only', '--diff-filter=U')).out);
     if (!conflicted.length) return 'error';
-    for (const file of conflicted) {
-      if (isAppendOnly(file)) continue;
-      // During a rebase stage 2 ("ours") is upstream and stage 3 is this machine's commit.
-      const upstream = await g('show', `:2:${file}`);
-      const local = await g('show', `:3:${file}`);
-      const counterOnly = upstream.code === 0 && local.code === 0 && withoutCounters(upstream.out) === withoutCounters(local.out);
-      if (!isGenerated(file) && !counterOnly) return 'conflict';
-    }
     for (const file of conflicted) {
       if (isAppendOnly(file)) {
         const target = join(vault, file);
@@ -349,44 +404,44 @@ async function settle(vault: string, env: NodeJS.ProcessEnv, resolved: string[],
         if (extra) text = mergeAppendOnly(text, extra);
         await writeFile(target, text);
         await g('add', '--', file);
-        if (!merged.includes(file)) merged.push(file);
+        if (!base.merged.includes(file)) base.merged.push(file);
         continue;
+      }
+      // During a rebase stage 2 ("ours") is upstream and stage 3 is this machine's commit.
+      const upstream = await g('show', `:2:${file}`);
+      const local = await g('show', `:3:${file}`);
+      const counterOnly = upstream.code === 0 && local.code === 0 && withoutCounters(upstream.out) === withoutCounters(local.out);
+      if (!isGenerated(file) && counterOnly) {
+        const target = join(vault, file);
+        await assertSafeTarget(vault, target);
+        await writeFile(target, mergeCounters(upstream.out, local.out));
+        await g('add', '--', file);
+        if (!base.merged.includes(file)) base.merged.push(file);
+        continue;
+      }
+      if (!isGenerated(file) && local.code === 0) {
+        const ext = extname(file);
+        const stem = ext ? file.slice(0, -ext.length) : file;
+        const parsed = file.endsWith('.md') ? parseMarkdownLenient(local.out) : undefined;
+        const original = parsed ? parseMarkdownLenient(upstream.code === 0 ? upstream.out : local.out).meta.id : undefined;
+        const originalId = String(original || parsed?.meta.id || stem);
+        const copy = await keepBothCopy(vault, file, `${host.replace(/[^\w.-]+/g, '-')}-${sha}`,
+          (path, suffix) => `${ext ? path.slice(0, -ext.length) : path}.conflict-${suffix}${ext}`,
+          suffix => Buffer.from(parsed
+            ? serializeMarkdown({ ...parsed.meta, id: `${originalId}-conflict-${suffix}`, conflict_of: originalId }, parsed.body)
+            : local.out));
+        await g('add', '--', copy);
+        base.conflictCopies.push({ path: file, local: copy });
       }
       if ((await g('checkout', '--ours', '--', file)).code !== 0) await g('rm', '-q', '--', file);
       else await g('add', '--', file);
-      if (!resolved.includes(file)) resolved.push(file);
+      if (isGenerated(file) && !base.resolved.includes(file)) base.resolved.push(file);
     }
     const next = await g('-c', 'core.editor=true', 'rebase', '--continue');
     if (next.code !== 0 && !await rebasing(vault)) return 'error';
     if (next.code !== 0 && /nothing to commit|no changes/i.test(next.out + next.err)) await g('rebase', '--skip');
   }
   return await rebasing(vault) ? 'error' : 'done';
-}
-
-/** Local half of a real conflict (under the brain lock): stop the rebase and keep this machine's commits on a branch. */
-async function saveConflict(vault: string, host: string, env: NodeJS.ProcessEnv): Promise<string> {
-  const g = (...args: string[]) => git(vault, args, env);
-  await g('rebase', '--abort');
-  const head = (await g('rev-parse', '--short', 'HEAD')).out.trim();
-  const saved = `sync-conflict/${host}-${head}`;
-  await g('branch', '-f', saved, 'HEAD');
-  return saved;
-}
-
-async function conflict(vault: string, saved: string, upstream: string, env: NodeJS.ProcessEnv, critical: Critical,
-  done: (state: SyncState, message: string, extra?: Partial<SyncResult>) => Promise<SyncResult>): Promise<SyncResult> {
-  const g = (...args: string[]) => git(vault, args, env);
-  if ((await g('push', '-q', 'origin', `HEAD:refs/heads/${saved}`)).code !== 0) {
-    return done('error', `conflict with ${upstream}; the changes are kept on the local branch ${saved} (push failed)`, { branch: saved });
-  }
-  // Every change is committed on the saved branch (local and remote): following upstream loses nothing.
-  const moved = await critical(async () => {
-    if ((await g('-c', 'core.quotepath=off', 'status', '--porcelain', '--untracked-files=no')).out.trim()) return false;
-    await g('reset', '-q', '--keep', upstream);
-    return true;
-  });
-  if (!moved) return done('conflict', `conflict with ${upstream}; changes saved on ${saved}; the vault has uncommitted edits and stays where it is`, { branch: saved });
-  return done('conflict', `conflict with ${upstream}; this machine's changes are on the branch ${saved}; the vault now follows upstream and keeps syncing`, { branch: saved });
 }
 
 export async function writeSyncState(eduHome: string, result: SyncResult): Promise<SyncResult | undefined> {

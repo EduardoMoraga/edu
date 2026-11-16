@@ -17,9 +17,10 @@
  */
 import { copyFile, lstat, mkdir, readdir, readFile, readlink, realpath, rename, symlink, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
-import { dirname, extname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { createVaultLink } from '../cli/link.js';
 import { git, gitLines, redact, sameRemote, withoutCredentials } from './git.js';
+import { keepBothCopy, localCopyName } from './keep-both.js';
 import { assertSafeTarget } from './safe-path.js';
 import { ensureRepoFiles, isAppendOnly, isGenerated, mergeAppendOnly, syncBrain, type SyncResult } from './sync.js';
 
@@ -66,31 +67,14 @@ export interface JoinReport {
 
 const exists = (path: string) => lstat(path).then(() => true, () => false);
 
-/** `notes/a.md` → `notes/a.local-<host>.md`. */
-export function localCopyName(path: string, host: string): string {
-  const ext = extname(path);
-  return `${ext ? path.slice(0, -ext.length) : path}.local-${host}${ext}`;
-}
+export { localCopyName } from './keep-both.js';
 
 /**
  * Saves `content` as a conflict copy of `path` under `root` without ever replacing a file: `.local-<host>`,
  * then `.local-<host>-2`, ... (exclusive create). An existing copy with the same content is reused.
  */
 async function keepLocalCopy(root: string, path: string, content: Buffer, host: string): Promise<string> {
-  for (let n = 1; n <= 100; n++) {
-    const name = localCopyName(path, n === 1 ? host : `${host}-${n}`);
-    const target = join(root, name);
-    await assertSafeTarget(root, target);
-    try {
-      await writeFile(target, content, { flag: 'wx' });
-      return name;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      const existing = await readFile(target).catch(() => undefined);
-      if (existing?.equals(content)) return name;
-    }
-  }
-  throw new Error(`no free name for a local copy of ${path}`);
+  return keepBothCopy(root, path, host, localCopyName, () => content);
 }
 
 /** Writes a file Edu merged, refusing any path that leaves `root` through a symbolic link. */
