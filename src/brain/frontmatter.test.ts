@@ -30,10 +30,10 @@ describe('parseMarkdownLenient', () => {
 
 describe('UTF-8 BOM', () => {
   it('reads frontmatter written by Windows PowerShell 5.1 with a leading BOM', () => {
-    const doc = parseMarkdown<{ title: string }>('﻿---\r\ntitle: Nada se publica\r\n---\r\n\r\nBody.\r\n');
+    const doc = parseMarkdown<{ title: string }>('\uFEFF---\r\ntitle: Nada se publica\r\n---\r\n\r\nBody.\r\n');
     expect(doc.meta.title).toBe('Nada se publica');
     expect(doc.body).toBe('Body.');
-    expect(parseMarkdownLenient<{ title: string }>('﻿---\ntitle: X\n---\nB\n').meta.title).toBe('X');
+    expect(parseMarkdownLenient<{ title: string }>('\uFEFF---\ntitle: X\n---\nB\n').meta.title).toBe('X');
   });
 });
 
@@ -60,7 +60,8 @@ describe('one parser', () => {
     const fences: string[] = [];
     for (const name of files) {
       const text = await readFile(join(src, name), 'utf8');
-      if (/\/\^---|split\(\/\^---|indexOf\('---'/.test(text)) fences.push(relative(src, join(src, name)).split(sep).join('/'));
+      // A regex anchored on the opening fence (optionally after a BOM), or a split or search for a bare `---` line.
+      if (/\/\^(?:\\uFEFF\??)?---|indexOf\('---'/.test(text)) fences.push(relative(src, join(src, name)).split(sep).join('/'));
     }
     expect(fences.sort()).toEqual(['brain/frontmatter.ts', 'skills/bundle.ts']);
   });

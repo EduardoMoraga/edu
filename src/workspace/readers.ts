@@ -45,7 +45,7 @@ export async function readDocument(path: string, deps: ReaderDeps = {}): Promise
   return { path, name, format, text: normalize(text) };
 }
 
-const normalize = (text: string) => text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').replace(/\f/g, '\n\n').trim();
+const normalize = (text: string) => text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').replace(/\f/g, '\n\n').trim();
 
 async function runPdftotext(path: string): Promise<string | undefined> {
   if (!whichSync('pdftotext')) return undefined;
