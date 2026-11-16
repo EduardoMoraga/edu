@@ -83,6 +83,41 @@ describe('watchCrew', () => {
     expect(events[4]).toMatchObject({ agentId: JOB_A, ok: true, summary: 'tests added' });
   });
 
+  it('shows a job paused for approval instead of dropping it, then resumes it', async () => {
+    await writeJob({ id: JOB_A, cli: 'claude', task: 'orchestrate', status: 'awaiting-approval', createdAt: at(0) });
+    const source = fsCrewSource(root);
+    expect((await source.list()).map(job => job.status)).toEqual(['awaiting-approval']);
+    let status = 'awaiting-approval';
+    const switching = { ...source, list: async () => (await source.list()).map(job => ({ ...job, status: status as CrewJobInfo['status'] })) };
+    const abort = new AbortController();
+    const seen: EduEvent[] = [];
+    let polls = 0;
+    const ticking = { ...switching, list: async () => { if (++polls === 2) status = 'running'; if (polls === 3) abort.abort(); return switching.list(); } };
+    for await (const event of watchCrew(ticking, { pollMs: 1, signal: abort.signal })) seen.push(event);
+    expect(seen.filter(e => e.type === 'agent.status').map(e => (e as { status: string }).status)).toEqual(['awaiting-approval', 'running']);
+  });
+
+  it('lets the job\'s final status override the end its own stream reported', async () => {
+    await writeJob({ id: JOB_A, cli: 'codex', task: 'a', status: 'failed', createdAt: at(0), summary: 'brain write failed' }, [
+      { type: 'agent.end', agentId: 'engine', ok: true, summary: 'all done', at: at(1) },
+    ]);
+    await writeJob({ id: JOB_B, cli: 'pi', task: 'b', status: 'cancelled', createdAt: at(2) }, [
+      { type: 'agent.end', agentId: 'engine', ok: true, summary: 'all done', at: at(3) },
+    ]);
+    const events = await collect(watchCrew(fsCrewSource(root), { follow: false, now: () => new Date(at(9)) }));
+    const forA = events.filter(e => 'agentId' in e && e.agentId === JOB_A).map(e => e.type === 'agent.end' ? `end:${e.ok}:${e.summary}` : e.type);
+    expect(forA).toEqual(['agent.spawn', 'agent.status', 'end:true:all done', 'end:false:brain write failed']);
+    expect(events.at(-1)).toMatchObject({ type: 'agent.status', agentId: JOB_B, status: 'cancelled' });
+  });
+
+  it('does not repeat an end its stream already reported with the same outcome', async () => {
+    await writeJob({ id: JOB_A, cli: 'codex', task: 'a', status: 'done', createdAt: at(0), summary: 'ok' }, [
+      { type: 'agent.end', agentId: 'engine', ok: true, summary: 'ok', at: at(1) },
+    ]);
+    const events = await collect(watchCrew(fsCrewSource(root), { follow: false }));
+    expect(events.filter(e => e.type === 'agent.end')).toHaveLength(1);
+  });
+
   it('filters by job id prefix and reports an unknown id', async () => {
     await writeJob({ id: JOB_A, cli: 'codex', task: 'a', status: 'running', createdAt: at(0) });
     await writeJob({ id: JOB_B, cli: 'claude', task: 'b', status: 'running', createdAt: at(1) });
