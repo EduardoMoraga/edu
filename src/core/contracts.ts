@@ -421,7 +421,12 @@ export interface EduConfig {
 }
 
 export interface CrewSettings {
-  /** Highest autonomy an MCP caller may request for a crew job. Default `auto`; `full` needs a human to raise it. */
+  /**
+   * The crew autonomy ceiling. Default `auto`; only a person raises it (to `full`) in the global config.
+   * - An MCP caller cannot request a crew job above it.
+   * - An orchestration in a project brain runs any role from the project config or a playbook that asks for
+   *   more with the ceiling instead, and records that as a limitation of the run.
+   */
   maxAutonomy?: Autonomy;
   /** Extra environment variable names passed to agent CLIs on top of the built-in allowlist. */
   env?: { passthrough?: string[] };

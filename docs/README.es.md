@@ -185,8 +185,10 @@ Pida a Codex que escriba pruebas desde Claude y observe cómo trabaja:
 ```
 
 Edu despacha el trabajo (`edu_crew_dispatch`), consulta su estado (`edu_crew_status`) y
-devuelve un resumen (`edu_crew_result`). Con herdr en ejecución, el trabajo puede abrirse en
-un panel visible a su lado; si no, corre en segundo plano. Lo mismo desde una terminal:
+devuelve un resumen (`edu_crew_result`); `edu_crew_cancel` lo detiene. Con herdr en ejecución, el
+trabajo puede abrirse en un panel visible a su lado; si no, corre en segundo plano. En ambos casos
+el agente corre como worker del equipo: sus herramientas de Edu pueden leer el cerebro, pero no
+aprobar compuertas, despachar agentes ni escribir memoria. Lo mismo desde una terminal:
 
 ```bash
 edu crew dispatch codex "write tests for src/auth" --autonomy auto   # le permite editar archivos
@@ -202,9 +204,11 @@ edu crew cancel <job-id>                         # detiene todo su árbol de pro
 | `auto` | editar el espacio y ejecutar comandos |
 | `full` | hacer todo lo que la CLI permita sin preguntar; las llamadas MCP necesitan `crew.maxAutonomy: "full"` |
 
-Los trabajos headless se detienen a los 60 minutos (`--timeout <minutos>` o `crew.timeoutMinutes`).
-El trabajo de solo lectura va solo a CLIs que la hacen cumplir: claude, codex y pi. Las opciones
-exactas por CLI están en la
+Los trabajos headless se detienen a los 60 minutos: pase `--timeout <minutos>` (MCP:
+`timeoutMinutes` en `edu_crew_dispatch`) o configure `crew.timeoutMinutes`. Los trabajos en panel
+no tienen límite de tiempo. El trabajo de solo lectura va solo a CLIs que la hacen cumplir: claude,
+codex y pi. En OpenCode, `auto` y `full` pasan `--auto`, que aprueba todo permiso que la
+configuración de OpenCode no niegue. Las opciones exactas por CLI están en la
 [guía de actualización](guides/upgrade-6.0.es.md#la-autonomía-significa-lo-mismo-en-cada-cli).
 
 ```
@@ -267,7 +271,7 @@ Lo que Edu hace cumplir y cómo cambiarlo:
 | Área | Por defecto | Se cambia con |
 |---|---|---|
 | Instalaciones y actualizaciones | Solo paquetes que coinciden con el `SHA256SUMS` de la versión, descargados de las versiones de este repositorio en GitHub | `--allow-unverified`, solo para versiones anteriores a 6.0 |
-| Aprobaciones del equipo | Cada compuerta tiene un `requestId` y la decisión debe nombrarlo. Los workers del equipo nunca aprueban. Cada decisión registra `cli`, `deck` o `host-llm` | `edu crew approve <id> --request <requestId>` |
+| Aprobaciones del equipo | Cada compuerta tiene un `requestId` y la decisión debe nombrarlo. Los workers del equipo, headless o en un panel de herdr, nunca aprueban. Cada decisión registra `cli`, `deck` o `host-llm` | `edu crew approve <id> --request <requestId>` |
 | Notas canónicas | Solo una persona las acepta: `edu brain approve` necesita una terminal | `--yes` en scripts |
 | Autonomía desde MCP | Hasta `auto`; `full` se rechaza | `crew.maxAutonomy` en la configuración global |
 | Entorno de las CLIs de agentes | PATH, carpeta de usuario, idioma, terminal, proxy, temporales y las variables de autenticación de esa CLI | `crew.env.passthrough` en la configuración global |

@@ -123,6 +123,7 @@ edu crew reject <job-id> --request <request-id>
   does not authorize unregistered checks.
 - `edu_orchestrate` no longer accepts `autoApprove`.
 - Crew workers (`EDU_CREW_JOB` set) can never approve, through MCP, the CLI or decision files.
+  Agents Edu starts in a herdr pane are crew workers too: their Edu tools only read.
 - Decision files from before 6.0 are ignored.
 - `edu brain approve` needs a terminal, or `--yes` in scripts, and refuses inside a crew worker.
 
@@ -207,7 +208,7 @@ Headless flags per CLI:
 | claude | `--permission-mode plan` | `--permission-mode default` | `acceptEdits` plus `--allowedTools Bash` | `bypassPermissions` |
 | codex | `-s read-only` | `-s read-only` (5.x: `workspace-write`) | `-s workspace-write` | `-s danger-full-access` |
 | pi | `--tools read,grep,find,ls` | same as `readonly` (5.x: all tools) | Pi's default tools | Pi's default tools |
-| opencode | refused | its own config | its own config | its own config |
+| opencode | refused | its own config | `--auto` | `--auto` (explicit denies in its config still apply) |
 | agy | refused | its own config | its own config | `--dangerously-skip-permissions` |
 
 - The default for `edu crew dispatch` and `edu_crew_dispatch` is `ask`. To let a headless job

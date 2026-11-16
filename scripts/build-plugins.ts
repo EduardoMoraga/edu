@@ -68,7 +68,7 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
     skills: './skills/', mcpServers: './.mcp.json', hooks: './hooks/hooks.json',
     interface: { displayName: 'Edu', shortDescription: 'Memory and agent workflows', category: 'Productivity', capabilities: ['memory', 'orchestration'], defaultPrompt: 'Start with edu_brief and follow the Edu identity.' },
   }));
-  // Approval is driven by per-tool MCP annotations (src/mcp/server.ts): reads and local brain writes run,
+  // Approval is driven by per-tool MCP annotations (src/mcp/tools/annotations.ts): reads and local brain writes run,
   // tools that start other agents still ask. Never opt the whole server into auto-approval.
   // Codex gives MCP servers a filtered environment: forward EDU_CREW_JOB (worker mode) and the brain settings.
   add('plugins/codex/.mcp.json', json({ mcpServers: { edu: codexMcpEntry(mcp) } }));

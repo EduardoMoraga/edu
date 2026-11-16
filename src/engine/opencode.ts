@@ -7,6 +7,8 @@ import { binaryAvailable, runJsonlProcess, type CommandSpec } from './process.js
 
 export function buildOpencodeArgv(req: EngineRunRequest): CommandSpec {
   // No `--dir`: OpenCode 2.x dropped it. The process starts in `req.cwd`, which every version works in.
+  // Autonomy: `auto` and `full` add `--auto`, so a headless run does not stall on a permission prompt nobody
+  // can answer; `ask` and `readonly` leave OpenCode's own config in charge (see autonomy.ts).
   const args = ['run', '--format', 'json', '--thinking', ...autonomyFlags('opencode', req.autonomy)];
   if (req.model) args.push('--model', req.model);
   if (req.resumeSessionId) args.push('--session', req.resumeSessionId);

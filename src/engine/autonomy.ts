@@ -15,12 +15,14 @@ import type { Autonomy, CliId, EngineCapabilities } from '../core/contracts.js';
  * | claude   | `--permission-mode plan`     | `--permission-mode default` (with `-p`, anything that needs permission is denied) | `acceptEdits` + `--allowedTools Bash`: edits and ANY shell command, no OS sandbox | `bypassPermissions` |
  * | codex    | `-s read-only`               | `-s read-only` (`codex exec` never asks, so it cannot write) | `-s workspace-write`: OS sandbox, writes only in the workspace, no network by default | `-s danger-full-access` |
  * | pi       | `--tools read,grep,find,ls`  | same as readonly (Pi never asks) | none: Pi's default tools (read, bash, edit, write) | none                     |
- * | opencode | none                         | none                      | none                                       | none                              |
+ * | opencode | none                         | none                      | `--auto`: approves every permission OpenCode's config does not deny | `--auto` (its strongest; explicit denies still apply) |
  * | agy      | none                         | none                      | none                                       | `--dangerously-skip-permissions`  |
  *
  * "none" means the CLI's own configuration decides. OpenCode and agy cannot enforce `readonly` from Edu;
  * callers that need it pick another CLI or refuse (see `engineCapabilities`). Claude `auto` is the one
  * level that differs in strength from Codex `auto`: Claude has the shell without Codex's OS sandbox.
+ * OpenCode `ask` keeps its config's prompts, which a headless run cannot answer; `auto` and `full` are the same
+ * flag because OpenCode (2.2) has nothing stronger. The interactive `opencode` command takes `--auto` too.
  */
 export const AUTONOMY_FLAGS: Record<CliId, Record<Autonomy, readonly string[]>> = {
   claude: {
@@ -42,7 +44,7 @@ export const AUTONOMY_FLAGS: Record<CliId, Record<Autonomy, readonly string[]>> 
     auto: [],
     full: [],
   },
-  opencode: { readonly: [], ask: [], auto: [], full: [] },
+  opencode: { readonly: [], ask: [], auto: ['--auto'], full: ['--auto'] },
   agy: { readonly: [], ask: [], auto: [], full: ['--dangerously-skip-permissions'] },
 };
 

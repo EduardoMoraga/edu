@@ -125,7 +125,8 @@ edu crew reject <job-id> --request <request-id>
   autoriza verificaciones no registradas.
 - `edu_orchestrate` ya no acepta `autoApprove`.
 - Los workers del equipo (con `EDU_CREW_JOB`) nunca pueden aprobar, ni por MCP, ni por la CLI, ni
-  con archivos de decisión.
+  con archivos de decisión. Los agentes que Edu inicia en un panel de herdr también son workers: sus
+  herramientas de Edu solo leen.
 - Los archivos de decisión anteriores a 6.0 se ignoran.
 - `edu brain approve` necesita una terminal, o `--yes` en scripts, y se niega dentro de un worker.
 
@@ -212,7 +213,7 @@ Opciones headless por CLI:
 | claude | `--permission-mode plan` | `--permission-mode default` | `acceptEdits` más `--allowedTools Bash` | `bypassPermissions` |
 | codex | `-s read-only` | `-s read-only` (5.x: `workspace-write`) | `-s workspace-write` | `-s danger-full-access` |
 | pi | `--tools read,grep,find,ls` | igual que `readonly` (5.x: todas las herramientas) | herramientas por defecto de Pi | herramientas por defecto de Pi |
-| opencode | se rechaza | su propia configuración | su propia configuración | su propia configuración |
+| opencode | se rechaza | su propia configuración | `--auto` | `--auto` (lo que su configuración niega sigue negado) |
 | agy | se rechaza | su propia configuración | su propia configuración | `--dangerously-skip-permissions` |
 
 - El valor por defecto de `edu crew dispatch` y `edu_crew_dispatch` es `ask`. Para que un trabajo

@@ -307,7 +307,7 @@ describe('crew jobs', () => {
     expect(started.status).toBe('running');
     // Autonomy travels as Claude's own permission flag; the prompt is the task alone, after `--`.
     expect(calls.slice(0, 3)).toEqual([
-      ['pane', 'split', '--current', '--direction', 'right', '--cwd', f.root, '--no-focus'],
+      ['pane', 'split', '--current', '--direction', 'right', '--cwd', f.root, '--env', `EDU_CREW_JOB=${job.id}`, '--no-focus'],
       ['agent', 'start', `edu-${job.id.slice(0, 8)}`, '--kind', 'claude', '--pane', 'pane-3', '--', '--permission-mode', 'plan'],
       ['agent', 'prompt', `edu-${job.id.slice(0, 8)}`, '--', 'Check this'],
     ]);
@@ -397,7 +397,7 @@ describe('herdr target from inside and outside herdr', () => {
     expect(job).toMatchObject({ mode: 'pane', status: 'running', paneId: 'wR:p40' });
     expect(job.note).toContain('herdr workspace "Edu"');
     const agentName = `edu-${job.id.slice(0, 8)}`;
-    expect(calls).toContainEqual(['tab', 'create', '--workspace', 'wR', '--cwd', job.cwd, '--label', agentName, '--no-focus']);
+    expect(calls).toContainEqual(['tab', 'create', '--workspace', 'wR', '--cwd', job.cwd, '--label', agentName, '--env', `EDU_CREW_JOB=${job.id}`, '--no-focus']);
     expect(calls).toContainEqual(['agent', 'start', agentName, '--kind', 'claude', '--pane', 'wR:p40', '--', '--permission-mode', 'default']);
     expect(calls.some(args => args[0] === 'pane' && args[1] === 'split')).toBe(false);
   });
@@ -414,7 +414,7 @@ describe('herdr target from inside and outside herdr', () => {
     };
     const crew = createCrew({ brainRoot: f.root, store: f.store, herdr: { env: {}, hasBinary: async () => true, runner } });
     const job = await crew.dispatch({ cli: 'pi', task: 'Run', mode: 'pane', cwd: f.root });
-    expect(calls).toContainEqual(['workspace', 'create', '--cwd', job.cwd, '--label', 'Edu', '--no-focus']);
+    expect(calls).toContainEqual(['workspace', 'create', '--cwd', job.cwd, '--label', 'Edu', '--env', `EDU_CREW_JOB=${job.id}`, '--no-focus']);
     expect(calls).toContainEqual(['pane', 'close', 'w9:p1']);
     expect(job.status).toBe('failed');
   });
