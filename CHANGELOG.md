@@ -63,6 +63,19 @@ Each item links to its migration step in the [upgrade guide](docs/guides/upgrade
   headless one, so its Edu tools only read: it cannot approve gates, dispatch agents or write
   memory. *Migration:* approve and remember from your own session or terminal.
   [Details](docs/guides/upgrade-6.0.md#approvals-name-their-gate)
+- **A repository's checks need your acceptance.** Checks committed in `.edu/harness/checks.json` run
+  only after `edu checks accept` pins that exact set in your global home; any change un-registers
+  it. *Migration:* run `edu checks accept` once per workspace you trust.
+  [Details](docs/guides/upgrade-6.0.md)
+- **Detached runs always stop at the spec gate** (`edu run --detach`, `edu_orchestrate`) unless the
+  global config sets `approvals: auto`; a project's `approvals` can only be stricter.
+  `edu crew dispatch` from a terminal is capped by `crew.maxAutonomy` too.
+- **Every read-only step needs a CLI that enforces read-only.** Explorer and other read-only steps
+  move to claude, codex or pi, or the run stops before approval.
+- **Orchestrations and pane jobs time out** (gate waits are limited separately). The timeout
+  resolves request → workspace config → global config → 60 minutes.
+- **`edu crew dispatch|status|cancel` print for people.** *Migration:* scripts add `--json`.
+- **MCP titles are capped at 300 characters, and `due` must be an ISO date.**
 - **`npm test` runs only the unit and contract tests.** *Migration (contributors):* run
   `npm run test:perf` or `npm run test:all` for the wall-clock budgets.
   [Details](docs/guides/upgrade-6.0.md#test-scripts-for-contributors)
@@ -162,6 +175,13 @@ Each item links to its migration step in the [upgrade guide](docs/guides/upgrade
 - `edu uninstall --purge-brain` removes an empty brain folder instead of failing, and uninstall
   leaves no empty `~/.edu`.
 - `scripts/smoke-install.sh` no longer waits on a terminal prompt.
+- An approval decision can no longer be lost: it is written atomically and exactly one taker
+  claims it (before, a worker could read a half-written decision, discard it and wait forever).
+- Upgrading from 5.x works when HOME or `EDU_HOME` goes through a symlink (macOS `/var`).
+- `edu crew cancel` says so when it cannot verify the worker (for example `ps` is blocked) and
+  prints the exact kill command, instead of claiming the pid was reused.
+- `edu init` and `edu doctor` point to `edu setup`; `edu brain lint` and `recall` summaries follow
+  the chosen language.
 
 ### Security
 
@@ -179,6 +199,19 @@ Each item links to its migration step in the [upgrade guide](docs/guides/upgrade
   that live in its brain, error messages show paths relative to the brain and no session ids,
   and `waitSeconds` is capped at 600.
 - Backup folders contain a `.gitignore` with `*`.
+- A project config can no longer weaken the global safety policy: detached workers get the job's
+  brain in `EDU_CREW_BRAIN` and the parent's policy in `EDU_CREW_POLICY` (with a digest of the job
+  record, so an edited queued job is refused), while `EDU_HOME` stays the global home.
+- Approval gates and decisions live in the global home (`.edu-local/approvals/`), not in the
+  workspace, so a sandboxed worker cannot forge a human approval. `by` is attribution only.
+- `edu crew dispatch`, `edu crew cancel` and `edu run --detach` refuse inside a crew worker.
+- `edu_session_open` reuses only open sessions of its own brain.
+- Past episodes reach the next brief quoted, short and on one line, as data rather than
+  instructions.
+- On Windows, `edu crew cancel` checks the worker's full command line (CIM) before signalling, so a
+  reused pid running another `node.exe` is never killed.
+- Residual risk, documented: an unsandboxed agent running as the same user can still act as the
+  user.
 - hono and `@hono/node-server` updated for npm audit advisories. The remaining esbuild advisory (low
   severity, dev server only) needs tsup 9.
 
