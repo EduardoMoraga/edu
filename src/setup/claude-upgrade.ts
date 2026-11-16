@@ -1,10 +1,11 @@
 import { captureNativeProvenance } from './native-provenance.js';
 /** Claude's documented user-scope update, constrained to a pristine public Edu plugin. */
 import { readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { backupUpgradeFiles } from '../update/migrate.js';
 import { compareVersions } from '../update/release.js';
-import { tree, treeOrEmpty, equal, version, eduOwnedRoot, type Hashes } from './native-files.js';
+import { tree, treeOrEmpty, equal, version, eduOwnedRoot, samePath, type Hashes } from './native-files.js';
+import { hostConfigDirs } from '../adapters/paths.js';
 import { claudeBaselineForVersion } from './claude-baseline.js';
 import { withRegistrationRecovery } from './plugin-recovery.js';
 import type { SetupRunner } from './index.js';
@@ -22,7 +23,9 @@ export async function planClaudeRefresh(options: { home: string; packageRoot: st
   const { home, packageRoot, previousPackageRoot, brainRoot, runner } = options;
   const command = (args: string[]) => runner({ cli: 'claude', command: 'claude', args });
   const sourceRoot = join(packageRoot, 'plugins/claude-code');
-  const base = join(resolve(process.env.CLAUDE_CONFIG_DIR || join(home, '.claude')), 'plugins/cache/edu/edu');
+  const platform = options.platform ?? process.platform;
+  const claudeHome = hostConfigDirs(home, process.env).claude;
+  const base = join(claudeHome, 'plugins/cache/edu/edu');
   const listedPlugin = async () => {
     const result = await command(['plugin', 'list', '--json']);
     const entries = JSON.parse(result.stdout ?? '');
@@ -72,25 +75,25 @@ export async function planClaudeRefresh(options: { home: string; packageRoot: st
   };
   try {
     const entry = await listedPlugin();
-    if (entry.readFromFolder === sourceRoot) return async () => {}; // Existing documented load-in-place mode.
+    if (samePath(entry.readFromFolder, sourceRoot, platform)) return async () => {}; // Existing documented load-in-place mode.
     const markets = await listedMarketplace();
     const registeredRoot: string = markets[0].path;
-    relocated = registeredRoot !== packageRoot;
-    if (relocated && !eduOwnedRoot(registeredRoot, previousPackageRoot)) throw new Error('registered marketplace source is not an Edu package this setup recorded (custom or development checkout)');
+    relocated = !samePath(registeredRoot, packageRoot, platform);
+    if (relocated && !eduOwnedRoot(registeredRoot, previousPackageRoot, platform)) throw new Error('registered marketplace source is not an Edu package this setup recorded (custom or development checkout)');
     // Load-in-place is only Edu's when it reads the registered marketplace's plugin folder.
-    if (entry.readFromFolder && (!relocated || entry.readFromFolder !== join(registeredRoot, 'plugins/claude-code'))) throw new Error('unsupported native load-in-place path');
-    if (!version(entry.version) || (!entry.readFromFolder && entry.installPath !== join(base, entry.version))) throw new Error('unsupported native cache path/layout');
+    if (entry.readFromFolder && (!relocated || !samePath(entry.readFromFolder, join(registeredRoot, 'plugins/claude-code'), platform))) throw new Error('unsupported native load-in-place path');
+    if (!version(entry.version) || (!entry.readFromFolder && !samePath(entry.installPath, join(base, entry.version), platform))) throw new Error('unsupported native cache path/layout');
     previous = { root: registeredRoot, version: entry.version, scope: entry.scope, enabled: entry.enabled };
     checkProvenance = await captureNativeProvenance({ host: 'claude', home, packageRoot, runner, expectedRegistration: JSON.stringify([[entry], markets]) });
     const marketplace = JSON.parse(await readFile(join(packageRoot, '.claude-plugin/marketplace.json'), 'utf8'));
     const plugins = marketplace.plugins?.filter((p: { name?: string }) => p.name === 'edu');
     if (marketplace.name !== 'edu' || plugins?.length !== 1 || plugins[0].source !== './plugins/claude-code' || plugins[0].headersHelper || plugins[0].dependencies) throw new Error('unsupported marketplace plugin source/dependencies');
-    candidate = await tree(sourceRoot);
+    candidate = await tree(sourceRoot, packageRoot);
     const manifest = JSON.parse(await readFile(join(sourceRoot, '.claude-plugin/plugin.json'), 'utf8'));
     if (manifest.name !== 'edu' || !version(manifest.version) || manifest.dependencies || (plugins[0].version !== undefined && plugins[0].version !== manifest.version)) throw new Error('invalid candidate manifest/version/dependencies');
     nextVersion = manifest.version;
     if (compareVersions(nextVersion, entry.version) < 0) throw new Error('candidate plugin downgrade refused');
-    before = await treeOrEmpty(base);
+    before = await treeOrEmpty(base, claudeHome);
     if (!relocated) {
       if (matchesCache(before, entry.version)) {
         if (entry.version === nextVersion) return async () => {};
@@ -110,18 +113,18 @@ export async function planClaudeRefresh(options: { home: string; packageRoot: st
   }
   return async () => {
     await checkProvenance();
-    if (!equal(await treeOrEmpty(base), before) || !equal(await tree(sourceRoot), candidate)) throw new Error('Manual conflict: Claude native cache/source changed during preflight');
+    if (!equal(await treeOrEmpty(base, claudeHome), before) || !equal(await tree(sourceRoot, packageRoot), candidate)) throw new Error('Manual conflict: Claude native cache/source changed during preflight');
     const backup = await backupUpgradeFiles(brainRoot, Object.keys(before).map(p => join(base, p)));
-    if (!equal(await treeOrEmpty(base), before) || !equal(await tree(sourceRoot), candidate)) throw new Error('Manual conflict: Claude native cache/source changed during backup');
+    if (!equal(await treeOrEmpty(base, claudeHome), before) || !equal(await tree(sourceRoot, packageRoot), candidate)) throw new Error('Manual conflict: Claude native cache/source changed during backup');
     await checkProvenance();
     // Every installed state must resolve the current package with the candidate bytes.
     const verifyRegistration = async () => {
       const installed = await listedPlugin();
       const markets = await listedMarketplace();
-      if (markets[0].path !== packageRoot || installed.version !== nextVersion) throw new Error('registration does not point at the current package');
+      if (!samePath(markets[0].path, packageRoot, platform) || installed.version !== nextVersion) throw new Error('registration does not point at the current package');
       if (installed.readFromFolder) {
-        if (installed.readFromFolder !== sourceRoot) throw new Error('unexpected load-in-place path');
-      } else if (installed.installPath !== join(base, nextVersion) || !equal(await tree(join(base, nextVersion)), candidate)) throw new Error('installed cache does not match candidate hashes');
+        if (!samePath(installed.readFromFolder, sourceRoot, platform)) throw new Error('unexpected load-in-place path');
+      } else if (!samePath(installed.installPath, join(base, nextVersion), platform) || !equal(await tree(join(base, nextVersion), claudeHome), candidate)) throw new Error('installed cache does not match candidate hashes');
     };
     if (relocated || reinstall) {
       try {
@@ -144,8 +147,8 @@ export async function planClaudeRefresh(options: { home: string; packageRoot: st
       const result = await command(args);
       if (result.exitCode !== 0) throw new Error(`claude ${args.join(' ')}: host exit ${result.exitCode}: ${result.stderr ?? ''}`);
       const installed = await listedPlugin();
-      if (installed.version !== nextVersion || installed.installPath !== join(base, nextVersion) || installed.readFromFolder) throw new Error('unexpected installed version/path');
-      const after = await tree(base);
+      if (installed.version !== nextVersion || !samePath(installed.installPath, join(base, nextVersion), platform) || installed.readFromFolder) throw new Error('unexpected installed version/path');
+      const after = await tree(base, claudeHome);
       if (!matchesCache(after, nextVersion)) throw new Error('installed cache does not match candidate hashes');
     } catch (error) {
       throw new Error(`Claude native refresh failed: ${error instanceof Error ? error.message : error}. Backup: ${backup}. The registration was not removed (plugin update); restart only after repair.`);
