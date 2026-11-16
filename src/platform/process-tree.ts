@@ -147,17 +147,22 @@ export interface ChildRegistry {
 }
 
 /**
- * Remembers the process trees this Edu process owns. On SIGINT/SIGTERM/SIGHUP it ends them, then exits
- * with 128+signal, as Node would have. When another listener handles the signal (for example `edu run`
- * cancelling on Ctrl-C), that listener owns the shutdown and the registry stays out of the way. On `exit`,
- * whatever is still tracked is force-killed. Listeners are installed only while something is tracked.
+ * Remembers the process trees this Edu process owns and ends them when Edu is told to stop.
+ *
+ * On SIGINT/SIGTERM/SIGHUP every tracked tree gets SIGTERM. If the registry is the only listener, Node would
+ * have exited, so after a short grace it force-kills what is left and exits with 128+signal. If another
+ * listener shares the signal (`edu run` cancelling on Ctrl-C, Ink's terminal restore), the registry steps
+ * aside after killing: it removes its own listeners, so that listener decides, and a library that only
+ * re-raises the signal when it is alone (signal-exit) still does. On `exit`, whatever is still tracked is
+ * force-killed. Listeners are installed only while something is tracked.
  */
 export function createChildRegistry(options: ChildRegistryOptions = {}): ChildRegistry {
   const proc = options.proc ?? (process as unknown as ProcessHooks);
   const kill = options.kill ?? ((child: TreeRoot, signal: NodeJS.Signals) => killTreeSync(child, signal));
   const graceMs = options.graceMs ?? 250;
   const children = new Set<ChildProcess>();
-  let installed = false;
+  let signalsInstalled = false;
+  let exitInstalled = false;
   let stopping = false;
 
   const killAll = (signal: NodeJS.Signals) => {
@@ -166,12 +171,19 @@ export function createChildRegistry(options: ChildRegistryOptions = {}): ChildRe
     }
   };
   const handlers = new Map<StopSignal, () => void>();
+  const removeSignals = () => {
+    if (!signalsInstalled) return;
+    signalsInstalled = false;
+    for (const [signal, handler] of handlers) proc.removeListener(signal, handler);
+  };
   for (const signal of STOP_SIGNALS) {
     handlers.set(signal, () => {
-      // The registry's own listener is prepended, so it still sees one-shot listeners that run after it.
-      if (stopping || proc.listenerCount(signal) > 1) return;
-      stopping = true;
+      if (stopping) return;
+      // Prepended, so this still counts one-shot listeners that run after it.
+      const shared = proc.listenerCount(signal) > 1;
       killAll('SIGTERM');
+      if (shared) { removeSignals(); return; }
+      stopping = true;
       setTimeout(() => {
         killAll('SIGKILL');
         proc.exit(128 + (constants.signals[signal] ?? 1));
@@ -181,16 +193,22 @@ export function createChildRegistry(options: ChildRegistryOptions = {}): ChildRe
   const onExit = () => killAll('SIGKILL');
 
   const install = () => {
-    if (installed) return;
-    installed = true;
-    for (const [signal, handler] of handlers) proc.prependListener(signal, handler);
-    proc.prependListener('exit', onExit);
+    if (!signalsInstalled && !stopping) {
+      signalsInstalled = true;
+      for (const [signal, handler] of handlers) proc.prependListener(signal, handler);
+    }
+    if (!exitInstalled) {
+      exitInstalled = true;
+      proc.prependListener('exit', onExit);
+    }
   };
   const uninstall = () => {
-    if (!installed || stopping) return;
-    installed = false;
-    for (const [signal, handler] of handlers) proc.removeListener(signal, handler);
-    proc.removeListener('exit', onExit);
+    if (stopping) return;
+    removeSignals();
+    if (exitInstalled) {
+      exitInstalled = false;
+      proc.removeListener('exit', onExit);
+    }
   };
 
   return {

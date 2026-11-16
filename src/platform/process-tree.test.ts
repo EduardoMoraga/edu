@@ -103,17 +103,32 @@ describe('child registry', () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it('leaves shutdown to another listener that handles the signal, even a one-shot one', () => {
+  it('kills the trees, then leaves shutdown to another listener of the signal, even a one-shot one', () => {
     const proc = new FakeProcess();
     const kill = vi.fn();
     const onSigint = vi.fn();
     proc.once('SIGINT', onSigint);
     const registry = createChildRegistry({ proc, kill });
-    registry.track(fakeChild());
+    const child = fakeChild();
+    registry.track(child);
     proc.emit('SIGINT', 'SIGINT');
     expect(onSigint).toHaveBeenCalled();
-    expect(kill).not.toHaveBeenCalled();
+    expect(kill).toHaveBeenCalledWith(child, 'SIGTERM');
     expect(proc.exit).not.toHaveBeenCalled();
+    expect(proc.listenerCount('SIGINT')).toBe(0);
+    expect(proc.listenerCount('exit')).toBe(1);
+  });
+
+  it('steps aside for a library that re-raises the signal only when it is the last listener', () => {
+    const proc = new FakeProcess();
+    const reraised = vi.fn();
+    // signal-exit (used by Ink) exits only when it is alone on the signal.
+    const signalExit = () => { if (proc.listenerCount('SIGTERM') === 1) reraised(); };
+    proc.on('SIGTERM', signalExit);
+    const registry = createChildRegistry({ proc, kill: vi.fn() });
+    registry.track(fakeChild());
+    proc.emit('SIGTERM', 'SIGTERM');
+    expect(reraised).toHaveBeenCalled();
   });
 
   it('force-kills what is still tracked when the process exits', () => {
