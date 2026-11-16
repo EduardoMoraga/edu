@@ -84,7 +84,7 @@ export function registerSetup(program: Command, ctx: CliContext): void {
           if (!clis.length) throw new Error(t(g.lang, 'install.noCli'));
         }
         const { planInstall, describePlan, applyInstall, getManifestPath } = await import('../../adapters/index.js');
-        const plan = await planInstall({ clis, scope, root: g.cwd, home: ctx.home, templatesDir: packageTemplatesDir() });
+        const plan = await planInstall({ clis, scope, root: g.cwd, home: ctx.home, templatesDir: packageTemplatesDir(), env: ctx.env });
         const json = g.json || opts.json;
         if (json && opts.dryRun) {
           printJson(ctx, {
@@ -107,10 +107,16 @@ export function registerSetup(program: Command, ctx: CliContext): void {
             return;
           }
         }
+        const planned = plan.notes.length;
         const manifest = await applyInstall(plan);
         const manifestPath = getManifestPath(scope, plan.root, plan.home);
-        if (json) printJson(ctx, { manifest: manifestPath, actions: manifest.actions.length });
-        else ctx.out(t(g.lang, 'install.done', { count: manifest.actions.length, manifest: manifestPath }));
+        // Values the user already defined (a statusLine, an agent, an MCP server) are kept and named here.
+        const kept = plan.notes.slice(planned);
+        if (json) printJson(ctx, { manifest: manifestPath, actions: manifest.actions.length, notes: kept });
+        else {
+          for (const note of kept) ctx.out(`! ${note}`);
+          ctx.out(t(g.lang, 'install.done', { count: manifest.actions.length, manifest: manifestPath }));
+        }
       }),
     );
 
@@ -131,7 +137,9 @@ export function registerSetup(program: Command, ctx: CliContext): void {
         let purgeBrain = false;
         if (opts.purgeBrain) {
           const { assertPurgeableBrain } = await import('../../setup/uninstall.js');
-          if (await exists(brainRoot)) {
+          // A folder without EDU.md is no brain (only setup manifests, or empty): nothing to purge, and
+          // uninstall reports it instead of refusing the whole run.
+          if (await exists(join(brainRoot, 'EDU.md'))) {
             await assertPurgeableBrain(brainRoot, ctx.home);
             const question = es ? `¿Borrar el cerebro ${brainRoot} con todas sus notas? Esto no se puede deshacer.` : `Delete the brain ${brainRoot} and all its notes? This cannot be undone.`;
             if (ctx.isTTY && ctx.stdinIsTTY) purgeBrain = await ctx.confirm(question);
@@ -148,6 +156,7 @@ export function registerSetup(program: Command, ctx: CliContext): void {
         for (const s of report.schedules) ctx.out(es ? `Programación eliminada (${s.kind}): ${s.name}` : `Schedule removed (${s.kind}): ${s.name}`);
         if (report.brain.action === 'purged') ctx.out(es ? `Cerebro borrado: ${report.brain.path} (un remoto de edu sync/join no se toca).` : `Brain deleted: ${report.brain.path} (any edu sync/join remote is untouched).`);
         else if (report.brain.action === 'kept') ctx.out(es ? `Cerebro conservado: ${report.brain.path} (bórrelo con edu uninstall --purge-brain).` : `Brain kept: ${report.brain.path} (delete it with edu uninstall --purge-brain).`);
+        else if (report.brain.action === 'not-a-brain') ctx.out(es ? `${report.brain.path} no es un cerebro de Edu (no tiene EDU.md); se deja como está.` : `${report.brain.path} is not an Edu brain (no EDU.md); left as it is.`);
         ctx.out(es ? 'Para quitar el comando: npm uninstall -g edu-agent' : 'To remove the command too: npm uninstall -g edu-agent');
       }),
     );

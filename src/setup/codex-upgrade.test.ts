@@ -363,11 +363,12 @@ describe('relocation rollback', () => {
   });
 });
 describe('Codex extended Windows paths', () => {
-  it('reduces only the drive-letter extended form', async () => {
+  it('reduces the drive-letter and UNC extended forms only', async () => {
     const { nativePath } = await import('./native-files.js');
     expect(nativePath(String.raw`\\?\C:\Users\me\npm\node_modules\edu-agent`)).toBe(String.raw`C:\Users\me\npm\node_modules\edu-agent`);
     expect(nativePath(String.raw`C:\plain`)).toBe(String.raw`C:\plain`);
-    expect(nativePath(String.raw`\\?\UNC\server\share`)).toBe(String.raw`\\?\UNC\server\share`);
+    expect(nativePath(String.raw`\\?\UNC\server\share\edu-agent`)).toBe(String.raw`\\server\share\edu-agent`);
+    expect(nativePath(String.raw`\\.\pipe\x`)).toBe(String.raw`\\.\pipe\x`);
     expect(nativePath('/tmp/edu')).toBe('/tmp/edu');
     expect(nativePath(undefined)).toBeUndefined();
   });

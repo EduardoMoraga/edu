@@ -1,7 +1,8 @@
 import { baseFor, type BasePin } from './paths.js';
 import { assertContained, portablePath } from '../skills/bundle.js';
 import { createHash } from 'node:crypto';
-import { access, lstat, mkdir, readFile, writeFile, rename, unlink, rmdir, chmod } from 'node:fs/promises';
+import { access, lstat, mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
+import { retryFs } from '../platform/fs-retry.js';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { InstallAction } from '../core/contracts.js';
 import type { PlannedAction } from './types.js';
@@ -24,12 +25,17 @@ export async function readTarget(path: string): Promise<Buffer | undefined> {
 export function materialize(action: PlannedAction, before: Buffer | undefined): Buffer {
   const text = before?.toString('utf8') ?? '';
   switch (action.kind) {
-    case 'managed-block': return Buffer.from(upsertManagedBlock(text, action.content ?? ''), 'utf8');
+    case 'managed-block': return Buffer.from(named(action.path, () => upsertManagedBlock(text, action.content ?? '')), 'utf8');
     case 'file': return Buffer.from(action.content ?? '', 'utf8');
     case 'json-merge': return Buffer.from(mergeJsonFile(action.path, text, action.jsonPatch ?? {}), 'utf8');
-    case 'toml-merge': return Buffer.from(mergeToml(text, action.tomlBody ?? ''), 'utf8');
+    case 'toml-merge': return Buffer.from(named(action.path, () => mergeToml(text, action.tomlBody ?? '')), 'utf8');
     default: throw new Error(`Unsupported action kind: ${action.kind}`);
   }
+}
+
+/** Errors from a user's file always name it. */
+function named<T>(path: string, run: () => T): T {
+  try { return run(); } catch (error) { throw new Error(`${path}: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
 export async function ensureParents(path: string, createdDirs: string[], transaction?: FileTransaction): Promise<void> {
@@ -99,13 +105,14 @@ export class FileTransaction {
     const content = await readTarget(path);
     this.before.set(path, content === undefined ? undefined : { content, mode: (await lstat(path)).mode & 0o777 });
   }
-  async write(path: string, content: Buffer | string): Promise<void> { await this.capture(path); await writeFile(path, content); }
-  async remove(path: string): Promise<void> { await this.capture(path); await unlink(path); }
-  async move(from: string, to: string): Promise<void> { await this.capture(from); await this.capture(to); await rename(from, to); }
+  // Every change retries while Windows reports the target as held open by another process.
+  async write(path: string, content: Buffer | string): Promise<void> { await this.capture(path); await retryFs.writeFile(path, content); }
+  async remove(path: string): Promise<void> { await this.capture(path); await retryFs.unlink(path); }
+  async move(from: string, to: string): Promise<void> { await this.capture(from); await this.capture(to); await retryFs.rename(from, to); }
   async removeEmptyDirectory(path: string): Promise<void> {
     await this.check(path);
     const mode = (await lstat(path)).mode & 0o777;
-    await rmdir(path);
+    await retryFs.rmdir(path);
     if (!this.createdDirs.has(path)) this.removedDirs.set(path, mode);
   }
   async rollback(): Promise<void> {
@@ -117,12 +124,12 @@ export class FileTransaction {
     for (const [path, before] of [...this.before].reverse()) {
       try {
         await this.check(path);
-        if (before) { await writeFile(path, before.content); await chmod(path, before.mode); }
-        else await unlink(path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+        if (before) { await retryFs.writeFile(path, before.content); await chmod(path, before.mode); }
+        else await retryFs.unlink(path).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
       } catch (error) { failures.push(error); }
     }
     for (const path of [...this.createdDirs].reverse()) {
-      try { await this.check(path); await rmdir(path); }
+      try { await this.check(path); await retryFs.rmdir(path); }
       catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) failures.push(error); }
     }
     this.before.clear(); this.createdDirs.clear(); this.removedDirs.clear();

@@ -280,7 +280,7 @@ describe('Edu Deck', () => {
     await ui.press({ key: 'tab:edu' })
     await ui.press({ key: 'edu:reject:abcd1234' })
     await ui.press({ key: 'edu:confirm' })
-    expect(seen.runs.filter(argv => argv[1] === 'crew')).toEqual([['edu', 'crew', 'reject', 'abcd1234']])
+    expect(seen.runs.filter(argv => argv[1] === 'crew')).toEqual([['edu', 'crew', 'reject', 'abcd1234', '--via', 'deck']])
     await ui.unmount()
   })
 

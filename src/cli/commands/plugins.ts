@@ -54,8 +54,8 @@ export async function runPluginSetup(ctx: CliContext, g: Resolved, options: { cl
     const question = g.lang === 'es' ? '¿Aplicar esta configuración?' : 'Apply this setup?';
     if (!(await ctx.confirm(question))) { ctx.out(g.lang === 'es' ? 'Cancelado. No se realizaron cambios.' : 'Cancelled. Nothing was changed.'); return; }
   }
-  const report = await applySetup(plan, { templatesDir: packageTemplatesDir(), detected: clis, lang: g.lang, brainRoot: globalHome(ctx), addNew: options.clis !== undefined });
-  const rows = hostRows(report, clis, { eduOnPath: await binaryOnPath('edu') });
+  const report = await applySetup(plan, { templatesDir: packageTemplatesDir(), detected: clis, lang: g.lang, brainRoot: globalHome(ctx), addNew: options.clis !== undefined, env: ctx.env });
+  const rows = hostRows(report, clis, { eduOnPath: await binaryOnPath('edu', ctx.env) });
   if (!g.json) {
     for (const note of report.notes ?? []) ctx.out(`! ${note}`);
     if (!clis.length) ctx.out(g.lang === 'es' ? 'No se detectaron CLI; instale uno y ejecute edu setup.' : 'No CLIs detected; install one and run edu setup.');

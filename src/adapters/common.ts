@@ -6,9 +6,9 @@ import type { CliId, InstallScope } from '../core/contracts.js';
 import type { IntegrationOptions, PlannedAction } from './types.js';
 import { pathsFor, baseFor, pinConfiguredBases } from './paths.js';
 
-export async function binaryOnPath(binary: string): Promise<boolean> {
-  const extensions = process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';') : [''];
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+export async function binaryOnPath(binary: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  const extensions = process.platform === 'win32' ? (env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';') : [''];
+  for (const dir of (env.PATH ?? env.Path ?? '').split(delimiter)) {
     if (!dir) continue;
     for (const extension of extensions) {
       const target = join(dir, `${binary}${extension}`);
@@ -28,7 +28,7 @@ function protocol(scope: InstallScope, home: string, brainRoot?: string): string
 }
 
 export function instructionActions(cli: CliId, scope: InstallScope, root: string, options: IntegrationOptions & { brainRoot?: string }): PlannedAction[] {
-  return pathsFor(cli, scope, root, options.home).instructions.map(path => ({
+  return pathsFor(cli, scope, root, options.home, options.dirs).instructions.map(path => ({
     cli, kind: 'managed-block', path, description: 'Install Edu protocol block', content: protocol(scope, options.home, options.brainRoot),
   }));
 }

@@ -1,4 +1,4 @@
-import type { BasePin } from './paths.js';
+import type { BasePin, HostDirs } from './paths.js';
 import type { CliId, InstallAction, InstallScope } from '../core/contracts.js';
 
 export interface PlannedAction extends InstallAction {
@@ -17,6 +17,8 @@ export interface InstallPlan {
   actions: PlannedAction[];
   notes: string[];
   bases?: BasePin[];
+  /** Host configuration directories the plan targets (env overrides such as CODEX_HOME resolved). */
+  dirs?: HostDirs;
   /**
    * Actions an earlier Edu version recorded that this version no longer installs. applyInstall undoes
    * each one found in the manifest (matching kind, path and, when given, jsonPatch) and stops tracking it.
@@ -34,6 +36,10 @@ export interface IntegrationOptions {
   selectedHosts?: CliId[];
   notes?: string[];
   detectBinary?: (binary: string) => Promise<boolean>;
+  /** Host configuration directories (see hostConfigDirs); defaults to the plain HOME layout. */
+  dirs?: HostDirs;
+  /** The platform the integration targets; tests pass win32 to check the Windows launch. */
+  platform?: NodeJS.Platform;
 }
 
 export const CLI_IDS: CliId[] = ['claude', 'codex', 'pi', 'opencode', 'agy'];

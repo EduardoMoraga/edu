@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -5,20 +6,25 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/brain.js';
 import { registerProject } from '../vault/registry.js';
 import { migrateWorkspaces } from './migrate.js';
-import { compareVersions, fetchRelease, pickAsset, UpdateError, whatsNew, type Release } from './release.js';
+import { compareVersions, fetchRelease, parseChecksums, pickAsset, sha256Hex, UpdateError, whatsNew, type Release } from './release.js';
 import { checkForUpdate, installPrefix, performUpdate, resolveNpm, type RunResult, type UpdateDeps } from './update.js';
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 async function temp() { const path = await realpath(await mkdtemp(join(tmpdir(), 'edu-update-'))); dirs.push(path); return path; }
 
+const download = (tag: string, name: string) => `https://github.com/EduardoMoraga/edu/releases/download/${tag}/${name}`;
 const githubRelease = (tag = 'v0.8.0', body = '## Highlights\n- **Workspaces** from documents\n- `edu update`\n') => ({
   tag_name: tag, name: `${tag} — workspaces`, body, html_url: `https://github.com/EduardoMoraga/edu/releases/tag/${tag}`,
   assets: [
-    { name: 'edu-agent.tgz', browser_download_url: `https://github.com/EduardoMoraga/edu/releases/download/${tag}/edu-agent.tgz` },
-    { name: `edu-agent-${tag.slice(1)}.tgz`, browser_download_url: `https://github.com/EduardoMoraga/edu/releases/download/${tag}/edu-agent-${tag.slice(1)}.tgz` },
+    { name: 'edu-agent.tgz', browser_download_url: download(tag, 'edu-agent.tgz') },
+    { name: `edu-agent-${tag.slice(1)}.tgz`, browser_download_url: download(tag, `edu-agent-${tag.slice(1)}.tgz`) },
+    { name: 'SHA256SUMS', browser_download_url: download(tag, 'SHA256SUMS') },
   ],
 });
+/** The package bytes the fake GitHub serves, and the SHA256SUMS that matches them. */
+const TGZ = new TextEncoder().encode('edu-agent package bytes');
+const sumsFor = (bytes: Uint8Array, names: string[]) => names.map(name => `${sha256Hex(bytes)}  ${name}`).join('\n') + '\n';
 
 function fakeFetch(handler: (url: string) => Response | Promise<Response>): typeof fetch & { urls: string[] } {
   const urls: string[] = [];
@@ -28,7 +34,15 @@ function fakeFetch(handler: (url: string) => Response | Promise<Response>): type
 }
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
-const release: Release = { tag: 'v0.8.0', version: '0.8.0', name: 'v0.8.0', body: '', url: 'https://example.test/r', assetUrl: 'https://example.test/edu-agent-0.8.0.tgz', assetName: 'edu-agent-0.8.0.tgz' };
+const release: Release = { tag: 'v0.8.0', version: '0.8.0', name: 'v0.8.0', body: '', url: 'https://example.test/r', assetUrl: download('v0.8.0', 'edu-agent-0.8.0.tgz'), assetName: 'edu-agent-0.8.0.tgz', checksumsUrl: download('v0.8.0', 'SHA256SUMS') };
+/** A GitHub that serves the release JSON, the package and its SHA256SUMS (`sums` overrides the checksum file). */
+function github(sums?: string, bytes = TGZ) {
+  return fakeFetch(url => {
+    if (url.endsWith('.tgz')) return new Response(bytes);
+    if (url.endsWith('/SHA256SUMS')) return new Response(sums ?? sumsFor(TGZ, ['edu-agent.tgz', 'edu-agent-0.8.0.tgz', 'edu-agent-2.0.0.tgz']));
+    return json(githubRelease());
+  });
+}
 
 interface Call { command: string; args: string[] }
 function fakeDeps(script: (call: Call) => Partial<RunResult> | undefined, extra: Partial<UpdateDeps> = {}): UpdateDeps & { calls: Call[] } {
@@ -36,7 +50,7 @@ function fakeDeps(script: (call: Call) => Partial<RunResult> | undefined, extra:
   const existing = new Set(['/opt/node/bin/npm', '/opt/node/lib/node_modules/edu-agent/dist/cli.js']);
   return {
     calls,
-    fetch: fakeFetch(() => json(githubRelease())),
+    fetch: github(),
     run: async (command, args) => { const call = { command, args }; calls.push(call); return { code: 0, stdout: '', stderr: '', ...script(call) }; },
     exists: async (path) => existing.has(path),
     execPath: '/opt/node/bin/node',
@@ -121,10 +135,13 @@ describe('performUpdate', () => {
     const steps: string[] = [];
     const outcome = await performUpdate(deps, release, (step) => steps.push(step));
     expect(outcome.ok).toBe(true);
-    expect(steps).toEqual(['install', 'verify', 'setup', 'migrate']);
+    expect(outcome.verified).toBe(true);
+    expect(steps).toEqual(['download', 'install', 'verify', 'setup', 'migrate']);
     const cli = '/opt/node/lib/node_modules/edu-agent/dist/cli.js';
+    const tarball = deps.calls[0]!.args[2]!;
+    expect(tarball).toMatch(/edu-update-.+[\\/]edu-agent-0\.8\.0\.tgz$/);
     expect(deps.calls).toEqual([
-      { command: '/opt/node/bin/npm', args: ['install', '-g', release.assetUrl, '--no-fund', '--no-audit', '--prefix', '/opt/node'] },
+      { command: '/opt/node/bin/npm', args: ['install', '-g', tarball, '--no-fund', '--no-audit', '--prefix', '/opt/node'] },
       { command: '/opt/node/bin/npm', args: ['root', '-g', '--prefix', '/opt/node'] },
       { command: '/opt/node/bin/node', args: [cli, '--version'] },
       { command: '/opt/node/bin/node', args: [cli, 'setup', '--yes'] },
@@ -136,7 +153,7 @@ describe('performUpdate', () => {
   it('stops after a failed install, before setup, keeping the current version', async () => {
     const deps = fakeDeps((call) => (call.args[0] === 'install' ? { code: 1, stderr: 'npm ERR! network ETIMEDOUT' } : happy(call)));
     const outcome = await performUpdate(deps, release);
-    expect(outcome).toMatchObject({ ok: false, installed: false, steps: [{ step: 'install', status: 'failed', detail: 'npm ERR! network ETIMEDOUT' }] });
+    expect(outcome).toMatchObject({ ok: false, installed: false, steps: [{ step: 'download', status: 'ok' }, { step: 'install', status: 'failed', detail: 'npm ERR! network ETIMEDOUT' }] });
     expect(deps.calls).toHaveLength(1);
   });
 
@@ -217,7 +234,7 @@ it('simulates 0.10.2 -> 2.0 with the NEW binary migrating real temporary global 
   const dir = await temp(); const home = join(dir, 'global'); const project = join(dir, 'project');
   for (const root of [home, join(project, '.edu')]) await openBrain([{ scope: 'project', root }]).init({ scope: 'project', root });
   await registerProject(home, project);
-  const target = { ...release, version: '2.0.0', tag: 'v2.0.0' };
+  const target = { ...release, version: '2.0.0', tag: 'v2.0.0', assetName: 'edu-agent-2.0.0.tgz', assetUrl: download('v2.0.0', 'edu-agent-2.0.0.tgz'), checksumsUrl: download('v2.0.0', 'SHA256SUMS') };
   const cli = '/opt/node/lib/node_modules/edu-agent/dist/cli.js';
   const deps = fakeDeps(call => call.args[1] === '--version' ? { stdout: '2.0.0\n' } : happy(call), { currentVersion: '0.10.2' });
   const original = deps.run;
@@ -262,4 +279,58 @@ it('stops before setup on a 2.0 migration failure and retains the partial report
 it.each(['[]', '{}', '[{"name":"global","root":"/p","status":"invented"}]'])('rejects an invalid essential migration report: %s', async stdout => {
   const deps = fakeDeps(call => call.args[1] === 'internal' ? { stdout } : happy(call));
   expect((await performUpdate(deps, release)).ok).toBe(false);
+});
+
+describe('release integrity (SHA256SUMS, pinned origin)', () => {
+  it('refuses a release whose asset is served from anywhere but the release download URL', async () => {
+    for (const url of ['https://example.invalid/evil.tgz', 'https://github.com/EduardoMoraga/edu/releases/download/v0.9.0/edu-agent-0.8.0.tgz', 'https://github.com/Evil/edu/releases/download/v0.8.0/edu-agent-0.8.0.tgz']) {
+      const forged = { ...githubRelease(), assets: [{ name: 'edu-agent-0.8.0.tgz', browser_download_url: url }] };
+      await expect(fetchRelease({ fetch: fakeFetch(() => json(forged)) })).rejects.toMatchObject({ code: 'untrusted' });
+    }
+    const deps = fakeDeps(happy);
+    const outcome = await performUpdate(deps, { ...release, assetUrl: 'https://example.invalid/evil.tgz' });
+    expect(outcome).toMatchObject({ ok: false, installed: false, steps: [{ step: 'download', status: 'failed' }] });
+    expect(deps.calls).toEqual([]);
+  });
+
+  it('installs nothing when the package does not match SHA256SUMS', async () => {
+    const deps = fakeDeps(happy, { fetch: github(sumsFor(new TextEncoder().encode('other bytes'), ['edu-agent-0.8.0.tgz'])) });
+    const outcome = await performUpdate(deps, release);
+    expect(outcome.steps).toEqual([{ step: 'download', status: 'failed', detail: expect.stringMatching(/checksum mismatch for edu-agent-0\.8\.0\.tgz/) }]);
+    expect(deps.calls).toEqual([]);
+    const unlisted = fakeDeps(happy, { fetch: github(sumsFor(TGZ, ['edu-agent.tgz'])) });
+    expect((await performUpdate(unlisted, release)).steps[0]?.detail).toMatch(/lists no edu-agent-0\.8\.0\.tgz/);
+    expect(unlisted.calls).toEqual([]);
+  });
+
+  it('installs the verified local file, never the URL', async () => {
+    const seen: string[] = [];
+    const deps = fakeDeps(call => {
+      if (call.args[0] === 'install') seen.push(readFileSync(call.args[2]!, 'utf8'));
+      return happy(call);
+    });
+    await performUpdate(deps, release);
+    expect(seen).toEqual(['edu-agent package bytes']);
+    expect(deps.calls[0]?.args).not.toContain(release.assetUrl);
+  });
+
+  it('installs a pre-6.0 release without SHA256SUMS only with --allow-unverified, and never a 6.0+ one', async () => {
+    const legacy = { ...release, checksumsUrl: undefined };
+    const refused = fakeDeps(happy);
+    expect((await performUpdate(refused, legacy)).steps[0]).toMatchObject({ step: 'download', status: 'failed', detail: expect.stringMatching(/--allow-unverified/) });
+    expect(refused.calls).toEqual([]);
+    const allowed = fakeDeps(happy);
+    const outcome = await performUpdate(allowed, legacy, () => {}, { allowUnverified: true });
+    expect(outcome).toMatchObject({ ok: true, verified: false });
+    expect(outcome.steps[0]?.detail).toMatch(/UNVERIFIED/);
+    const modern = fakeDeps(happy);
+    const six = { ...legacy, tag: 'v6.0.0', version: '6.0.0', assetName: 'edu-agent-6.0.0.tgz', assetUrl: download('v6.0.0', 'edu-agent-6.0.0.tgz') };
+    expect((await performUpdate(modern, six, () => {}, { allowUnverified: true })).steps[0]?.detail).toMatch(/publishes no SHA256SUMS/);
+    expect(modern.calls).toEqual([]);
+  });
+
+  it('reads sha256sum lines in text and binary mode', () => {
+    const hex = 'a'.repeat(64);
+    expect([...parseChecksums(`${hex}  edu-agent.tgz\r\n${'B'.repeat(64)} *edu-agent-6.0.0.tgz\nnot a line\n`)]).toEqual([['edu-agent.tgz', hex], ['edu-agent-6.0.0.tgz', 'b'.repeat(64)]]);
+  });
 });

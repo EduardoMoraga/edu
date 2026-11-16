@@ -90,6 +90,17 @@ describe('edu install', () => {
     expect(c.stderr.join('\n')).toContain('--cli all');
   });
 
+  it('names a user value it kept instead of overwriting it', async () => {
+    const c = await captureContext();
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    await mkdir(join(c.dirs.cwd, '.claude'), { recursive: true });
+    await writeFile(join(c.dirs.cwd, '.claude/settings.json'), '{"statusLine":{"type":"command","command":"mine"}}\n');
+    await runCli(c, ['install', '--cli', 'claude', '--yes']);
+    expect(c.exitCode).toBeUndefined();
+    expect(out(c)).toContain(`! Kept your own statusLine in ${join(c.dirs.cwd, '.claude/settings.json')}`);
+    expect(JSON.parse(await readFile(join(c.dirs.cwd, '.claude/settings.json'), 'utf8')).statusLine.command).toBe('mine');
+  });
+
   it('installs and uninstalls round-trip with --yes', async () => {
     const c = await captureContext();
     await runCli(c, ['install', '--cli', 'claude', '--yes']);

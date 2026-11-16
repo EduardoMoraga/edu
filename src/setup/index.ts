@@ -1,12 +1,14 @@
-import { pinConfiguredBases } from '../adapters/paths.js';
+import { installDirs, pinConfiguredBases } from '../adapters/paths.js';
+import { withInstallLock } from '../adapters/install-lock.js';
+import { retryFs } from '../platform/fs-retry.js';
 import { planClaudeRefresh } from './claude-upgrade.js';
 import { planCodexRefresh } from './codex-upgrade.js';
 import { planAgyRefresh } from './agy-upgrade.js';
-import { eduOwnedRoot } from './native-files.js';
+import { eduOwnedRoot, resolvesInPlace } from './native-files.js';
 import { pluginRecoveryPath, resumeRegistrationRecovery, withRegistrationRecovery } from './plugin-recovery.js';
 import { eduMcpLaunch, spawnCli, type McpLaunch } from '../platform/index.js';
 import { codexMcpEntry } from '../platform/child-env.js';
-import { access, mkdir, readFile, readdir, realpath, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, readFile, readdir, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { CliId } from '../core/contracts.js';
 import { instructionActions, skillActions } from '../adapters/common.js';
@@ -38,6 +40,8 @@ export interface SetupPlan extends SetupOptions {
 }
 export interface ApplySetupOptions {
   runner?: SetupRunner; templatesDir?: string; detected?: CliId[]; lang?: 'en' | 'es'; brainRoot?: string; platform?: NodeJS.Platform;
+  /** Host overrides such as CODEX_HOME; the CLI passes its environment. Defaults to the process environment. */
+  env?: NodeJS.ProcessEnv;
   /** The caller named the CLIs (`--cli`): on an existing installation, set up the ones not configured yet. */
   addNew?: boolean;
 }
@@ -101,7 +105,8 @@ function isInstalled(result: SetupResult, cli: CliId): boolean {
   if (cli === 'codex') return isCodexInstalledJson(result.stdout ?? '');
   const knownIds = new Set(['edu', 'edu@edu', 'edu-agent']);
   return (result.stdout ?? '').split(/\r?\n/).some((line) => {
-    const first = line.trim().replace(/^[*•✓✔\s]+/, '').split(/\s+/)[0]?.toLowerCase();
+    // Hosts decorate list lines (`❯ edu@edu`, `• edu`, `✔ edu`): strip any leading non-alphanumeric run.
+    const first = line.trim().replace(/^[^\p{L}\p{N}]+/u, '').split(/\s+/)[0]?.toLowerCase();
     const leaf = first?.split(/[/:]/).at(-1)?.replace(/\.git$/, '');
     return leaf !== undefined && knownIds.has(leaf);
   });
@@ -225,7 +230,30 @@ async function writeManifest(path: string, manifest: SetupManifest): Promise<voi
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.tmp`;
   await writeFile(temp, `${JSON.stringify(manifest, null, 2)}\n`);
-  await rename(temp, path);
+  await retryFs.rename(temp, path);
+}
+
+/** The setup record names its file when it is corrupt, instead of a bare SyntaxError. */
+function parseSetupManifest(path: string, text: string): SetupManifest {
+  let value: SetupManifest;
+  try { value = JSON.parse(text) as SetupManifest; }
+  catch (error) { throw new Error(`Edu setup record ${path} is not valid JSON (${error instanceof Error ? error.message : String(error)}). Restore it or remove it, then run again.`); }
+  if (!value || value.version !== 1 || !Array.isArray(value.native) || !Array.isArray(value.fallback)) throw new Error(`Invalid setup manifest: ${path}`);
+  return value;
+}
+
+/** The public command that undoes one native registration step. */
+function inverseCommand(command: SetupCommand): SetupCommand | undefined {
+  const [verb, ...rest] = command.args;
+  const make = (args: string[]): SetupCommand => ({ cli: command.cli, command: command.command, args });
+  if (command.cli === 'pi' && verb === 'install') return make(['remove', ...rest]);
+  if (verb !== 'plugin') return undefined;
+  const [action, ...more] = rest;
+  if (action === 'marketplace' && more[0] === 'add') return make(['plugin', 'marketplace', 'remove', 'edu']);
+  if (command.cli === 'claude' && action === 'install') return make(['plugin', 'uninstall', 'edu@edu']);
+  if (command.cli === 'codex' && action === 'add') return make(['plugin', 'remove', 'edu@edu']);
+  if (command.cli === 'agy' && action === 'install') return make(['plugin', 'uninstall', 'edu']);
+  return undefined;
 }
 
 /** Installs selected CLIs, falls back to the existing managed-file adapters, and initializes the global brain. */
@@ -260,11 +288,12 @@ async function localizeUpgradeSources(plan: SetupPlan, options: ApplySetupOption
   if ((options.platform ?? process.platform) !== 'win32') return;
   const clis = native.filter(cli => cli === 'claude' || cli === 'codex');
   if (!clis.length) return;
-  if (!/[\\/]node_modules[\\/]edu-agent$/.test(plan.packageRoot) || await realpath(plan.packageRoot) !== resolve(plan.packageRoot)) throw new Error('Manual conflict: Windows native upgrade requires an owned installed edu-agent package');
+  // An `npm link` makes the package a link (junction on Windows): that checkout is not ours to rewrite.
+  if (!/[\\/]node_modules[\\/]edu-agent$/.test(plan.packageRoot) || (await lstat(plan.packageRoot)).isSymbolicLink()) throw new Error('Manual conflict: Windows native upgrade requires an owned installed edu-agent package');
   const changed: string[] = [];
   for (const cli of clis) {
     const path = join(plan.packageRoot, 'plugins', cli === 'claude' ? 'claude-code' : 'codex', '.mcp.json');
-    if (await realpath(path) !== resolve(path)) throw new Error(`Manual conflict: symlinked candidate MCP ${path}`);
+    if (!await resolvesInPlace(path, plan.packageRoot, 'win32')) throw new Error(`Manual conflict: symlinked candidate MCP ${path}`);
     const before = await readTarget(path);
     // Codex entries gained `env_vars` in 6.0; a pre-6.0 generated file is still Edu's own and is localized to the current shape.
     const shapes = (launch: McpLaunch) => cli === 'claude' ? [{ edu: launch }] : [{ mcpServers: { edu: codexMcpEntry(launch) } }, { mcpServers: { edu: launch } }];
@@ -300,13 +329,13 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
   const adapterText = await optionalSetupFile(adapterManifest);
   // An initialized brain alone is not proof that integrations have ever been installed.
   if (!existingBrain || (!previousText && !adapterText && !plan.alreadyInstalled.length)) return undefined;
-  const previous = previousText ? JSON.parse(previousText) as SetupManifest : undefined;
-  if (previous && (previous.version !== 1 || !Array.isArray(previous.native) || !Array.isArray(previous.fallback))) throw new Error('Invalid setup manifest');
+  const previous = previousText ? parseSetupManifest(manifestPath, previousText) : undefined;
   const templatesDir = options.templatesDir ?? join(plan.packageRoot, 'templates');
-  const storedAdapter = adapterText ? JSON.parse(adapterText) : undefined;
-  if (storedAdapter && !Array.isArray(storedAdapter.actions)) throw new Error('Invalid adapter manifest');
+  const dirs = installDirs(plan.home, options.env ?? process.env);
+  const storedAdapter = adapterText ? parseJsonRecord(adapterManifest, adapterText) : undefined;
+  if (storedAdapter && !Array.isArray(storedAdapter.actions)) throw new Error(`Invalid adapter manifest: ${adapterManifest}`);
   const configured = new Set([...plan.alreadyInstalled, ...(previous?.native ?? []), ...(previous?.fallback ?? []),
-    ...(storedAdapter?.actions ?? []).flatMap((a: { cli: CliId; clis?: CliId[] }) => a.clis ?? [a.cli])]);
+    ...((storedAdapter?.actions ?? []) as Array<{ cli: CliId; clis?: CliId[] }>).flatMap(a => a.clis ?? [a.cli])]);
   const unconfigured = plan.clis.filter(cli => !configured.has(cli));
   // A detected CLI is not consent to integrate it during an upgrade (`edu update` runs setup --yes):
   // refresh the configured hosts and name the new ones. An explicit --cli list adds them after the refresh.
@@ -318,8 +347,8 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
   const notes: string[] = [];
   for (const scope of scopes) {
     const changed: PlannedAction[] = [];
-    const bases = await pinConfiguredBases(scope.root, plan.home);
-    const actions = plan.clis.flatMap(cli => instructionActions(cli, scope.scope, scope.root, { home: plan.home, templatesDir, brainRoot }));
+    const bases = await pinConfiguredBases(scope.root, plan.home, dirs);
+    const actions = plan.clis.flatMap(cli => instructionActions(cli, scope.scope, scope.root, { home: plan.home, templatesDir, brainRoot, dirs }));
     for (const action of new Map(actions.map(a => [a.path, a])).values()) {
       const before = await optionalSetupFile(action.path);
       // A registered brain or native plugin is not consent to add host instructions.
@@ -329,7 +358,7 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
     }
     const scopedManifestPath = getManifestPath(scope.scope, scope.root, plan.home);
     const scopedText = await optionalSetupFile(scopedManifestPath);
-    const owned: PlannedAction[] = scopedText ? JSON.parse(scopedText).actions : [];
+    const owned = (scopedText ? parseJsonRecord(scopedManifestPath, scopedText).actions : []) as PlannedAction[];
     if (!Array.isArray(owned)) throw new Error(`Invalid adapter manifest: ${scopedManifestPath}`);
     const bundleActions: PlannedAction[] = [];
     for (const cli of plan.clis) {
@@ -372,7 +401,7 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
     const bundleRoots = new Set(bundleActions.flatMap(a => a.bundle ? [a.bundle.root] : []));
     for (const action of owned) if (action.bundle && bundleRoots.has(action.bundle.root)) await validateBundleAction(action, bases);
     const retiringBundle = owned.some(a => a.bundle && bundleRoots.has(a.bundle.root) && !bundleActions.some(next => next.path === a.path));
-    if (changed.length || retiringBundle) upgrades.push({ ...scope, bases, home: plan.home, templatesDir, notes: [], actions: [...new Map([...changed, ...bundleActions].map(a => [a.path, a])).values()] });
+    if (changed.length || retiringBundle) upgrades.push({ ...scope, bases, dirs, home: plan.home, templatesDir, notes: [], actions: [...new Map([...changed, ...bundleActions].map(a => [a.path, a])).values()] });
   }
   // Do not report an installed native plugin as refreshed merely because list succeeded.
   // Old manifests contain no cache baseline: never overwrite unknown custom plugin files.
@@ -441,6 +470,10 @@ async function prepareUpgrade(plan: SetupPlan, options: ApplySetupOptions, brain
 }
 
 export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {}): Promise<SetupReport> {
+  return withInstallLock(plan.home, () => applySetupLocked(plan, options));
+}
+
+async function applySetupLocked(plan: SetupPlan, options: ApplySetupOptions): Promise<SetupReport> {
   const brainRoot = resolve(options.brainRoot ?? process.env.EDU_HOME ?? join(plan.home, '.edu'));
   const upgraded = await prepareUpgrade(plan, options, brainRoot);
   if (upgraded && !upgraded.deferred?.length) return upgraded;
@@ -459,31 +492,56 @@ export async function applySetup(plan: SetupPlan, options: ApplySetupOptions = {
 
 async function applyFreshSetup(plan: SetupPlan, options: ApplySetupOptions, brainRoot: string): Promise<SetupReport> {
   const runner = options.runner ?? plan.runner ?? defaultRunner;
+  const env = options.env ?? process.env;
+  const dirs = installDirs(plan.home, env);
   const report: SetupReport = { installed: [], fallback: [], alreadyInstalled: [...plan.alreadyInstalled], failed: [] };
+  const notes: string[] = [];
   const pending = new Set(plan.fallback);
   const successful = new Set<CliId>();
   const failed = new Map<CliId, string>();
   await localizePluginsForPlatform(plan.packageRoot, options.platform);
+  const manifestPath = join(plan.home, '.edu/plugin-setup.json');
+  const previousText = await optionalSetupFile(manifestPath);
+  const previous = previousText ? parseSetupManifest(manifestPath, previousText) : undefined;
   // Codex refuses to run when CODEX_HOME points to a missing directory (fresh machines, custom homes).
   const createdDirs: string[] = [];
   if (plan.commands.some(c => c.cli === 'codex')) {
-    const codexHome = resolve(process.env.CODEX_HOME || join(plan.home, '.codex'));
     // Recorded so uninstall removes it again when Codex left it empty.
-    const created = await mkdir(codexHome, { recursive: true }).catch(() => undefined);
-    if (created) createdDirs.push(codexHome);
+    const created = await mkdir(dirs.codex, { recursive: true }).catch(() => undefined);
+    if (created) createdDirs.push(dirs.codex);
   }
-  for (const command of plan.commands) {
-    if (failed.has(command.cli)) continue;
-    const result = await runner(command);
-    if (result.exitCode !== 0) failed.set(command.cli, (result.stderr || result.stdout || `exit ${result.exitCode}`).trim());
-    else successful.add(command.cli);
+  // Every native registration is recorded BEFORE its command runs, so a crash or a failure half-way
+  // still leaves a record uninstall acts on. A failed host's finished steps are undone at once.
+  let native = [...(previous?.native ?? [])];
+  const record = () => writeManifest(manifestPath, {
+    version: 1, packageRoot: plan.packageRoot, native, fallback: previous?.fallback ?? [],
+    ...(previous?.adapterManifestPath ? { adapterManifestPath: previous.adapterManifestPath } : {}),
+    ...(createdDirs.length || previous?.createdDirs?.length ? { createdDirs: [...new Set([...(previous?.createdDirs ?? []), ...createdDirs])] } : {}),
+  });
+  for (const cli of [...new Set(plan.commands.map(command => command.cli))]) {
+    if (!native.includes(cli)) { native = [...native, cli]; await record(); }
+    const done: SetupCommand[] = [];
+    for (const command of plan.commands.filter(item => item.cli === cli)) {
+      const result = await runner(command);
+      if (result.exitCode !== 0) { failed.set(cli, (result.stderr || result.stdout || `exit ${result.exitCode}`).trim()); break; }
+      done.push(command);
+    }
+    if (!failed.has(cli)) { successful.add(cli); continue; }
+    let undone = true;
+    for (const command of done.reverse()) {
+      const inverse = inverseCommand(command);
+      const result = inverse ? await runner(inverse).catch(error => ({ exitCode: 1, stderr: String(error) })) : { exitCode: 1 };
+      if (result.exitCode !== 0) undone = false;
+    }
+    if (undone && !previous?.native.includes(cli)) { native = native.filter(item => item !== cli); await record(); }
+    else if (!undone) notes.push(`${cli}: part of the native registration could not be undone; it stays recorded, so edu uninstall removes it.`);
   }
   for (const [cli, message] of failed) { pending.add(cli); report.failed.push({ cli, message }); }
   for (const cli of successful) if (!pending.has(cli)) report.installed.push(cli);
 
   let adapterPlan: InstallPlan | undefined;
   if (pending.size) {
-    adapterPlan = await planInstall({ clis: [...pending], selectedHosts: plan.clis, scope: 'global', root: plan.packageRoot, home: plan.home, templatesDir: options.templatesDir ?? join(plan.packageRoot, 'templates') });
+    adapterPlan = await planInstall({ clis: [...pending], selectedHosts: plan.clis, scope: 'global', root: plan.packageRoot, home: plan.home, templatesDir: options.templatesDir ?? join(plan.packageRoot, 'templates'), env, platform: options.platform });
     if (pending.has('opencode')) await appendOpenCodeAssets(adapterPlan, plan.packageRoot);
     report.fallback.push(...pending);
   }
@@ -492,12 +550,12 @@ async function applyFreshSetup(plan: SetupPlan, options: ApplySetupOptions, brai
   if (codexInstalled && !pending.has('codex')) {
     // Codex plugin hooks are not guaranteed to fire, so preserve the global identity block.
     const templatesDir = options.templatesDir ?? join(plan.packageRoot, 'templates');
-    const identityActions = instructionActions('codex', 'global', plan.packageRoot, { home: plan.home, templatesDir, brainRoot });
+    const identityActions = instructionActions('codex', 'global', plan.packageRoot, { home: plan.home, templatesDir, brainRoot, dirs });
     if (adapterPlan) {
       adapterPlan.actions.push(...identityActions);
     } else {
       adapterPlan = {
-      scope: 'global', root: plan.packageRoot, home: plan.home, templatesDir, notes: [],
+      scope: 'global', root: plan.packageRoot, home: plan.home, templatesDir, notes: [], dirs,
         actions: identityActions,
       };
     }
@@ -505,39 +563,43 @@ async function applyFreshSetup(plan: SetupPlan, options: ApplySetupOptions, brai
 
   let adapterManifestPath: string | undefined;
   if (adapterPlan) {
-    if (adapterPlan.notes.length) report.notes = adapterPlan.notes;
     await applyInstall(adapterPlan);
     adapterManifestPath = getManifestPath('global', plan.packageRoot, plan.home);
+    notes.push(...adapterPlan.notes);
   }
+  if (notes.length) report.notes = notes;
   if (pending.has('opencode')) await removeOpenCode1TuiFromCliJson(plan.home);
 
   await initBrain({ location: { scope: 'global', root: brainRoot }, templatesDir: options.templatesDir ?? join(plan.packageRoot, 'templates'), detected: options.detected ?? plan.clis, lang: options.lang });
-  const manifestPath = join(plan.home, '.edu/plugin-setup.json');
-  let previous: SetupManifest | undefined;
-  try { previous = JSON.parse(await readFile(manifestPath, 'utf8')) as SetupManifest; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const manifest: SetupManifest = {
     version: 1,
     packageRoot: plan.packageRoot,
-    native: [...new Set([...(previous?.native ?? []), ...report.installed])],
+    native,
     fallback: [...new Set([...(previous?.fallback ?? []), ...report.fallback])],
     ...(adapterManifestPath || previous?.adapterManifestPath ? { adapterManifestPath: adapterManifestPath ?? previous?.adapterManifestPath } : {}),
     ...(createdDirs.length || previous?.createdDirs?.length ? { createdDirs: [...new Set([...(previous?.createdDirs ?? []), ...createdDirs])] } : {}),
   };
-  await writeManifest(join(plan.home, '.edu/plugin-setup.json'), manifest);
+  await writeManifest(manifestPath, manifest);
   return report;
+}
+
+/** A JSON object from one of Edu's own records, named when it does not parse. */
+function parseJsonRecord(path: string, text: string): Record<string, unknown> & { actions?: unknown } {
+  try { return JSON.parse(text) as Record<string, unknown>; }
+  catch (error) { throw new Error(`Edu state file ${path} is not valid JSON (${error instanceof Error ? error.message : String(error)}). Restore it or remove it, then run again.`); }
 }
 
 export async function setupManifestPath(home: string): Promise<string> { return join(resolve(home), '.edu/plugin-setup.json'); }
 
 export async function uninstallSetup(options: { home: string; runner?: SetupRunner; force?: boolean }): Promise<void> {
+  return withInstallLock(options.home, () => uninstallSetupLocked(options));
+}
+
+async function uninstallSetupLocked(options: { home: string; runner?: SetupRunner; force?: boolean }): Promise<void> {
   const path = await setupManifestPath(options.home);
-  let manifest: SetupManifest;
-  try { manifest = JSON.parse(await readFile(path, 'utf8')) as SetupManifest; }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw error;
-  }
+  const text = await optionalSetupFile(path);
+  if (text === undefined) return;
+  const manifest = parseSetupManifest(path, text);
   const runner = options.runner ?? defaultRunner;
   const commands: Record<CliId, (root: string) => SetupCommand[]> = {
     claude: () => [

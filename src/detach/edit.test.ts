@@ -14,6 +14,11 @@ describe('surgical detach edits', () => {
     expect(result.enabledPlugins['engram@engram']).toBe(true);
   });
 
+  it('keeps the user JSON indentation and line endings', () => {
+    const input = '{\r\n\t"enabledPlugins": {\r\n\t\t"engram@engram": true,\r\n\t\t"mine": true\r\n\t}\r\n}\r\n';
+    expect(editContent('json', 'claude', input, ['engram']).text).toBe('{\r\n\t"enabledPlugins": {\r\n\t\t"mine": true\r\n\t}\r\n}\r\n');
+  });
+
   it('keeps JSONC comments while removing owned MCP and default agent', () => {
     const input = '{\n  // user note\n  "mcp": { "engram": { "command": "engram" }, "context7": {} },\n  "default_agent": "gentle-orchestrator"\n}\n';
     const result = editContent('jsonc', 'opencode', input, ['engram', 'gentle-ai']).text;

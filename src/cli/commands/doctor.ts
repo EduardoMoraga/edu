@@ -13,6 +13,9 @@ import { scanContext } from '../../doctor/context.js';
 import { integrationPreflight } from '../../doctor/integrations.js';
 import { readSyncState } from '../../vault/sync.js';
 import { describeSync } from './sync.js';
+import { dirname } from 'node:path';
+import { packageTemplatesDir } from '../package.js';
+import { binaryOnPath } from '../../adapters/common.js';
 
 export const AUTH_HINTS: Record<CliId, string> = {
   claude: 'run `claude` once and sign in, or set ANTHROPIC_API_KEY',
@@ -70,8 +73,16 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
           return;
         }
         const lines: DoctorLine[] = [nodeLine(process.version, lang)];
+        // Hosts start `edu mcp` and the hooks by name: without `edu` on PATH every integration fails silently.
+        lines.push(await binaryOnPath('edu', ctx.env)
+          ? { level: 'ok', text: lang === 'es' ? '`edu` está en el PATH' : '`edu` is on PATH' }
+          : { level: 'fail', text: lang === 'es' ? '`edu` no está en el PATH: los hosts no pueden iniciar `edu mcp` ni los hooks. Agregue el bin global de npm (npm prefix -g) al PATH.' : '`edu` is not on PATH: hosts cannot start `edu mcp` or its hooks. Add the npm global bin directory (npm prefix -g) to PATH.' });
         const { diagnose } = await import('../../adapters/index.js');
-        const clis = await diagnose({ root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env });
+        const { installProblems } = await import('../../adapters/doctor.js');
+        const diagnoseOptions = { root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env, packageRoot: dirname(packageTemplatesDir()) };
+        const clis = await diagnose(diagnoseOptions);
+        const problems = await installProblems(diagnoseOptions);
+        for (const problem of problems) lines.push(problem);
         for (const d of clis) {
           if (!d.installed) lines.push({ level: 'warn', text: t(lang, 'doctor.cliMissing', { cli: d.cli }) });
           else if (d.drift) lines.push({ level: 'fail', text: t(lang, 'doctor.cliDrift', { cli: d.cli }) });
@@ -129,7 +140,7 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         }
 
         if (g.json || opts.json) {
-          printJson(ctx, { node: process.version, clis, projects: projects.projects, brains, vault, sync: sync ?? null, lines });
+          printJson(ctx, { node: process.version, clis, problems, projects: projects.projects, brains, vault, sync: sync ?? null, lines });
           return;
         }
         const style = look(ctx);

@@ -1,14 +1,15 @@
 /** Snapshot resolution inputs; this is detection, not an atomic vendor/OS transaction. */
-import { lstat, readFile, realpath } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { sha256 } from '../adapters/operations.js';
+import { hostConfigDirs } from '../adapters/paths.js';
 import type { SetupRunner } from './index.js';
 
 export async function captureNativeProvenance(options: { host: 'claude' | 'codex'; home: string; packageRoot: string; runner: SetupRunner; expectedRegistration: string }): Promise<() => Promise<void>> {
   const { host, home, packageRoot, runner } = options;
   const envName = host === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
   const envHome = process.env[envName]; const cwd = process.cwd();
-  const hostHome = resolve(envHome || join(home, `.${host}`));
+  const hostHome = hostConfigDirs(home, process.env)[host];
   const marketplace = join(packageRoot, host === 'codex' ? '.agents/plugins/marketplace.json' : '.claude-plugin/marketplace.json');
   const pluginRoot = join(packageRoot, 'plugins', host === 'codex' ? 'codex' : 'claude-code');
   const paths = [marketplace, join(packageRoot, 'package.json'), join(home, '.edu/plugin-setup.json'),
@@ -23,10 +24,11 @@ export async function captureNativeProvenance(options: { host: 'claude' | 'codex
   const unique = [...new Set(paths)];
   const files = async () => Promise.all(unique.map(async path => {
     try {
-      const stat = await lstat(path);
-      if (!stat.isFile() || await realpath(path) !== resolve(path)) throw new Error(`unsupported provenance path: ${path}`);
-      // Opaque digest only: never parse, log, copy or return config contents.
-      return sha256(await readFile(path));
+      if (!(await stat(path)).isFile()) throw new Error(`unsupported provenance path: ${path}`);
+      // Opaque digest only: never parse, log, copy or return config contents. The resolved location is
+      // part of it, so a link anywhere on the way (macOS /var → /private/var, a dotfiles link) is fine,
+      // while one retargeted between the snapshot and the change is detected.
+      return `${await realpath(path)}\0${sha256(await readFile(path))}`;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent';
       throw error;

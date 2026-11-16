@@ -12,6 +12,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { parse } from 'jsonc-parser';
 import type { CliId } from '../core/contracts.js';
+import { hostConfigDirs } from '../adapters/paths.js';
 
 export interface NativeIntegration { found: string[]; notes: string[] }
 export type NativeReport = Record<CliId, NativeIntegration>;
@@ -35,7 +36,7 @@ async function names(dir: string): Promise<string[]> {
 }
 
 async function claude(home: string, env: NodeJS.ProcessEnv): Promise<NativeIntegration> {
-  const dir = env.CLAUDE_CONFIG_DIR || join(home, '.claude');
+  const dir = hostConfigDirs(home, env).claude;
   const enabled = (await json(join(dir, 'settings.json')))?.enabledPlugins;
   const flags = enabled && typeof enabled === 'object' && !Array.isArray(enabled) ? enabled as Record<string, unknown> : {};
   const installed = (await json(join(dir, 'plugins', 'installed_plugins.json')))?.plugins;
@@ -47,7 +48,7 @@ async function claude(home: string, env: NodeJS.ProcessEnv): Promise<NativeInteg
 }
 
 async function codex(home: string, env: NodeJS.ProcessEnv): Promise<NativeIntegration> {
-  const config = await text(join(env.CODEX_HOME || join(home, '.codex'), 'config.toml'));
+  const config = await text(join(hostConfigDirs(home, env).codex, 'config.toml'));
   const found: string[] = [];
   let current: string | undefined;
   const states = new Map<string, boolean>();
@@ -66,7 +67,7 @@ async function codex(home: string, env: NodeJS.ProcessEnv): Promise<NativeIntegr
 }
 
 async function pi(home: string, env: NodeJS.ProcessEnv): Promise<NativeIntegration> {
-  const dir = env.PI_CODING_AGENT_DIR || join(home, '.pi', 'agent');
+  const dir = hostConfigDirs(home, env).pi;
   const packages = (await json(join(dir, 'settings.json')))?.packages;
   const result: NativeIntegration = { found: [], notes: [] };
   for (const entry of Array.isArray(packages) ? packages : []) {
