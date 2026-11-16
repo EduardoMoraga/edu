@@ -21,6 +21,7 @@ export const EduConfigSchema = z.object({
     timeoutMs: z.number().int().min(1000).max(86_400_000).default(1_800_000),
     maxAdvisorCalls: z.number().int().min(0).max(1).default(0),
   }).strict().optional(),
+  crew: z.object({ timeoutMinutes: z.number().int().min(1).max(1440).optional() }).optional(),
   brain: z.object({ obsidianVault: z.string().optional() }), lang: z.enum(['en', 'es']),
   brainDir: z.string().min(1).optional(), sourcesDir: z.string().min(1).optional(),
   identity: z.object({ name: z.string().min(1), role: z.string().optional(), tone: z.string().optional(), summary: z.string().optional() }).optional(),

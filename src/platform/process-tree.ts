@@ -42,6 +42,23 @@ export function processAlive(pid: number | undefined): boolean {
   catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
 }
 
+/**
+ * What runs at `pid`, to check a recorded pid still names the expected process before signalling it.
+ * POSIX: its command line (`ps`). Windows: its image name (`tasklist`), since command lines need WMI.
+ */
+export async function describeProcess(pid: number, platform: NodeJS.Platform = process.platform): Promise<string | undefined> {
+  const { execFile } = await import('node:child_process');
+  const run = (command: string, args: string[]) => new Promise<string>(resolve => {
+    execFile(command, args, { encoding: 'utf8', windowsHide: true, timeout: 5000 }, (error, stdout) => resolve(error ? '' : stdout));
+  });
+  if (platform === 'win32') {
+    const row = (await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'])).trim();
+    const image = /^"([^"]+)","(\d+)"/.exec(row);
+    return image && Number(image[2]) === pid ? image[1] : undefined;
+  }
+  return (await run('ps', ['-o', 'args=', '-p', String(pid)])).trim() || undefined;
+}
+
 function exited(child: TreeRoot): boolean {
   return (child.exitCode ?? null) !== null || (child.signalCode ?? null) !== null;
 }

@@ -3,12 +3,22 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { binaryOnPath } from '../adapters/common.js';
 import type { CrewJob } from '../core/contracts.js';
+import { interactiveAutonomyFlags } from '../engine/autonomy.js';
+import { isTerminalCrewJobStatus } from './status.js';
 import { createCrewStore, type CrewStore } from './store.js';
 
 const execFile = promisify(execFileCallback);
 export interface HerdrResult { stdout: string; stderr: string }
 export type HerdrRunner = (args: string[]) => Promise<HerdrResult>;
-export interface HerdrOptions { runner?: HerdrRunner; store?: CrewStore; env?: NodeJS.ProcessEnv; hasBinary?: () => Promise<boolean>; now?: () => Date }
+export interface HerdrOptions {
+  runner?: HerdrRunner; store?: CrewStore; env?: NodeJS.ProcessEnv; hasBinary?: () => Promise<boolean>; now?: () => Date;
+  /** Waits between retries of a failed herdr call (tests inject an instant one). */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** A herdr call that fails this many times in a row fails the job; one failure may be a restarting server. */
+const HERDR_ATTEMPTS = 3;
+const HERDR_RETRY_MS = 250;
 
 const defaultRunner: HerdrRunner = async args => {
   const result = await execFile('herdr', args, { encoding: 'utf8', maxBuffer: 1024 * 1024 });
@@ -29,10 +39,6 @@ function readResult(text: string): string {
   } catch {
     return text.trim();
   }
-}
-
-export async function herdrAvailable(options: HerdrOptions = {}): Promise<boolean> {
-  return (options.env ?? process.env).HERDR_ENV === '1' && await (options.hasBinary ?? (() => binaryOnPath('herdr')))();
 }
 
 /** The herdr workspace that receives crew panes dispatched from outside herdr (e.g. Hermes on Telegram). */
@@ -86,12 +92,11 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
     paneId = await openPane(job, target, runner, agentName);
     if (typeof paneId !== 'string' || !paneId) throw new Error(target.kind === 'inside' ? 'Herdr pane split did not return result.pane.pane_id' : 'Herdr did not return result.root_pane.pane_id');
     const where = target.kind === 'outside' ? `Visible in herdr workspace "${EDU_WORKSPACE_LABEL}", pane ${paneId}.` : undefined;
-    const autonomyPrompt = job.autonomy === 'readonly'
-      ? 'Autonomy policy: readonly. Do not modify files or take other write actions.'
-      : `Autonomy policy: ${job.autonomy}. Follow this level for all requested actions.`;
+    // Autonomy reaches the CLI as its own permission flags, which it enforces, not as a sentence it may ignore.
     // Interactive Codex can refuse its shared background server; --no-daemon runs it standalone.
-    const agentArgs = job.cli === 'codex' ? ['--', '--no-daemon'] : [];
-    const prompt = `${autonomyPrompt}\n\nMission: ${job.task}`;
+    const cliArgs = [...interactiveAutonomyFlags(job.cli, job.autonomy), ...(job.cli === 'codex' ? ['--no-daemon'] : [])];
+    const agentArgs = cliArgs.length ? ['--', ...cliArgs] : [];
+    const prompt = job.task;
     try {
       await runner(['agent', 'start', agentName, '--kind', job.cli, '--pane', paneId, ...agentArgs]);
       agentStarted = true;
@@ -106,7 +111,7 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
         note: `${job.cli} is waiting for your answer in herdr pane ${paneId}. Answer it there; Edu sends the task as soon as it is ready.${question ? `\n${question}` : ''}`,
       });
     }
-    await runner(['agent', 'prompt', agentName, prompt]);
+    await sendPrompt(runner, agentName, prompt);
     return store.update(job.id, { status: 'running', paneId, agentName, note: where, ...await promptBaseline(agentName, paneId, options, now) });
   } catch (error) {
     let summary = errorMessage(error);
@@ -118,43 +123,84 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
   }
 }
 
+/** `--` keeps a task that starts with `-` from being read as a herdr option. */
+function sendPrompt(runner: HerdrRunner, agentName: string, prompt: string): Promise<HerdrResult> {
+  return runner(['agent', 'prompt', agentName, '--', prompt]);
+}
+
+/** herdr errors that mean the agent or pane no longer exists: retrying cannot help. */
+const GONE = /not[_ ]found|no such (?:agent|pane)|unknown (?:agent|pane)/i;
+
 export async function refreshPane(job: CrewJob, options: HerdrOptions & { brainRoot?: string } = {}): Promise<CrewJob> {
-  if (job.status === 'done' || job.status === 'failed' || job.status === 'cancelled' || !job.agentName) return job;
+  if (isTerminalCrewJobStatus(job.status) || !job.agentName) return job;
   const store = options.store ?? createCrewStore(options.brainRoot ?? process.env.EDU_HOME ?? `${process.env.HOME ?? ''}/.edu`);
-  try {
-    const { status, seq } = await agentState(job.agentName, options);
-    if (job.pendingPrompt) {
-      if (status !== 'idle' && status !== 'done') return job;
-      await (options.runner ?? defaultRunner)(['agent', 'prompt', job.agentName, job.pendingPrompt]);
-      return store.update(job.id, { pendingPrompt: undefined, note: undefined, ...await promptBaseline(job.agentName, job.paneId, options, options.now ?? (() => new Date())) });
+  const sleep = options.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  const now = options.now ?? (() => new Date());
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= HERDR_ATTEMPTS; attempt++) {
+    try { return await refreshOnce(job, store, options); }
+    catch (error) {
+      lastError = error;
+      if (GONE.test(errorMessage(error)) || attempt === HERDR_ATTEMPTS) break;
+      await sleep(HERDR_RETRY_MS * attempt);
     }
-    if (status === 'working' || status === 'blocked') {
-      await appendPaneOutput(job, store, options);
-      return job.observedWorking ? job : store.update(job.id, { observedWorking: true });
-    }
-    // herdr reports `done` for a finished, unseen turn; `idle` alone may mean the prompt was not picked up yet.
-    let changedSincePrompt = seq !== undefined && job.promptSeq !== undefined && seq > job.promptSeq;
-    // Very short turns can finish without herdr ever reporting `working`; fall back to the pane text.
-    const settledFor = job.promptedAt ? (options.now ?? (() => new Date()))().getTime() - Date.parse(job.promptedAt) : 0;
-    if (!changedSincePrompt && status === 'idle' && job.paneId && job.promptPaneHash && settledFor >= 5000) {
-      changedSincePrompt = (await paneHash(job.paneId, options).catch(() => job.promptPaneHash)) !== job.promptPaneHash;
-    }
-    if (status === 'done' || (status === 'idle' && (job.observedWorking || changedSincePrompt))) {
-      await appendPaneOutput(job, store, options);
-      const output = await (options.runner ?? defaultRunner)(['agent', 'read', job.agentName, '--source', 'recent-unwrapped', '--lines', '200']);
-      return store.update(job.id, { status: 'done', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary: readResult(output.stdout) });
-    }
-    if (status === 'failed' || status === 'error') {
-      await appendPaneOutput(job, store, options);
-      return store.update(job.id, { status: 'failed', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary: `Herdr agent ${status}` });
-    }
-    return job;
-  } catch (error) {
-    // The agent is gone (crashed or exited): surface what the pane last showed instead of a bare lookup error.
-    const paneTail = job.paneId ? await lastPaneLines(job.paneId, options).catch(() => '') : '';
-    const summary = paneTail ? `Agent exited. Last pane output:\n${paneTail}` : errorMessage(error);
-    return store.update(job.id, { status: 'failed', endedAt: (options.now ?? (() => new Date()))().toISOString(), summary });
   }
+  // The agent is gone (crashed or exited) or herdr kept failing: surface what the pane last showed.
+  const paneTail = job.paneId ? await lastPaneLines(job.paneId, options).catch(() => '') : '';
+  const summary = paneTail ? `Agent exited. Last pane output:\n${paneTail}` : errorMessage(lastError);
+  return store.update(job.id, { status: 'failed', endedAt: now().toISOString(), summary });
+}
+
+async function refreshOnce(job: CrewJob, store: CrewStore, options: HerdrOptions): Promise<CrewJob> {
+  const agentName = job.agentName!;
+  const runner = options.runner ?? defaultRunner;
+  const now = options.now ?? (() => new Date());
+  const { status, seq } = await agentState(agentName, options);
+  if (job.pendingPrompt) {
+    if (status !== 'idle' && status !== 'done') return job;
+    // Claim the prompt under the job lock, so two pollers never both send it.
+    let claimed: string | undefined;
+    const current = await store.mutate(job.id, latest => {
+      if (!latest.pendingPrompt || isTerminalCrewJobStatus(latest.status)) return undefined;
+      claimed = latest.pendingPrompt;
+      return { pendingPrompt: undefined, note: undefined };
+    });
+    if (claimed === undefined) return current;
+    try { await sendPrompt(runner, agentName, claimed); }
+    catch (error) {
+      await store.mutate(job.id, latest => latest.pendingPrompt || isTerminalCrewJobStatus(latest.status) ? undefined : { pendingPrompt: claimed });
+      throw error;
+    }
+    return store.update(job.id, await promptBaseline(agentName, job.paneId, options, now));
+  }
+  if (status === 'working' || status === 'blocked') {
+    await appendPaneOutput(job, store, options);
+    return job.observedWorking ? job : store.update(job.id, { observedWorking: true });
+  }
+  // A finished state counts only for a turn that began after Edu's prompt: herdr can still say `done` (or
+  // `idle`) about an earlier turn, or before the agent picked the prompt up. Evidence: herdr was seen working,
+  // its state sequence moved past the prompt's, or (when herdr reports neither) the pane text changed.
+  let changedSincePrompt = seq !== undefined && job.promptSeq !== undefined && seq > job.promptSeq;
+  const settledFor = job.promptedAt ? now().getTime() - Date.parse(job.promptedAt) : 0;
+  if (!changedSincePrompt && (status === 'idle' || status === 'done') && job.paneId && job.promptPaneHash && settledFor >= 5000) {
+    changedSincePrompt = (await paneHash(job.paneId, options).catch(() => job.promptPaneHash)) !== job.promptPaneHash;
+  }
+  if ((status === 'done' || status === 'idle') && (job.observedWorking || changedSincePrompt)) {
+    await appendPaneOutput(job, store, options);
+    const output = await runner(['agent', 'read', agentName, '--source', 'recent-unwrapped', '--lines', '200']);
+    return store.update(job.id, { status: 'done', endedAt: now().toISOString(), summary: readResult(output.stdout) });
+  }
+  if (status === 'failed' || status === 'error') {
+    await appendPaneOutput(job, store, options);
+    return store.update(job.id, { status: 'failed', endedAt: now().toISOString(), summary: `Herdr agent ${status}` });
+  }
+  return job;
+}
+
+/** Closes a job's pane (cancel): the agent in it stops with it. */
+export async function closePane(job: CrewJob, options: HerdrOptions & { brainRoot?: string } = {}): Promise<void> {
+  if (!job.paneId) return;
+  await (options.runner ?? defaultRunner)(['pane', 'close', job.paneId]);
 }
 
 async function appendPaneOutput(job: CrewJob, store: CrewStore, options: HerdrOptions): Promise<void> {

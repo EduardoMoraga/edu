@@ -22,12 +22,19 @@ export function registerCrew(program: Command, ctx: CliContext): void {
     .description('dispatch a crew job')
     .option('--pane', 'dispatch into a visible Herdr pane when available')
     .option('--autonomy <level>', 'readonly, ask, auto, or full', 'ask')
-    .action(action<{ pane?: boolean; autonomy?: string }>(ctx, async ({ g, opts }, cliArg, task) => {
+    .option('--timeout <minutes>', 'stop a headless job after this many minutes (default: crew.timeoutMinutes in config.json, else 60)')
+    .action(action<{ pane?: boolean; autonomy?: string; timeout?: string }>(ctx, async ({ g, opts }, cliArg, task) => {
       const cli = parseCli(cliArg!);
       const autonomy = opts.autonomy;
       if (!['readonly', 'ask', 'auto', 'full'].includes(autonomy ?? '')) throw new Error('Autonomy must be readonly, ask, auto, or full');
-      const job = await (await crew(g.cwd)).dispatch({ cli, task: task!, mode: opts.pane ? 'pane' : 'headless', cwd: g.cwd, autonomy: autonomy as 'readonly' | 'ask' | 'auto' | 'full' });
+      const timeoutMinutes = opts.timeout === undefined ? undefined : Number(opts.timeout);
+      const job = await (await crew(g.cwd)).dispatch({ cli, task: task!, mode: opts.pane ? 'pane' : 'headless', cwd: g.cwd, autonomy: autonomy as 'readonly' | 'ask' | 'auto' | 'full', timeoutMinutes });
       ctx.out(JSON.stringify(job));
+    }));
+  root.command('cancel <id>')
+    .description('cancel a crew job: stop its worker (or close its pane) and mark it cancelled')
+    .action(action<Record<string, never>>(ctx, async ({ g }, id) => {
+      ctx.out(JSON.stringify(await (await crew(g.cwd)).cancel(id!)));
     }));
   root.command('status [id]')
     .description('show crew jobs or one job')
