@@ -15,7 +15,7 @@ const release = (tag: string, sums = true) => ({
 const PACKAGE = 'package bytes';
 /** A GitHub serving the release JSON, the package, and a SHA256SUMS (`digest` forges a wrong one). */
 const github = (sums = true, digest = createHash('sha256').update(PACKAGE).digest('hex')) => (async (input: string | URL | Request) => {
-  const url = String(input);
+  const url = input instanceof Request ? input.url : input.toString();
   if (url.endsWith('.tgz')) return new Response(PACKAGE);
   if (url.endsWith('/SHA256SUMS')) return new Response(`${digest}  edu-agent.tgz\n`);
   return new Response(JSON.stringify(release('v0.8.0', sums)), { status: 200 });

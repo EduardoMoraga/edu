@@ -124,8 +124,9 @@ describe('file layout is preserved', () => {
     const settings = join(opts.home, '.claude/settings.json');
     await put(settings, '{\n  // my comment\n  "theme": "dark"\n}\n');
     const error = await applyInstall(await planInstall({ ...opts, scope: 'global', clis: ['claude'] })).catch((caught: Error) => caught);
-    expect(String(error)).toContain(settings);
-    expect(String(error)).toMatch(/without comments/);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(settings);
+    expect((error as Error).message).toMatch(/without comments/);
     expect(await readFile(settings, 'utf8')).toBe('{\n  // my comment\n  "theme": "dark"\n}\n');
   });
 

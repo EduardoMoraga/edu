@@ -13,7 +13,7 @@ const SKIP = new Set(['node_modules', '.git']);
 
 async function filesUnder(dir: string): Promise<string[]> {
   const entries = await readdir(join(ROOT, dir), { withFileTypes: true });
-  const nested = await Promise.all(entries.filter(entry => !SKIP.has(entry.name)).map(entry => {
+  const nested = await Promise.all(entries.filter(entry => !SKIP.has(entry.name)).map(async entry => {
     const path = `${dir}/${entry.name}`;
     return entry.isDirectory() ? filesUnder(path) : [path];
   }));

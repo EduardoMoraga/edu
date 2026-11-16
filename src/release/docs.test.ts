@@ -18,7 +18,7 @@ const posix = (path: string) => path.split(sep).join('/');
 
 async function markdownUnder(dir: string): Promise<string[]> {
   const entries = await readdir(join(ROOT, dir), { withFileTypes: true });
-  const nested = await Promise.all(entries.map(entry => {
+  const nested = await Promise.all(entries.map(async entry => {
     const path = `${dir}/${entry.name}`;
     if (entry.isDirectory()) return markdownUnder(path);
     return entry.name.endsWith('.md') ? [path] : [];

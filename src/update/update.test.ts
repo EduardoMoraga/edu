@@ -28,7 +28,7 @@ const sumsFor = (bytes: Uint8Array, names: string[]) => names.map(name => `${sha
 
 function fakeFetch(handler: (url: string) => Response | Promise<Response>): typeof fetch & { urls: string[] } {
   const urls: string[] = [];
-  const fn = (async (input: string | URL | Request) => { const url = String(input); urls.push(url); return handler(url); }) as typeof fetch & { urls: string[] };
+  const fn = (async (input: string | URL | Request) => { const url = input instanceof Request ? input.url : input.toString(); urls.push(url); return handler(url); }) as typeof fetch & { urls: string[] };
   fn.urls = urls;
   return fn;
 }
