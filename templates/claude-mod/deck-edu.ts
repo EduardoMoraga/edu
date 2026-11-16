@@ -19,6 +19,9 @@ export const JOBS_KEPT = 8
 export const TASK_LIMIT = 160
 /** Longest short field (cli, mode, status, tier, names) the pane keeps from the snapshot. */
 export const FIELD_LIMIT = 80
+/** Most unregistered check commands, and longest one, the pane shows before approving; beyond that it offers no Approve. */
+export const CHECKS_KEPT = 20
+export const CHECK_LIMIT = 400
 
 const ACTIVE = new Set(['running', 'queued', 'awaiting-approval'])
 
@@ -33,6 +36,29 @@ const time = (value: unknown): number | undefined => (typeof value === 'number' 
 const oneLine = (value: string): string => value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim()
 /** A short snapshot string as the pane shows it: one line, no control characters, bounded. */
 const field = (value: unknown, fallback = ''): string => oneLine(text(value, fallback)).slice(0, FIELD_LIMIT)
+/**
+ * A shell command as the person must see it before approving: control, bidi and zero-width characters are shown as
+ * `⟨U+XXXX⟩` instead of dropped, so a newline cannot hide a second command and a bidi override cannot reorder one.
+ */
+/** Code point ranges a command can hide behind: C0/C1 controls, bidi marks, embeddings and isolates, zero-width and line separators. */
+const HIDDEN_RANGES: readonly (readonly [number, number])[] = [[0x0000, 0x001f], [0x007f, 0x009f], [0x061c, 0x061c], [0x200b, 0x200f], [0x2028, 0x202e], [0x2060, 0x2069], [0xfeff, 0xfeff]]
+const hex = (code: number): string => code.toString(16).toUpperCase().padStart(4, '0')
+const HIDDEN = new RegExp(`[${HIDDEN_RANGES.map(([from, to]) => `\\u${hex(from)}-\\u${hex(to)}`).join('')}]`, 'g')
+const visible = (value: string): string => value.replace(HIDDEN, char => `⟨U+${hex(char.charCodeAt(0))}⟩`)
+
+/** The unregistered checks a gate runs, as shown; `cut` when some are not shown in full (too many, too long, not text). */
+function checksFrom(value: unknown): { checks: string[]; cut: boolean } {
+  if (!Array.isArray(value)) return { checks: [], cut: false }
+  let cut = value.length > CHECKS_KEPT
+  const checks: string[] = []
+  for (const item of value.slice(0, CHECKS_KEPT)) {
+    if (typeof item !== 'string') { cut = true; continue }
+    const shown = visible(item)
+    if (shown.length > CHECK_LIMIT) cut = true
+    checks.push(shown.length > CHECK_LIMIT ? `${shown.slice(0, CHECK_LIMIT)}…` : shown)
+  }
+  return { checks, cut }
+}
 
 function brainFrom(value: unknown): DeckEduBrain | undefined {
   if (!object(value) || value.present !== true) return undefined
@@ -54,17 +80,22 @@ function jobFrom(value: unknown): DeckEduJob | undefined {
   const endedAt = time(value.endedAt)
   // Edu 6.0 names the open approval gate; an absent or malformed one is simply not sent.
   const requestId = typeof value.requestId === 'string' && isRequestId(value.requestId) ? value.requestId : undefined
+  const status = field(value.status, 'queued') || 'queued'
+  // Edu 6.0 lists the shell commands approving the gate would run; they matter only while it is open.
+  const { checks, cut } = status === 'awaiting-approval' ? checksFrom(value.unregisteredChecks) : { checks: [], cut: false }
   return {
     id,
     cli: field(value.cli, '?') || '?',
     task: oneLine(text(value.task)).slice(0, TASK_LIMIT),
-    status: field(value.status, 'queued') || 'queued',
+    status,
     mode: field(value.mode, 'headless') || 'headless',
     startedAt,
     ...(endedAt !== undefined ? { endedAt } : {}),
     tokens: count(value.tokens),
     tokensKnown: value.tokensKnown === true,
     ...(requestId ? { requestId } : {}),
+    ...(checks.length ? { unregisteredChecks: checks } : {}),
+    ...(cut ? { checksCut: true } : {}),
   }
 }
 
@@ -148,6 +179,14 @@ export function activeJobs(edu: DeckEdu | undefined): number {
 
 export function isActiveJob(job: DeckEduJob): boolean {
   return ACTIVE.has(job.status)
+}
+
+/**
+ * Whether the pane may offer Approve: the job awaits approval and every command approving it runs is on screen.
+ * When the checks were cut, the person reads them with `edu crew status` and approves from a terminal.
+ */
+export function approvable(job: DeckEduJob): boolean {
+  return job.status === 'awaiting-approval' && job.checksCut !== true
 }
 
 /**

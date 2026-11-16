@@ -36,6 +36,8 @@ type EduCli = {
   sessionId?: string
   /** Edu 6.0: the open approval gate's nonce on the job awaiting approval. */
   gate?: string
+  /** Edu 6.0: the unregistered check commands approving that gate would run. */
+  checks?: unknown[]
   /** Extra jobs the snapshot lists. */
   more?: Record<string, unknown>[]
 }
@@ -70,7 +72,9 @@ function engine(on: On, cli: EduCli = {}) {
       if (cli.old && argv.includes('--session')) return { value: { exitCode: 1, stdout: '', stderr: "error: unknown option '--session'" } } as never
       const { session: _session, ...older } = SNAPSHOT
       const base = cli.idle ? { ...SNAPSHOT, jobs: SNAPSHOT.jobs.filter(job => job.status === 'done'), approvals: 0 } : cli.old ? older : SNAPSHOT
-      const jobs = [...base.jobs.map(job => (cli.gate && job.status === 'awaiting-approval' ? { ...job, requestId: cli.gate } : job)), ...(cli.more ?? [])]
+      const gated = (job: (typeof base.jobs)[number]) =>
+        job.status !== 'awaiting-approval' ? job : { ...job, ...(cli.gate ? { requestId: cli.gate } : {}), ...(cli.checks ? { unregisteredChecks: cli.checks } : {}) }
+      const jobs = [...base.jobs.map(gated), ...(cli.more ?? [])]
       return { value: { exitCode: 0, stdout: JSON.stringify({ ...base, jobs }), stderr: '' } } as never
     }
     if (argv[1] === 'crew') {
@@ -293,6 +297,38 @@ describe('Edu Deck', () => {
     await Promise.all([ui.press({ key: 'edu:confirm' }), ui.press({ key: 'edu:confirm' }).catch(() => undefined)])
     await deck($, 'refresh')
     expect(seen.runs.filter(argv => argv[1] === 'crew')).toHaveLength(1)
+    await ui.unmount()
+  })
+
+  test('unregistered checks are listed with a shell warning before Approve, and named again before Yes', async ($, on) => {
+    const seen = engine(on, { checks: ['npm run lint:strict', 'rm -rf build\nmake'] })
+    await start($)
+    const ui = await $.ui.mount(pane(100))
+    await ui.press({ key: 'tab:edu' })
+    const before = await screen(ui)
+    expect(before).toMatch(/Approving runs these 2 commands in your shell\./)
+    expect(before).toMatch(/\$ npm run lint:strict/)
+    // A newline would start a second command: it is shown, not folded into a space.
+    expect(before).toMatch(/\$ rm -rf build⟨U\+000A⟩make/)
+    expect(before.indexOf('Approving runs these')).toBeLessThan(before.indexOf('"key":"edu:approve:abcd1234"'))
+    await ui.press({ key: 'edu:approve:abcd1234' })
+    expect(await screen(ui)).toMatch(/Approve crew run abcd1234\? It starts other agents and runs the 2 commands above in your shell\./)
+    await ui.press({ key: 'edu:confirm' })
+    // The commands never reach argv: the verdict names the gate, and edu runs what that gate recorded.
+    expect(seen.runs.filter(argv => argv[1] === 'crew')).toEqual([['edu', 'crew', 'approve', 'abcd1234', '--via', 'deck', '--request=req-abcd-1234']])
+    await ui.unmount()
+  })
+
+  test('checks too many or too long to show in full: no Approve in the pane, Reject still works', async ($, on) => {
+    const seen = engine(on, { checks: [`make ${'x'.repeat(1000)}`] })
+    await start($)
+    const ui = await $.ui.mount(pane(100))
+    await ui.press({ key: 'tab:edu' })
+    expect(await screen(ui)).toMatch(/edu crew status abcd1234/)
+    expect(await ui.find({ key: 'edu:approve:abcd1234' })).toBeUndefined()
+    await ui.press({ key: 'edu:reject:abcd1234' })
+    await ui.press({ key: 'edu:confirm' })
+    expect(seen.runs.filter(argv => argv[1] === 'crew')).toEqual([['edu', 'crew', 'reject', 'abcd1234', '--via', 'deck', '--request=req-abcd-1234']])
     await ui.unmount()
   })
 
