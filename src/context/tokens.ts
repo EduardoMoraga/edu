@@ -1,12 +1,26 @@
-const cjk = /[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/gu;
-const punctuation = /[{}()[\];:=+*/<>|&!?#$%^~\\]/gu;
+const PUNCTUATION = new Set([...'{}()[];:=+*/<>|&!?#$%^~\\'].map(char => char.charCodeAt(0)));
+const isCjk = (code: number) => (code >= 0x3040 && code <= 0x30ff) || (code >= 0x3400 && code <= 0x9fff) || (code >= 0xac00 && code <= 0xd7af) || (code >= 0xf900 && code <= 0xfaff);
+
+/**
+ * Unrounded cost of a text, per UTF-16 code unit: ASCII ~1/3.7 (plus a little for code punctuation), CJK 1.2, any
+ * other non-ASCII unit (accented Latin, Cyrillic, Greek, Arabic, Indic, emoji halves…) 0.6. Real tokenizers split
+ * non-Latin scripts into far more tokens per character than English, so the estimate errs high there.
+ */
+function cost(text: string): number {
+  let ascii = 0, cjk = 0, other = 0, punctuation = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80) { ascii++; if (PUNCTUATION.has(code)) punctuation++; }
+    else if (isCjk(code)) cjk++;
+    else other++;
+  }
+  return ascii / 3.7 + cjk * 1.2 + other * 0.6 + punctuation * 0.23;
+}
 
 /** A deliberately cheap upper-biased estimate, not a tokenizer. */
 export function estimateTokens(text: string): number {
   if (!text) return 0;
-  const cjkCount = [...text.matchAll(cjk)].length;
-  const punctuationCount = [...text.matchAll(punctuation)].length;
-  return Math.ceil((text.length - cjkCount) / 3.7 + cjkCount * 0.9 + punctuationCount * 0.23);
+  return Math.ceil(cost(text));
 }
 
 /** Prefer boundaries only when they retain at least 90% of the available budget. */
@@ -18,13 +32,11 @@ export function truncateToTokens(text: string, limit: number): string {
   if (estimateTokens(marker) > budget) return '';
   // Segmenting protects surrogate pairs, combining marks and emoji sequences.
   const cuts = [0];
-  let cost = 0;
+  let spent = 0;
   for (const part of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)) {
     cuts.push(part.index + part.segment.length);
-    const cjkCount = [...part.segment.matchAll(cjk)].length;
-    const punctuationCount = [...part.segment.matchAll(punctuation)].length;
-    cost += (part.segment.length - cjkCount) / 3.7 + cjkCount * 0.9 + punctuationCount * 0.23;
-    if (cost > budget) break;
+    spent += cost(part.segment);
+    if (spent > budget) break;
   }
   let low = 0;
   let high = cuts.length - 1;
