@@ -1,7 +1,6 @@
 import { measuredEngine } from '../engine/measurement.js';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { homedir } from 'node:os';
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Autonomy, BrainLocation, CliId, CrewDecisionBy, CrewJob, CrewJobMode, Engine, HarnessLevel, OrchestrationMode } from '../core/contracts.js';
@@ -9,15 +8,20 @@ import { detectEngines, createEngine } from '../engine/index.js';
 import { enforcesReadonly } from '../engine/autonomy.js';
 import { truncateToTokens } from '../context/index.js';
 import { processAlive, describeProcess, killTree } from '../platform/process-tree.js';
-import { DEFAULT_CREW_TIMEOUT_MINUTES, dispatchHeadless, runWorker } from './headless.js';
+import { loadCrewPolicy, withinAutonomy, type CrewPolicy } from '../workspace/config.js';
+import { DEFAULT_CREW_TIMEOUT_MINUTES, dispatchHeadless, envGlobalRoot, runWorker } from './headless.js';
 import { closePane, dispatchPane, herdrTarget, refreshPane, type HerdrOptions } from './herdr.js';
 import { isTerminalCrewJobStatus } from './status.js';
 import { createCrewStore, type CrewStore } from './store.js';
 
 const execFile = promisify(execFileCallback);
-const defaultRoot = () => resolve(process.env.EDU_HOME || join(homedir(), '.edu'));
 export interface CrewOptions {
   brainRoot?: string;
+  /**
+   * The person's global Edu home: where the safety policy is read and approval decisions are kept, outside every
+   * workspace. Default: the `global` location, else EDU_HOME, else `~/.edu`.
+   */
+  globalRoot?: string;
   workspaceRoot?: string;
   callerEnv?: NodeJS.ProcessEnv;
   locations?: BrainLocation[];
@@ -28,7 +32,7 @@ export interface CrewOptions {
   sleep?: (ms: number) => Promise<void>;
   clock?: () => number;
   diff?: (base: string, cwd: string) => Promise<string>;
-  startHeadless?: (job: CrewJob, options: { brainRoot: string }) => Promise<CrewJob>;
+  startHeadless?: (job: CrewJob, options: { brainRoot: string; globalRoot: string; policy: CrewPolicy }) => Promise<CrewJob>;
   /** Default minutes before a headless task job is stopped; else `crew.timeoutMinutes` in config.json, else 60. */
   timeoutMinutes?: number;
   /** Process probes (tests inject fakes). */
@@ -67,8 +71,12 @@ export function isWorkerOf(description: string | undefined, jobId: string, platf
 }
 
 export function createCrew(options: CrewOptions = {}) {
-  const root = options.brainRoot ?? options.locations?.[0]?.root ?? defaultRoot();
-  const store = options.store ?? createCrewStore(root);
+  const globalRoot = resolve(options.globalRoot ?? options.locations?.find(location => location.scope === 'global')?.root ?? envGlobalRoot());
+  const root = options.brainRoot ?? options.locations?.[0]?.root ?? globalRoot;
+  const store = options.store ?? createCrewStore(root, { globalRoot });
+  /** The person's safety policy, read from the global config at each dispatch (never from the workspace). */
+  const policy = () => loadCrewPolicy(globalRoot);
+  const start = (job: CrewJob, current: CrewPolicy) => (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root, globalRoot, policy: current });
   const engineFactory = options.engineFactory ?? createEngine;
   const detect = options.detectClis ?? detectEngines;
   const sleep = options.sleep ?? (ms => new Promise(resolveSleep => setTimeout(resolveSleep, ms)));
@@ -117,9 +125,10 @@ export function createCrew(options: CrewOptions = {}) {
       const available = await detect();
       const cli = input.cli ?? available[0];
       if (!cli || !available.includes(cli)) throw new Error('No available CLI for orchestration');
+      const current = await policy();
       const job = await store.create({ cli, task: input.goal.trim(), goal: input.goal.trim(), kind: 'orchestration', mode: 'headless', cwd, autonomy: 'auto', orchestrationMode: input.mode, playbook: input.playbook, harnessLevel: input.harnessLevel, autoApprove: input.autoApprove, allowUnregisteredChecks: input.allowUnregisteredChecks });
       await store.update(job.id, { status: 'running' });
-      try { return await (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root }); }
+      try { return await start(job, current); }
       catch (error) {
         await store.update(job.id, { status: 'failed', endedAt: new Date().toISOString(), summary: error instanceof Error ? error.message : String(error) });
         throw error;
@@ -146,6 +155,11 @@ export function createCrew(options: CrewOptions = {}) {
       if (autonomy === 'readonly' && !enforcesReadonly(input.cli)) {
         throw new Error(`${input.cli} cannot enforce read-only work; dispatch it to claude, codex or pi, or choose another autonomy level`);
       }
+      // The ceiling comes from the global config only: a person raises it, never a workspace, an MCP caller or a flag.
+      const current = await policy();
+      if (!withinAutonomy(autonomy, current.maxAutonomy)) {
+        throw new Error(`Autonomy "${autonomy}" is above the crew ceiling "${current.maxAutonomy}". A person can raise crew.maxAutonomy in the global Edu config (${join(globalRoot, 'config.json')}).`);
+      }
       const timeoutMinutes = validTimeout(input.timeoutMinutes) ?? validTimeout(options.timeoutMinutes) ?? await configuredTimeout(root) ?? DEFAULT_CREW_TIMEOUT_MINUTES;
       const requestedMode = input.mode ?? 'headless';
       // Inside herdr: a pane beside the caller. Outside (Hermes, launchd) with a reachable server: a tab
@@ -155,7 +169,7 @@ export function createCrew(options: CrewOptions = {}) {
       const job = await store.create({ cli: input.cli, task: input.task.trim(), mode: pane ? 'pane' : 'headless', cwd, autonomy, timeoutMinutes });
       if (target?.kind === 'none') await store.update(job.id, { note: `Herdr unavailable (${target.reason}); dispatched as headless.` });
       if (pane) return dispatchPane(job, { ...options.herdr, store, brainRoot: root, target });
-      return (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root });
+      return start(job, current);
     },
     async status(jobId?: string): Promise<CrewJob | CrewJob[]> {
       if (jobId) {
@@ -217,7 +231,7 @@ export function createCrew(options: CrewOptions = {}) {
       }
       return { cli: reviewer, summary: summary.trim() || 'Reviewer returned no findings.' };
     },
-    runWorker: (jobId: string) => runWorker(jobId, { brainRoot: root, locations: options.locations, store, engineFactory, detectClis: detect, sleep }),
+    runWorker: (jobId: string) => runWorker(jobId, { brainRoot: root, globalRoot, locations: options.locations, store, engineFactory, detectClis: detect, sleep }),
     store,
   };
 }

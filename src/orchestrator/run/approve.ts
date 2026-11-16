@@ -5,14 +5,14 @@ import type { PlannedRun } from './plan.js';
 import { at, closeEpisode, emit, type RunState } from './state.js';
 
 /**
- * Approve: the spec gate (required by the playbook or by checks the planner invented) and one gate per step
+ * Approve: the spec gate (required by the playbook, by a detached run, or by checks the planner invented) and one gate per step
  * the approval policy covers. Returns false when a gate was rejected: the run stops there.
  */
 export async function approvePhase(run: RunState, playbook: Playbook, { plan, spec }: PlannedRun): Promise<boolean> {
   const { runId, deps } = run;
   const unregistered = run.effectiveChecks.filter(check => !run.registeredChecks.some(registered => sameCheck(registered, check)));
   let unregisteredApproved = Boolean(deps.allowUnregisteredChecks);
-  if (playbook.requireSpecApproval || unregistered.length) {
+  if (playbook.requireSpecApproval || deps.requireSpecApproval || unregistered.length) {
     // The exact commands come first: approving this gate is what lets them run through the shell.
     const detail = unregistered.length && !deps.allowUnregisteredChecks
       ? `Unregistered checks: approving runs these exact commands through the shell in ${deps.cwd}:\n${unregistered.map(check => `- ${check.id}: ${check.command}`).join('\n')}\n\n${spec.markdown}`

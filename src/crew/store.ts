@@ -95,7 +95,12 @@ const safeId = (id: string) => {
   return id;
 };
 
-export function createCrewStore(brainRoot: string): CrewStore {
+export interface CrewStoreOptions {
+  /** The person's global Edu home (outside every workspace). Default: EDU_HOME, else `~/.edu`. */
+  globalRoot?: string;
+}
+
+export function createCrewStore(brainRoot: string, _options: CrewStoreOptions = {}): CrewStore {
   const root = join(brainRoot, 'crew');
   const artifacts = createCrewArtifacts(brainRoot);
   const outputFilters = new Map<string, WorkerOutputFilter>();

@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { saveChecks } from '../evidence/registry.js';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
@@ -28,10 +28,12 @@ describe('orchestration MCP tools', () => {
     await mkdir(root);
     // A registered check runs after any approval; a planner-invented one would need a person.
     await saveChecks(cwd, [{ id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 10000 }]);
-    const store = createCrewStore(root);
-    const server = createEduMcpServer({ locations: [{ scope: 'project', root }], crewOptions: {
+    // The person's global home (policy, approvals) sits outside the workspace, never at the real ~/.edu.
+    const globalRoot = join(cwd, '..', `${basename(cwd)}-home`);
+    const store = createCrewStore(root, { globalRoot });
+    const server = createEduMcpServer({ locations: [{ scope: 'project', root }], env: { HOME: dirname(globalRoot), EDU_HOME: globalRoot }, crewOptions: {
       brainRoot: root, workspaceRoot: cwd, store, detectClis: async () => ['claude'], engineFactory: () => fake,
-      startHeadless: async job => { void runWorker(job.id, { brainRoot: root, store, engineFactory: () => fake, detectClis: async () => ['claude'] }); return job; },
+      startHeadless: async (job, options) => { void runWorker(job.id, { brainRoot: root, globalRoot, policy: options.policy, store, engineFactory: () => fake, detectClis: async () => ['claude'] }); return job; },
     } });
     const client = new Client({ name: 'orchestration-test', version: '1.0.0' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -68,6 +70,7 @@ describe('orchestration MCP tools', () => {
       await client.close();
       await server.close();
       await rm(cwd, { recursive: true, force: true });
+      await rm(globalRoot, { recursive: true, force: true });
     }
   });
 });

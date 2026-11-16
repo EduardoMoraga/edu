@@ -32,6 +32,8 @@ export interface OrchestrateDeps {
    * or the playbook, run with the ceiling instead and the run records it. Default: no ceiling.
    */
   maxAutonomy?: Autonomy;
+  /** Open the spec gate even when the playbook does not ask for it (detached runs; see session.ts). */
+  requireSpecApproval?: boolean;
 }
 export interface StepResult { id: string; ok: boolean; summary: string; skipped?: boolean }
 export interface RunResult { runId: string; ok: boolean; summary: string; events: EduEvent[]; steps: StepResult[]; episodeDir?: string }

@@ -106,12 +106,14 @@ const conflictText = (error: NoteConflictError) => `Note changed since you read 
 
 /** The tool context of one server, and the registrations tools/list publishes. */
 export function createToolContext(server: McpServer, opts: EduMcpOptions, profile: ToolProfile, version: string): { context: ToolContext; listed: ListedTool[] } {
+  const env = opts.env ?? process.env;
+  // The person's global home: the crew reads its safety policy and keeps approval decisions there, outside the workspace.
+  const crewOptions = { ...opts.crewOptions, globalRoot: opts.crewOptions?.globalRoot ?? eduHomeOf(env) };
   let brain = openBrain(opts.locations);
-  let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
+  let crew = createCrew({ ...crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
   let brainRoot = opts.locations[0]!.root;
   let activeLocations = opts.locations;
-  const env = opts.env ?? process.env;
   const workerProcess = Boolean(env.EDU_CREW_JOB?.trim() || env.ALBERT_CREW_JOB?.trim());
   // ~/.edu is the global brain even when found by walking up from a folder under HOME.
   const label = (locations: BrainLocation[]) => locations[0]!.scope === 'global' || resolve(locations[0]!.root) === eduHomeOf(env) ? 'global' : dirname(locations[0]!.root);
@@ -119,7 +121,7 @@ export function createToolContext(server: McpServer, opts: EduMcpOptions, profil
   let switched = false;
   const use = (next: BrainLocation[]) => {
     brain = openBrain(next);
-    crew = createCrew({ ...opts.crewOptions, locations: next });
+    crew = createCrew({ ...crewOptions, locations: next });
     eduMdPath = join(next[0]!.root, 'EDU.md');
     brainRoot = next[0]!.root;
     activeLocations = next;

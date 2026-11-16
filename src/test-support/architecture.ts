@@ -55,7 +55,7 @@ export const MODULES: Readonly<Record<string, ModuleSpec>> = {
   bench: { layer: 'service', purpose: 'Retrieval and activation benchmarks', mayImport: ['brain', 'core'] },
   experiment: { layer: 'service', purpose: 'Isolated skill experiments in throwaway workspaces', mayImport: ['platform', 'skills'] },
   connect: { layer: 'service', purpose: 'Connects Edu to other agents (Hermes)', mayImport: ['platform'] },
-  mcp: { layer: 'delivery', purpose: 'The MCP server and its tools', mayImport: ['brain', 'context', 'core', 'crew', 'platform', 'reflect', 'release', 'workspace'] },
+  mcp: { layer: 'delivery', purpose: 'The MCP server and its tools', mayImport: ['brain', 'context', 'core', 'crew', 'platform', 'reflect', 'release'] },
   tui: { layer: 'delivery', purpose: 'Ink views: live run, watch and mission deck', mayImport: ['core', 'crew', 'identity'] },
   cli: {
     layer: 'delivery', purpose: 'The `edu` command and host hooks',

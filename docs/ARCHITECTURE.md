@@ -120,7 +120,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | bench | service | brain, core |
 | experiment | service | platform, skills |
 | connect | service | platform |
-| mcp | delivery | brain, context, core, crew, platform, reflect, release, workspace |
+| mcp | delivery | brain, context, core, crew, platform, reflect, release |
 | tui | delivery | core, crew, identity |
 | cli | delivery | adapters, bench, brain, chat, connect, context, core, crew, detach, doctor, engine, eval, evidence, experiment, identity, mcp, orchestrator, platform, reflect, release, setup, tui, update, vault, workspace |
 | index | delivery | cli, core |

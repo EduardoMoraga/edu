@@ -1,11 +1,16 @@
-import { dirname } from 'node:path';
+import { homedir } from 'node:os';
 import type { CliId, CrewJob, EduEvent, Engine } from '../core/contracts.js';
 import { detectEngines } from '../engine/index.js';
 import { runSession } from '../orchestrator/session.js';
+import type { CrewPolicy } from '../workspace/config.js';
 import type { CrewStore } from './store.js';
 
 export interface OrchestrationWorkerOptions {
   brainRoot: string;
+  /** The person's global home: where the run reads global notes. Never the job's brain. */
+  globalRoot: string;
+  /** The safety policy the dispatcher resolved from the global config. */
+  policy: CrewPolicy;
   store: CrewStore;
   engineFactory?: (cli: CliId) => Engine;
   detectClis?: () => Promise<CliId[]>;
@@ -50,7 +55,8 @@ export async function runOrchestration(job: CrewJob, options: OrchestrationWorke
   try {
     const available = await (options.detectClis ?? detectEngines)();
     await store.update(job.id, { status: 'running', pid: process.pid });
-    const host = { available, env: { ...process.env, EDU_HOME: options.brainRoot }, home: dirname(options.brainRoot) };
+    // EDU_HOME is the person's global home, so a project brain is located (and capped) as a project brain.
+    const host = { available, env: { ...process.env, EDU_HOME: options.globalRoot }, home: process.env.HOME || homedir(), policy: options.policy };
     const result = await runSession(host, {
       goal: job.goal ?? job.task, cwd: job.cwd, lang: 'en', mode: job.orchestrationMode,
       cli: job.cli, harnessLevel: job.harnessLevel, playbook: job.playbook,

@@ -2,8 +2,6 @@
 import { z } from 'zod';
 import { estimateTokens } from '../../context/index.js';
 import type { Autonomy } from '../../core/contracts.js';
-import { loadCrewPolicy, withinAutonomy } from '../../workspace/config.js';
-import { eduHomeOf } from '../projects.js';
 import type { ToolContext } from './context.js';
 import { autonomyLevels, cliIds, optionalInt, optionalNumber, tokenLimit } from './schema.js';
 
@@ -11,17 +9,15 @@ import { autonomyLevels, cliIds, optionalInt, optionalNumber, tokenLimit } from 
 export const MAX_RESULT_WAIT_SECONDS = 600;
 
 export function registerCrewTools(ctx: ToolContext): void {
-  const { register, env } = ctx;
+  const { register } = ctx;
 
   register('edu_crew_dispatch', 'Run a crew job on a coding CLI. mode pane: visible herdr pane, headless if herdr is unreachable', {
     cli: cliIds, task: z.string().min(1), mode: z.enum(['headless', 'pane']).optional(), cwd: z.string().optional(), autonomy: autonomyLevels.optional(),
     timeoutMinutes: optionalInt(1, 1440, 'Stop a headless job after this many minutes (default: crew.timeoutMinutes, else 60)'),
     maxTokens: tokenLimit,
   }, async ({ cli, task, mode, cwd, autonomy: selectedAutonomy, timeoutMinutes }) => {
-    // The ceiling comes from the global config only: a person raises it, never a workspace or the caller.
-    const { maxAutonomy } = await loadCrewPolicy(eduHomeOf(env));
+    // The crew refuses anything above the global crew.maxAutonomy ceiling, for MCP and the CLI alike.
     const requested: Autonomy = selectedAutonomy ?? 'ask';
-    if (!withinAutonomy(requested, maxAutonomy)) throw new Error(`Autonomy "${requested}" is above the crew ceiling "${maxAutonomy}". A person can raise crew.maxAutonomy in the global Edu config, or run edu crew dispatch from a terminal.`);
     const job = await ctx.crew.dispatch({ cli, task, mode, cwd, autonomy: requested, ...(timeoutMinutes !== undefined ? { timeoutMinutes } : {}) });
     return JSON.stringify(job);
   });

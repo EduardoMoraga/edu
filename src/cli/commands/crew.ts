@@ -2,7 +2,9 @@
 import type { Command } from 'commander';
 import { CLI_IDS, type CliId } from '../../core/contracts.js';
 import { createCrew, runWorker } from '../../crew/index.js';
+import { CREW_BRAIN_ENV } from '../../crew/headless.js';
 import { isCrewWorker } from '../../crew/store.js';
+import { CREW_POLICY_ENV, decodeWorkerPolicy } from '../../workspace/config.js';
 import { globalHome, type CliContext } from '../context.js';
 import { action } from '../kit.js';
 import { openWorkspace } from '../workspace.js';
@@ -64,7 +66,10 @@ export function registerCrew(program: Command, ctx: CliContext): void {
   root.command('worker <id>')
     .description('run a queued crew job (internal detached entry point)')
     .action(async (id: string) => {
-      try { await runWorker(id, { brainRoot: ctx.env.EDU_HOME || globalHome(ctx) }); }
+      // The dispatcher names the job's brain and hands down the safety policy it resolved; EDU_HOME stays the
+      // person's global home. Without a policy (not started by a dispatcher) the defaults apply.
+      const globalRoot = globalHome(ctx);
+      try { await runWorker(id, { brainRoot: ctx.env[CREW_BRAIN_ENV] || globalRoot, globalRoot, policy: decodeWorkerPolicy(ctx.env[CREW_POLICY_ENV]) }); }
       catch (error) { ctx.err(`Crew worker failed: ${error instanceof Error ? error.message : String(error)}`); ctx.setExitCode(1); }
     });
 }

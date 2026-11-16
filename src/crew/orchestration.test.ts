@@ -31,9 +31,12 @@ async function setup() {
   roots.push(cwd);
   const brainRoot = join(cwd, '.edu');
   await mkdir(brainRoot);
-  const crew = createCrew({ brainRoot, workspaceRoot: cwd, engineFactory: () => fakeEngine(), detectClis: async () => ['claude'],
+  // The person's global home lives outside the workspace (and outside the real ~/.edu).
+  const globalRoot = await mkdtemp(join(tmpdir(), 'edu-orchestration-home-'));
+  roots.push(globalRoot);
+  const crew = createCrew({ brainRoot, globalRoot, workspaceRoot: cwd, engineFactory: () => fakeEngine(), detectClis: async () => ['claude'],
     startHeadless: async job => job, sleep: async () => new Promise(resolve => setTimeout(resolve, 2)) });
-  return { crew, cwd, brainRoot };
+  return { crew, cwd, brainRoot, globalRoot };
 }
 
 async function awaiting(crew: Awaited<ReturnType<typeof setup>>['crew'], id: string) {
@@ -49,7 +52,7 @@ async function awaiting(crew: Awaited<ReturnType<typeof setup>>['crew'], id: str
 
 describe('detached orchestration', () => {
   it('records the failure when writing the final status fails, instead of escaping its own error handling', async () => {
-    const { crew, cwd, brainRoot } = await setup();
+    const { crew, cwd, brainRoot, globalRoot } = await setup();
     await saveChecks(cwd, [passCheck]);
     const queued = await crew.orchestrate({ goal: 'Finish while the disk fails once', cwd, autoApprove: true });
     let failures = 0;
@@ -57,7 +60,7 @@ describe('detached orchestration', () => {
       if (patch.endedAt && failures++ === 0) throw new Error('disk full');
       return crew.store.update(id, patch);
     } };
-    const result = await runOrchestration(queued, { brainRoot, store, engineFactory: () => fakeEngine(), detectClis: async () => ['claude'], sleep: async () => undefined });
+    const result = await runOrchestration(queued, { brainRoot, globalRoot, policy: { maxAutonomy: 'auto', passthrough: [], approvals: 'ask-on-write' }, store, engineFactory: () => fakeEngine(), detectClis: async () => ['claude'], sleep: async () => undefined });
     expect(result.status).toBe('failed');
     expect(result.summary).toBe('disk full');
     expect((await crew.store.events(queued.id)).some(event => event.type === 'error' && event.message === 'disk full')).toBe(true);
