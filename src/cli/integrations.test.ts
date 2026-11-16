@@ -8,7 +8,7 @@ import { createEduMcpServer } from '../mcp/server.js';
 import { withHostLock } from './hooks.js';
 import { openBrain } from '../brain/index.js';
 import { ctxPercentFromClaude, parseJsonObject } from './statusline.js';
-import { captureContext, err, out, runCli, type Captured } from './testkit.js';
+import { captureContext, err, out, runCli, type Captured } from '../test-support/cli.js';
 import { join } from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
 

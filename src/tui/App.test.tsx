@@ -4,7 +4,7 @@ import type { EduEvent } from '../core/contracts.js';
 import { ASCII_GLYPHS, UNICODE_GLYPHS, createTheme } from '../identity/index.js';
 import { App, type AppProps } from './App.js';
 import { demoEvents } from './demo.js';
-import { fixtureAt, oauthRun } from './fixtures.js';
+import { fixtureAt, oauthRun } from '../test-support/tui-events.js';
 import { exited, press, type, until } from '../test-support/ink.js';
 
 const ANSI = /\u001B\[/;

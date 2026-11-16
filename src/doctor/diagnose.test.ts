@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { diagnose, installProblems, quarantineProblem } from './diagnose.js';
 import { applyInstall, getManifestPath, planInstall } from '../adapters/installer.js';
 import { packageTemplatesDir } from '../platform/package.js';
-import { captureContext, out, runCli } from '../cli/testkit.js';
+import { captureContext, out, runCli } from '../test-support/cli.js';
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });

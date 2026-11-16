@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createCrewStore } from '../../crew/store.js';
-import { captureContext, err, out, runCli } from '../testkit.js';
+import { captureContext, err, out, runCli } from '../../test-support/cli.js';
 
 describe('edu crew cancel and timeout', () => {
   it('cancels a job by id prefix and prints it', async () => {

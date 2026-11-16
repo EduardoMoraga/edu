@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { EduEvent } from '../../core/contracts.js';
 import { UNICODE_GLYPHS, createTheme } from '../../identity/index.js';
 import { App } from '../App.js';
-import { fixtureAt, oauthRun } from '../fixtures.js';
+import { fixtureAt, oauthRun } from '../../test-support/tui-events.js';
 import { initialState, reduce, reduceAll } from '../state.js';
 import { BrainStrip } from './BrainStrip.js';
 import { UiContext } from './ui.js';

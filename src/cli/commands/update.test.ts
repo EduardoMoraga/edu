@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { Command } from 'commander';
 import { describe, expect, it } from 'vitest';
 import type { RunResult, UpdateDeps } from '../../update/update.js';
-import { captureContext, out, runCli, type Captured } from '../testkit.js';
+import { captureContext, out, runCli, type Captured } from '../../test-support/cli.js';
 import { registerUpdate } from './update.js';
 
 const release = (tag: string, sums = true) => ({

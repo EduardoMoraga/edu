@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { docxToMarkdown, readDocument, unzipEntry } from './readers.js';
-import { sampleDocx, zip } from './testing.js';
+import { sampleDocx, zip } from '../test-support/docx.js';
 
 async function file(name: string, content: string | Buffer) {
   const dir = await mkdtemp(join(tmpdir(), 'edu-read-'));

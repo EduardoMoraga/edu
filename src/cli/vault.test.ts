@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { captureContext, out, runCli } from './testkit.js';
+import { captureContext, out, runCli } from '../test-support/cli.js';
 import { registerProject } from '../brain/registry.js';
 
 describe('edu vault command', () => {

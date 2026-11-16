@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EduEvent } from '../../core/contracts.js';
 import { demoScript } from '../../engine/fake.js';
 import { ASCII_GLYPHS, UNICODE_GLYPHS } from '../../identity/index.js';
-import { captureContext, out, runCli } from '../testkit.js';
+import { captureContext, out, runCli } from '../../test-support/cli.js';
 import { ApprovalBridge } from './bridge.js';
 import { createChannel } from './channel.js';
 import { createPlainFormatter } from './plain.js';

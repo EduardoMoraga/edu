@@ -4,7 +4,7 @@ import { logLines } from './lines.js';
 import { UNICODE_GLYPHS } from '../identity/index.js';
 import { parseRunJsonl } from './replay.js';
 import { reduceAll } from './state.js';
-import { chatEvents } from './fixtures.js';
+import { chatEvents } from '../test-support/tui-events.js';
 
 const at = (s: number) => new Date(Date.parse('2026-10-08T12:00:00.000Z') + s * 1000).toISOString();
 

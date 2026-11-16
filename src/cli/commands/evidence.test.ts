@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { FakeEngine } from '../../engine/fake.js';
 import { defaultConfig } from '../../workspace/config.js';
 import { printCommand } from '../../test-support/shell.js';
-import { captureContext, out, runCli } from '../testkit.js';
+import { captureContext, out, runCli } from '../../test-support/cli.js';
 import { engineCapabilities } from '../../engine/autonomy.js';
 
 describe('evidence CLI', () => {

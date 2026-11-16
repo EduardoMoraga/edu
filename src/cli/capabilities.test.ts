@@ -2,7 +2,7 @@ import { access, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { packageVersion } from '../platform/package.js';
-import { captureContext, out, runCli, type Captured } from './testkit.js';
+import { captureContext, out, runCli, type Captured } from '../test-support/cli.js';
 
 const contexts: Captured[] = [];
 afterEach(async () => {

@@ -14,7 +14,7 @@ const previous = vi.hoisted(() => {
 import { render } from 'ink-testing-library';
 import { UNICODE_GLYPHS, createTheme, detectColorLevel } from '../identity/index.js';
 import { App } from './App.js';
-import { oauthRun } from './fixtures.js';
+import { oauthRun } from '../test-support/tui-events.js';
 
 const ANSI = /\u001B\[[0-9;]*m/;
 

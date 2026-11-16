@@ -4,7 +4,7 @@ import { createChannel } from '../../cli/run/channel.js';
 import type { EduEvent } from '../../core/contracts.js';
 import { ASCII_GLYPHS, UNICODE_GLYPHS, createTheme, displayWidth } from '../../identity/index.js';
 import { App, type AppProps } from '../App.js';
-import { chatEvents, fixtureAt } from '../fixtures.js';
+import { chatEvents, fixtureAt } from '../../test-support/tui-events.js';
 import { press, type, until } from '../../test-support/ink.js';
 
 const plain = createTheme(0);

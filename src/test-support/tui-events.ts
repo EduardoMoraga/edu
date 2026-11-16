@@ -1,7 +1,6 @@
 /**
- * Deterministic event fixtures for TUI tests and visual checks. Mirrors the
- * ARCHITECTURE.md §12 mock: a lead with an explorer, a running builder that
- * asks for approval, and a queued reviewer.
+ * Deterministic event fixtures for TUI tests and visual checks: a lead with an
+ * explorer, a running builder that asks for approval, and a queued reviewer.
  */
 import type { EduEvent } from '../core/contracts.js';
 
