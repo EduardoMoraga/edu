@@ -145,13 +145,14 @@ export function registerBrain(program: Command, ctx: CliContext): void {
     .argument('<title...>', 'one-line title')
     .option('--kind <kind>', KINDS.join(' | '), 'lesson')
     .option('--body <text>', 'markdown body')
-    .option('--band <band>', BANDS.join(' | '))
+    .option('--band <band>', `${BANDS.join(' | ')} (default hypothesis)`)
     .option('--due <date>', 'due date for commitments (YYYY-MM-DD)')
     .option('--json', 'machine-readable output')
     .action(
       action<RememberOpts>(ctx, async ({ g, opts }, title) => {
         const kind = oneOf(opts.kind ?? 'lesson', KINDS, '--kind');
-        const band = opts.band ? oneOf(opts.band, BANDS, '--band') : undefined;
+        // A note always states its claim band; without --band it is an unproven hypothesis, and the output says so.
+        const band = opts.band ? oneOf(opts.band, BANDS, '--band') : 'hypothesis';
         const ws = await writableWorkspace(ctx, g.cwd, g.lang);
         // remember = write + compile: related notes are linked and likely contradictions reported.
         const { note, report } = await ws.brain.remember({
@@ -160,11 +161,12 @@ export function registerBrain(program: Command, ctx: CliContext): void {
           title: (title ?? '').trim(),
           body: opts.body ?? '',
           source: 'user',
-          ...(band ? { band } : {}),
+          band,
           ...(opts.due ? { due: opts.due } : {}),
         });
-        if (g.json || opts.json) return printJson(ctx, { id: note.meta.id, path: note.path, report });
+        if (g.json || opts.json) return printJson(ctx, { id: note.meta.id, path: note.path, band, report });
         ctx.out(t(g.lang, 'brain.remembered', { id: note.meta.id }));
+        if (!opts.band) ctx.out(`  ${t(g.lang, 'brain.defaultBand')}`);
         for (const line of compileReportLines(report)) ctx.out(`  ${line}`);
       }),
     );
