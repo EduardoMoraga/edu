@@ -85,3 +85,21 @@ export function baseFor(path: string, pins: readonly BasePin[]): BasePin | undef
   const target = resolve(path);
   return pins.filter(pin => target === pin.path || target.startsWith(pin.path + sep)).sort((a, b) => b.path.length - a.path.length)[0];
 }
+
+/**
+ * Codex on Windows reports some local paths in extended form (`\\?\C:\...`, `\\?\UNC\server\share\...`)
+ * and others in plain form. Both extended forms are reduced to their plain path; other device paths stay.
+ */
+export function nativePath<T>(value: T): T | string {
+  if (typeof value !== 'string') return value;
+  if (/^\\\\\?\\UNC\\/i.test(value)) return `\\\\${value.slice(8)}`;
+  return /^\\\\\?\\[A-Za-z]:\\/.test(value) ? value.slice(4) : value;
+}
+/** Path equality as the platform sees it: Windows paths compare case-insensitively, in either slash form. */
+export function samePath(a: unknown, b: unknown, platform: NodeJS.Platform = process.platform): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const left = nativePath(a) as string; const right = nativePath(b) as string;
+  if (platform !== 'win32') return left === right;
+  const normal = (path: string) => path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+  return normal(left) === normal(right);
+}
