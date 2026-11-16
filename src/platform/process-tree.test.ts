@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { createChildRegistry, describeProcess, imageFromTasklist, killTree, killTreeSync, type ProcessHooks, type TreeRoot } from './process-tree.js';
+import { createChildRegistry, describeProcess, imageFromTasklist, killTree, killTreeSync, ProcessCheckError, type ProcessHooks, type TreeRoot } from './process-tree.js';
 
 const posix = process.platform !== 'win32';
 
@@ -87,6 +87,48 @@ describe('describeProcess', () => {
 
   it.runIf(posix)('returns the command line of a running process', async () => {
     expect(await describeProcess(process.pid)).toContain(process.argv0.split('/').pop() ?? 'node');
+  });
+
+  const spawnFailure = () => Object.assign(new Error('spawn EPERM'), { code: 'EPERM' });
+  const exitFailure = (code: number) => Object.assign(new Error('Command failed'), { code });
+
+  it('tells a reused pid (another command) apart from a gone one', async () => {
+    expect(await describeProcess(4242, { platform: 'darwin', alive: () => true, run: async () => '/usr/bin/vim notes.md\n' })).toBe('/usr/bin/vim notes.md');
+    // ps exits 1 with no rows for a pid that names nothing.
+    expect(await describeProcess(4242, { platform: 'darwin', alive: () => false, run: async () => { throw exitFailure(1); } })).toBeUndefined();
+    expect(await describeProcess(4242, { platform: 'win32', alive: () => false, run: async () => 'INFO: No tasks are running which match the specified criteria.\r\n' })).toBeUndefined();
+  });
+
+  it.each([
+    ['cannot start', spawnFailure(), /ps could not run \(EPERM\)/],
+    ['exits non-zero', exitFailure(1), /ps exited with code 1/],
+  ])('reports a live pid as unverified, never as reused, when ps %s', async (_, failure, reason) => {
+    const check = describeProcess(4242, { platform: 'darwin', alive: () => true, run: async () => { throw failure; } });
+    await expect(check).rejects.toBeInstanceOf(ProcessCheckError);
+    await expect(check).rejects.toThrow(reason);
+    await expect(check).rejects.toThrow(/process 4242 could not be verified .*nothing was signalled and it may still be running.*kill -TERM -- -4242$/);
+  });
+
+  it('reports a live pid ps does not list as unverified', async () => {
+    await expect(describeProcess(4242, { platform: 'darwin', alive: () => true, run: async () => '' })).rejects.toThrow(/ps did not list it/);
+  });
+
+  it('falls back to /proc on Linux when ps cannot run, and stays unverified when that fails too', async () => {
+    const failing = async () => { throw spawnFailure(); };
+    const cmdline = vi.fn(async () => '/usr/bin/node\0/opt/edu/dist/cli.js\0crew\0worker\0job-1\0');
+    expect(await describeProcess(4242, { platform: 'linux', alive: () => true, run: failing, readCmdline: cmdline })).toBe('/usr/bin/node /opt/edu/dist/cli.js crew worker job-1');
+    expect(cmdline).toHaveBeenCalledWith(4242);
+    await expect(describeProcess(4242, { platform: 'linux', alive: () => true, run: failing, readCmdline: async () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); } }))
+      .rejects.toThrow(/ps could not run \(EPERM\).*kill -TERM -- -4242/);
+    const darwinProc = vi.fn(async () => 'never read');
+    await expect(describeProcess(4242, { platform: 'darwin', alive: () => true, run: failing, readCmdline: darwinProc })).rejects.toBeInstanceOf(ProcessCheckError);
+    expect(darwinProc).not.toHaveBeenCalled();
+  });
+
+  it('gives the taskkill command when tasklist cannot verify a live Windows pid', async () => {
+    const check = describeProcess(4242, { platform: 'win32', alive: () => true, run: async () => { throw spawnFailure(); } });
+    await expect(check).rejects.toThrow(/tasklist could not run \(EPERM\).*taskkill \/pid 4242 \/t \/f$/);
+    await expect(describeProcess(4242, { platform: 'win32', alive: () => true, run: async () => 'INFORMACIÓN: no hay tareas en ejecución.\r\n' })).rejects.toThrow(/tasklist did not list it/);
   });
 });
 
