@@ -31,6 +31,7 @@ description: "Hand a goal to Edu's orchestrator: Edu writes a spec with requirem
 4. Poll `edu_crew_status` with the `jobId` until the job is `done`, `failed` or
    `cancelled`. Keep doing useful work between polls; do not poll in a tight loop.
    If it pauses at `awaiting-approval` again, show what is being asked and go back to 3.
+   If the user asks to stop the run, call `edu_crew_cancel` with the `jobId`.
 5. Call `edu_crew_result` with the `jobId` for the final report.
 
 ## Show the user

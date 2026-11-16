@@ -177,8 +177,10 @@ Ask Codex to write tests from inside Claude, and watch it work:
 ```
 
 Edu dispatches the job (`edu_crew_dispatch`), polls it (`edu_crew_status`), and brings back
-a summary (`edu_crew_result`). With herdr running, jobs can open in a visible pane next to you;
-otherwise they run headless. The same from a terminal:
+a summary (`edu_crew_result`); `edu_crew_cancel` stops it. With herdr running, jobs can open in a
+visible pane next to you; otherwise they run headless. Either way the agent runs as a crew worker:
+its Edu tools can read the brain but cannot approve gates, dispatch agents or write memory. The
+same from a terminal:
 
 ```bash
 edu crew dispatch codex "write tests for src/auth" --autonomy auto   # let it edit files
@@ -194,8 +196,10 @@ edu crew cancel <job-id>                         # stop its whole process tree
 | `auto` | edit the workspace and run commands |
 | `full` | do anything the CLI allows without asking; MCP callers need `crew.maxAutonomy: "full"` |
 
-Headless jobs stop after 60 minutes (`--timeout <minutes>`, or `crew.timeoutMinutes`). Read-only
-work goes only to CLIs that enforce it: claude, codex and pi. The exact flags per CLI are in the
+Headless jobs stop after 60 minutes: pass `--timeout <minutes>` (MCP: `timeoutMinutes` on
+`edu_crew_dispatch`), or set `crew.timeoutMinutes`. Pane jobs have no timeout. Read-only work goes
+only to CLIs that enforce it: claude, codex and pi. OpenCode `auto` and `full` pass `--auto`, which
+approves every permission OpenCode's config does not deny. The exact flags per CLI are in the
 [upgrade guide](docs/guides/upgrade-6.0.md#autonomy-means-the-same-on-every-cli).
 
 ```
@@ -253,7 +257,7 @@ What Edu enforces, and how to change it:
 | Area | Default | Change it with |
 |---|---|---|
 | Installs and updates | Only packages that match the release's `SHA256SUMS`, downloaded from this repository's GitHub releases | `--allow-unverified`, only for releases older than 6.0 |
-| Crew approvals | Each gate has a `requestId` and a decision must name it. Crew workers can never approve. Each decision records `cli`, `deck` or `host-llm` | `edu crew approve <id> --request <requestId>` |
+| Crew approvals | Each gate has a `requestId` and a decision must name it. Crew workers, headless or in a herdr pane, can never approve. Each decision records `cli`, `deck` or `host-llm` | `edu crew approve <id> --request <requestId>` |
 | Canonical notes | Only a person accepts them: `edu brain approve` needs a terminal | `--yes` in scripts |
 | Autonomy from MCP | Up to `auto`; `full` is refused | `crew.maxAutonomy` in the global config |
 | Agent CLI environment | PATH, home, locale, terminal, proxy, temp and that CLI's own auth variables | `crew.env.passthrough` in the global config |

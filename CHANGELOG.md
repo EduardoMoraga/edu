@@ -59,6 +59,10 @@ Each item links to its migration step in the [upgrade guide](docs/guides/upgrade
   pi for read-only work. [Details](docs/guides/upgrade-6.0.md#autonomy-means-the-same-on-every-cli)
 - **Headless crew jobs time out after 60 minutes.** *Migration:* pass `--timeout <minutes>` or set
   `crew.timeoutMinutes` (1 to 1440). [Details](docs/guides/upgrade-6.0.md#crew-jobs-time-out)
+- **Pane agents are crew workers.** An agent Edu starts in a herdr pane gets `EDU_CREW_JOB`, like a
+  headless one, so its Edu tools only read: it cannot approve gates, dispatch agents or write
+  memory. *Migration:* approve and remember from your own session or terminal.
+  [Details](docs/guides/upgrade-6.0.md#approvals-name-their-gate)
 - **`npm test` runs only the unit and contract tests.** *Migration (contributors):* run
   `npm run test:perf` or `npm run test:all` for the wall-clock budgets.
   [Details](docs/guides/upgrade-6.0.md#test-scripts-for-contributors)
@@ -99,6 +103,9 @@ Each item links to its migration step in the [upgrade guide](docs/guides/upgrade
   get `--` before the prompt. Codex, agy and OpenCode put system instructions first and label the
   task.
 - In pane mode (herdr), autonomy passes as each CLI's own flags, and a prompt is sent exactly once.
+- OpenCode `auto` and `full` pass `--auto`, which approves every permission OpenCode's config does
+  not deny, so headless runs no longer stall on a prompt nobody can answer. `ask` keeps OpenCode's
+  own config.
 - `edu brain remember` without `--band` writes `hypothesis` and says so; old notes without a band
   show as `unbanded`.
 - `edu_recall` shows only whole hits that fit the budget, says how many it left out, and records
@@ -163,7 +170,7 @@ Each item links to its migration step in the [upgrade guide](docs/guides/upgrade
   refused.
 - Crew workers (`EDU_CREW_JOB`) can never approve crew gates or canonical notes, through MCP, the CLI
   or decision files. The Codex plugin forwards `EDU_CREW_JOB` to Edu's MCP server, so Codex workers
-  run in worker mode.
+  run in worker mode. Agents in herdr panes get `EDU_CREW_JOB` too, so they run in worker mode.
 - Agent CLIs receive an allowlisted environment instead of every secret in the parent's.
 - The Claude Code Edu Deck starts `edu` by its argument list only (no `cmd /c` fallback) and passes
   only plain ids. Codex `notify` on Windows runs through Node instead of `cmd /c`, so message text
