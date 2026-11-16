@@ -25,7 +25,20 @@ const SNAPSHOT = {
   updatedAt: 3000,
 }
 
-type EduCli = { missing?: boolean; old?: boolean; broken?: boolean; crewFails?: boolean; idle?: boolean; slow?: { sleep: (ms: number) => Promise<void> }; sessionId?: string }
+type EduCli = {
+  missing?: boolean
+  old?: boolean
+  broken?: boolean
+  crewFails?: boolean
+  idle?: boolean
+  slow?: { sleep: (ms: number) => Promise<void> }
+  /** The host session id Claude Code reports. */
+  sessionId?: string
+  /** Edu 6.0: the open approval gate's nonce on the job awaiting approval. */
+  gate?: string
+  /** Extra jobs the snapshot lists. */
+  more?: Record<string, unknown>[]
+}
 type Appended = { agentId?: string; message: { type: string; content: { type: string; text: string }[] } }
 
 function engine(on: On, cli: EduCli = {}) {
@@ -56,8 +69,9 @@ function engine(on: On, cli: EduCli = {}) {
       if (cli.broken) return { value: { exitCode: 1, stdout: '', stderr: 'Error: brain is locked\n    at x' } } as never
       if (cli.old && argv.includes('--session')) return { value: { exitCode: 1, stdout: '', stderr: "error: unknown option '--session'" } } as never
       const { session: _session, ...older } = SNAPSHOT
-      const shown = cli.idle ? { ...SNAPSHOT, jobs: SNAPSHOT.jobs.filter(job => job.status === 'done'), approvals: 0 } : cli.old ? older : SNAPSHOT
-      return { value: { exitCode: 0, stdout: JSON.stringify(shown), stderr: '' } } as never
+      const base = cli.idle ? { ...SNAPSHOT, jobs: SNAPSHOT.jobs.filter(job => job.status === 'done'), approvals: 0 } : cli.old ? older : SNAPSHOT
+      const jobs = [...base.jobs.map(job => (cli.gate && job.status === 'awaiting-approval' ? { ...job, requestId: cli.gate } : job)), ...(cli.more ?? [])]
+      return { value: { exitCode: 0, stdout: JSON.stringify({ ...base, jobs }), stderr: '' } } as never
     }
     if (argv[1] === 'crew') {
       return { value: cli.crewFails ? { exitCode: 1, stdout: '', stderr: 'Error: Crew job is not awaiting approval' } : { exitCode: 0, stdout: '{}', stderr: '' } } as never
@@ -247,6 +261,54 @@ describe('Edu Deck', () => {
     await ui.unmount()
   })
 
+  test('a verdict names the approval gate the person saw (Edu 6.0 requestId)', async ($, on) => {
+    const seen = engine(on, { gate: 'req_0123456789abcdef' })
+    await start($)
+    const ui = await $.ui.mount(pane(100))
+    await ui.press({ key: 'tab:edu' })
+    await ui.press({ key: 'edu:approve:abcd1234' })
+    await ui.press({ key: 'edu:confirm' })
+    expect(seen.runs).toContainEqual(['edu', 'crew', 'approve', 'abcd1234', '--request-id=req_0123456789abcdef'])
+    expect(seen.toasts).toContain('Edu: crew run abcd1234 approved')
+    await ui.unmount()
+  })
+
+  test('a gate id that is not a plain nonce is never sent', async ($, on) => {
+    const seen = engine(on, { gate: 'x" & calc & "' })
+    await start($)
+    const ui = await $.ui.mount(pane(100))
+    await ui.press({ key: 'tab:edu' })
+    await ui.press({ key: 'edu:reject:abcd1234' })
+    await ui.press({ key: 'edu:confirm' })
+    expect(seen.runs.filter(argv => argv[1] === 'crew')).toEqual([['edu', 'crew', 'reject', 'abcd1234']])
+    await ui.unmount()
+  })
+
+  test('a second Yes while the first runs does not run the verdict twice', async ($, on) => {
+    const seen = engine(on)
+    await start($)
+    const ui = await $.ui.mount(pane(100))
+    await ui.press({ key: 'tab:edu' })
+    await ui.press({ key: 'edu:approve:abcd1234' })
+    await Promise.all([ui.press({ key: 'edu:confirm' }), ui.press({ key: 'edu:confirm' }).catch(() => undefined)])
+    await deck($, 'refresh')
+    expect(seen.runs.filter(argv => argv[1] === 'crew')).toHaveLength(1)
+    await ui.unmount()
+  })
+
+  test('a cancelled crew job is drawn as cancelled and not counted as active', async ($, on) => {
+    engine(on, { more: [{ id: 'dead0001', cli: 'codex', task: 'Stopped work', status: 'cancelled', mode: 'headless', startedAt: 600, endedAt: 800, tokens: 0, tokensKnown: false }] })
+    await start($)
+    const ui = await $.ui.mount(pane(100))
+    await ui.press({ key: 'tab:edu' })
+    const text = await screen(ui)
+    expect(text).toMatch(/⊘ /)
+    expect(text).toMatch(/cancelled · dead0001/)
+    expect(text).toMatch(/2 active · 4 recent/)
+    expect(await ui.find({ key: 'edu:approve:dead0001' })).toBeUndefined()
+    await ui.unmount()
+  })
+
   test('a host session id that is not a plain id never reaches argv', async ($, on) => {
     const seen = engine(on, { sessionId: 's1" & calc & "' })
     await start($)
@@ -342,6 +404,34 @@ describe('Edu Deck', () => {
     await clock.advance(5_000)
     await clock.advance(10_000)
     expect(seen.runs.filter(argv => argv[1] === 'deck')).toHaveLength(2)
+  })
+
+  test('while edu is missing, reads back off, events do not start edu, and r still does', async ($, on) => {
+    const clock = mock.clock(on, { now: 0 })
+    const seen = engine(on, { missing: true })
+    const reads = () => seen.runs.filter(argv => argv[1] === 'deck').length
+    await $.session.start({ cwd: '/work/edu', surface: 'terminal', isInteractive: true })
+    await clock.advance(5_000)
+    expect(reads()).toBe(1)
+    // 60 s when idle, doubled per failure in a row: 120 s, 240 s, then 300 s at most.
+    await clock.advance(110_000)
+    expect(reads()).toBe(1)
+    await clock.advance(5_000)
+    expect(reads()).toBe(2)
+    await clock.advance(235_000)
+    expect(reads()).toBe(2)
+    await clock.advance(5_000)
+    expect(reads()).toBe(3)
+    await clock.advance(295_000)
+    expect(reads()).toBe(3)
+    await clock.advance(5_000)
+    expect(reads()).toBe(4)
+    await $.tool.call({ tool: 'mcp__plugin_edu_edu__edu_brief' } as never)
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await clock.advance(0)
+    expect(reads()).toBe(4)
+    expect((await deck($, 'refresh')).text).toMatch(/not on PATH/)
+    expect(reads()).toBe(5)
   })
 
   test('the status line counts active crew jobs', async ($, on) => {

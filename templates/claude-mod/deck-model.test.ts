@@ -32,6 +32,7 @@ describe('deck model (ported from Agent Tree) with the Edu tab', () => {
   it('asks before a crew verdict, and leaving the tab or cancelling forgets the question', () => {
     const asked = confirmAsked(createTree(0), 'abcd1234', 'approve');
     expect(asked.confirming).toEqual({ jobId: 'abcd1234', verdict: 'approve' });
+    expect(confirmAsked(createTree(0), 'abcd1234', 'reject', 'req_0123456789').confirming).toEqual({ jobId: 'abcd1234', verdict: 'reject', requestId: 'req_0123456789' });
     expect(confirmCleared(asked)).not.toHaveProperty('confirming');
     expect(tabChosen(asked, 'log')).not.toHaveProperty('confirming');
     const plain = createTree(0);

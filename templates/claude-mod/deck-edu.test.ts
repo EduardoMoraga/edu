@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   EDU_ACTIVE_MS,
+  EDU_BACKOFF_MAX_MS,
   EDU_IDLE_MS,
+  FIELD_LIMIT,
   JOBS_KEPT,
   TASK_LIMIT,
   activeJobs,
@@ -12,9 +14,12 @@ import {
   eduFrom,
   eduLoading,
   eduMissing,
+  eduPeriod,
   elapsed,
   failureReason,
+  failuresAfter,
   isJobRef,
+  isRequestId,
   isSessionRef,
   plainArgv,
   stripParts,
@@ -90,6 +95,37 @@ describe('eduFrom', () => {
     expect(edu.identity).toBe('Edu');
   });
 
+  it('keeps short fields on one line, without control characters, and bounded', () => {
+    const edu = eduFrom(snapshot({
+      identity: 'Al\u001b]0;pwned\u0007bert',
+      project: { name: `p\n${'x'.repeat(300)}`, root: '/w\r\nork' },
+      jobs: [{ id: 'abcd1234', cli: 'co\u001b[2Jdex', mode: 'r\nun', status: 'done\u0000', task: 't' }],
+      recent: [{ title: 'n', tier: 'tran\u001bsitive', at: 1 }],
+      spec: { name: 'sp\u0007ec', requirements: 1, checks: 1 },
+      session: { id: 's\u001b1', status: 'open-session\n', title: 'T\u0007' },
+    }), 1);
+    const shown = JSON.stringify(edu);
+    expect(shown).not.toMatch(/\\u00(?:1b|07|00)|\\[nr]/);
+    expect(edu.project?.name).toHaveLength(FIELD_LIMIT);
+    expect(edu.jobs[0]).toMatchObject({ cli: 'co [2Jdex', mode: 'r un', status: 'done' });
+    expect(edu.session).toEqual({ id: 's 1', status: 'open-session', title: 'T' });
+  });
+
+  it('reads the approval gate an Edu 6.0 CLI names, and drops one that is not a plain nonce', () => {
+    const job = { id: 'abcd1234', status: 'awaiting-approval' };
+    expect(eduFrom(snapshot({ jobs: [{ ...job, requestId: 'req_0123456789abcdef' }] }), 1).jobs[0]?.requestId).toBe('req_0123456789abcdef');
+    for (const requestId of ['x" & calc', 'short', 7, null, '']) {
+      expect(eduFrom(snapshot({ jobs: [{ ...job, requestId }] }), 1).jobs[0]).not.toHaveProperty('requestId');
+    }
+    expect(eduFrom(snapshot(), 1).jobs[0]).not.toHaveProperty('requestId');
+  });
+
+  it('reads a cancelled job as finished, not active', () => {
+    const edu = eduFrom(snapshot({ jobs: [{ id: 'dead0001', status: 'cancelled' }], approvals: 0 }), 1);
+    expect(edu.jobs[0]?.status).toBe('cancelled');
+    expect(activeJobs(edu)).toBe(0);
+  });
+
   it('fails on output that is not a version 1 snapshot', () => {
     expect(eduFrom('Error: no brain', 1)).toMatchObject({ state: 'failed', error: 'the output is not JSON' });
     expect(eduFrom(JSON.stringify({ version: 2 }), 1)).toMatchObject({ state: 'failed', error: 'unknown snapshot version' });
@@ -129,6 +165,20 @@ describe('refresh policy', () => {
     expect(eduDue(idle, EDU_IDLE_MS, 0, false)).toBe(true);
   });
 
+  it('backs off while reads keep failing, up to five minutes, and starts over after a good one', () => {
+    expect(eduPeriod(idle, false)).toBe(EDU_IDLE_MS);
+    expect(eduPeriod(idle, false, 1)).toBe(2 * EDU_IDLE_MS);
+    expect(eduPeriod(idle, false, 2)).toBe(4 * EDU_IDLE_MS);
+    expect(eduPeriod(idle, false, 3)).toBe(EDU_BACKOFF_MAX_MS);
+    expect(eduPeriod(busy, false, 1)).toBe(2 * EDU_ACTIVE_MS);
+    expect(eduPeriod(idle, true, 50)).toBe(EDU_BACKOFF_MAX_MS);
+    expect(eduDue(idle, EDU_IDLE_MS, 0, false, 1)).toBe(false);
+    expect(eduDue(idle, 2 * EDU_IDLE_MS, 0, false, 1)).toBe(true);
+    expect(failuresAfter(0, eduMissing(idle, 1))).toBe(1);
+    expect(failuresAfter(2, eduFailed(idle, 'x', 1))).toBe(3);
+    expect(failuresAfter(3, idle)).toBe(0);
+  });
+
   it('asks for the session only while the CLI knows the flag', () => {
     expect(eduArgs('s1', true)).toEqual(['deck', '--json', '--session', 's1']);
     expect(eduArgs('6f1c2a90-7d4e-4b8a-9c3d-0e5f6a7b8c9d', true)).toEqual(['deck', '--json', '--session', '6f1c2a90-7d4e-4b8a-9c3d-0e5f6a7b8c9d']);
@@ -158,12 +208,20 @@ describe('crew verdicts', () => {
     expect(verdictArgs('abcd1234', 'approve')).toEqual(['crew', 'approve', 'abcd1234']);
     expect(verdictArgs('abcd1234', 'reject')).toEqual(['crew', 'reject', 'abcd1234']);
   });
+
+  it('names the approval gate when the CLI reported one, as a single --option=value', () => {
+    expect(verdictArgs('abcd1234', 'approve', 'req_0123456789abcdef')).toEqual(['crew', 'approve', 'abcd1234', '--request-id=req_0123456789abcdef']);
+    expect(verdictArgs('abcd1234', 'reject', '-leading-dash-nonce')).toEqual(['crew', 'reject', 'abcd1234', '--request-id=-leading-dash-nonce']);
+    expect(verdictArgs('abcd1234', 'approve', 'x&calc&x')).toEqual(['crew', 'approve', 'abcd1234']);
+    for (const id of ['0123456789abcdef', '6f1c2a90-7d4e-4b8a-9c3d-0e5f6a7b8c9d', 'b64url_-AZaz09']) expect(isRequestId(id)).toBe(true);
+    for (const id of ['short', 'a b c d e f', 'x"&calc&"', 'x%PATH%xx', 'x^&calc^x', 'x'.repeat(129)]) expect(isRequestId(id)).toBe(false);
+  });
 });
 
 describe('arguments that reach edu (and cmd.exe through the npm shim on Windows)', () => {
   it('a host session id must be a plain id', () => {
     for (const id of ['s1', '6f1c2a90-7d4e-4b8a-9c3d-0e5f6a7b8c9d', 'session_2']) expect(isSessionRef(id)).toBe(true);
-    for (const id of ['', '-s', '--help', 's1&calc', 's1|x', 's1>x', 's1"x', "s1'x", 's 1', '%TEMP%', 's1^x', 's1!x', 's1\\nx', 'x'.repeat(129)]) {
+    for (const id of ['', '-s', '--help', 's1&calc', 's1|x', 's1>x', 's1"x', "s1'x", 's 1', '%TEMP%', 's1^x', 's1!x', 's1\nx', 'x'.repeat(129)]) {
       expect(isSessionRef(id)).toBe(false);
       expect(eduArgs(id, true)).toEqual(['deck', '--json']);
     }
@@ -172,7 +230,7 @@ describe('arguments that reach edu (and cmd.exe through the npm shim on Windows)
   it('only plain words, options and --option=value pass the last check', () => {
     expect(plainArgv(['deck', '--json', '--session', 's1'])).toBe(true);
     expect(plainArgv(['crew', 'approve', 'abcd1234', '--request-id=-a_b'])).toBe(true);
-    for (const bad of ['a&b', 'a b', '"a"', 'a|b', 'a>b', '%PATH%', 'a^b', '!x!', '--x=a&b', '', '=x', '---x', 'a\\nb']) expect(plainArgv(['deck', bad])).toBe(false);
+    for (const bad of ['a&b', 'a b', '"a"', 'a|b', 'a>b', '%PATH%', 'a^b', '!x!', '--x=a&b', '', '=x', '---x', 'a\nb']) expect(plainArgv(['deck', bad])).toBe(false);
   });
 });
 
