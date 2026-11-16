@@ -6,7 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/index.js';
 import { estimateTokens } from '../context/index.js';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 import { createEduMcpServer } from './server.js';
 
 // These tests exercise a regular host even when the test runner itself was

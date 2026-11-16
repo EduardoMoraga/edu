@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyInstall, getManifestPath, planInstall, resolveTemplatesDir, uninstall } from './installer.js';
+import { applyInstall, getManifestPath, planInstall, uninstall } from './installer.js';
+import { packageTemplatesDir } from '../platform/package.js';
 import { tomlDefines, tomlKeys } from './merge.js';
 import { upsertManagedBlock, removeManagedBlock } from './blocks.js';
 import { codexNotifyArgv } from './codex.js';
@@ -15,7 +16,7 @@ async function fixture() {
   const root = join(base, 'project');
   const home = join(base, 'home');
   await Promise.all([mkdir(root), mkdir(home)]);
-  return { base, root, home, templatesDir: resolveTemplatesDir() };
+  return { base, root, home, templatesDir: packageTemplatesDir() };
 }
 async function put(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });

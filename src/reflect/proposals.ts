@@ -1,6 +1,7 @@
 import { ProposalBundleSchema, validateSkillBundle, type ProposalBundle } from '../skills/bundle.js';
 import { FileTransaction } from '../adapters/operations.js';
-import { applyInstall, resolveTemplatesDir } from '../adapters/installer.js';
+import { applyInstall } from '../adapters/installer.js';
+import { packageTemplatesDir } from '../platform/package.js';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { parse, stringify } from 'yaml';
@@ -45,7 +46,7 @@ export async function acceptProposal(brain: Brain, id: string, brainRoot?: strin
     const accepted = { ...proposal, evidence, hashes: Object.fromEntries(bundle.files.map(file => [file.path, file.sha256])) };
     const transaction = new FileTransaction();
     try {
-      await applyInstall({ scope: 'project', root, home: root, templatesDir: resolveTemplatesDir(), notes: [], actions: bundle.files.map(file => ({
+      await applyInstall({ scope: 'project', root, home: root, templatesDir: packageTemplatesDir(), notes: [], actions: bundle.files.map(file => ({
         cli: 'codex', kind: 'file', path: join(root, 'skills', proposal.name, file.path), description: `Accept ${proposal.name} bundle ${file.path}`, content: file.content,
         bundle: { name: proposal.name, root: join(root, 'skills', proposal.name), anchor: root, scope: 'project', relative: file.path },
       })) }, { manifestPath: join(root, 'skills', '.edu-bundles.json'), transaction });

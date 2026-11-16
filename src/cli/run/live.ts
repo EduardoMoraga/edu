@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import type { RunResult } from '../../orchestrator/index.js';
 import type { CliContext } from '../context.js';
 import { uiLang, type Lang } from '../i18n.js';
-import { packageTemplatesDir } from '../package.js';
+import { packageTemplatesDir } from '../../platform/package.js';
 import { initBrain } from '../setup.js';
 import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
 import { ApprovalBridge } from './bridge.js';

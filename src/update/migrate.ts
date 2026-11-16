@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveBrainDir } from '../brain/location.js';
 import { compareVersions } from './release.js';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 import { getCapabilities } from '../release/capabilities.js';
 import { readProjects } from '../vault/registry.js';
 

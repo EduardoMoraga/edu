@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eduMcpLaunch } from '../platform/index.js';
 import { codexMcpEntry, MCP_FORWARDED_ENV } from '../platform/child-env.js';
-import { applyInstall, planInstall, resolveTemplatesDir } from './installer.js';
+import { applyInstall, planInstall } from './installer.js';
+import { packageTemplatesDir } from '../platform/package.js';
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -15,7 +16,7 @@ async function fixture() {
   const root = join(base, 'project');
   const home = join(base, 'home');
   await Promise.all([mkdir(root), mkdir(home)]);
-  return { root, home, templatesDir: resolveTemplatesDir() };
+  return { root, home, templatesDir: packageTemplatesDir() };
 }
 
 /** The `[mcp_servers.edu]` table of a config.toml, one `key = value` per line. */

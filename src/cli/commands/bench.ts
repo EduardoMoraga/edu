@@ -10,7 +10,7 @@ import type { ContextReport } from '../../bench/context.js';
 import type { RankMetrics, RetrievalOptions, RetrievalReport } from '../../bench/retrieval.js';
 import type { CliContext } from '../context.js';
 import { action, printJson } from '../kit.js';
-import { packageVersion } from '../package.js';
+import { packageVersion } from '../../platform/package.js';
 
 interface BenchOpts { json?: boolean; out?: string; seed?: string; grade?: string; corpus?: string; misses?: boolean; alt?: boolean }
 

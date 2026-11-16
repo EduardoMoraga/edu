@@ -3,6 +3,7 @@ import { assertContained, portablePath } from '../skills/bundle.js';
 import { createHash } from 'node:crypto';
 import { access, lstat, mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
 import { retryFs } from '../platform/fs-retry.js';
+import { packageTemplatesDir } from '../platform/package.js';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { InstallAction } from '../core/contracts.js';
 import type { PlannedAction } from './types.js';
@@ -62,8 +63,8 @@ export async function ensureParents(path: string, createdDirs: string[], transac
 export async function applyStandaloneActions(actions: PlannedAction[], home: string): Promise<InstallAction[]> {
   const bundle = actions.find(action => action.bundle)?.bundle;
   if (bundle) {
-    const { applyInstall, resolveTemplatesDir } = await import('./installer.js');
-    const manifest = await applyInstall({ scope: bundle.scope, root: bundle.anchor, home, templatesDir: resolveTemplatesDir(), notes: [], actions });
+    const { applyInstall } = await import('./installer.js');
+    const manifest = await applyInstall({ scope: bundle.scope, root: bundle.anchor, home, templatesDir: packageTemplatesDir(), notes: [], actions });
     return manifest.actions.filter(action => actions.some(planned => planned.path === action.path));
   }
   const result: InstallAction[] = [];

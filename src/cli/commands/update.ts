@@ -5,7 +5,7 @@ import { UpdateError, whatsNew } from '../../update/release.js';
 import { checkForUpdate, fileExists, installPrefix, performUpdate, type StepName, type UpdateDeps } from '../../update/update.js';
 import { globalHome, type CliContext } from '../context.js';
 import { action, look, printJson, statusLine } from '../kit.js';
-import { packageTemplatesDir, packageVersion } from '../package.js';
+import { packageRoot, packageVersion } from '../../platform/package.js';
 
 interface UpdateOpts { check?: boolean; to?: string; json?: boolean; allowUnverified?: boolean }
 
@@ -71,7 +71,7 @@ export function defaultUpdateDeps(ctx: CliContext): UpdateDeps {
     exists: fileExists,
     execPath: process.execPath,
     platform: process.platform,
-    packageRoot: dirname(packageTemplatesDir()),
+    packageRoot: packageRoot(),
     currentVersion: packageVersion(),
     env: ctx.env,
   };

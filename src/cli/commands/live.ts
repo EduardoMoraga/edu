@@ -8,7 +8,7 @@ import { getGlyphs, renderBanner } from '../../identity/index.js';
 import type { CliContext, Resolved } from '../context.js';
 import { t, uiLang } from '../i18n.js';
 import { action, look, parsePositive } from '../kit.js';
-import { packageVersion } from '../package.js';
+import { packageVersion } from '../../platform/package.js';
 import { createPlainFormatter } from '../run/plain.js';
 import { identityName, lessonCount, openWorkspace } from '../workspace.js';
 import { parseCli } from './setup.js';

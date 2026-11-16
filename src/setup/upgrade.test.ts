@@ -6,7 +6,7 @@ import { applySetup, planSetup, type SetupRunner } from './index.js';
 import type { Runner } from '../update/update.js';
 import { migrateWorkspaces } from '../update/migrate.js';
 import { registerProject } from '../vault/registry.js';
-import { packageTemplatesDir } from '../cli/package.js';
+import { packageTemplatesDir } from '../platform/package.js';
 import { captureContext, runCli } from '../cli/testkit.js';
 const dirs: string[] = [];
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true }); });

@@ -6,7 +6,7 @@ import type { CliId, InstallScope } from '../../core/contracts.js';
 import { globalHome, type CliContext } from '../context.js';
 import { t } from '../i18n.js';
 import { action, printJson } from '../kit.js';
-import { packageTemplatesDir } from '../package.js';
+import { packageTemplatesDir } from '../../platform/package.js';
 import { initBrain } from '../setup.js';
 import { registerProject } from '../../vault/registry.js';
 

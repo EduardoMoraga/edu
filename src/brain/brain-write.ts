@@ -5,6 +5,7 @@
 import { access, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { CanonicalKind, Note, NoteMeta, Tier } from '../core/contracts.js';
+import { packageTemplatesDir } from '../platform/package.js';
 import { META_TEXT, iso, originOf, redactFields, redactInput, type BrainCore } from './brain-core.js';
 import type { RetireSuperseded } from './brain-maintain.js';
 import type { Brain, NoteProvenance, UpdateOptions } from './brain-types.js';
@@ -108,8 +109,7 @@ export function writeMethods(core: BrainCore, self: () => Brain, retireSupersede
       for (const folder of ['skills', 'agents', 'playbooks', 'proposals', 'runs']) await mkdir(join(loc.root, folder), { recursive: true });
       await ensureLocalIgnored(loc.root);
       try {
-        const { resolveTemplatesDir } = await import('../adapters/index.js');
-        const source = join(resolveTemplatesDir(), 'playbooks');
+        const source = join(packageTemplatesDir(), 'playbooks');
         for (const name of await readdir(source)) {
           if (!name.endsWith('.md')) continue;
           const target = join(loc.root, 'playbooks', name);
@@ -123,8 +123,7 @@ export function writeMethods(core: BrainCore, self: () => Brain, retireSupersede
       catch {
         let contract = fallbackEdu;
         try {
-          const { resolveTemplatesDir } = await import('../adapters/index.js');
-          contract = await readFile(join(resolveTemplatesDir(), 'EDU.md'), 'utf8');
+          contract = await readFile(join(packageTemplatesDir(), 'EDU.md'), 'utf8');
         } catch { /* The bundled contract is optional for minimal installations. */ }
         contract = contract.replaceAll('{{name}}', opts.identityName ?? 'Edu');
         await atomicWrite(join(loc.root, 'EDU.md'), contract);

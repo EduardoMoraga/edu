@@ -1,4 +1,4 @@
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 
 /** Capabilities of this binary, not a forecast of a requested future release. */
 export function getCapabilities(version = packageVersion()) {

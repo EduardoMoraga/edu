@@ -1,5 +1,5 @@
 /** Native plugin setup command. Registration is pre-wired in program.ts. */
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { Command } from 'commander';
 import type { CliId } from '../../core/contracts.js';
 import { applySetup, needsFirstRunSetup, planSetup } from '../../setup/index.js';
@@ -8,7 +8,7 @@ import { binaryOnPath } from '../../adapters/common.js';
 import type { CliContext } from '../context.js';
 import { globalHome, type Resolved } from '../context.js';
 import { action } from '../kit.js';
-import { packageTemplatesDir } from '../package.js';
+import { packageRoot, packageTemplatesDir } from '../../platform/package.js';
 
 interface SetupOpts { cli?: string; dryRun?: boolean; yes?: boolean }
 const CLIS: CliId[] = ['claude', 'codex', 'pi', 'opencode', 'agy'];
@@ -29,8 +29,7 @@ function promptFor(cli: CliId, lang: 'en' | 'es'): string {
 
 export async function runPluginSetup(ctx: CliContext, g: Resolved, options: { clis?: CliId[]; yes?: boolean; dryRun?: boolean } = {}): Promise<void> {
   const clis = options.clis ?? await ctx.detectClis();
-  const packageRoot = dirname(packageTemplatesDir());
-  const plan = await planSetup({ clis, packageRoot, home: ctx.home });
+  const plan = await planSetup({ clis, packageRoot: packageRoot(), home: ctx.home });
   if (g.json && options.dryRun) {
     ctx.out(JSON.stringify({ clis, commands: plan.commands, fallback: plan.fallback, alreadyInstalled: plan.alreadyInstalled }));
     return;

@@ -14,7 +14,7 @@ import { integrationPreflight } from '../../doctor/integrations.js';
 import { readSyncState } from '../../vault/sync.js';
 import { describeSync } from './sync.js';
 import { dirname } from 'node:path';
-import { packageTemplatesDir } from '../package.js';
+import { packageRoot } from '../../platform/package.js';
 import { binaryOnPath } from '../../adapters/common.js';
 
 export const AUTH_HINTS: Record<CliId, string> = {
@@ -79,7 +79,7 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
           : { level: 'fail', text: lang === 'es' ? '`edu` no está en el PATH: los hosts no pueden iniciar `edu mcp` ni los hooks. Agregue el bin global de npm (npm prefix -g) al PATH.' : '`edu` is not on PATH: hosts cannot start `edu mcp` or its hooks. Add the npm global bin directory (npm prefix -g) to PATH.' });
         const { diagnose } = await import('../../adapters/index.js');
         const { installProblems, quarantineProblem } = await import('../../adapters/doctor.js');
-        const diagnoseOptions = { root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env, packageRoot: dirname(packageTemplatesDir()) };
+        const diagnoseOptions = { root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env, packageRoot: packageRoot() };
         const clis = await diagnose(diagnoseOptions);
         const problems = await installProblems(diagnoseOptions);
         for (const problem of problems) lines.push(problem);

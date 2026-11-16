@@ -1,12 +1,11 @@
 import { configuredBases, installDirs, pinConfiguredBases, sharedTargetPaths } from './paths.js';
 import { assertContained } from '../skills/bundle.js';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
 import { readFile, readdir, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { CliId, InstallAction, InstallManifest, InstallScope } from '../core/contracts.js';
+import { packageTemplatesDir, packageVersion } from '../platform/package.js';
 import { createClaudeIntegration } from './claude.js';
 import { createCodexIntegration } from './codex.js';
 import { createPiIntegration } from './pi.js';
@@ -122,23 +121,6 @@ function parseStateFile(path: string, content: Buffer): unknown {
   catch (error) { throw new Error(`Edu state file ${path} is not valid JSON (${error instanceof Error ? error.message : String(error)}). Restore it from a backup or remove it, then run again.`); }
 }
 
-/** Walk toward the package root, working from both src/ and bundled dist/. */
-export function resolveTemplatesDir(): string {
-  let dir = dirname(fileURLToPath(import.meta.url));
-  while (true) {
-    const packagePath = join(dir, 'package.json');
-    if (existsSync(packagePath)) {
-      try {
-        const pkg = JSON.parse(readFileSync(packagePath, 'utf8')) as { name?: string };
-        if (pkg.name === 'edu-agent') return join(dir, 'templates');
-      } catch { /* Keep walking. */ }
-    }
-    const parent = dirname(dir);
-    if (parent === dir) throw new Error('Could not locate edu-agent package root');
-    dir = parent;
-  }
-}
-
 export function getManifestPath(scope: InstallScope, root: string, home: string): string {
   return join(scope === 'project' ? root : home, '.edu/manifest.json');
 }
@@ -146,7 +128,7 @@ export function getManifestPath(scope: InstallScope, root: string, home: string)
 export async function planInstall(options: PlanInstallOptions): Promise<InstallPlan> {
   const root = resolve(options.root);
   const home = resolve(options.home ?? homedir());
-  const templatesDir = resolve(options.templatesDir ?? resolveTemplatesDir());
+  const templatesDir = resolve(options.templatesDir ?? packageTemplatesDir());
   const clis = options.clis === 'all' ? CLI_IDS : [...new Set(options.clis)];
   for (const cli of clis) if (!CLI_IDS.includes(cli)) throw new Error(`Unknown CLI: ${cli}`);
   const notes = clis.includes('agy') ? ['agy MCP: manual step'] : [];
@@ -312,8 +294,6 @@ async function applyPreparedInstall(plan: InstallPlan, transaction: FileTransact
     }
     return { action, before, after, prior };
   }));
-  const packageFile = join(dirname(resolveTemplatesDir()), 'package.json');
-  const pkg = JSON.parse(await readFile(packageFile, 'utf8')) as { version: string };
   const createdDirs = [...(previous?.createdDirs ?? [])];
   const nextActions = (previous?.actions ?? []).filter(action => !retiring.includes(action));
   const backupStamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`;
@@ -383,7 +363,7 @@ async function applyPreparedInstall(plan: InstallPlan, transaction: FileTransact
   }
   for (const action of retiring) await retireAction(action, createdDirs, transaction);
   const manifest: StoredManifest = {
-    version: 1, eduVersion: pkg.version, installedAt: previous?.installedAt ?? new Date().toISOString(),
+    version: 1, eduVersion: packageVersion(), installedAt: previous?.installedAt ?? new Date().toISOString(),
     scope: plan.scope, actions: nextActions, createdDirs, home: plan.home,
   };
   await ensureParents(manifestPath, createdDirs, transaction);

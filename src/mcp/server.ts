@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { compileReportLines } from '../brain/compile.js';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 import { registerCapabilityTools } from './tools/capabilities.js';
 import { createToolContext, type EduMcpOptions } from './tools/context.js';
 import { registerCrewTools } from './tools/crew.js';

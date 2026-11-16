@@ -1,7 +1,7 @@
 import { access, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { packageVersion } from './package.js';
+import { packageVersion } from '../platform/package.js';
 import { captureContext, out, runCli, type Captured } from './testkit.js';
 
 const contexts: Captured[] = [];

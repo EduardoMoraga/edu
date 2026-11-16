@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 
 // package.json is the single source of the release version. Plugin manifests are generated from it
 // (npm run build:plugins); a manifest left behind would ship one version under another's name.

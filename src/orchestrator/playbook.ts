@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
-import { resolveTemplatesDir } from '../adapters/index.js';
+import { packageTemplatesDir } from '../platform/package.js';
 import { truncateToTokens } from '../context/index.js';
 import type { EduConfig, RoleSpec } from '../core/contracts.js';
 
@@ -28,7 +28,7 @@ export async function loadPlaybook(name: string, projectRoot: string, locations:
   const paths = [
     join(projectRoot, 'playbooks', `${name}.md`),
     join(locations.globalRoot ?? join(homedir(), '.edu'), 'playbooks', `${name}.md`),
-    join(locations.templatesDir ?? resolveTemplatesDir(), 'playbooks', 'default.md'),
+    join(locations.templatesDir ?? packageTemplatesDir(), 'playbooks', 'default.md'),
   ];
   for (const path of paths) {
     let markdown: string;
