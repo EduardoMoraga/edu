@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { dispatchPane, paneAnswer, refreshPane, type HerdrRunner } from './herdr.js';
-import { createCrewStore } from './store.js';
+import { dispatchPane, paneAnswer, refreshPane, type HerdrRunner, type HerdrTarget } from './herdr.js';
+import { createCrewStore, isCrewWorker } from './store.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -172,5 +172,37 @@ describe('pane job summary', () => {
     const done = await paneJob('Say READY', () => screen, screen);
     expect(done.status).toBe('done');
     expect(done.summary).toContain('could not be read from herdr pane p1');
+  });
+});
+
+describe('pane agents run as crew workers', () => {
+  /** The variables herdr sets for the pane's shell, which the agent CLI started in that shell (and its Edu MCP server) inherit. */
+  const paneEnv = (args: readonly string[]): NodeJS.ProcessEnv => Object.fromEntries(args.flatMap((arg, index) => {
+    if (args[index - 1] !== '--env') return [];
+    const at = arg.indexOf('=');
+    return [[arg.slice(0, at), arg.slice(at + 1)]];
+  }));
+
+  it.each([
+    ['a split beside the caller, inside herdr', { kind: 'inside' }, ['pane', 'split']],
+    ['a tab in the Edu workspace', { kind: 'outside', workspaceId: 'w1' }, ['tab', 'create']],
+    ['a new Edu workspace', { kind: 'outside' }, ['workspace', 'create']],
+  ] satisfies Array<[string, HerdrTarget, [string, string]]>)('marks %s with the job id, as a headless worker is marked', async (_where, target, [command, sub]) => {
+    const root = await mkdtemp(join(tmpdir(), 'edu-herdr-'));
+    roots.push(root);
+    const store = createCrewStore(root);
+    const job = await store.create({ cli: 'claude', task: 'Approve the open gate', mode: 'pane', cwd: root, autonomy: 'ask' });
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      if (args[0] === command && args[1] === sub) return { stdout: JSON.stringify({ result: { pane: { pane_id: 'p1' }, root_pane: { pane_id: 'p1' } } }), stderr: '' };
+      return { stdout: '{}', stderr: '' };
+    };
+    const started = await dispatchPane(job, { target, runner, store });
+    expect(started).toMatchObject({ status: 'running', paneId: 'p1' });
+    const opened = calls.find(args => args[0] === command && args[1] === sub)!;
+    // Exactly the marker headless workers get (engine/process.ts): the job's own id, nothing else added.
+    expect(paneEnv(opened)).toEqual({ EDU_CREW_JOB: job.id });
+    expect(isCrewWorker(paneEnv(opened))).toBe(true);
   });
 });

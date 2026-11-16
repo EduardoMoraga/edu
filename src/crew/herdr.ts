@@ -67,23 +67,28 @@ export async function herdrTarget(options: HerdrOptions = {}): Promise<HerdrTarg
 /**
  * Opens the pane for a job and returns its id: a split beside the caller, or a tab in the Edu workspace.
  *
+ * The pane carries `EDU_CREW_JOB=<job id>`, the marker a headless worker's CLI gets (engine/process.ts): the agent
+ * CLI started in the pane's shell inherits it, so its Edu MCP server runs in worker mode and the agent can never
+ * approve a gate, dispatch agents or write memory. A person typing in that pane is treated as the worker too.
+ *
  * Environment limit: unlike headless agents (platform/child-env.ts), a pane agent cannot get the allowlisted
  * environment. herdr (0.9) starts the pane's interactive shell from the herdr server's environment, the shell's rc
  * files run, and `herdr agent start` launches the CLI's own executable in that shell, with no wrapper such as
  * `env -i`. The `--env KEY=VALUE` of `pane split`, `tab create` and `workspace create` only adds variables. Typing
  * `env -i … <cli>` through `herdr pane run` instead would lose herdr's readiness and trust-prompt handling, depend on
  * the user's shell syntax (fish lists), and put values on a command line. So a pane agent sees the same environment
- * as a CLI the user starts in that terminal; dispatch headless when it must not.
+ * as a CLI the user starts in that terminal, plus the worker marker; dispatch headless when it must not.
  */
 async function openPane(job: CrewJob, target: Exclude<HerdrTarget, { kind: 'none' }>, runner: HerdrRunner, agentName: string): Promise<string | undefined> {
+  const worker = ['--env', `EDU_CREW_JOB=${job.id}`];
   if (target.kind === 'inside') {
-    const split = parse((await runner(['pane', 'split', '--current', '--direction', 'right', '--cwd', job.cwd, '--no-focus'])).stdout);
+    const split = parse((await runner(['pane', 'split', '--current', '--direction', 'right', '--cwd', job.cwd, ...worker, '--no-focus'])).stdout);
     const pane = (split.result as Record<string, unknown> | undefined)?.pane as Record<string, unknown> | undefined;
     return typeof pane?.pane_id === 'string' ? pane.pane_id : undefined;
   }
   const args = target.workspaceId
-    ? ['tab', 'create', '--workspace', target.workspaceId, '--cwd', job.cwd, '--label', agentName, '--no-focus']
-    : ['workspace', 'create', '--cwd', job.cwd, '--label', EDU_WORKSPACE_LABEL, '--no-focus'];
+    ? ['tab', 'create', '--workspace', target.workspaceId, '--cwd', job.cwd, '--label', agentName, ...worker, '--no-focus']
+    : ['workspace', 'create', '--cwd', job.cwd, '--label', EDU_WORKSPACE_LABEL, ...worker, '--no-focus'];
   const created = parse((await runner(args)).stdout).result as Record<string, unknown> | undefined;
   const pane = (created?.root_pane ?? created?.pane) as Record<string, unknown> | undefined;
   return typeof pane?.pane_id === 'string' ? pane.pane_id : undefined;
