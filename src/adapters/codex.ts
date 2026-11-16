@@ -1,4 +1,5 @@
 import { eduMcpLaunch } from '../platform/index.js';
+import { codexMcpEntry } from '../platform/child-env.js';
 import { dirname, join } from 'node:path';
 import type { InstallScope } from '../core/contracts.js';
 import type { IntegrationOptions, PlannedAction } from './types.js';
@@ -19,11 +20,13 @@ export function codexNotifyArgv(templatesDir: string, platform: NodeJS.Platform 
 
 async function plan(scope: InstallScope, root: string, options: IntegrationOptions): Promise<PlannedAction[]> {
   const paths = pathsFor('codex', scope, root, options.home, options.dirs);
-  const launch = eduMcpLaunch(options.platform);
+  // The same entry as the Codex plugin's .mcp.json: Codex filters its MCP servers' environment, so `env_vars` must
+  // forward EDU_CREW_JOB, or a crew worker's Edu MCP server would not run in worker mode.
+  const entry = codexMcpEntry(eduMcpLaunch(options.platform));
   return [
     ...instructionActions('codex', scope, root, options),
     ...await skillActions('codex', scope, root, options),
-    { cli: 'codex', kind: 'toml-merge', path: paths.mcp!, description: 'Register Edu MCP server and Codex notify hook', tomlBody: `notify = [${codexNotifyArgv(options.templatesDir, options.platform).map(arg => JSON.stringify(arg)).join(', ')}]\n\n[mcp_servers.edu]\ncommand = ${JSON.stringify(launch.command)}\nargs = ${JSON.stringify(launch.args)}` },
+    { cli: 'codex', kind: 'toml-merge', path: paths.mcp!, description: 'Register Edu MCP server and Codex notify hook', tomlBody: `notify = [${codexNotifyArgv(options.templatesDir, options.platform).map(arg => JSON.stringify(arg)).join(', ')}]\n\n[mcp_servers.edu]\ncommand = ${JSON.stringify(entry.command)}\nargs = ${JSON.stringify(entry.args)}\nenv_vars = ${JSON.stringify(entry.env_vars)}` },
   ];
 }
 
