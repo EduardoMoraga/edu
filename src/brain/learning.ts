@@ -96,11 +96,6 @@ export function overdueStatus(meta: NoteMeta, now = new Date()): NoteMeta['statu
   return meta.status;
 }
 
-export function explainWeight(usage: UsageStats | undefined, now = new Date()): string {
-  const w = learnedWeight(usage, now);
-  return `Learned weight ${w.toFixed(2)} combines Laplace feedback and a 45-day recency half-life.`;
-}
-
 export function applyLearning(note: Note, now = new Date()): Note {
   let status = lessonStatus(note.meta, now);
   status = overdueStatus({ ...note.meta, status }, now);
