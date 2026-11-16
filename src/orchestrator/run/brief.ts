@@ -1,7 +1,9 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { loadChecks, loadTools } from '../../evidence/registry.js';
+import type { EduConfig } from '../../core/contracts.js';
 import { assignCli } from '../assign.js';
+import { capRoleAutonomy } from '../config.js';
 import { applyPlaybookRoles, loadPlaybook, workerMethod, type Playbook } from '../playbook.js';
 import { at, emitEvidence, saveTaskState, taskStateMarkdown, writeStatus, type RunState } from './state.js';
 
@@ -19,7 +21,7 @@ export async function briefPhase(run: RunState): Promise<Playbook> {
   const playbook = await loadPlaybook(deps.playbookName ?? deps.config.playbook ?? 'default', dirname(deps.runsDir));
   run.harnessLevel = deps.harnessLevel ?? playbook.harness;
   run.methodSummary = workerMethod(playbook);
-  run.config = applyPlaybookRoles(deps.config, playbook);
+  run.config = withinCeiling(run, applyPlaybookRoles(deps.config, playbook));
   const contextual = run.harnessLevel === 'H2' || run.harnessLevel === 'H3';
   if (contextual) {
     run.pack = await deps.context.build({ query: goal, budgetTokens: deps.config.context.budgetTokens });
@@ -43,4 +45,13 @@ export async function briefPhase(run: RunState): Promise<Playbook> {
     await saveTaskState(run, taskStateMarkdown(goal, '- Planner is preparing the task plan.'));
   }
   return playbook;
+}
+
+/** Lowers roles above the caller's autonomy ceiling to it, and records each one as a limitation of the run. */
+function withinCeiling(run: RunState, config: EduConfig): EduConfig {
+  const ceiling = run.deps.maxAutonomy;
+  if (!ceiling) return config;
+  const capped = capRoleAutonomy(config, ceiling);
+  for (const role of capped.lowered) run.limitations.push(`Role ${role.id} asked for ${role.requested} autonomy, above the crew ceiling "${ceiling}", so it ran with "${ceiling}". A person can raise crew.maxAutonomy in the global Edu config.`);
+  return capped.config;
 }

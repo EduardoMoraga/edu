@@ -55,7 +55,7 @@ export async function runSession(host: RunHost, request: RunRequest): Promise<Ru
     const { resolveTemplatesDir } = await import('../adapters/index.js');
     await initBrain({ location: primary, templatesDir: resolveTemplatesDir(), detected: available, lang: request.lang });
   }
-  const [{ defaultConfig, loadConfig }, { orchestrate }, { buildContext }, { createEngine }] = await Promise.all([
+  const [{ defaultConfig, loadConfig, loadCrewPolicy }, { orchestrate }, { buildContext }, { createEngine }] = await Promise.all([
     import('./config.js'),
     import('./run.js'),
     import('../context/index.js'),
@@ -64,6 +64,10 @@ export async function runSession(host: RunHost, request: RunRequest): Promise<Ru
   const configPath = join(primary.root, 'config.json');
   const base = await exists(configPath) ? await loadConfig(configPath) : defaultConfig(available[0] ?? 'claude');
   const config = { ...base, mode: request.mode ?? base.mode, defaultCli: request.cli ?? base.defaultCli, approvals: request.autoApprove ? 'auto' as const : base.approvals };
+  // A project's config and playbooks live where agents and cloned repositories can write, so the person's global
+  // crew.maxAutonomy bounds their roles. The global brain's own config is the person's choice.
+  const global = locations.find(location => location.scope === 'global')!;
+  const maxAutonomy = primary.scope === 'project' ? (await loadCrewPolicy(global.root)).maxAutonomy : undefined;
 
   return orchestrate(request.goal, {
     config,
@@ -79,6 +83,7 @@ export async function runSession(host: RunHost, request: RunRequest): Promise<Ru
     playbookName: request.playbook,
     autoApprove: request.autoApprove,
     allowUnregisteredChecks: request.allowUnregisteredChecks,
+    ...(maxAutonomy ? { maxAutonomy } : {}),
     runsDir: join(primary.root, 'runs'),
   });
 }

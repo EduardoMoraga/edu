@@ -43,6 +43,13 @@ export function withinAutonomy(requested: Autonomy, ceiling: Autonomy): boolean 
   return AUTONOMY_RANK[requested] <= AUTONOMY_RANK[ceiling];
 }
 
+/** Lowers every role above `ceiling` to it. Returns the config (unchanged when nothing was lowered) and the lowered roles. */
+export function capRoleAutonomy(config: EduConfig, ceiling: Autonomy): { config: EduConfig; lowered: Array<{ id: string; requested: Autonomy }> } {
+  const lowered = config.roles.filter(role => !withinAutonomy(role.autonomy, ceiling)).map(role => ({ id: role.id, requested: role.autonomy }));
+  if (!lowered.length) return { config, lowered };
+  return { config: { ...config, roles: config.roles.map(role => withinAutonomy(role.autonomy, ceiling) ? role : { ...role, autonomy: ceiling }) }, lowered };
+}
+
 /**
  * Crew safety settings from the global config (`<eduHome>/config.json`) only. A project config lives inside
  * the workspace, where agents and cloned repositories can write, so it can never raise them. A missing file

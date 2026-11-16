@@ -1,5 +1,5 @@
 import type { Brain } from '../brain/index.js';
-import type { ApprovalBy, CliId, EduConfig, EduEvent, Engine, HarnessLevel } from '../core/contracts.js';
+import type { ApprovalBy, Autonomy, CliId, EduConfig, EduEvent, Engine, HarnessLevel } from '../core/contracts.js';
 import { BudgetExhausted } from './budget.js';
 import type { ContextProvider } from './types.js';
 import { approvePhase } from './run/approve.js';
@@ -27,6 +27,11 @@ export interface OrchestrateDeps {
    */
   allowUnregisteredChecks?: boolean;
   composerMessages?: AsyncIterable<string>;
+  /**
+   * The highest autonomy any role may run with (the global `crew.maxAutonomy`). Roles above it, from the config
+   * or the playbook, run with the ceiling instead and the run records it. Default: no ceiling.
+   */
+  maxAutonomy?: Autonomy;
 }
 export interface StepResult { id: string; ok: boolean; summary: string; skipped?: boolean }
 export interface RunResult { runId: string; ok: boolean; summary: string; events: EduEvent[]; steps: StepResult[]; episodeDir?: string }
