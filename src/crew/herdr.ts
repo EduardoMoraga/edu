@@ -64,7 +64,17 @@ export async function herdrTarget(options: HerdrOptions = {}): Promise<HerdrTarg
   return { kind: 'outside', workspaceId: typeof edu?.workspace_id === 'string' ? edu.workspace_id : undefined };
 }
 
-/** Opens the pane for a job and returns its id: a split beside the caller, or a tab in the Edu workspace. */
+/**
+ * Opens the pane for a job and returns its id: a split beside the caller, or a tab in the Edu workspace.
+ *
+ * Environment limit: unlike headless agents (platform/child-env.ts), a pane agent cannot get the allowlisted
+ * environment. herdr (0.9) starts the pane's interactive shell from the herdr server's environment, the shell's rc
+ * files run, and `herdr agent start` launches the CLI's own executable in that shell, with no wrapper such as
+ * `env -i`. The `--env KEY=VALUE` of `pane split`, `tab create` and `workspace create` only adds variables. Typing
+ * `env -i … <cli>` through `herdr pane run` instead would lose herdr's readiness and trust-prompt handling, depend on
+ * the user's shell syntax (fish lists), and put values on a command line. So a pane agent sees the same environment
+ * as a CLI the user starts in that terminal; dispatch headless when it must not.
+ */
 async function openPane(job: CrewJob, target: Exclude<HerdrTarget, { kind: 'none' }>, runner: HerdrRunner, agentName: string): Promise<string | undefined> {
   if (target.kind === 'inside') {
     const split = parse((await runner(['pane', 'split', '--current', '--direction', 'right', '--cwd', job.cwd, '--no-focus'])).stdout);
@@ -188,13 +198,65 @@ async function refreshOnce(job: CrewJob, store: CrewStore, options: HerdrOptions
   if ((status === 'done' || status === 'idle') && (job.observedWorking || changedSincePrompt)) {
     await appendPaneOutput(job, store, options);
     const output = await runner(['agent', 'read', agentName, '--source', 'recent-unwrapped', '--lines', '200']);
-    return store.update(job.id, { status: 'done', endedAt: now().toISOString(), summary: readResult(output.stdout) });
+    // A screen identical to the one right after the prompt holds no answer, whatever text it shows.
+    const unchanged = job.promptPaneHash !== undefined && createHash('sha256').update(output.stdout).digest('hex') === job.promptPaneHash;
+    const answer = unchanged ? undefined : paneAnswer(readResult(output.stdout), job.task);
+    return store.update(job.id, { status: 'done', endedAt: now().toISOString(), summary: answer ?? unreadableAnswer(job) });
   }
   if (status === 'failed' || status === 'error') {
     await appendPaneOutput(job, store, options);
     return store.update(job.id, { status: 'failed', endedAt: now().toISOString(), summary: `Herdr agent ${status}` });
   }
   return job;
+}
+
+/** A column-0 user-input marker: a CLI's echo of a submitted prompt or its composer (Claude Code `>`, Codex `›`). */
+const INPUT_MARKER = /^(?:[│┃]\s*)?[>›❯](?:\s|$)/;
+/** How Claude Code and Codex echo a long bracketed paste instead of its text. */
+const PASTED = /\[Pasted (?:text|content)\b[^\]]*\]/i;
+/** Blank lines and lines drawn only with box and rule characters. */
+const CHROME = /^[\s─━│┃║═╭╮╰╯┌┐└┘├┤┬┴┼╔╗╚╝]*$/;
+const squash = (text: string) => text.replace(/[│┃║]/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * The agent's answer on a pane screen: what follows the echoed prompt, without the composer the CLI draws below
+ * it. Undefined when nothing follows the prompt: the CLI drew its answer on the terminal's alternate screen, whose
+ * rows never reach herdr's scrollback, or the turn left nothing readable. A screen scrape, so best effort: when the
+ * prompt is no longer on screen, everything above the composer counts as the answer.
+ */
+export function paneAnswer(screen: string, prompt: string): string | undefined {
+  const lines = screen.replace(/\r/g, '').split('\n').map(line => line.trimEnd());
+  const echo = echoEnd(lines, prompt);
+  let start = echo === undefined ? 0 : echo + 1;
+  let end = lines.length;
+  for (let index = end - 1; index >= start; index--) if (INPUT_MARKER.test(lines[index]!)) { end = index; break; }
+  while (start < end && CHROME.test(lines[start]!)) start++;
+  while (end > start && CHROME.test(lines[end - 1]!)) end--;
+  return lines.slice(start, end).join('\n').trim() || undefined;
+}
+
+/** The line where the echoed prompt ends: its text (wrapped and indented by the CLI), or a pasted-text placeholder. */
+function echoEnd(lines: string[], prompt: string): number | undefined {
+  const offsets: number[] = [];
+  let joined = '';
+  for (const line of lines) { offsets.push(joined.length); joined += `${squash(line)} `; }
+  const lineAt = (offset: number) => { let index = 0; while (index + 1 < offsets.length && offsets[index + 1]! <= offset) index++; return index; };
+  // The tail is enough to find the end of a long prompt; a short one is matched whole, preferably on a marker line.
+  const needle = squash(prompt).slice(-48);
+  if (needle) {
+    let first: number | undefined;
+    for (let at = joined.indexOf(needle); at !== -1; at = joined.indexOf(needle, at + 1)) {
+      first ??= at;
+      if (INPUT_MARKER.test(lines[lineAt(at)]!)) return lineAt(at + needle.length - 1);
+    }
+    if (first !== undefined) return lineAt(first + needle.length - 1);
+  }
+  const pasted = lines.findIndex(line => INPUT_MARKER.test(line) && PASTED.test(line));
+  return pasted === -1 ? undefined : pasted;
+}
+
+function unreadableAnswer(job: CrewJob): string {
+  return `The agent finished, but its answer could not be read from herdr pane ${job.paneId ?? job.agentName}: nothing after the prompt is on the screen herdr returns. The CLI likely drew it on the terminal's alternate screen, whose rows never reach herdr's scrollback. Read the answer in the pane.`;
 }
 
 /** Closes a job's pane (cancel): the agent in it stops with it. */

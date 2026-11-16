@@ -1,8 +1,7 @@
 import { dirname } from 'node:path';
 import type { CliId, CrewJob, EduEvent, Engine } from '../core/contracts.js';
-import { processContext } from '../cli/context.js';
-import { executeRun } from '../cli/run/session.js';
 import { detectEngines } from '../engine/index.js';
+import { runSession } from '../orchestrator/session.js';
 import type { CrewStore } from './store.js';
 
 export interface OrchestrationWorkerOptions {
@@ -50,17 +49,12 @@ export async function runOrchestration(job: CrewJob, options: OrchestrationWorke
   };
   try {
     const available = await (options.detectClis ?? detectEngines)();
-    const context = processContext();
-    context.cwd = job.cwd;
-    context.env = { ...process.env, EDU_HOME: options.brainRoot };
-    context.home = dirname(options.brainRoot);
-    context.availableClis = available;
-    context.engineFactory = options.engineFactory;
     await store.update(job.id, { status: 'running', pid: process.pid });
-    const result = await executeRun(context, {
+    const host = { available, env: { ...process.env, EDU_HOME: options.brainRoot }, home: dirname(options.brainRoot) };
+    const result = await runSession(host, {
       goal: job.goal ?? job.task, cwd: job.cwd, lang: 'en', mode: job.orchestrationMode,
       cli: job.cli, harnessLevel: job.harnessLevel, playbook: job.playbook,
-      autoApprove: job.autoApprove, allowUnregisteredChecks: job.allowUnregisteredChecks, engines: options.engineFactory, available,
+      autoApprove: job.autoApprove, allowUnregisteredChecks: job.allowUnregisteredChecks, engines: options.engineFactory,
       onEvent,
       approve: async () => {
         if (job.autoApprove) return true;
