@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { spawnCli } from '../platform/index.js';
+import { killTree, trackChild } from '../platform/process-tree.js';
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
@@ -31,15 +32,8 @@ export async function binaryAvailable(binary: string): Promise<boolean> {
   return false;
 }
 
-function killProcessGroup(child: ChildProcess, signal: NodeJS.Signals = 'SIGTERM'): void {
-  if (child.pid === undefined) return;
-  try {
-    if (process.platform !== 'win32') process.kill(-child.pid, signal);
-    else child.kill(signal);
-  } catch {
-    try { child.kill(signal); } catch { /* already exited */ }
-  }
-}
+const UNPARSED_TAIL_LINES = 5;
+const UNPARSED_LINE_CHARS = 300;
 
 function errorEvent(agentId: string, message: string): EduEvent {
   return { type: 'error', agentId, message, at: new Date().toISOString() };
@@ -65,6 +59,7 @@ export async function* runJsonlProcess(
     yield errorEvent(agentId, `Unable to start ${spec.command}: ${String(error)}`);
     return;
   }
+  const untrack = trackChild(child);
 
   let stderrTail = '';
   let spawnFailure: Error | undefined;
@@ -87,12 +82,11 @@ export async function* runJsonlProcess(
   });
   const abort = (): void => {
     terminationRequested = true;
-    killProcessGroup(child, 'SIGTERM');
+    void killTree(child, 'SIGTERM');
     if (!escalationTimer) {
       escalationPromise = new Promise((resolve) => { resolveEscalation = resolve; });
       escalationTimer = setTimeout(() => {
-        killProcessGroup(child, 'SIGKILL');
-        resolveEscalation();
+        void killTree(child, 'SIGKILL').finally(resolveEscalation);
       }, 250);
     }
   };
@@ -102,6 +96,18 @@ export async function* runJsonlProcess(
   try {
   const decoder = new StringDecoder('utf8');
   const parseContext: ParseContext = { agentId };
+  // A CLI that exits 0 without its final record did not finish: say so instead of reporting success.
+  let ended = false;
+  const unparsed: string[] = [];
+  const parse = (line: string): EduEvent[] => {
+    const events = parser(line, parseContext);
+    if (events.some(event => event.type === 'agent.end' || event.type === 'run.end')) ended = true;
+    if (!events.length && !line.trimStart().startsWith('{')) {
+      unparsed.push(line.trim().slice(0, UNPARSED_LINE_CHARS));
+      if (unparsed.length > UNPARSED_TAIL_LINES) unparsed.shift();
+    }
+    return events;
+  };
   let pending = '';
   let pendingBytes = 0;
   let dropping = false;
@@ -113,7 +119,7 @@ export async function* runJsonlProcess(
           if (char === '\n') {
             if (!dropping) {
               const line = pending.endsWith('\r') ? pending.slice(0, -1) : pending;
-              if (line.length) yield* parser(line, parseContext);
+              if (line.length) yield* parse(line);
             }
             pending = '';
             pendingBytes = 0;
@@ -135,7 +141,7 @@ export async function* runJsonlProcess(
       pending += final;
       pendingBytes += Buffer.byteLength(final, 'utf8');
       if (pendingBytes > MAX_LINE_BYTES) yield errorEvent(agentId, `Dropped JSONL line exceeding ${MAX_LINE_BYTES} bytes`);
-      else if (pending.trim()) yield* parser(pending, parseContext);
+      else if (pending.trim()) yield* parse(pending);
     }
   } catch (error) {
     yield errorEvent(agentId, `Failed reading ${spec.command} output: ${String(error)}`);
@@ -148,6 +154,9 @@ export async function* runJsonlProcess(
     yield errorEvent(agentId, `${spec.command} exited with code ${String(exitCode)}${stderrTail ? `: ${stderrTail.trim()}` : ''}`);
   } else if (finalize) {
     yield* finalize(exitCode, parseContext);
+  } else if (!ended) {
+    const detail = [parseContext.lastError, unparsed.join('\n'), stderrTail.trim()].filter(Boolean).join('\n');
+    yield errorEvent(agentId, `${spec.command} exited without reporting a result${detail ? `: ${detail}` : ''}`);
   }
   } finally {
     signal?.removeEventListener('abort', abort);
@@ -157,5 +166,6 @@ export async function* runJsonlProcess(
     }
     if (terminationRequested && escalationPromise) await escalationPromise;
     else if (escalationTimer) clearTimeout(escalationTimer);
+    untrack();
   }
 }
