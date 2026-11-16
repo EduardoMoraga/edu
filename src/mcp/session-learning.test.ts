@@ -83,7 +83,7 @@ describe('edu_session_close lessons', () => {
       const session = await t.brain.openSession('Work', 'pi');
       const lesson = { title: 'Intended observation', body: 'Expected body' };
       const tag = `session-lesson:${createHash('sha256').update(JSON.stringify([session.meta.id, lesson])).digest('hex').slice(0, 16)}`;
-      expect((await t.call('edu_remember', { tier: 'transitive', kind: 'lesson', title: 'Unrelated', body: 'Unrelated body', tags: [tag] })).isError).toBe(false);
+      expect((await t.call('edu_remember', { tier: 'transitive', band: 'inferred', kind: 'lesson', title: 'Unrelated', body: 'Unrelated body', tags: [tag] })).isError).toBe(false);
       const closed = await t.call('edu_session_close', { id: session.meta.id, summary: 'Done.', lessons: [lesson] });
       expect(closed.isError).toBe(false);
       const notes = await lessonsOf(t.brain);
@@ -93,7 +93,7 @@ describe('edu_session_close lessons', () => {
       const second = await t.brain.openSession('Two', 'pi');
       const squatted = { title: 'Squatted title', body: 'Expected body' };
       const tag2 = `session-lesson:${createHash('sha256').update(JSON.stringify([second.meta.id, squatted])).digest('hex').slice(0, 16)}`;
-      expect((await t.call('edu_remember', { tier: 'transitive', kind: 'lesson', title: 'Squatted title', body: 'squatter', tags: [tag2] })).isError).toBe(false);
+      expect((await t.call('edu_remember', { tier: 'transitive', band: 'inferred', kind: 'lesson', title: 'Squatted title', body: 'squatter', tags: [tag2] })).isError).toBe(false);
       expect((await t.call('edu_session_close', { id: second.meta.id, summary: 'Done.', lessons: [squatted] })).isError).toBe(false);
       const all = await lessonsOf(t.brain);
       expect(all.find(n => n.meta.title === 'Squatted title')?.body.trim()).toBe('squatter');

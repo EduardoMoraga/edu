@@ -51,7 +51,7 @@ describe('edu_remember compiles on write', () => {
       const opened = await t.call('edu_session_open', { title: 'Storage work' });
       const sessionId = /Session id: (\S+)/.exec(opened.text)![1]!;
 
-      const conflicting = await t.call('edu_remember', { tier: 'transitive', kind: 'decision', title: 'Store sessions in Postgres', body: 'Session storage uses Postgres with a one hour expiry.', links: ['K-storage'] });
+      const conflicting = await t.call('edu_remember', { tier: 'transitive', band: 'inferred', kind: 'decision', title: 'Store sessions in Postgres', body: 'Session storage uses Postgres with a one hour expiry.', links: ['K-storage'] });
       expect(conflicting.isError).toBe(false);
       expect(conflicting.text).toMatch(/^Created D-store-sessions-in-postgres/);
       expect(conflicting.text).toContain(`Possible conflict: ${old.meta.id}`);
@@ -60,12 +60,12 @@ describe('edu_remember compiles on write', () => {
       expect(written.meta.links[0]).toBe('K-storage');
       expect(written.meta).toMatchObject({ agent: 'codex', session: sessionId, source: 'mcp' });
 
-      const replacing = await t.call('edu_remember', { tier: 'transitive', kind: 'decision', title: 'Store sessions in SQLite', body: 'Session storage moves to SQLite.', supersedes: written.meta.id });
+      const replacing = await t.call('edu_remember', { tier: 'transitive', band: 'inferred', kind: 'decision', title: 'Store sessions in SQLite', body: 'Session storage moves to SQLite.', supersedes: written.meta.id });
       expect(replacing.isError).toBe(false);
       expect((await t.brain.read(written.meta.id))?.meta.status).toBe('reverted');
 
       await t.call('edu_session_close', { id: sessionId, summary: 'Done.' });
-      await t.call('edu_remember', { tier: 'transitive', kind: 'lesson', title: 'After the session', body: 'Written after the close.' });
+      await t.call('edu_remember', { tier: 'transitive', band: 'inferred', kind: 'lesson', title: 'After the session', body: 'Written after the close.' });
       const after = (await t.brain.list({ kind: 'lesson' })).find(note => note.meta.title === 'After the session')!;
       expect(after.meta.session).toBeUndefined();
       expect(after.meta.agent).toBe('codex');
@@ -75,7 +75,7 @@ describe('edu_remember compiles on write', () => {
   it('says when secrets were redacted', async () => {
     const t = await connected('some-editor');
     try {
-      const result = await t.call('edu_remember', { tier: 'transitive', kind: 'lesson', title: 'Deploy key', body: 'Use AKIAIOSFODNN7EXAMPLE for deploys.' });
+      const result = await t.call('edu_remember', { tier: 'transitive', band: 'inferred', kind: 'lesson', title: 'Deploy key', body: 'Use AKIAIOSFODNN7EXAMPLE for deploys.' });
       expect(result.text).toMatch(/Redacted secrets \(.+\)/);
       const note = (await t.brain.list({ kind: 'lesson' }))[0]!;
       expect(note.body).not.toContain('AKIAIOSFODNN7EXAMPLE');
