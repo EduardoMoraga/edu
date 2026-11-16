@@ -68,6 +68,8 @@ const envGlobalRoot = () => resolve(process.env.EDU_HOME || join(process.env.HOM
 const DECISION_BY = new Set<CrewDecisionBy>(['cli', 'deck', 'host-llm']);
 const LOCK_WAIT_MS = 10_000;
 const LOCK_STALE_MS = 30_000;
+/** Taking a decision lasts milliseconds; a lock older than this belongs to a taker that died. */
+const STALE_DECISION_LOCK_MS = 30_000;
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -311,14 +313,28 @@ export function createCrewStore(brainRoot: string, options: CrewStoreOptions = {
       // Only the gate in the global home counts, and only a decision file there: one in the workspace is never read.
       const gate = await readGate(job.id);
       const path = decisionPath(job.id);
-      // Claim the one-shot file by renaming it first: only one taker wins, so a decision is never applied twice
-      // and a concurrent taker never fails on a file the other one already removed.
-      const claimed = `${path}.${randomUUID()}.taking`;
-      try { await retryFs.rename(path, claimed); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+      // One taker at a time: creating a directory is atomic everywhere. A rename alone is not a claim on Windows,
+      // where it follows the open file, so two takers could both "win" and the decision would move between them.
+      const lock = `${path}.lock`;
+      try { await mkdir(lock); }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') return undefined; // no gate directory, so no decision
+        if (code !== 'EEXIST') throw error;
+        // Another taker holds it. A lock left by a taker that died is old: clear it, and the next poll takes the decision.
+        const age = await stat(lock).then(info => Date.now() - info.mtimeMs, () => 0);
+        if (age > STALE_DECISION_LOCK_MS) await rm(lock, { recursive: true, force: true }).catch(() => undefined);
+        return undefined;
+      }
       let text: string;
-      try { text = await readFile(claimed, 'utf8'); }
-      finally { await unlink(claimed).catch(() => undefined); }
+      try {
+        // Claim the one-shot file by renaming it, so a decision is never applied twice.
+        const claimed = `${path}.${randomUUID()}.taking`;
+        try { await retryFs.rename(path, claimed); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+        try { text = await readFile(claimed, 'utf8'); }
+        finally { await unlink(claimed).catch(() => undefined); }
+      } finally { await rm(lock, { recursive: true, force: true }).catch(() => undefined); }
       let value: unknown;
       try { value = JSON.parse(text); } catch { value = undefined; }
       const decision = value && typeof value === 'object' ? value as Record<string, unknown> : {};

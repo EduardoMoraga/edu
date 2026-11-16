@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -194,6 +194,20 @@ describe('detached orchestration', () => {
     const takes = await Promise.all(Array.from({ length: 8 }, () => crew.store.takeDecision(job.id)));
     expect(takes.filter(Boolean)).toEqual([{ approve: true, by: 'cli' }]);
     expect((await crew.status(job.id) as typeof gate).status).toBe('running');
+  });
+
+  it('leaves a decision to the taker holding the lock, and clears a lock a dead taker left', async () => {
+    const { crew, cwd, brainRoot, globalRoot } = await setup();
+    const job = await crew.orchestrate({ goal: 'Check the command', cwd });
+    const gate = await crew.store.openApproval(job.id, { title: 'Approve spec' });
+    await crew.approve(job.id, true, { by: 'cli', requestId: gate.approval!.requestId });
+    const lock = join(approvalDir(globalRoot, brainRoot), `${job.id}.decision.lock`);
+    await mkdir(lock);
+    expect(await crew.store.takeDecision(job.id)).toBeUndefined();
+    const old = new Date(Date.now() - 60_000);
+    await utimes(lock, old, old);
+    expect(await crew.store.takeDecision(job.id)).toBeUndefined();
+    expect(await crew.store.takeDecision(job.id)).toEqual({ approve: true, by: 'cli' });
   });
 
   it('refuses every approval from inside a crew worker', async () => {
