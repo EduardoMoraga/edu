@@ -390,7 +390,8 @@ describe('core atomicity: compound supersedes', () => {
     const old = await brain.write({ title: 'Old d', body: 'old', tier: 'transitive', kind: 'decision' });
     const rename = vi.spyOn(atomicFs, 'rename');
     let calls = 0;
-    rename.mockImplementation(async (...args) => { if (++calls === 2) throw Object.assign(new Error('disk failure'), { code: 'EIO' }); return (await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')).rename(...args); });
+    // The revert of the old decision is the write that fails (the new note itself is created by an exclusive link).
+    rename.mockImplementation(async (...args) => { if (String(args[1]) === old.path && ++calls === 1) throw Object.assign(new Error('disk failure'), { code: 'EIO' }); return (await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')).rename(...args); });
     try { await expect(brain.write({ title: 'New d', body: 'new', tier: 'transitive', kind: 'decision', supersedes: old.meta.id })).rejects.toThrow(/disk failure/); }
     finally { rename.mockRestore(); }
     expect((await brain.list({ kind: 'decision' })).map(d => d.meta.id)).toEqual([old.meta.id]);

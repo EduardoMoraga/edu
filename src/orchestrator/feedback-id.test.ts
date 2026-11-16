@@ -15,7 +15,11 @@ it('persists bounded verified feedback for long note ids independently per note'
     const location = { root, scope: 'project' as const };
     const brain = openBrain([location]);
     await brain.init(location);
-    const long = await brain.write({ title: 'a'.repeat(203), tier: 'transitive', kind: 'lesson', body: 'Fixture application guidance.' });
+    // Edu caps the ids it creates; an older or hand-written note can still carry an id longer than an event id.
+    const longId = `L-${'a'.repeat(203)}`;
+    await mkdir(join(root, 'brain', '3-transitive'), { recursive: true });
+    await writeFile(join(root, 'brain', '3-transitive', 'L-long.md'), `---\nid: ${longId}\ntier: transitive\ntitle: Long id\nkind: lesson\nstatus: candidate\ntags: []\nlinks: []\ncreated: 2026-01-01T00:00:00.000Z\n---\n\nFixture application guidance.\n`);
+    const long = (await brain.read(longId))!;
     const other = await brain.write({ title: 'Independent note', tier: 'transitive', kind: 'lesson', body: 'Another fixture guidance.' });
     const idle = await brain.write({ title: 'Not applied', tier: 'transitive', kind: 'lesson', body: 'Exposure is not success.' });
     expect(long.meta.id.length).toBeGreaterThan(200);

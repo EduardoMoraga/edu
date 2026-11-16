@@ -8,19 +8,23 @@
  *   - stale-claim: an active decision or accepted canonical note older than `staleDays` whose text depends on
  *     time ("currently", "hoy", a version number, a price) without an `(as of YYYY-MM-DD)` marker;
  *   - overdue: a pending or overdue commitment past its due date (maintenance flags it; lint only reports);
- *   - duplicate: notes whose normalized title or body is (nearly) identical.
+ *   - duplicate: notes whose normalized title or body is (nearly) identical;
+ *   - unreadable: a file in a brain folder that is not a valid note (invalid YAML, a list where text belongs, no
+ *     id/tier/title). It is quarantined: never loaded by recall or the brief, never overwritten until repaired.
  *
  * Nothing here writes. Decisions and accepted canonical notes are immutable, so their age is their `created`
  * date: `updated` also moves when a note is merely injected into context.
  */
+import { relative } from 'node:path';
 import type { Note } from '../core/contracts.js';
 import type { Brain } from './brain.js';
+import type { NoteProblem } from './store.js';
 import { isInside } from './location.js';
 import { resolveReference, type ResolveResult } from './resolve.js';
 import { isOperationalNote, tokenize } from './search.js';
 import { linkTargets } from './tidy.js';
 
-export const LINT_KINDS = ['missing-page', 'contradiction', 'stale-claim', 'overdue', 'duplicate', 'orphan'] as const;
+export const LINT_KINDS = ['unreadable', 'missing-page', 'contradiction', 'stale-claim', 'overdue', 'duplicate', 'orphan'] as const;
 export type LintKind = (typeof LINT_KINDS)[number];
 export type LintSeverity = 'error' | 'warning' | 'info';
 
@@ -31,7 +35,7 @@ export interface LintFinding {
   ids: string[];
   message: string;
   fix: string;
-  /** missing-page: the link text that resolves to nothing. */
+  /** missing-page: the link text that resolves to nothing; unreadable: the quarantined file. */
   target?: string;
   /** stale-claim: the time-sensitive phrases found; contradiction: the opposing signal. */
   evidence?: string[];
@@ -51,6 +55,8 @@ export interface LintOptions {
   staleDays?: number;
   /** Brain folder whose notes are reported on; links still resolve against every visible note. */
   root?: string;
+  /** Quarantined files (`Brain.problems()`), reported as `unreadable` findings. */
+  problems?: NoteProblem[];
 }
 
 const DAY = 864e5;
@@ -110,7 +116,7 @@ const jaccard = (a: Set<string>, b: Set<string>) => {
 
 const normalized = (text: string) => tokenize(text).join(' ');
 
-const SEVERITY: Record<LintKind, LintSeverity> = { 'missing-page': 'warning', contradiction: 'warning', 'stale-claim': 'warning', overdue: 'error', duplicate: 'warning', orphan: 'info' };
+const SEVERITY: Record<LintKind, LintSeverity> = { unreadable: 'error', 'missing-page': 'warning', contradiction: 'warning', 'stale-claim': 'warning', overdue: 'error', duplicate: 'warning', orphan: 'info' };
 
 /** Lints the notes Edu can see. Pure over its input: no file is read or written. */
 export function lintNotes(all: Note[], opts: LintOptions = {}): LintReport {
@@ -128,6 +134,12 @@ export function lintNotes(all: Note[], opts: LintOptions = {}): LintReport {
     return cache.get(reference);
   };
   const resolvedIds = (result: ResolveResult | undefined) => !result ? [] : 'note' in result ? [result.note.meta.id] : result.candidates.map(note => note.meta.id);
+
+  for (const problem of [...(opts.problems ?? [])].sort((a, b) => a.path.localeCompare(b.path))) {
+    if (opts.root && !isInside(opts.root, problem.path)) continue;
+    const shown = opts.root ? relative(opts.root, problem.path) : problem.path;
+    add({ kind: 'unreadable', ids: [shown], target: problem.path, evidence: [problem.problem], message: `${shown} is not a valid note (${problem.problem}); recall and the brief skip it`, fix: 'Repair its frontmatter (id, tier and title as plain text; tags and links as lists), or move the file out of the brain folders.' });
+  }
 
   const inbound = new Map<string, number>();
   const outbound = new Map<string, number>();
@@ -236,5 +248,5 @@ export function lintNotes(all: Note[], opts: LintOptions = {}): LintReport {
 
 /** Lints every note the brain can see; `root` limits the report to one location's notes. */
 export async function lintBrain(brain: Brain, opts: LintOptions = {}): Promise<LintReport> {
-  return lintNotes(await brain.list(), opts);
+  return lintNotes(await brain.list(), { ...opts, problems: opts.problems ?? await brain.problems() });
 }

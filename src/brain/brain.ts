@@ -5,7 +5,9 @@ import { basename, dirname, join, resolve } from 'node:path';
 import type { BrainLocation, CanonicalKind, ClaimBand, FeedbackContext, Note, NoteMeta, NoteOrigin, RecallHit, Tier } from '../core/contracts.js';
 import { brainPath, isInside } from './location.js';
 import { writeObsidianViews, type ViewOptions } from './views.js';
-import { INDEX_DIR, NoteConflictError, atomicWrite, contentHash, createId, encodeNote, listLocation, notePath, overlayNotes, readNote, slugify } from './store.js';
+import { INDEX_DIR, NoteConflictError, atomicWrite, contentHash, createId, encodeNote, PathTakenError, exclusiveWrite, inspectNote, isAlreadyExists, listLocation, notePath, overlay, overlayNotes, overlayScan, readNote, slugify, type NoteProblem } from './store.js';
+import { cleanBody, cleanTitle } from './clean-text.js';
+import { assertInsideBrain } from './safe-path.js';
 import { withUsageLock } from './note-lock.js';
 import { assertDecisionReversion, isClosedEpisode, validateTransition, validateStatus } from './lifecycle.js';
 import { assertFeedbackContext, feedbackUsage, applyLearning } from './learning.js';
@@ -56,6 +58,16 @@ export interface UpdateOptions {
 export interface RememberResult { note: Note; report: CompileReport }
 /** Optional frontmatter an importer may attach to a note it writes. */
 export type NoteProvenance = Pick<NoteMeta, 'import_warning' | 'aliases' | 'legacy_id' | 'origin' | 'albert' | 'superseded_by'>;
+/** Options of `Brain.recall`. */
+export interface RecallOptions {
+  limit?: number;
+  tiers?: Tier[];
+  /**
+   * Record the hits as used (exposure). Default true. A caller that shows only some hits (a token budget) passes
+   * false and records the ids it actually showed with `recordUse`.
+   */
+  recordUse?: boolean;
+}
 export interface MaintenanceReport { changed: string[]; promoted: string[]; retired: string[]; overdue: string[]; indexRebuilt: boolean }
 export interface BrainStats { total: number; byTier: Record<Tier, number>; byKind: Record<string, number>; byStatus: Record<string, number> }
 
@@ -82,7 +94,7 @@ export interface Brain {
    * ranked and fused with Reciprocal Rank Fusion (k = 60); a fused hit's score is its RRF score, and notes named
    * by id or alias stay on top. One string ranks exactly as before.
    */
-  recall(query: string | readonly string[], opts?: { limit?: number; tiers?: Tier[] }): Promise<RecallHit[]>;
+  recall(query: string | readonly string[], opts?: RecallOptions): Promise<RecallHit[]>;
   /**
    * Without `context` the feedback is advisory (counts as a ranking signal, never promotes). With a `context` it is
    * deduplicated by `eventId`; only trusted runtime callers may pass `verified: true` (MCP stays advisory).
@@ -92,9 +104,10 @@ export interface Brain {
   feedback(id: string, helpful: boolean, context?: FeedbackContext): Promise<Note>;
   /**
    * Records that notes were used (injected into context). Exposure goes to the machine-local ledger
-   * (`<root>/.edu-local/usage.json`), never to the note files; closed episodes are skipped.
+   * (`<root>/.edu-local/usage.json`), never to the note files; closed episodes are skipped. Pass the notes
+   * themselves (e.g. recall hits) instead of ids to skip looking them up again.
    */
-  recordUse(ids: string[], now?: Date): Promise<void>;
+  recordUse(ids: ReadonlyArray<string | Note>, now?: Date): Promise<void>;
   openSession(title: string, source: string, by?: NoteOrigin): Promise<Note>;
   closeSession(id: string, summary: string, options?: UpdateOptions): Promise<Note>;
   proposeCanonical(input: NewNote): Promise<Note>;
@@ -118,6 +131,12 @@ export interface Brain {
    */
   batch<T>(work: () => Promise<T>): Promise<T>;
   stats(): Promise<BrainStats>;
+  /**
+   * Files in the brain folders that could not be read as notes (invalid YAML, wrong field types, missing id, tier
+   * or title, no frontmatter). They are quarantined: never loaded, never overwritten, reported here (lint, brief).
+   * As of the latest full listing by this brain (`list`, `recall`, …); lists once when there was none yet.
+   */
+  problems(): Promise<NoteProblem[]>;
   /**
    * Moves a note to another location of this brain (e.g. project → global), keeping its id, file content and
    * frontmatter verbatim; its machine-local exposure follows it. Under the locks of both roots: refused when the
@@ -176,8 +195,12 @@ function redactFields<T extends object>(record: T, keys: readonly (keyof T)[]): 
   return { record: out, kinds };
 }
 
-/** Redacts secrets from a new note's title, body and free-text metadata; a redacted note is tagged `redacted`. */
-function redactInput(input: NewNote): { input: NewNote; kinds: string[] } {
+/**
+ * Cleans and redacts a new note: control characters leave the title and NUL bytes the body (see `clean-text.ts`),
+ * then secrets are redacted from the title, body and free-text metadata; a redacted note is tagged `redacted`.
+ */
+function redactInput(raw: NewNote): { input: NewNote; kinds: string[] } {
+  const input = { ...raw, title: cleanTitle(String(raw.title ?? '')), body: cleanBody(String(raw.body ?? '')) };
   const title = redactSecrets(input.title), body = redactSecrets(input.body), meta = redactFields(input, NEW_NOTE_TEXT);
   const kinds = [...new Set([...title.kinds, ...body.kinds, ...meta.kinds])];
   if (!kinds.length) return { input, kinds };
@@ -201,7 +224,13 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     }
     return notes;
   };
-  const all = async () => withExposure(await overlayNotes(locations));
+  /** Quarantined files seen by the latest full listing (`problems()` reuses it instead of listing again). */
+  let lastProblems: NoteProblem[] | undefined;
+  const all = async () => {
+    const scan = await overlayScan(locations);
+    lastProblems = scan.problems;
+    return withExposure(scan.notes);
+  };
   const log = (note: Note, op: LogOp) => appendLog(brainPath(locationOf(note.path)), { op, id: note.meta.id, title: note.meta.title });
   /**
    * Where a usage/lifecycle write for this note belongs: lessons from a lower-priority location are shadowed in the
@@ -213,9 +242,9 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     const preferred = notePath(brainPath(primary), note.meta, new Date(note.meta.created));
     const stem = `shadow-${slugify(note.meta.id)}`;
     for (const path of [preferred, join(dirname(preferred), `${stem}.md`), join(dirname(preferred), `${stem}-${createHash('sha256').update(note.meta.id).digest('hex').slice(0, 12)}.md`)]) {
-      const occupant = await readNote(path);
-      if (!occupant || occupant.meta.id === note.meta.id) return { ...note, path };
-      if (!(await pathExists(path))) return { ...note, path };
+      // A quarantined (unreadable) file is never replaced: only a free path or this note's own shadow will do.
+      const occupant = await inspectNote(path);
+      if (occupant ? 'note' in occupant && occupant.note.meta.id === note.meta.id : !(await pathExists(path))) return { ...note, path };
     }
     throw new Error(`No safe shadow path for ${note.meta.id}`);
   };
@@ -230,17 +259,33 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     if (first === undefined) return body();
     return withUsageLock(first, () => rest.length ? withRoots(rest, body) : body());
   };
-  /** Persists lifecycle changes without discarding usage written meanwhile by another instance. */
-  const persistFresh = (note: Note) => withRoots([rootOf(note.path), primary.root], async () => {
-    const fresh = await readNote(note.path);
-    return persist(await isolated(fresh?.meta.usage ? { ...note, meta: { ...note.meta, usage: fresh.meta.usage } } : note));
+  /**
+   * A lifecycle change computed from the note as it is now, never from an earlier snapshot: under the locks of its
+   * root and the primary, the file is re-read (with its exposure), `change` is applied to that fresh copy and the
+   * status transition is validated before anything is written. So a commitment delivered meanwhile is not turned
+   * back to overdue, and its new body survives. Undefined when the note is gone, moved, or nothing changes; an
+   * illegal transition (hand-edited status) is skipped with a warning.
+   */
+  const changeFresh = (seen: Note, change: (fresh: Note) => Note | undefined) => withRoots([rootOf(seen.path), primary.root], async () => {
+    const disk = await readNote(seen.path);
+    if (!disk || disk.meta.id !== seen.meta.id) return undefined;
+    const fresh = (await withExposure([disk]))[0]!;
+    const next = change(fresh);
+    if (!next || next.meta.status === fresh.meta.status) return undefined;
+    try {
+      if (next.meta.status && fresh.meta.kind) validateTransition(fresh.meta.tier === 'canonical' ? 'canonical' : fresh.meta.kind, fresh.meta.status, next.meta.status);
+    } catch (error) {
+      process.emitWarning(`${fresh.meta.id} left unchanged: ${error instanceof Error ? error.message : String(error)}`, 'EduWarning');
+      return undefined;
+    }
+    return persist(await isolated(next));
   });
-  /** Retires the lesson a newer lesson supersedes. Accepted canonical notes are never touched. */
-  const retireSuperseded = async (successor: Note, byId: Map<string, Note>): Promise<Note | undefined> => {
-    const old = successor.meta.kind === 'lesson' && successor.meta.status !== 'retired' && successor.meta.supersedes ? byId.get(successor.meta.supersedes) : undefined;
-    if (!old || old.meta.id === successor.meta.id || old.meta.tier !== 'transitive' || old.meta.kind !== 'lesson' || old.meta.status === 'retired' || old.meta.supersedes === successor.meta.id) return undefined;
-    const retired = await persistFresh({ ...old, meta: { ...old.meta, status: 'retired', superseded_by: successor.meta.id, updated: iso() } });
-    await log(retired, 'supersede');
+  /** Retires the lesson a newer lesson supersedes, judged on the old lesson as it is now. Accepted canonical notes are never touched. */
+  const retireSuperseded = async (successor: Note, old: Note | undefined): Promise<Note | undefined> => {
+    if (successor.meta.kind !== 'lesson' || successor.meta.status === 'retired' || !old || old.meta.id === successor.meta.id) return undefined;
+    const retired = await changeFresh(old, fresh => fresh.meta.tier !== 'transitive' || fresh.meta.kind !== 'lesson' || fresh.meta.status === 'retired' || fresh.meta.supersedes === successor.meta.id
+      ? undefined : { ...fresh, meta: { ...fresh.meta, status: 'retired', superseded_by: successor.meta.id, updated: iso() } });
+    if (retired) await log(retired, 'supersede');
     return retired;
   };
   const find = async (id: string) => (await all()).find(note => note.meta.id === id);
@@ -250,15 +295,23 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
    * catalog, not INDEX.md or the Obsidian views; `writeCatalog` leaves an unchanged catalog untouched. Must run after
    * the mutation's own locks are released (locks are not re-entrant). A failure is a warning, never a failed write.
    */
+  const liveReferrer = (note: Note) => note.meta.source !== REJECT_SOURCE;
   let batchDepth = 0;
   let batchPaths: string[] = [];
+  /** Writes one location's catalog; a failure is a warning (the note write already happened), reported as not written. */
+  const catalogSafely = async (loc: BrainLocation, notes: Note[]): Promise<boolean> => {
+    try { await writeCatalog(brainPath(loc), notes, liveReferrer); return true; }
+    catch (error) { process.emitWarning(`catalog not refreshed: ${error instanceof Error ? error.message : String(error)}`, 'EduWarning'); return false; }
+  };
   const refreshCatalogs = async (paths: string[]) => {
     if (batchDepth > 0) { batchPaths.push(...paths); return; }
     const deepest = Math.max(0, ...paths.map(path => locations.indexOf(locationOf(path))));
     const affected = locations.slice(0, deepest + 1);
     try {
       await withRoots(affected.map(loc => loc.root), async () => {
-        for (const [index, loc] of affected.entries()) await writeCatalog(brainPath(loc), await overlayNotes(locations.slice(index)), note => note.meta.source !== REJECT_SOURCE);
+        // Each location is listed once; the catalog of location i is the overlay of locations i…n.
+        const lists = await Promise.all(locations.map(loc => listLocation(loc)));
+        for (const [index, loc] of affected.entries()) await writeCatalog(brainPath(loc), overlay(lists.slice(index)), liveReferrer);
       });
     } catch (error) {
       process.emitWarning(`catalog not refreshed: ${error instanceof Error ? error.message : String(error)}`, 'EduWarning');
@@ -269,13 +322,33 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
    * whatever legacy exposure the file already had. Returns the note as read paths see it (ledger merged).
    */
   const persist = async (note: Note) => {
-    const disk = await readNote(note.path);
+    // Containment first: a path that is (or sits under) a symbolic link is refused, never read through or replaced.
+    await assertInsideBrain(brainPath(locationOf(note.path)), note.path);
+    const read = await inspectNote(note.path);
+    // Never replaces another note's file or a quarantined one (the user must repair it first).
+    if (read && 'problem' in read) throw new PathTakenError(`${note.path} could not be read as a note (${read.problem}); it was left untouched`);
+    if (read && read.note.meta.id !== note.meta.id) throw new PathTakenError(`${note.path} holds another note (${read.note.meta.id}); it was left untouched`);
+    const disk = read?.note;
     const usage = frontmatterUsage(note.meta.usage, disk?.meta.usage, disk === undefined);
     const meta: NoteMeta = { ...note.meta };
     if (usage) meta.usage = usage; else delete meta.usage;
-    // Refuses (throws) a note path that is, or sits under, a symbolic link inside the brain.
-    await atomicWrite(note.path, encodeNote({ ...note, meta }), { root: brainPath(locationOf(note.path)) });
+    // Refuses (throws) a note path that is, or sits under, a symbolic link inside the brain. A new file is created
+    // exclusively: if anything appeared at the path meanwhile, the write fails instead of replacing it.
+    const write = disk ? atomicWrite : exclusiveWrite;
+    await write(note.path, encodeNote({ ...note, meta }), { root: brainPath(locationOf(note.path)) });
     return (await withExposure([{ ...note, meta: structuredClone(meta) }]))[0]!;
+  };
+  /**
+   * Writes a brand-new note without ever replacing a file: when its title-derived path is taken (a note with another
+   * id, a quarantined or foreign file), the next free name (`-2`, `-3`, …) is used. The id is unchanged.
+   */
+  const createNote = async (note: Note): Promise<Note> => {
+    for (let n = 1; n <= 100; n++) {
+      const path = n === 1 ? note.path : note.path.replace(/\.md$/, `-${n}.md`);
+      try { return await persist({ ...note, path }); }
+      catch (error) { if (!isAlreadyExists(error)) throw error; }
+    }
+    throw new Error(`No free file name for ${note.meta.id} next to ${note.path}`);
   };
   type Authority = 'accept-canonical' | 'supersede-canonical' | 'revert-decision';
   /**
@@ -415,6 +488,9 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       // The existence check and the creation are one critical section: parallel identical identities cannot overwrite each other.
       let created: Note | undefined;
       const touched: string[] = [];
+      // An open session reaches the catalog when it closes (opening one on every session start would churn it).
+      const openSession = meta.kind === 'session' && meta.status === 'open-session';
+      let cataloged = false;
       if (meta.kind === 'decision' && meta.supersedes && !input.historical) {
         // Compound: validate the old decision is active -> create the new one -> revert the old, all under the locks of
         // the primary and the old decision's root (taken once, never nested). A competitor then finds the old one
@@ -428,8 +504,8 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
             const prior = await find(meta.supersedes!);
             if (!prior || prior.meta.kind !== 'decision' || prior.meta.status !== 'active') throw new Error('A decision can supersede only an existing active decision');
             if (!roots.includes(rootOf(prior.path))) return undefined;
-            if (await find(meta.id)) throw new Error(`Note id already exists: ${meta.id}`);
-            const fresh = await persist(note);
+            if ((await overlayNotes(locations)).some(other => other.meta.id === meta.id)) throw new Error(`Note id already exists: ${meta.id}`);
+            const fresh = await createNote(note);
             try { await applyUpdate(prior, { status: 'reverted', superseded_by: fresh.meta.id }, undefined, 'revert-decision'); }
             catch (error) { await rm(fresh.path, { force: true }); throw error; }
             touched.push(prior.path);
@@ -439,19 +515,21 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         if (!created) throw new Error(`Decision could not settle on a stable location: ${meta.supersedes}`);
       } else {
         created = await withRoots([primary.root], async () => {
-          if (await find(meta.id)) throw new Error(`Note id already exists: ${meta.id}`);
-          return persist(note);
+          // One listing serves the id check and, when nothing else changes, the primary's catalog (same lock).
+          const before = await overlayNotes(locations);
+          if (before.some(other => other.meta.id === meta.id)) throw new Error(`Note id already exists: ${meta.id}`);
+          const fresh = await createNote(note);
+          if (!openSession && !batchDepth && !(meta.kind === 'lesson' && meta.supersedes)) cataloged = await catalogSafely(primary, [...before, fresh]);
+          return fresh;
         });
       }
       // Open sessions are logged when they close; the decision a new one supersedes was logged by its revert.
-      // An open session reaches the catalog when it closes (opening one on every session start would churn it).
-      const openSession = meta.kind === 'session' && meta.status === 'open-session';
       if (!openSession) await log(created, 'write');
       if (meta.kind === 'lesson' && meta.supersedes) {
-        const retired = await retireSuperseded(created, new Map((await all()).map(note => [note.meta.id, note])));
+        const retired = await retireSuperseded(created, await find(meta.supersedes));
         if (retired) touched.push(retired.path);
       }
-      if (!openSession) await refreshCatalogs([created.path, ...touched]);
+      if (!openSession && !cataloged) await refreshCatalogs([created.path, ...touched]);
       return created;
     },
     async remember(raw) {
@@ -475,7 +553,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       return { note, report };
     },
     async update(id, patch, body, options) {
-      const updated = await updateNote(id, patch, body, undefined, options);
+      const updated = await updateNote(id, patch, body === undefined ? undefined : cleanBody(body), undefined, options);
       // A usage-only patch changes nothing the catalog lists.
       if (body !== undefined || Object.keys(patch).some(key => key !== 'usage' && key !== 'updated')) await refreshCatalogs([updated.path]);
       return updated;
@@ -487,14 +565,15 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
     async recall(query, opts = {}) {
       const notes = (await all()).filter(n => !opts.tiers || opts.tiers.includes(n.meta.tier));
       const hits = typeof query === 'string' ? rankNotes(query, notes, new Date(), opts.limit) : rankQueries(query, notes, new Date(), opts.limit);
-      const now = new Date();
-      await markUsed(hits.map(hit => hit.note), now);
+      if (opts.recordUse !== false) await markUsed(hits.map(hit => hit.note), new Date());
       return hits;
     },
-    async recordUse(ids, now = new Date()) {
+    async recordUse(items, now = new Date()) {
+      const ids = [...new Set(items.filter((item): item is string => typeof item === 'string'))];
       // One load for the whole batch: a find() per id reloaded the brain each time (quadratic on large imports).
-      const byId = new Map((await all()).map(note => [note.meta.id, note]));
-      await markUsed([...new Set(ids)].flatMap(id => byId.get(id) ?? []), now);
+      const byId = ids.length ? new Map((await all()).map(note => [note.meta.id, note])) : new Map<string, Note>();
+      const given = new Map(items.filter((item): item is Note => typeof item !== 'string').map(note => [note.meta.id, note]));
+      await markUsed([...given.values(), ...ids.filter(id => !given.has(id)).flatMap(id => byId.get(id) ?? [])], now);
     },
     async feedback(id, helpful, context) {
       if (context !== undefined) assertFeedbackContext(context);
@@ -553,16 +632,28 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       throw new Error(`Canonical note could not settle on a stable location: ${id}`);
     },
     async rejectCanonical(id, reason) {
-      const note = await find(id); if (!note || note.meta.tier !== 'canonical') throw new Error(`Canonical note not found: ${id}`);
-      if (note.meta.status !== 'proposed') throw new Error('Only proposed canonical notes can be rejected');
-      await rm(note.path, { force: true });
+      // Check and delete under the lock of the proposal's root: a concurrent accept (same lock) either wins first,
+      // and the proposal is no longer rejectable, or finds it gone.
+      let note: Note | undefined;
+      for (let attempt = 0; attempt < 4 && !note; attempt++) {
+        const seen = await find(id); if (!seen || seen.meta.tier !== 'canonical') throw new Error(`Canonical note not found: ${id}`);
+        const root = rootOf(seen.path);
+        note = await withRoots([root], async () => {
+          const current = await find(id); if (!current || current.meta.tier !== 'canonical') throw new Error(`Canonical note not found: ${id}`);
+          if (rootOf(current.path) !== root) return undefined;
+          if (current.meta.status !== 'proposed') throw new Error('Only proposed canonical notes can be rejected');
+          await rm(current.path, { force: true });
+          return current;
+        });
+      }
+      if (!note) throw new Error(`Canonical note could not settle on a stable location: ${id}`);
       await log(note, 'reject');
       const record = await this.write({
         tier: 'episodic', kind: 'session', status: 'open-session', source: REJECT_SOURCE, links: [id, ...note.meta.links],
         title: `Rejected canonical proposal: ${note.meta.title}`, body: '',
       });
       const quoted = note.body.trim().split('\n').slice(0, 12).map(line => `> ${line}`);
-      await this.closeSession(record.meta.id, [`Rejected ${id} (${note.meta.band ?? 'inferred'}, source ${note.meta.source ?? 'unknown'}).`, ...(reason ? [`Reason: ${reason}`] : []), '', ...quoted].join('\n'));
+      await this.closeSession(record.meta.id, [`Rejected ${id} (${note.meta.band ?? 'unbanded'}, source ${note.meta.source ?? 'unknown'}).`, ...(reason ? [`Reason: ${reason}`] : []), '', ...quoted].join('\n'));
       // Closing the record refreshed its catalog; the deleted proposal may have lived in a lower-priority location.
       if (rootOf(note.path) !== rootOf(record.path)) await refreshCatalogs([note.path]);
       return note;
@@ -586,7 +677,7 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       const byId = new Map(loaded.map(note => [note.meta.id, note]));
       // Lessons superseded by a newer lesson are retired first, so the loop below sees them already retired.
       for (const successor of loaded) {
-        const retired = await retireSuperseded(successor, byId);
+        const retired = successor.meta.supersedes ? await retireSuperseded(successor, byId.get(successor.meta.supersedes)) : undefined;
         if (!retired) continue;
         byId.set(retired.meta.id, retired); report.changed.push(retired.meta.id); report.retired.push(retired.meta.id);
       }
@@ -598,16 +689,18 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         if (candidate.meta.tier === 'canonical' && candidate.meta.kind === 'standard' && candidate.meta.status === 'accepted') acceptedStandards.set(candidate.meta.title, candidate);
       }
       for (const note of notes) {
-        const next = applyLearning(note, now);
-        if (next.meta.status === note.meta.status) continue;
-        await log(await persistFresh(next), `maintain:${next.meta.status ?? 'unspecified'}`); report.changed.push(note.meta.id);
+        // The snapshot only says which notes may change; the change itself is recomputed from the note as it is now.
+        if (applyLearning(note, now).meta.status === note.meta.status) continue;
+        const next = await changeFresh(note, fresh => applyLearning(fresh, now));
+        if (!next) continue;
+        await log(next, `maintain:${next.meta.status ?? 'unspecified'}`); report.changed.push(note.meta.id);
         if (next.meta.status === 'proven') report.promoted.push(note.meta.id);
         if (next.meta.status === 'retired') report.retired.push(note.meta.id);
         if (next.meta.status === 'overdue') report.overdue.push(note.meta.id);
         // Only a lesson promoted by THIS run is proposed; lessons that arrive already proven (imports, earlier runs) are not.
         if (next.meta.kind !== 'lesson' || next.meta.status !== 'proven' || proposedOrRejected.has(next.meta.id)) continue;
         const prior = acceptedStandards.get(next.meta.title);
-        const proposal = await this.proposeCanonical({ tier: 'canonical', kind: 'standard', title: prior ? `${next.meta.title} (revision)` : next.meta.title, body: next.body, tags: next.meta.tags, links: [next.meta.id], source: 'edu:maintain', band: next.meta.band ?? 'inferred', ...(prior ? { supersedes: prior.meta.id } : {}) });
+        const proposal = await this.proposeCanonical({ tier: 'canonical', kind: 'standard', title: prior ? `${next.meta.title} (revision)` : next.meta.title, body: next.body, tags: next.meta.tags, links: [next.meta.id], source: 'edu:maintain', ...(next.meta.band ? { band: next.meta.band } : {}), ...(prior ? { supersedes: prior.meta.id } : {}) });
         for (const link of proposal.meta.links) proposedOrRejected.add(link);
       }
       await this.rebuildIndex(); report.indexRebuilt = true; return report;
@@ -625,12 +718,12 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       const lines = ['# Brain index', '', `Generated: ${iso()}`, ''];
       for (const [key, group] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
         lines.push(`## ${key}`, '');
-        for (const note of group.sort((a, b) => a.meta.title.localeCompare(b.meta.title))) lines.push(`- [[${basename(note.path, '.md')}|${note.meta.title}]] — ${note.meta.band ?? 'inferred'} · ${note.meta.status ?? 'unspecified'}`);
+        for (const note of group.sort((a, b) => a.meta.title.localeCompare(b.meta.title))) lines.push(`- [[${basename(note.path, '.md')}|${note.meta.title}]] — ${note.meta.band ?? 'unbanded'} · ${note.meta.status ?? 'unspecified'}`);
         lines.push('');
       }
       try { await atomicWrite(join(brainPath(primary), INDEX_DIR, 'INDEX.md'), `${lines.join('\n')}\n`, { root: brainPath(primary) }); }
       catch (error) { warnUnsafe(error); }
-      await writeCatalog(brainPath(primary), notes, note => note.meta.source !== REJECT_SOURCE);
+      await writeCatalog(brainPath(primary), notes, liveReferrer);
       await writeObsidianViews(primary, viewOptions);
     },
     async move(id, targetRoot) {
@@ -645,8 +738,8 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
         if (current.meta.kind === 'session' && current.meta.status === 'open-session') throw new Error(`${id} is an open session; close it before moving it`);
         if ((await listLocation(target)).some(note => note.meta.id === id)) throw new Error(`Note id already exists in the ${target.scope} brain: ${id}; nothing was moved`);
         const path = notePath(brainPath(target), current.meta, new Date(current.meta.created));
-        if (await pathExists(path)) throw new Error(`${path} already exists; nothing was moved`);
-        await atomicWrite(path, await readFile(current.path, 'utf8'), { root: brainPath(target) });
+        try { await exclusiveWrite(path, await readFile(current.path, 'utf8'), { root: brainPath(target) }); }
+        catch (error) { if (isAlreadyExists(error)) throw new Error(`${path} already exists; nothing was moved`); throw error; }
         const copy = await readNote(path);
         if (copy?.meta.id !== id) { await rm(path, { force: true }); throw new Error(`The copy of ${id} in the ${target.scope} brain could not be read back; nothing was moved`); }
         const exposure = (await readLedger(source.root)).notes[id];
@@ -660,10 +753,11 @@ export function openBrain(locations: BrainLocation[], viewOptions: ViewOptions =
       for (const loc of [source, target]) await appendLog(brainPath(loc), { op: `move:${target.scope}`, id, title: moved.meta.title });
       for (const loc of [source, target]) {
         if (loc === primary) await this.rebuildIndex();
-        else await writeCatalog(brainPath(loc), await overlayNotes(locations.slice(locations.indexOf(loc))), note => note.meta.source !== REJECT_SOURCE);
+        else await writeCatalog(brainPath(loc), await overlayNotes(locations.slice(locations.indexOf(loc))), liveReferrer);
       }
       return (await withExposure([moved]))[0]!;
     },
+    async problems() { return lastProblems ?? (await overlayScan(locations)).problems; },
     async stats() {
       const notes = await all();
       const result: BrainStats = { total: notes.length, byTier: { canonical: 0, episodic: 0, transitive: 0 }, byKind: {}, byStatus: {} };
