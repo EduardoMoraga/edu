@@ -137,9 +137,12 @@ export function tabChosen(s: DeckState, tab: string, now = 0): DeckState {
   return next
 }
 
-/** The person pressed Approve or Reject on a crew job: ask once more before running it. */
-export function confirmAsked(s: DeckState, jobId: string, verdict: 'approve' | 'reject'): DeckState {
-  return { ...s, confirming: { jobId, verdict } }
+/**
+ * The person pressed Approve or Reject on a crew job: ask once more before running it. `requestId` pins
+ * the approval gate they saw, so the verdict cannot land on a gate that opened later.
+ */
+export function confirmAsked(s: DeckState, jobId: string, verdict: 'approve' | 'reject', requestId?: string): DeckState {
+  return { ...s, confirming: { jobId, verdict, ...(requestId ? { requestId } : {}) } }
 }
 
 /** A crew verdict the person confirmed went through: noted in the log. */

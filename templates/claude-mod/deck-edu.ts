@@ -12,9 +12,13 @@ export const EDU_IDLE_MS = 60_000
 export const EDU_TICK_MS = 5_000
 /** `edu deck --json` takes about 0.2 s; anything near this is a hung CLI. */
 export const EDU_TIMEOUT_MS = 15_000
+/** Longest wait between reads while they keep failing (edu missing, broken or hung). */
+export const EDU_BACKOFF_MAX_MS = 300_000
 export const RECENT_KEPT = 5
 export const JOBS_KEPT = 8
 export const TASK_LIMIT = 160
+/** Longest short field (cli, mode, status, tier, names) the pane keeps from the snapshot. */
+export const FIELD_LIMIT = 80
 
 const ACTIVE = new Set(['running', 'queued', 'awaiting-approval'])
 
@@ -27,6 +31,8 @@ const text = (value: unknown, fallback = ''): string => (typeof value === 'strin
 const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0)
 const time = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined)
 const oneLine = (value: string): string => value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim()
+/** A short snapshot string as the pane shows it: one line, no control characters, bounded. */
+const field = (value: unknown, fallback = ''): string => oneLine(text(value, fallback)).slice(0, FIELD_LIMIT)
 
 function brainFrom(value: unknown): DeckEduBrain | undefined {
   if (!object(value) || value.present !== true) return undefined
@@ -42,29 +48,32 @@ function brainFrom(value: unknown): DeckEduBrain | undefined {
 
 function jobFrom(value: unknown): DeckEduJob | undefined {
   if (!object(value)) return undefined
-  const id = text(value.id)
+  const id = field(value.id)
   if (!id) return undefined
   const startedAt = time(value.startedAt) ?? 0
   const endedAt = time(value.endedAt)
+  // Edu 6.0 names the open approval gate; an absent or malformed one is simply not sent.
+  const requestId = typeof value.requestId === 'string' && isRequestId(value.requestId) ? value.requestId : undefined
   return {
     id,
-    cli: text(value.cli, '?') || '?',
+    cli: field(value.cli, '?') || '?',
     task: oneLine(text(value.task)).slice(0, TASK_LIMIT),
-    status: text(value.status, 'queued') || 'queued',
-    mode: text(value.mode, 'headless') || 'headless',
+    status: field(value.status, 'queued') || 'queued',
+    mode: field(value.mode, 'headless') || 'headless',
     startedAt,
     ...(endedAt !== undefined ? { endedAt } : {}),
     tokens: count(value.tokens),
     tokensKnown: value.tokensKnown === true,
+    ...(requestId ? { requestId } : {}),
   }
 }
 
 function sessionFrom(value: unknown): DeckEduSession | undefined {
   if (!object(value)) return undefined
-  const id = text(value.id)
+  const id = field(value.id)
   if (!id) return undefined
-  const title = text(value.title)
-  return { id, status: text(value.status), ...(title ? { title } : {}) }
+  const title = oneLine(text(value.title)).slice(0, TASK_LIMIT)
+  return { id, status: field(value.status), ...(title ? { title } : {}) }
 }
 
 /**
@@ -80,7 +89,7 @@ export function eduFrom(stdout: string, now: number): DeckEdu {
     return eduFailed(eduLoading(), 'the output is not JSON', now)
   }
   if (!object(raw) || raw.version !== 1) return eduFailed(eduLoading(), 'unknown snapshot version', now)
-  const project = object(raw.project) ? { name: text(raw.project.name), root: text(raw.project.root) } : undefined
+  const project = object(raw.project) ? { name: field(raw.project.name), root: oneLine(text(raw.project.root)) } : undefined
   const brain = brainFrom(raw.brain)
   const maintenance = object(raw.maintenance)
     ? {
@@ -90,13 +99,13 @@ export function eduFrom(stdout: string, now: number): DeckEdu {
         overdue: count(raw.maintenance.overdue),
       }
     : undefined
-  const spec = object(raw.spec) && text(raw.spec.name)
-    ? { name: text(raw.spec.name), requirements: count(raw.spec.requirements), checks: count(raw.spec.checks) }
+  const spec = object(raw.spec) && field(raw.spec.name)
+    ? { name: field(raw.spec.name), requirements: count(raw.spec.requirements), checks: count(raw.spec.checks) }
     : undefined
   const jobs = (Array.isArray(raw.jobs) ? raw.jobs : []).map(jobFrom).filter((job): job is DeckEduJob => job !== undefined).slice(0, JOBS_KEPT)
   const recent = (Array.isArray(raw.recent) ? raw.recent : [])
     .filter(object)
-    .map(note => ({ title: oneLine(text(note.title)), tier: text(note.tier), at: time(note.at) ?? 0 }))
+    .map(note => ({ title: oneLine(text(note.title)).slice(0, TASK_LIMIT), tier: field(note.tier), at: time(note.at) ?? 0 }))
     .filter(note => note.title)
     .slice(0, RECENT_KEPT)
   const scope = raw.scope === 'project' || raw.scope === 'global' ? raw.scope : undefined
@@ -107,7 +116,7 @@ export function eduFrom(stdout: string, now: number): DeckEdu {
     checkedAt: now,
     ...(project ? { project } : {}),
     ...(scope ? { scope } : {}),
-    identity: text(raw.identity, 'Edu') || 'Edu',
+    identity: field(raw.identity, 'Edu') || 'Edu',
     ...(brain ? { brain } : {}),
     ...(maintenance ? { maintenance } : {}),
     ...(spec ? { spec } : {}),
@@ -141,16 +150,51 @@ export function isActiveJob(job: DeckEduJob): boolean {
   return ACTIVE.has(job.status)
 }
 
-/** Whether the timer should read Edu again now. */
-export function eduDue(edu: DeckEdu | undefined, now: number, lastRunAt: number | undefined, watching: boolean): boolean {
-  if (lastRunAt === undefined) return true
-  const period = watching || activeJobs(edu) > 0 ? EDU_ACTIVE_MS : EDU_IDLE_MS
-  return now - lastRunAt >= period
+/**
+ * How long the timer waits between reads: 10 s while crew is active or the Edu tab is open, 60 s
+ * otherwise, doubled for each read in a row that failed, up to five minutes.
+ */
+export function eduPeriod(edu: DeckEdu | undefined, watching: boolean, failures = 0): number {
+  const base = watching || activeJobs(edu) > 0 ? EDU_ACTIVE_MS : EDU_IDLE_MS
+  return failures > 0 ? Math.min(EDU_BACKOFF_MAX_MS, base * 2 ** Math.min(failures, 10)) : base
 }
 
-/** argv after `edu`: the snapshot, plus this session's Edu note when the CLI knows `--session`. */
+/** Whether the timer should read Edu again now. */
+export function eduDue(edu: DeckEdu | undefined, now: number, lastRunAt: number | undefined, watching: boolean, failures = 0): boolean {
+  if (lastRunAt === undefined) return true
+  return now - lastRunAt >= eduPeriod(edu, watching, failures)
+}
+
+/** Failed reads in a row after this one: a good read starts over, a failed or missing one adds one. */
+export function failuresAfter(failures: number, edu: DeckEdu): number {
+  return edu.state === 'ready' ? 0 : failures + 1
+}
+
+/**
+ * argv after `edu`: the snapshot, plus this session's Edu note when the CLI knows `--session`. A session id
+ * that is not a plain id is left out: on Windows the npm shim hands its arguments to cmd.exe again.
+ */
 export function eduArgs(sessionId: string | undefined, withSession: boolean): string[] {
-  return ['deck', '--json', ...(withSession && sessionId ? ['--session', sessionId] : [])]
+  return ['deck', '--json', ...(withSession && sessionId && isSessionRef(sessionId) ? ['--session', sessionId] : [])]
+}
+
+/** A host session id as Claude Code makes them (a UUID): letters, digits, `-` and `_`, starting with a letter or digit. */
+export function isSessionRef(id: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id)
+}
+
+/** An approval gate's nonce (`requestId`): letters, digits, `-` and `_` only (hex, UUID or base64url). */
+export function isRequestId(id: string): boolean {
+  return /^[A-Za-z0-9_-]{8,128}$/.test(id)
+}
+
+/**
+ * The last check before `$.process.run`: every argument is a plain word, an option, or `--option=value`
+ * made of letters, digits, `-` and `_`. Nothing a shell or cmd.exe reads as syntax (`&|<>^%!"` or spaces)
+ * can pass, whatever launches the npm shim.
+ */
+export function plainArgv(args: readonly string[]): boolean {
+  return args.every(arg => arg.length <= 200 && /^(?:--?)?[A-Za-z0-9][A-Za-z0-9_-]*(?:=[A-Za-z0-9_-]+)?$/.test(arg))
 }
 
 /** Edu 5.0 does not know `--session`: commander answers "unknown option". */
@@ -184,8 +228,13 @@ export function isJobRef(id: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$/.test(id)
 }
 
-export function verdictArgs(jobId: string, verdict: 'approve' | 'reject'): string[] {
-  return ['crew', verdict, jobId]
+/**
+ * argv after `edu` for a crew verdict. With Edu 6.0 the verdict names the approval gate the person saw
+ * (`requestId`), so a gate that reopened since is not decided by an older click; older CLIs report no
+ * `requestId` and get none.
+ */
+export function verdictArgs(jobId: string, verdict: 'approve' | 'reject', requestId?: string): string[] {
+  return ['crew', verdict, jobId, ...(requestId && isRequestId(requestId) ? [`--request-id=${requestId}`] : [])]
 }
 
 export function totalNotes(brain: DeckEduBrain | undefined): number {

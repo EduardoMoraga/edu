@@ -42,7 +42,9 @@ Click a box, or press `ctrl+x tab`, then Tab and Enter:
 - **Edu**: identity and project, the brain by tier, when it was last maintained, this session's Edu
   note, the latest spec, the eight newest crew jobs (active first) and the newest notes. A crew run
   waiting for approval gets **Approve** and **Reject**; each asks once more before it runs
-  `edu crew approve <id>` or `edu crew reject <id>`. `r` refreshes.
+  `edu crew approve <id>` or `edu crew reject <id>`. With an `edu` that names each approval gate
+  (Edu 6.0), the verdict also names the gate you saw, so it cannot land on a gate that opened
+  later. `r` refreshes.
 - **Reports**: each agent's task and full answer.
 - **Files**: changed and read files per agent, shared ones first.
 - **Log**: every event, filtered by source.
@@ -53,13 +55,21 @@ Click a box, or press `ctrl+x tab`, then Tab and Enter:
 
 The pane runs `edu deck --json --session <this session's id>`: once at start, after each finished
 main turn, after each Edu tool call, every 10 seconds while a crew job is active or the Edu tab is
-open, and every 60 seconds otherwise. It never runs two reads at once. It reads the brain every other
-`edu` command uses: the nearest project `.edu/` above the session's folder, else the global one
-(`EDU_HOME`, or `~/.edu`). The Edu tab says which (project brain or global brain).
+open, and every 60 seconds otherwise. It never runs two reads at once and never reads on a redraw.
+It reads the brain every other `edu` command uses: the nearest project `.edu/` above the session's
+folder, else the global one (`EDU_HOME`, or `~/.edu`). The Edu tab says which (project brain or
+global brain).
 
-- `edu` not on `PATH`: the pane says so and the agent tree keeps working.
+- `edu` not on `PATH`, failing or hung (15 seconds): the pane says so, keeps the last figures it
+  read, and the agent tree keeps working. While reads keep failing, the timer waits twice as long
+  after each one (up to five minutes) and events do not start `edu`; `r` or `/edu-deck refresh`
+  reads at once.
 - An older `edu` without `deck --session`: the pane reads again without it and shows the session as
   not reported until you run `edu update`.
+- `edu` starts by its argument list, never through a shell of the pane's own. On Windows Claude Code
+  finds the npm `edu.cmd` shim itself; because that shim passes its arguments through cmd.exe, the
+  pane only ever passes fixed words and plain ids (letters, digits, `-`, `_`). A session id or job
+  id that is anything else is left out or refused.
 
 ## Commands
 
@@ -77,5 +87,7 @@ open, and every 60 seconds otherwise. It never runs two reads at once. It reads 
 
 - Agent Tree and the Edu Deck both steer sub-agents. Installed together, both act on a stop or a
   model choice, so keep only one of them on.
-- For developers: `npm run test:deck` runs the pane's engine tests with `claude plugin test` on a
-  temporary copy of `plugins/claude-code`. It needs the `claude` CLI.
+- For developers: `npm run test:deck` generates the Claude Code plugin from `templates/` into a
+  temporary folder and runs the pane's engine tests on it with `claude plugin test`. It needs the
+  `claude` CLI. `npm test` runs them too when `claude` is on `PATH`, and reports them as skipped
+  otherwise (CI has no `claude`).
