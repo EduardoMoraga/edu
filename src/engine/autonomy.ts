@@ -86,5 +86,5 @@ export function engineCapabilities(cli: CliId): EngineCapabilities {
   const mechanism = READONLY_MECHANISM[cli];
   return { readonly: mechanism ? 'enforced' : 'unsupported', isolation: 'host',
     ...(mechanism ? { mechanism } : {}),
-    limitations: [...(!mechanism ? ['Readonly enforcement is unsupported; shared-workspace steps run serially.'] : []), 'Host permission modes are not an Edu OS/network sandbox.'] };
+    limitations: [...(!mechanism ? ['Readonly enforcement is unsupported; read-only work (planning, review, read-only steps) runs on a CLI that enforces it.'] : []), 'Host permission modes are not an Edu OS/network sandbox.'] };
 }

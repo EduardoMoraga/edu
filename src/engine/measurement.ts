@@ -3,7 +3,7 @@ import type { EduEvent, Engine, EngineCapabilities, Usage } from '../core/contra
 import { USAGE_FIELDS } from '../core/usage.js';
 
 export const UNSUPPORTED_CAPABILITIES: EngineCapabilities = {
-  readonly: 'unsupported', isolation: 'host', limitations: ['Readonly enforcement is unsupported; shared-workspace steps must run serially.', 'Host execution is not an Edu OS/network sandbox.'],
+  readonly: 'unsupported', isolation: 'host', limitations: ['Readonly enforcement is unsupported; read-only work runs on a CLI that enforces it.', 'Host execution is not an Edu OS/network sandbox.'],
 };
 const wrappers = new WeakMap<Engine, Engine>();
 

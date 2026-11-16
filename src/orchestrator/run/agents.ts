@@ -31,8 +31,8 @@ export async function runAgent(run: RunState, call: AgentCall): Promise<AgentRep
   await emit(run, { type: 'agent.spawn', agentId, role: roleId, cli, task: prompt.slice(0, 160), at: at(run) });
   await emit(run, { type: 'agent.status', agentId, status: 'running', at: at(run) });
   const purpose = (agentId.includes('fix') || agentId.endsWith('-repair')) || prompt.includes('Invalid plan') || prompt.startsWith('Your previous') ? 'recovery' : roleId === 'lead' ? 'planning' : roleId === 'reviewer' ? 'review' : 'task';
-  // Planning, review and advice must be read-only in fact, not only by request.
-  const requireReadonly = autonomy === 'readonly' && (roleId === 'lead' || roleId === 'reviewer' || roleId === 'advisor');
+  // Read-only means read-only in fact, not only by request: planning, review, advice and every read-only step.
+  const requireReadonly = autonomy === 'readonly';
   const request: EngineRunRequest = { invocation: { id: randomUUID(), purpose }, cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: run.deps.cwd, autonomy, ...(requireReadonly ? { requireReadonly } : {}), systemPrompt: [role?.mission, roleId === 'lead' ? '' : method, roleId === 'builder' && context.includes('Brain context pack:') ? 'If you actually apply a supplied note, cite it explicitly on a separate line: EDU_APPLIED {"noteId":"L-id","requirementIds":["R-1"],"application":"Applied [[L-id]] by ..."}. Report only concrete application, never mere exposure or presumed benefit.' : ''].filter(Boolean).join('\n\n'), ...(model ? { model } : {}), signal };
   let text = ''; let summary = ''; let sessionId: string | undefined;
   try {
@@ -54,11 +54,12 @@ export async function runAgent(run: RunState, call: AgentCall): Promise<AgentRep
 }
 
 /**
- * The lead plans before any approval and the reviewer reads untrusted diffs: both must run on a CLI that
- * enforces read-only. The assigned CLI is kept when it can; otherwise another installed one that can
- * (a reviewer still prefers a vendor other than the builder's), or the run stops with a clear reason.
+ * Whoever runs read-only must run on a CLI that enforces it: the lead plans before any approval, the reviewer reads
+ * untrusted diffs, and a read-only step (an explorer) was approved as one that changes nothing. The assigned CLI is
+ * kept when it can; otherwise another installed one that can (a reviewer still prefers a vendor other than the
+ * builder's), or the run stops with a clear reason.
  */
-export function readonlyCli(run: RunState, role: 'lead' | 'reviewer'): CliId {
+export function readonlyCli(run: RunState, role: RoleId): CliId {
   const { deps, config } = run;
   const assigned = assignCli(role, config, deps.available);
   const enforced = (cli: CliId) => deps.engines(cli).capabilities?.readonly === 'enforced';
@@ -67,8 +68,15 @@ export function readonlyCli(run: RunState, role: 'lead' | 'reviewer'): CliId {
   const candidates = deps.available.filter(enforced).sort((a, b) => Number(a === builderCli) - Number(b === builderCli));
   const fallback = candidates[0];
   if (!fallback) throw new Error(`The ${role} must run read-only, but ${assigned} cannot enforce it and no installed CLI can. Install claude, codex or pi, or route the ${role} to one of them.`);
-  run.limitations.push(`${role}: ${assigned} cannot enforce read-only, so the ${role} ran on ${fallback}.`);
+  const note = `${role}: ${assigned} cannot enforce read-only, so the ${role} ran on ${fallback}.`;
+  if (!run.limitations.includes(note)) run.limitations.push(note);
   return fallback;
+}
+
+/** The CLI a plan step runs on: a read-only role (after the autonomy ceiling) always on one that enforces it. */
+export function stepCli(run: RunState, role: RoleId): CliId {
+  const autonomy = run.config.roles.find(candidate => candidate.id === role)?.autonomy ?? 'readonly';
+  return autonomy === 'readonly' ? readonlyCli(run, role) : assignCli(role, run.config, run.deps.available);
 }
 
 export function builderPrompt(task: string, goal: string, priorEvidence: string, level: HarnessLevel): string {

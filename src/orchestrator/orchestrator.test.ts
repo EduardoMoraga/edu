@@ -180,23 +180,36 @@ describe('orchestrator contracts', () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
-  it('serializes readonly steps when the actual engine does not enforce readonly', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'edu-unsupported-readers-'));
+  it('runs read-only steps only on CLIs that enforce read-only, and refuses before approval when none can', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu-readonly-steps-'));
     const plan = { steps: ['A', 'B'].map(id => ({ id, role: 'explorer', task: id, dependsOn: [], parallelSafe: true })) };
-    let active = 0, maximum = 0;
-    // Explorers run on OpenCode, which cannot enforce readonly; the lead and reviewer need Claude.
-    const config = { ...defaultConfig('claude'), mode: 'crew' as const, roles: defaultConfig('claude').roles.map(role => role.id === 'explorer' ? { ...role, cli: 'opencode' as const } : role) };
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
-      const reader = /^[AB]\n/.test(request.prompt);
-      if (reader) { active++; maximum = Math.max(maximum, active); await new Promise(resolve => setTimeout(resolve, 25)); active--; }
+    const readers: Array<{ cli: string; requireReadonly?: boolean }> = [];
+    const runtime = (cli: CliId): Engine => ({ cli, capabilities: engineCapabilities(cli), available: async () => true, async *run(request, agentId) {
+      if (/^[AB]\n/.test(request.prompt)) readers.push({ cli: request.cli, requireReadonly: request.requireReadonly });
       const text = request.prompt.startsWith('Create a safe') ? JSON.stringify(plan) : request.prompt.startsWith('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'done';
       yield { type: 'agent.text', agentId, text, at } as EduEvent;
-    } };
+    } });
     const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
     try {
-      const result = await orchestrate('goal', { config, brain, context, engines: cli => ({ ...runtime, cli, capabilities: engineCapabilities(cli) }), available: ['claude', 'opencode'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true });
-      expect(result.ok, result.summary).toBe(true);
-      expect(maximum).toBe(1);
+      // Solo on OpenCode (no write lock): the explorers move to Claude, which enforces read-only; the spec says so.
+      const events: EduEvent[] = [];
+      const moved = await orchestrate('goal', { config: defaultConfig('opencode'), brain, context, engines: runtime, available: ['opencode', 'claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => { events.push(event); }, approve: async () => true });
+      expect(moved.ok, moved.summary).toBe(true);
+      expect(readers).toEqual([{ cli: 'claude', requireReadonly: true }, { cli: 'claude', requireReadonly: true }]);
+      expect(events).toContainEqual(expect.objectContaining({ type: 'spec.ready', steps: expect.arrayContaining([expect.objectContaining({ id: 'A', role: 'explorer', cli: 'claude' })]) }));
+      // Crew mode with the explorer routed to OpenCode: the same.
+      readers.length = 0;
+      const routed = { ...defaultConfig('claude'), mode: 'crew' as const, roles: defaultConfig('claude').roles.map(role => role.id === 'explorer' ? { ...role, cli: 'opencode' as const } : role) };
+      expect((await orchestrate('goal', { config: routed, brain, context, engines: runtime, available: ['claude', 'opencode'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true })).ok).toBe(true);
+      expect(readers.map(reader => reader.cli)).toEqual(['claude', 'claude']);
+      // Nothing installed can keep them read-only: the run stops before any approval or step.
+      readers.length = 0;
+      let asked = false;
+      const none = await orchestrate('goal', { config: defaultConfig('opencode'), brain, context, engines: runtime, available: ['opencode', 'agy'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => { asked = true; return true; } });
+      expect(none.ok).toBe(false);
+      expect(none.summary).toContain('cannot enforce');
+      expect(readers).toEqual([]);
+      expect(asked).toBe(false);
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
