@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { joinBrain, localCopyName } from './join.js';
 
-const env = { ...process.env, GIT_AUTHOR_NAME: 'Edu', GIT_AUTHOR_EMAIL: 'edu@example.com', GIT_COMMITTER_NAME: 'Edu', GIT_COMMITTER_EMAIL: 'edu@example.com', GIT_CONFIG_NOSYSTEM: '1' };
+const env = { ...process.env, GIT_AUTHOR_NAME: 'Edu', GIT_AUTHOR_EMAIL: 'edu@example.com', GIT_COMMITTER_NAME: 'Edu', GIT_COMMITTER_EMAIL: 'edu@example.com', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '' };
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
 const put = (dir: string, path: string, text: string) => {
   mkdirSync(join(dir, path, '..'), { recursive: true });
@@ -31,6 +31,8 @@ const remoteFile = (path: string) => git(root, '--git-dir', remote, 'show', `mai
 
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'edu-join-')));
+  env.GIT_CONFIG_GLOBAL = join(root, 'gitconfig');
+  writeFileSync(env.GIT_CONFIG_GLOBAL, '');
   remote = join(root, 'remote.git');
   git(root, 'init', '-q', '--bare', '-b', 'main', remote);
   eduHome = join(root, 'home', '.edu');

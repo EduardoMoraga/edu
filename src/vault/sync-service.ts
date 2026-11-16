@@ -4,8 +4,8 @@
  * machine runs the same code.
  */
 import { execFile } from 'node:child_process';
-import { access, mkdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
 import { whichSync } from '../platform/index.js';
 
 const run = (cmd: string, args: string[]) => new Promise<number>(done =>
@@ -38,10 +38,14 @@ export interface ScheduleOptions {
   /** Extra environment for the job (for example a non-default `EDU_HOME`). */
   env?: Record<string, string>;
   platform?: NodeJS.Platform;
+  /** Injectable service-manager runner for tests and hosts without the manager. */
+  run?: (cmd: string, args: string[]) => Promise<number>;
+  /** Repository being synced; used to identify older schedulers. */
+  vault?: string;
 }
 
 export type ScheduleKind = 'systemd' | 'launchd' | 'schtasks';
-export interface ScheduleResult { kind: ScheduleKind; files: string[]; started: boolean }
+export interface ScheduleResult { kind: ScheduleKind; files: string[]; started: boolean; legacy: string[] }
 
 export const WINDOWS_TASK = 'EduSync';
 
@@ -75,6 +79,8 @@ export function scheduleFiles(home: string, eduHome: string | undefined, platfor
 
 export async function installSchedule(options: ScheduleOptions): Promise<ScheduleResult> {
   const platform = options.platform ?? process.platform;
+  const call = options.run ?? run;
+  const legacy = await legacySchedules(options);
   const minutes = options.minutes ?? 5;
   const path = options.path ?? process.env.PATH ?? '/usr/bin:/bin';
   const extra = (options.args ?? []).map(arg => ` ${arg}`).join('');
@@ -94,9 +100,9 @@ export async function installSchedule(options: ScheduleOptions): Promise<Schedul
       '[Timer]', 'OnBootSec=1min', `OnUnitActiveSec=${minutes}min`, 'Persistent=true', '',
       '[Install]', 'WantedBy=timers.target', '',
     ].join('\n'));
-    const started = await run('systemctl', ['--user', 'daemon-reload']) === 0
-      && await run('systemctl', ['--user', 'enable', '--now', 'edu-sync.timer']) === 0;
-    return { kind: 'systemd', files: [service, timer], started };
+    const started = await call('systemctl', ['--user', 'daemon-reload']) === 0
+      && await call('systemctl', ['--user', 'enable', '--now', 'edu-sync.timer']) === 0;
+    return { kind: 'systemd', files: [service, timer], started, legacy };
   }
   if (platform === 'darwin') {
     const dir = join(options.home, 'Library', 'LaunchAgents');
@@ -119,16 +125,16 @@ export async function installSchedule(options: ScheduleOptions): Promise<Schedul
   <key>StandardErrorPath</key><string>/dev/null</string>
 </dict></plist>
 `);
-    await run('launchctl', ['unload', plist]);
-    const started = await run('launchctl', ['load', '-w', plist]) === 0;
-    return { kind: 'launchd', files: [plist], started };
+    await call('launchctl', ['unload', plist]);
+    const started = await call('launchctl', ['load', '-w', plist]) === 0;
+    return { kind: 'launchd', files: [plist], started, legacy };
   }
   if (platform === 'win32') {
     const task = windowsTask({ ...options, minutes });
     await mkdir(join(task.script, '..'), { recursive: true });
     await writeFile(task.script, task.content);
-    const started = await run('schtasks', task.create) === 0;
-    return { kind: 'schtasks', files: [task.script], started };
+    const started = await call('schtasks', task.create) === 0;
+    return { kind: 'schtasks', files: [task.script], started, legacy };
   }
   throw new Error(`scheduled sync is not supported on ${platform}; run \`edu sync\` from your own scheduler`);
 }
@@ -150,17 +156,62 @@ export async function uninstallSchedule(options: Pick<ScheduleOptions, 'home' | 
   return { kind: known.kind, removed, stopped };
 }
 
-export interface ScheduleStatus { kind?: ScheduleKind; installed: boolean; files: string[] }
+export interface ScheduleStatus { kind?: ScheduleKind; installed: boolean; files: string[]; legacy: string[] }
 
 /** Whether this machine has Edu's scheduled sync; reads files only (and `schtasks /Query` on Windows). */
-export async function scheduleStatus(options: Pick<ScheduleOptions, 'home' | 'eduHome' | 'platform'>): Promise<ScheduleStatus> {
+export async function scheduleStatus(options: Pick<ScheduleOptions, 'home' | 'eduHome' | 'platform' | 'vault' | 'run'>): Promise<ScheduleStatus> {
   const platform = options.platform ?? process.platform;
   const known = scheduleFiles(options.home, options.eduHome, platform);
-  if (!known) return { installed: false, files: [] };
+  if (!known) return { installed: false, files: [], legacy: [] };
   const present: string[] = [];
   for (const file of known.files) if (await exists(file)) present.push(file);
   const installed = known.kind === 'schtasks'
-    ? await run('schtasks', windowsTask({ home: options.home, eduHome: options.eduHome, node: '', cli: '' }).query) === 0
+    ? await (options.run ?? run)('schtasks', windowsTask({ home: options.home, eduHome: options.eduHome, node: '', cli: '' }).query) === 0
     : present.length === known.files.length;
-  return { kind: known.kind, installed, files: present };
+  return { kind: known.kind, installed, files: present, legacy: await legacySchedules(options) };
+}
+
+/** Older user agents that explicitly run this vault or a `*-vault-sync` script. */
+export async function legacySchedules(options: Pick<ScheduleOptions, 'home' | 'platform' | 'vault'>): Promise<string[]> {
+  const platform = options.platform ?? process.platform;
+  if (platform !== 'darwin' && platform !== 'linux') return [];
+  const dir = platform === 'darwin' ? join(options.home, 'Library', 'LaunchAgents') : join(options.home, '.config', 'systemd', 'user');
+  const entries = await readdir(dir).catch(() => [] as string[]);
+  const suffix = platform === 'darwin' ? '.plist' : '.service';
+  const own = platform === 'darwin' ? 'dev.edu.sync.plist' : 'edu-sync.service';
+  const vault = options.vault ? resolve(options.vault) : undefined;
+  const found: string[] = [];
+  for (const name of entries) {
+    if (!name.endsWith(suffix) || name === own) continue;
+    const file = join(dir, name);
+    const content = await readFile(file, 'utf8').catch(() => '');
+    const command = platform === 'darwin'
+      ? /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(content)?.[1] ?? ''
+      : /^ExecStart=(.*)$/m.exec(content)?.[1] ?? '';
+    const vaultPattern = vault ? new RegExp(`${vault.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[/\\s<>"']|$)`) : undefined;
+    if (/(?:^|[\s/"<>])[^\s/"<>]*-vault-sync(?:\.[\w-]+)?(?:[\s/"<>]|$)/.test(command) || vaultPattern?.test(command)) found.push(file);
+  }
+  return found.sort();
+}
+
+/** Remove only agents that still match the legacy detection rule at removal time. */
+export async function replaceLegacySchedules(options: Pick<ScheduleOptions, 'home' | 'platform' | 'vault' | 'run'>): Promise<string[]> {
+  const platform = options.platform ?? process.platform;
+  const call = options.run ?? run;
+  const found = await legacySchedules(options);
+  const removed: string[] = [];
+  for (const file of found) {
+    if (platform === 'darwin') await call('launchctl', ['unload', '-w', file]);
+    else {
+      const unit = basename(file);
+      const timer = join(file, '..', unit.replace(/\.service$/, '.timer'));
+      await call('systemctl', ['--user', 'disable', '--now', basename(timer)]);
+      if (await exists(timer)) { await rm(timer); removed.push(timer); }
+      await call('systemctl', ['--user', 'stop', unit]);
+    }
+    await rm(file);
+    removed.push(file);
+  }
+  if (removed.length && platform === 'linux') await call('systemctl', ['--user', 'daemon-reload']);
+  return removed;
 }
