@@ -5,6 +5,7 @@ import { planAgyRefresh } from './agy-upgrade.js';
 import { eduOwnedRoot } from './native-files.js';
 import { pluginRecoveryPath, resumeRegistrationRecovery, withRegistrationRecovery } from './plugin-recovery.js';
 import { eduMcpLaunch, spawnCli, type McpLaunch } from '../platform/index.js';
+import { codexMcpEntry } from '../platform/child-env.js';
 import { access, mkdir, readFile, readdir, realpath, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { CliId } from '../core/contracts.js';
@@ -240,7 +241,7 @@ export async function localizePluginsForPlatform(packageRoot: string, platform: 
   const launch = eduMcpLaunch(platform);
   const targets: Array<[CliId, string, (edu: McpLaunch) => unknown]> = [
     ['claude', 'plugins/claude-code/.mcp.json', edu => ({ edu })],
-    ['codex', 'plugins/codex/.mcp.json', edu => ({ mcpServers: { edu } })],
+    ['codex', 'plugins/codex/.mcp.json', edu => ({ mcpServers: { edu: codexMcpEntry(edu) } })],
     ['agy', 'plugins/agy/mcp_config.json', edu => ({ mcpServers: { edu } })],
   ];
   const written: string[] = [];
@@ -265,10 +266,12 @@ async function localizeUpgradeSources(plan: SetupPlan, options: ApplySetupOption
     const path = join(plan.packageRoot, 'plugins', cli === 'claude' ? 'claude-code' : 'codex', '.mcp.json');
     if (await realpath(path) !== resolve(path)) throw new Error(`Manual conflict: symlinked candidate MCP ${path}`);
     const before = await readTarget(path);
-    const shape = (launch: McpLaunch) => cli === 'claude' ? { edu: launch } : { mcpServers: { edu: launch } };
-    const unix = `${JSON.stringify(shape(eduMcpLaunch('linux')), null, 2)}\n`;
-    const windows = `${JSON.stringify(shape(eduMcpLaunch('win32')), null, 2)}\n`;
-    if (before?.toString('utf8') !== unix && before?.toString('utf8') !== windows) throw new Error(`Manual conflict: custom candidate MCP ${path}`);
+    // Codex entries gained `env_vars` in 6.0; a pre-6.0 generated file is still Edu's own and is localized to the current shape.
+    const shapes = (launch: McpLaunch) => cli === 'claude' ? [{ edu: launch }] : [{ mcpServers: { edu: codexMcpEntry(launch) } }, { mcpServers: { edu: launch } }];
+    const text = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
+    const windows = text(shapes(eduMcpLaunch('win32'))[0]);
+    const known = new Set([...shapes(eduMcpLaunch('linux')), ...shapes(eduMcpLaunch('win32'))].map(text));
+    if (!before || !known.has(before.toString('utf8'))) throw new Error(`Manual conflict: custom candidate MCP ${path}`);
     if (before.toString('utf8') !== windows) changed.push(path);
   }
   if (!changed.length) return;
