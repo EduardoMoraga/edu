@@ -21,8 +21,8 @@ description: "Delegate a task to another coding CLI (Claude Code, Codex, Pi, Ope
    checks), and `mode`: `pane` when the user wants to watch it in herdr, otherwise
    `headless`. Autonomy: `autonomy: "readonly"` for research or review-only work (claude,
    codex or pi only); `autonomy: "auto"` when the job must edit files, since the default
-   `ask` cannot write headless. Headless jobs stop after 60 minutes: pass `timeoutMinutes`
-   (1 to 1440) for longer work. Pane jobs have no timeout.
+   `ask` cannot write headless. Jobs stop after 60 minutes (a pane job's pane is closed): pass
+   `timeoutMinutes` (1 to 1440) for longer work.
 3. Tell the user the job id and how to watch it (`edu watch`, or the herdr pane).
 4. Poll with `edu_crew_status` (`jobId`) until the job is `done`, `failed` or `cancelled`.
    Between polls keep doing useful work; do not poll in a tight loop.
@@ -50,4 +50,4 @@ record lessons yourself from its result.
 - The job `failed`: show its last output and ask whether to retry or take it over. If it
   timed out, offer a retry with a larger `timeoutMinutes`.
 - `autonomy` is above the crew ceiling: `full` needs a person to raise `crew.maxAutonomy`
-  in the global Edu config, or to dispatch from a terminal. Do not retry with `full`.
+  in the global Edu config (a terminal dispatch has the same ceiling). Do not retry with `full`.

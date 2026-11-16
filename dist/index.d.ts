@@ -116,6 +116,14 @@ interface RecallHit {
     note: Note;
     score: number;
     why: string;
+    reason?: RecallReason;
+}
+/** Why a note was recalled: named by id or alias, or the terms it matched; its learned weight; the passage shown. */
+interface RecallReason {
+    named?: string;
+    matched?: string[];
+    weight: number;
+    passage?: string;
 }
 /** Where a brain lives. Project brains overlay the global brain. */
 interface BrainLocation {
@@ -612,4 +620,4 @@ interface ProgramOptions {
 }
 declare function createProgram(overrides?: Partial<CliContext>, options?: ProgramOptions): Command;
 
-export { type AgentStatus, type ApprovalBy, type ApprovalPolicy, type Autonomy, type BrainLocation, CLI_IDS, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewApproval, type CrewDecisionBy, type CrewJob, type CrewJobMode, type CrewJobStatus, type CrewSettings, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineCapabilities, type EngineRunRequest, type FailureType, type FeedbackContext, HUMAN_APPROVERS, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type InvocationPurpose, type Lang, type Note, type NoteMeta, type NoteOrigin, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageField, type UsageStats, type WorkspaceIdentity, createProgram };
+export { type AgentStatus, type ApprovalBy, type ApprovalPolicy, type Autonomy, type BrainLocation, CLI_IDS, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewApproval, type CrewDecisionBy, type CrewJob, type CrewJobMode, type CrewJobStatus, type CrewSettings, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineCapabilities, type EngineRunRequest, type FailureType, type FeedbackContext, HUMAN_APPROVERS, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type InvocationPurpose, type Lang, type Note, type NoteMeta, type NoteOrigin, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type RecallReason, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageField, type UsageStats, type WorkspaceIdentity, createProgram };
