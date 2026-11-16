@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { CliId, InstallManifest, InstallScope } from '../core/contracts.js';
 import { binaryOnPath } from './common.js';
 import { getManifestPath, isActionIntact } from './installer.js';
@@ -92,6 +92,34 @@ export async function diagnose(options: DiagnoseOptions): Promise<CliDiagnosis[]
     notes.push(...native[cli].notes);
     return { cli, installed: await detect(cli), integrated: scopes.length > 0 || native[cli].found.length > 0, drift: drifted.length > 0, scopes, native: native[cli].found, notes };
   }));
+}
+
+/** A brain file quarantined as an unreadable note: the shape of a `Brain.problems()` entry. */
+export interface QuarantinedNote { path: string; problem: string }
+
+/** How many quarantined paths one doctor line names before "and N more". */
+const QUARANTINE_LISTED = 5;
+
+/**
+ * The doctor line for brain files quarantined as unreadable notes (`Brain.problems()`): recall and the brief skip
+ * them and nothing overwrites them, so a person has to repair them. Names the count and up to five paths, relative
+ * to `brainDir` when they are inside it, and points at `edu brain lint`. Undefined when there are none.
+ */
+export function quarantineProblem(scope: string, brainDir: string, notes: readonly QuarantinedNote[], lang: 'en' | 'es' = 'en'): InstallProblem | undefined {
+  if (!notes.length) return undefined;
+  const shown = (path: string) => {
+    const inside = relative(brainDir, path);
+    return inside && inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside) ? inside : path;
+  };
+  const paths = notes.map(note => note.path).sort().slice(0, QUARANTINE_LISTED).map(shown).join(', ');
+  const rest = notes.length - QUARANTINE_LISTED;
+  const one = notes.length === 1;
+  return {
+    level: 'warn',
+    text: lang === 'es'
+      ? `cerebro ${scope}: ${notes.length} ${one ? 'nota ilegible está' : 'notas ilegibles están'} en cuarentena (no se cargan ni se sobrescriben): ${paths}${rest > 0 ? ` y ${rest} más` : ''}. Ejecuta edu brain lint para ver por qué y cómo ${one ? 'repararla' : 'repararlas'}.`
+      : `${scope} brain: ${notes.length} unreadable ${one ? 'note is' : 'notes are'} quarantined (not loaded, never overwritten): ${paths}${rest > 0 ? ` and ${rest} more` : ''}. Run edu brain lint to see why and how to repair ${one ? 'it' : 'them'}.`,
+  };
 }
 
 /** Corrupt Edu records and a setup that points at a package root that moved or no longer exists. */

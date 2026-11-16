@@ -1,7 +1,7 @@
 /** `edu doctor`: Node, CLIs (+ sign-in hint), integrations, brains, Obsidian link. */
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import { openBrain } from '../../brain/index.js';
+import { brainPath, openBrain } from '../../brain/index.js';
 import type { BrainLocation, CliId } from '../../core/contracts.js';
 import { globalHome, type CliContext } from '../context.js';
 import { t } from '../i18n.js';
@@ -78,7 +78,7 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
           ? { level: 'ok', text: lang === 'es' ? '`edu` está en el PATH' : '`edu` is on PATH' }
           : { level: 'fail', text: lang === 'es' ? '`edu` no está en el PATH: los hosts no pueden iniciar `edu mcp` ni los hooks. Agregue el bin global de npm (npm prefix -g) al PATH.' : '`edu` is not on PATH: hosts cannot start `edu mcp` or its hooks. Add the npm global bin directory (npm prefix -g) to PATH.' });
         const { diagnose } = await import('../../adapters/index.js');
-        const { installProblems } = await import('../../adapters/doctor.js');
+        const { installProblems, quarantineProblem } = await import('../../adapters/doctor.js');
         const diagnoseOptions = { root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env, packageRoot: dirname(packageTemplatesDir()) };
         const clis = await diagnose(diagnoseOptions);
         const problems = await installProblems(diagnoseOptions);
@@ -104,13 +104,18 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         const brains = [];
         for (const loc of locations) {
           const ready = await exists(join(loc.root, 'EDU.md'));
-          const total = ready ? (await openBrain([loc]).stats()).total : 0;
-          brains.push({ ...loc, ready, total });
+          const brain = ready ? openBrain([loc]) : undefined;
+          const total = brain ? (await brain.stats()).total : 0;
+          // Files that are not valid notes are quarantined: never loaded, never overwritten. stats() just listed them.
+          const quarantined = brain ? await brain.problems() : [];
+          brains.push({ ...loc, ready, total, quarantined: { count: quarantined.length, paths: quarantined.map(problem => problem.path) } });
           lines.push(
             ready
               ? { level: 'ok', text: t(lang, 'doctor.brain', { scope: loc.scope, root: loc.root, total }) }
               : { level: 'warn', text: t(lang, 'doctor.brainMissing', { scope: loc.scope, root: loc.root, flag: loc.scope === 'global' ? ' --global' : '' }) },
           );
+          const unreadable = quarantineProblem(loc.scope, brainPath(loc), quarantined, lang);
+          if (unreadable) lines.push(unreadable);
         }
 
         let vault: { link?: string; state: string } = { state: 'none' };

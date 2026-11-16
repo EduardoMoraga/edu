@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { diagnose, installProblems } from './doctor.js';
+import { diagnose, installProblems, quarantineProblem } from './doctor.js';
 import { applyInstall, getManifestPath, planInstall, resolveTemplatesDir } from './installer.js';
 import { captureContext, out, runCli } from '../cli/testkit.js';
 
@@ -78,5 +78,41 @@ describe('doctor install health (M3)', () => {
     const d = await captureContext({ env: { PATH: bin } });
     await runCli(d, ['doctor']);
     expect(out(d)).toContain('`edu` is on PATH');
+  });
+});
+
+describe('doctor and quarantined brain notes', () => {
+  it('names quarantined notes with a count, paths under the brain and the lint hint', () => {
+    const root = join(tmpdir(), 'edu-doctor-quarantine', 'brain');
+    expect(quarantineProblem('project', root, [])).toBeUndefined();
+    const one = quarantineProblem('global', root, [{ path: join(root, '3-transitive', 'L-bad.md'), problem: 'id is missing' }])!;
+    expect(one).toEqual({ level: 'warn', text: `global brain: 1 unreadable note is quarantined (not loaded, never overwritten): ${join('3-transitive', 'L-bad.md')}. Run edu brain lint to see why and how to repair it.` });
+    const outside = { path: join(tmpdir(), 'elsewhere', 'X.md'), problem: 'no frontmatter' };
+    const many = Array.from({ length: 7 }, (_, i) => ({ path: join(root, '3-transitive', `L-${i}.md`), problem: 'id is missing' }));
+    const line = quarantineProblem('project', root, [...many, outside])!;
+    expect(line.text).toMatch(/^project brain: 8 unreadable notes are quarantined/);
+    // Sorted, at most five named; a file outside the brain folder keeps its full path.
+    expect(line.text).toContain(`${join('3-transitive', 'L-0.md')}, ${join('3-transitive', 'L-1.md')}`);
+    expect(line.text).toContain('and 3 more');
+    expect(line.text).toContain('Run edu brain lint');
+    expect(quarantineProblem('project', root, [outside])!.text).toContain(outside.path);
+    expect(quarantineProblem('project', root, many, 'es')!.text).toMatch(/^cerebro project: 7 notas ilegibles están en cuarentena .* Ejecuta edu brain lint/);
+  });
+
+  it('edu doctor reports quarantined notes in its lines and per brain in JSON', async () => {
+    const c = await captureContext({ detected: ['claude'] });
+    await runCli(c, ['init']);
+    await put(join(c.dirs.cwd, '.edu', 'brain', '3-transitive', 'L-broken.md'), '---\nid: L-broken\ntier: transitive\ntitle: [a, b]\n---\nBody\n');
+    c.stdout.length = 0;
+    await runCli(c, ['doctor', '--json']);
+    const report = JSON.parse(out(c)) as { brains: { scope: string; total: number; quarantined: { count: number; paths: string[] } }[]; lines: { level: string; text: string }[] };
+    const project = report.brains.find(brain => brain.scope === 'project')!;
+    expect(project.quarantined.count).toBe(1);
+    expect(project.quarantined.paths).toEqual([expect.stringMatching(/[\\/]3-transitive[\\/]L-broken\.md$/)]);
+    expect(report.brains.find(brain => brain.scope === 'global')!.quarantined).toEqual({ count: 0, paths: [] });
+    expect(report.lines).toContainEqual({ level: 'warn', text: expect.stringContaining('project brain: 1 unreadable note is quarantined') });
+    c.stdout.length = 0;
+    await runCli(c, ['doctor']);
+    expect(out(c)).toContain(`1 unreadable note is quarantined (not loaded, never overwritten): ${join('3-transitive', 'L-broken.md')}. Run edu brain lint`);
   });
 });
