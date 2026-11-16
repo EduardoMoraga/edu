@@ -18,6 +18,8 @@ const windows = process.platform === 'win32';
 const EDU = process.env.EDU_BIN || 'edu';
 const REFRESH_MS = 3000;
 const DECK_TIMEOUT_MS = 1500;
+/** Longest pause between `edu deck` polls while they keep failing (edu missing, old or broken). */
+const DECK_BACKOFF_MAX_MS = 60_000;
 /** Safety margin for `edu hook session-start`: large imported brains on slow Windows disks. */
 const BRIEF_TIMEOUT_MS = 15000;
 const CLEANUP_TIMEOUT_MS = 2000;
@@ -277,6 +279,9 @@ export default function (pi: ExtensionAPI): void {
   let ui: ExtensionContext | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let inflight = false;
+  // Failed polls in a row; the timer and events wait 6 s, 12 s, … up to a minute before the next one.
+  let failures = 0;
+  let retryAt = 0;
   let widgetShown = false;
   const renderers = new Set<Renderer>();
   const watch = (tui: Renderer): (() => void) => { renderers.add(tui); return () => { renderers.delete(tui); }; };
@@ -308,11 +313,14 @@ export default function (pi: ExtensionAPI): void {
     try { ui.ui.setWidget('edu-deck', wanted ? crewWidget() : undefined, { placement: 'aboveEditor' }); } catch { /* UI gone. */ }
   };
 
-  const refresh = async () => {
-    if (inflight) return;
+  /** One poll at a time; while polls fail only `force` (the /edu-deck command) skips the backoff. */
+  const refresh = async (force = false) => {
+    if (inflight || (!force && failures > 0 && Date.now() < retryAt)) return;
     inflight = true;
     try {
       const next = await fetchDeck(cwd, activeChildren);
+      failures = next ? 0 : failures + 1;
+      if (failures) retryAt = Date.now() + Math.min(DECK_BACKOFF_MAX_MS, REFRESH_MS * 2 ** Math.min(failures, 10));
       // A failed refresh keeps the last good snapshot instead of flickering to empty.
       if (next || !deck) deck = next;
       syncWidget();
@@ -513,7 +521,7 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui?.notify?.(next ? `Edu · ${next.project.name}: ${next.jobs.length} jobs, ${next.approvals} approvals` : 'Edu Deck needs `edu deck` (edu ≥ 0.6).', 'info');
         return;
       }
-      void refresh();
+      void refresh(true);
       await ctx.ui.custom(overlay(ctx), { overlay: true });
     },
   });

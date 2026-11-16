@@ -19,11 +19,20 @@ description: "Delegate a task to another coding CLI (Claude Code, Codex, Pi, Ope
    `opencode`, `agy`. If no CLI is named, pick one different from yourself and say which.
 2. Call `edu_crew_dispatch` with `cli`, a self-contained `task` (goal, files, acceptance
    checks), and `mode`: `pane` when the user wants to watch it in herdr, otherwise
-   `headless`. Add `autonomy: "readonly"` for research or review-only work.
+   `headless`. Autonomy: `autonomy: "readonly"` for research or review-only work (claude,
+   codex or pi only); `autonomy: "auto"` when the job must edit files, since the default
+   `ask` cannot write headless. Headless jobs stop after 60 minutes: pass `timeoutMinutes`
+   (1 to 1440) for longer work. Pane jobs have no timeout.
 3. Tell the user the job id and how to watch it (`edu watch`, or the herdr pane).
 4. Poll with `edu_crew_status` (`jobId`) until the job is `done`, `failed` or `cancelled`.
    Between polls keep doing useful work; do not poll in a tight loop.
 5. Call `edu_crew_result` with `jobId` (use `waitSeconds` to block briefly when idle).
+6. When the user asks to stop a job, call `edu_crew_cancel` with `jobId`. It stops the
+   worker's whole process tree (or closes its pane); unfinished work is lost.
+
+The worker, headless or in a pane, runs in worker mode: its Edu tools only read. It cannot
+approve, dispatch other jobs or write memory, so put everything it needs in `task` and
+record lessons yourself from its result.
 
 ## Show the user
 
@@ -38,4 +47,7 @@ description: "Delegate a task to another coding CLI (Claude Code, Codex, Pi, Ope
 - `edu_crew_*` tools are missing: tell the user to run `edu setup` (and update Edu if
   `edu --version` is older than 0.2), then restart this CLI.
 - The target CLI is not installed or not logged in: report the error and offer another CLI.
-- The job `failed`: show its last output and ask whether to retry or take it over.
+- The job `failed`: show its last output and ask whether to retry or take it over. If it
+  timed out, offer a retry with a larger `timeoutMinutes`.
+- `autonomy` is above the crew ceiling: `full` needs a person to raise `crew.maxAutonomy`
+  in the global Edu config, or to dispatch from a terminal. Do not retry with `full`.

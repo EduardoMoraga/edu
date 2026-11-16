@@ -9,7 +9,8 @@ Follow the `edu-remember` skill for: $ARGUMENTS
 1. Classify it as `decision`, `hypothesis`, `commitment` (needs `owner` and `due`) or
    `lesson`. Ask one question only if the kind or a commitment's due date is unclear.
 2. Call `edu_remember` with `tier: "transitive"`, the `kind`, a short `title`, a one-paragraph
-   `body`, the claim `band`, `session` (your Edu session id, when one was injected) and `links` or
+   `body`, the required claim `band` (`verified` checked, `inferred` reasoned, `hypothesis`
+   unproven or unsure), `session` (your Edu session id, when one was injected) and `links` or
    `supersedes` when you know them. If it reports a possible conflict, ask whether to supersede.
    Stable truth goes to `edu_propose_canonical` instead.
 3. Reply with one line per note: id, kind, title, band.

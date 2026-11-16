@@ -3,7 +3,7 @@
 import type { Elements } from 'claude-code'
 
 import type { DeckConfirm, DeckEdu, DeckEduJob } from '../types'
-import { JOB_GLYPHS, activeJobs, ago, elapsed, isActiveJob, stripParts, totalNotes } from './deck-edu.ts'
+import { JOB_GLYPHS, activeJobs, ago, approvable, elapsed, isActiveJob, stripParts, totalNotes } from './deck-edu.ts'
 import type { Palette } from './deck-looks.ts'
 import { fmtTokens } from './deck-model.ts'
 import type { Words } from './deck-words.ts'
@@ -180,6 +180,8 @@ export function drawEdu(ui: Ui, o: EduInput) {
     const tokens = tokensText(job, w)
     const right = [tokens, elapsed(job.startedAt || now, job.endedAt ?? now)].filter(Boolean).join(' · ')
     const asking = confirming?.jobId === job.id
+    const gated = job.status === 'awaiting-approval'
+    const checks = gated ? job.unregisteredChecks ?? [] : []
     return (
       <Box key={`edu-job:${job.id}`} flexDirection="column" width={o.width}>
         <Box key={`edu-job-line:${job.id}`} flexDirection="row" justifyContent="space-between" columnGap={1} width={o.width}>
@@ -193,15 +195,33 @@ export function drawEdu(ui: Ui, o: EduInput) {
           </Box>
           <Text color={palette.dim}>{right}</Text>
         </Box>
-        {job.status === 'awaiting-approval' && o.actions && !asking ? (
+        {checks.length || (gated && job.checksCut) ? (
+          // What approving runs in the shell, shown in full before the person can approve (wrapped, never cut off).
+          <Box key={`edu-job-checks:${job.id}`} flexDirection="column" width={o.width}>
+            {checks.length ? (
+              <Text color={palette.warn} wrap="wrap">
+                {words.checksWarning(checks.length)}
+              </Text>
+            ) : null}
+            {checks.map((check, i) => (
+              <Text key={`edu-job-check:${job.id}:${i}`} wrap="wrap">{`  $ ${check}`}</Text>
+            ))}
+            {job.checksCut ? (
+              <Text color={palette.warn} wrap="wrap">
+                {words.checksCut(job.id)}
+              </Text>
+            ) : null}
+          </Box>
+        ) : null}
+        {gated && o.actions && !asking ? (
           <Box key={`edu-job-act:${job.id}`} flexDirection="row" columnGap={1}>
-            <Button key={`edu:approve:${job.id}`} label={words.approve} onPress={() => o.actions?.ask(job.id, 'approve')} />
+            {approvable(job) ? <Button key={`edu:approve:${job.id}`} label={words.approve} onPress={() => o.actions?.ask(job.id, 'approve')} /> : null}
             <Button key={`edu:reject:${job.id}`} label={words.reject} onPress={() => o.actions?.ask(job.id, 'reject')} />
           </Box>
         ) : null}
         {asking && confirming && o.actions ? (
           <Box key={`edu-job-confirm:${job.id}`} flexDirection="row" flexWrap="wrap" columnGap={1}>
-            <Text color={palette.warn}>{confirming.verdict === 'approve' ? words.confirmApprove(job.id) : words.confirmReject(job.id)}</Text>
+            <Text color={palette.warn}>{confirming.verdict === 'approve' ? words.confirmApprove(job.id, checks.length) : words.confirmReject(job.id)}</Text>
             <Button key="edu:confirm" variant="primary" label={words.yes} onPress={() => o.actions?.confirm()} />
             <Button key="edu:cancel" hotkey="x" label={words.no} onPress={() => o.actions?.cancel()} />
           </Box>

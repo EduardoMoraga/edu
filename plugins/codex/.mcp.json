@@ -4,6 +4,14 @@
       "command": "edu",
       "args": [
         "mcp"
+      ],
+      "env_vars": [
+        "EDU_CREW_JOB",
+        "EDU_HOME",
+        "EDU_PROJECT",
+        "EDU_LOCK_WORKSPACE",
+        "EDU_MCP_PROFILE",
+        "EDU_CEILING_DIRECTORIES"
       ]
     }
   }

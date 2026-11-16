@@ -14,17 +14,20 @@ description: "Search the Edu second brain for past decisions, lessons, conventio
 
 1. Call `edu_recall` with a short topic `query` (add `tiers` such as `["transitive"]`
    or `["canonical"]` to narrow it; `limit` defaults to 10). When the brain mixes languages,
-   pass the question in both Spanish and English via `alt`.
+   pass the question in both Spanish and English via `alt`. If the reply ends with
+   "N more hits not shown", narrow the query or raise `maxTokens` instead of guessing.
 2. Pick at most three relevant hits and open them with `edu_read` by id.
 3. Answer from those notes. If a note clearly helped or misled, call `edu_feedback`
-   with its `id` and `helpful: true|false`. Feedback is advisory opinion, not externally
-   verified evidence; do not label a lesson proven from it.
+   with its `id` and `helpful: true|false`, once per note. Feedback is advisory opinion,
+   not externally verified evidence; do not label a lesson proven from it. Repeats in a
+   session count once.
 
 ## Show the user
 
 - The answer first, then the sources: id, title, workspace/global scope, source and
   claim band for each note used. Stored metadata is provenance, not a new verification.
-- Separate `verified` facts from `inferred` or `hypothesis` notes.
+- Separate `verified` facts from `inferred` or `hypothesis` notes. `unbanded` marks an
+  older note recorded without a band: treat it as unverified.
 - If nothing matched, say so plainly and suggest what to record once it is known.
 
 ## Failure handling

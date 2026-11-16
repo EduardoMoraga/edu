@@ -23,8 +23,10 @@ The umbrella protocol. Each step also has its own focused skill: `edu-brief`,
    keep the exact returned id per workspace. Check `edu_capabilities` for the installed
    version; if unavailable, capabilities are unknown, not assumed.
 2. `edu_recall` with a topic query; open hits with `edu_read` only when needed.
-3. Cite what you use by id (`[[D-…]]`) and state its claim band.
-4. `edu_remember` as things happen (`tier: transitive`, `kind`):
+3. Cite what you use by id (`[[D-…]]`) and state its claim band (`unbanded` = an older
+   note without one: unverified).
+4. `edu_remember` as things happen (`tier: transitive`, `kind`, and the required claim
+   `band`: `verified` for checked evidence, `inferred` for reasoning, `hypothesis` when unproven):
    - `decision` (D-): what was chosen and why. Reverting = new decision with `supersedes`.
    - `hypothesis` (H-): the unproven claim plus how to confirm or refute it.
    - `commitment` (C-): `owner` and `due` date.

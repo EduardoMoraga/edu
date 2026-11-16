@@ -181,7 +181,8 @@ export type DeckGroup =
       lastDescription: string
     }
 
-export type DeckConfirm = { jobId: string; verdict: 'approve' | 'reject' }
+/** `requestId`: the approval gate the person saw (Edu 6.0); absent from older CLIs. */
+export type DeckConfirm = { jobId: string; verdict: 'approve' | 'reject'; requestId?: string }
 
 /** One Edu crew job, as `edu deck --json` reports it. */
 export type DeckEduJob = {
@@ -194,6 +195,15 @@ export type DeckEduJob = {
   endedAt?: number
   tokens: number
   tokensKnown: boolean
+  /** The open approval gate's nonce while the job awaits approval (Edu 6.0; absent from older CLIs). The Deck passes it back to `edu crew approve|reject --request`. */
+  requestId?: string
+  /**
+   * Shell commands of unregistered checks (written by the planner, not in the check registry) that approving the
+   * open gate runs (Edu 6.0), with hidden characters made visible as `⟨U+XXXX⟩`. Only while it awaits approval.
+   */
+  unregisteredChecks?: string[]
+  /** The snapshot listed more checks, or longer ones, than the pane shows: the pane offers no Approve then. */
+  checksCut?: boolean
 }
 
 export type DeckEduBrain = {

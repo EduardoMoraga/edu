@@ -1,4 +1,4 @@
-// Edu Deck. Ported from Edu Deck 0.7.5 (https://github.com/MikeGT4/edu-deck, commit 2b5ab2d).
+// Edu Deck. Ported from Agent Tree 0.7.5 (https://github.com/MikeGT4/agent-tree, commit 2b5ab2d).
 // Copyright (c) 2026 Mike Pollow, Digitalroots. MIT License, full text in THIRD_PARTY_NOTICES.md.
 // Edu changes: Copyright (c) 2026 Eduardo Moraga. MIT License.
 import type { DeckCorrectionState, DeckLogEntry, DeckLogSource, DeckPhase, DeckStatus, DeckTab } from '../types'
@@ -198,8 +198,11 @@ export type Words = {
     refresh: string
     approve: string
     reject: string
-    confirmApprove: (id: string) => string
+    /** `checks`: how many unregistered check commands approving runs in the shell (listed above the buttons). */
+    confirmApprove: (id: string, checks: number) => string
     confirmReject: (id: string) => string
+    checksWarning: (n: number) => string
+    checksCut: (id: string) => string
     yes: string
     no: string
     approved: (id: string) => string
@@ -434,8 +437,12 @@ export const WORDS: Record<Lang, Words> = {
       refresh: 'Refresh',
       approve: 'Approve',
       reject: 'Reject',
-      confirmApprove: id => `Approve crew run ${id}? It starts other agents.`,
+      confirmApprove: (id, checks) =>
+        `Approve crew run ${id}? It starts other agents${checks ? ` and runs ${checks === 1 ? 'the command' : `the ${checks} commands`} above in your shell` : ''}.`,
       confirmReject: id => `Reject crew run ${id}?`,
+      checksWarning: n =>
+        `${n === 1 ? 'Approving runs this command in your shell.' : `Approving runs these ${n} commands in your shell.`} The planner wrote ${n === 1 ? 'it; it is not a registered check' : 'them; they are not registered checks'}:`,
+      checksCut: id => `Not every command fits here. Read them all with edu crew status ${id}, then approve from a terminal.`,
       yes: 'Yes',
       no: 'No',
       approved: id => `Edu: crew run ${id} approved`,

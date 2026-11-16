@@ -10,6 +10,7 @@ import type { LookRow } from './deck-looks.ts'
 import {
   EDU_TICK_MS,
   EDU_TIMEOUT_MS,
+  approvable,
   errorText,
   eduArgs,
   eduDue,
@@ -18,7 +19,9 @@ import {
   eduLoading,
   eduMissing,
   failureReason,
+  failuresAfter,
   isJobRef,
+  plainArgv,
   timedOut,
   unknownOption,
   verdictArgs,
@@ -637,7 +640,7 @@ function actionsFor($: EngineInterface): TreeActions {
         .catch(ignore)
     },
     eduRefresh: () => void refreshEdu($).catch(ignore),
-    eduAsk: (jobId, verdict) => void change($, t => (isJobRef(jobId) ? confirmAsked(t, jobId, verdict) : t)).catch(ignore),
+    eduAsk: (jobId, verdict) => void askCrew($, jobId, verdict).catch(ignore),
     eduConfirm: () => void decideCrew($).catch(ignore),
     eduCancel: () => void change($, t => confirmCleared(t)).catch(ignore),
   }
@@ -648,36 +651,29 @@ let eduTimer: Timer | undefined
 let eduRunning: Promise<void> | undefined
 let eduAgain = false
 let eduRanAt: number | undefined
+let eduFailures = 0
+let eduDeciding = false
 let eduSessionFlag = true
-let eduHead: readonly string[] | undefined
 let lastEdu: DeckEdu | undefined
 
-const EDU_HEADS: readonly (readonly string[])[] = [['edu'], ['cmd', '/c', 'edu']]
 const EDU_TOOL = /(?:^|__)edu_/
 
 type EduMissing = { missing: string }
 
 /**
- * Runs the edu CLI by argv (no shell); on Windows its npm shim needs `cmd /c`. `{ missing }` when neither
- * starts, with what the engine said; a run that times out rejects.
+ * Runs `edu <args>` by argv, never through a shell of ours. On Windows Claude Code's `$.process.run`
+ * finds the npm `edu.cmd` shim on PATH (PATHEXT) and starts it with escaped arguments, but the shim
+ * still hands them to cmd.exe, so every argument must pass `plainArgv` first. `{ missing }` when edu
+ * cannot start, with what the engine said; a run that times out rejects.
  */
 async function runEdu($: EngineInterface, args: readonly string[], timeoutMs = EDU_TIMEOUT_MS): Promise<ProcessRunResult | EduMissing> {
-  const reasons: string[] = []
-  for (const head of eduHead ? [eduHead] : EDU_HEADS) {
-    try {
-      const result = await $.process.run([...head, ...args], { timeoutMs })
-      if (head[0] === 'cmd' && result.exitCode !== 0 && /not recognized/i.test(result.stderr)) {
-        reasons.push(result.stderr)
-        continue
-      }
-      eduHead = head
-      return result
-    } catch (error) {
-      if (timedOut(error)) throw error
-      reasons.push(errorText(error))
-    }
+  if (!plainArgv(args)) throw new Error('refused an argument that is not a plain id')
+  try {
+    return await $.process.run(['edu', ...args], { timeoutMs })
+  } catch (error) {
+    if (timedOut(error)) throw error
+    return { missing: errorText(error) }
   }
-  return { missing: reasons[0] ?? '' }
 }
 
 const isMissing = (value: unknown): value is EduMissing => typeof value === 'object' && value !== null && 'missing' in value
@@ -699,6 +695,7 @@ async function readEdu($: EngineInterface): Promise<void> {
     const parsed = eduFrom(result.stdout, now)
     return parsed.state === 'ready' ? parsed : eduFailed(previous, parsed.error ?? '', now)
   })
+  eduFailures = failuresAfter(eduFailures, next)
   lastEdu = next
   const s = await read($, tree).catch(() => undefined)
   if (s) $.ui.status(statusText(s, lang, next))
@@ -721,11 +718,16 @@ async function refreshEdu($: EngineInterface): Promise<void> {
   return eduRunning
 }
 
+/** An event (an Edu tool call, a finished turn) reads Edu again, unless reads are failing: then the backed-off timer or `r` retries. */
+function eduEvent($: EngineInterface): void {
+  if (eduFailures === 0) void refreshEdu($).catch(() => undefined)
+}
+
 async function eduTick($: EngineInterface): Promise<void> {
   if (eduRunning) return
   lastEdu ??= await read($, eduData).catch(() => undefined)
   const s = await read($, tree).catch(() => undefined)
-  if (eduDue(lastEdu, await clock($), eduRanAt, s !== undefined && tabOf(s) === 'edu')) await refreshEdu($)
+  if (eduDue(lastEdu, await clock($), eduRanAt, s !== undefined && tabOf(s) === 'edu', eduFailures)) await refreshEdu($)
 }
 
 function watchEdu($: EngineInterface): void {
@@ -739,14 +741,41 @@ function watchEdu($: EngineInterface): void {
   }
 }
 
-/** Runs the crew verdict the person pressed twice (Approve or Reject, then Yes). */
+/** Approve or Reject pressed once: remember the job and the approval gate shown for it, then ask again. */
+async function askCrew($: EngineInterface, jobId: string, verdict: 'approve' | 'reject'): Promise<void> {
+  if (!isJobRef(jobId)) return
+  const shown = await read($, eduData).catch(() => undefined)
+  const job = shown?.jobs.find(item => item.id === jobId)
+  // Approving runs the gate's unregistered checks in the shell: never from the pane unless all of them were on screen.
+  if (verdict === 'approve' && job && !approvable(job)) {
+    if (job.checksCut) $.ui.toast(`Edu: ${wordsFor(lang).edu.checksCut(jobId)}`)
+    return
+  }
+  await change($, t => confirmAsked(t, jobId, verdict, job?.requestId))
+}
+
+/**
+ * Runs the crew verdict the person pressed twice (Approve or Reject, then Yes). One at a time: a second
+ * Yes pressed before the first cleared the question would otherwise read it too and run the verdict twice.
+ */
 async function decideCrew($: EngineInterface): Promise<void> {
+  if (eduDeciding) return
+  eduDeciding = true
+  try {
+    await runVerdict($)
+  } finally {
+    eduDeciding = false
+  }
+}
+
+async function runVerdict($: EngineInterface): Promise<void> {
   const ask = (await latest($)).confirming
   if (!ask) return
   await change($, t => confirmCleared(t))
   const w = wordsFor(lang).edu
   if (!isJobRef(ask.jobId)) return
-  const result = await runEdu($, verdictArgs(ask.jobId, ask.verdict), 60_000).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
+  // The gate the pane showed when the person pressed the button: the CLI refuses it if another gate opened since.
+  const result = await runEdu($, verdictArgs(ask.jobId, ask.verdict, ask.requestId), 60_000).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
   if (isMissing(result)) {
     $.ui.toast(w.missing)
     return
@@ -840,6 +869,9 @@ export const register: Register = (on, options) => {
     }
     if (arg === 'refresh') {
       await refreshEdu($)
+      const outcome = lastEdu
+      if (outcome?.state === 'missing') return { text: `Edu Deck: ${w.edu.missing}` }
+      if (outcome?.state === 'failed') return { text: `Edu Deck: ${w.edu.failed(outcome.error ?? '')}` }
       return { text: w.edu.refreshed }
     }
     const now = await clock($)
@@ -1009,7 +1041,7 @@ export const register: Register = (on, options) => {
     if (!agentId) {
       const result = await next(e)
       if (path && succeeded(result)) await noteChange($, MAIN, path).catch(() => undefined)
-      if (eduTool) void refreshEdu($).catch(() => undefined)
+      if (eduTool) eduEvent($)
       return result
     }
     const stopping = stoppingIds.has(agentId)
@@ -1042,7 +1074,7 @@ export const register: Register = (on, options) => {
       await change($, s => fileNoted(s, agentId, kind, file)).catch(() => undefined)
       if (path) await noteChange($, agentId, path).catch(() => undefined)
     }
-    if (eduTool) void refreshEdu($).catch(() => undefined)
+    if (eduTool) eduEvent($)
     return result
   }).catch(($, e, next) => next(e))
 
@@ -1057,7 +1089,7 @@ export const register: Register = (on, options) => {
     if (e.agentId && (await read($, reportTexts).catch(() => undefined))?.[e.agentId]) await loadReport($, e.agentId).catch(() => undefined)
     if (after) await ensureReport($, after).catch(() => undefined)
     if (!e.agentId) await catchUp($, now, keep).catch(() => undefined)
-    if (!e.agentId) void refreshEdu($).catch(() => undefined)
+    if (!e.agentId) eduEvent($)
     await dropChanger($, e.agentId ?? MAIN).catch(() => undefined)
     return result
   })
