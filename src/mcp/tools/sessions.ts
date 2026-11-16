@@ -15,7 +15,8 @@ export function registerSessionTools(ctx: ToolContext): void {
     const origin = source ?? 'mcp';
     // Find-or-open is not atomic; serialize it per source+title across processes so concurrent opens share one session.
     return withHostLock(ctx.brainRoot, origin, `open:${title}`, async () => {
-      const existing = (await ctx.brain.list({ kind: 'session', status: 'open-session' })).find(note => note.meta.source === origin && note.meta.title === title);
+      // Only a session in this workspace's own brain: another brain's open session (the global one) is not ours to adopt.
+      const existing = (await ctx.brain.list({ kind: 'session', status: 'open-session' })).find(note => note.meta.source === origin && note.meta.title === title && session.inPrimaryBrain(note));
       if (existing) { session.current = existing.meta.id; session.openedHere.add(existing.meta.id); return `Session id: ${existing.meta.id}\nReused ${line(existing)}`; }
       const agent = ctx.clientAgent();
       const note = await ctx.brain.openSession(title, origin, agent ? { agent } : undefined);

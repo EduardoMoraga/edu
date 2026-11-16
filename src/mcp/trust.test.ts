@@ -62,6 +62,25 @@ describe('MCP trust boundaries', () => {
     } finally { await mcp.close(); }
   });
 
+  it('never adopts another brain\'s open session with the same source and title', async () => {
+    const w = await workspace();
+    // Server A, on the global brain, opened "Shared"; server B works in the project.
+    const foreign = await openBrain([w.global]).openSession('Shared', 'mcp');
+    const mcp = await connect({ locations: [w.project, w.global], env: w.env });
+    try {
+      const opened = await mcp.call('edu_session_open', { title: 'Shared' });
+      const id = /Session id: (\S+)/.exec(opened.text)![1]!;
+      expect(id).not.toBe(foreign.meta.id);
+      expect(opened.text).toContain('Opened');
+      expect((await mcp.call('edu_session_close', { id, summary: 'Done.' })).isError).toBe(false);
+      expect((await openBrain([w.global]).read(foreign.meta.id))?.meta.status).toBe('open-session');
+      // Its own brain's session is still reused.
+      const again = await mcp.call('edu_session_open', { title: 'Local' });
+      const reused = await mcp.call('edu_session_open', { title: 'Local' });
+      expect(/Session id: (\S+)/.exec(reused.text)![1]).toBe(/Session id: (\S+)/.exec(again.text)![1]);
+    } finally { await mcp.close(); }
+  });
+
   it('shows brain and workspace paths relative to them in errors', async () => {
     const w = await workspace();
     // A file where the crew folder should be: the filesystem error names the absolute path.
