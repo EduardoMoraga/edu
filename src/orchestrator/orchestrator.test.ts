@@ -3,13 +3,14 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { ContextPack, EduEvent, Engine, EngineRunRequest } from '../core/contracts.js';
+import type { CliId, ContextPack, EduEvent, Engine, EngineRunRequest } from '../core/contracts.js';
 import { FakeEngine } from '../engine/fake.js';
 import { nodeCommand, printCommand } from '../test-support/shell.js';
 import { defaultConfig, loadConfig, saveConfig } from './config.js';
 import { assignCli } from './assign.js';
 import { extractPlan, PlanSchema } from './plan.js';
 import { orchestrate } from './run.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 const pack: ContextPack = { text: 'brief', tokens: 1, budgetTokens: 100, sections: [], deferred: [] };
 const context = { build: async () => pack };
@@ -55,7 +56,7 @@ describe('orchestrator contracts', () => {
   it('auto-maintains the brain at the end of every run, after the episode is learned', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-run-maintain-'));
     const order: string[] = [];
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       yield { type: 'agent.text', agentId, text: request.prompt.includes('Create a safe') ? '{"steps":[]}' : '{"verdict":"pass","issues":[]}', at };
       yield { type: 'agent.end', agentId, ok: true, summary: 'done', at };
     } };
@@ -79,7 +80,7 @@ describe('orchestrator contracts', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-role-model-'));
     const config = { ...defaultConfig('claude'), roles: defaultConfig('claude').roles.map(role => role.id === 'lead' ? { ...role, model: 'lead-model' } : role) };
     const requests: EngineRunRequest[] = [];
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       requests.push(request);
       yield { type: 'agent.text', agentId, text: request.prompt.includes('Create a safe') ? '{"steps":[]}' : '{"verdict":"pass","issues":[]}', at };
       yield { type: 'agent.end', agentId, ok: true, summary: 'done', at };
@@ -132,7 +133,7 @@ describe('orchestrator contracts', () => {
     const prompts: string[] = [];
     const scripts = [engine('claude', ['not json']), engine('claude', ['still not json'])];
     let count = 0;
-    const recording: Engine = { cli: 'claude', available: async () => true, async *run(req, id) { prompts.push(req.prompt); yield* scripts[Math.min(count++, 1)]!.run(req, id); } };
+    const recording: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(req, id) { prompts.push(req.prompt); yield* scripts[Math.min(count++, 1)]!.run(req, id); } };
     const brain = { openSession: async () => ({ meta: { id: 's' } }), closeSession: async () => undefined } as never;
     try {
       const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => recording, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true });
@@ -153,7 +154,7 @@ describe('orchestrator contracts', () => {
     const observed: EduEvent[] = [];
     let releaseReaders!: () => void;
     const bothReadersStarted = new Promise<void>(resolve => { releaseReaders = resolve; });
-    const runtime: Engine = { capabilities: { readonly: 'enforced', isolation: 'host', mechanism: 'test adapter', limitations: [] }, cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { capabilities: { readonly: 'enforced', isolation: 'host', mechanism: 'test adapter', limitations: [] }, cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : request.prompt.includes('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'done';
       if (request.prompt.startsWith('A') || request.prompt.startsWith('B')) {
         active++; maximum = Math.max(maximum, active);
@@ -182,7 +183,9 @@ describe('orchestrator contracts', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-unsupported-readers-'));
     const plan = { steps: ['A', 'B'].map(id => ({ id, role: 'explorer', task: id, dependsOn: [], parallelSafe: true })) };
     let active = 0, maximum = 0;
-    const runtime: Engine = { cli: 'pi', available: async () => true, async *run(request, agentId) {
+    // Explorers run on OpenCode, which cannot enforce readonly; the lead and reviewer need Claude.
+    const config = { ...defaultConfig('claude'), mode: 'crew' as const, roles: defaultConfig('claude').roles.map(role => role.id === 'explorer' ? { ...role, cli: 'opencode' as const } : role) };
+    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
       const reader = /^[AB]\n/.test(request.prompt);
       if (reader) { active++; maximum = Math.max(maximum, active); await new Promise(resolve => setTimeout(resolve, 25)); active--; }
       const text = request.prompt.startsWith('Create a safe') ? JSON.stringify(plan) : request.prompt.startsWith('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'done';
@@ -190,9 +193,36 @@ describe('orchestrator contracts', () => {
     } };
     const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
     try {
-      const result = await orchestrate('goal', { config: defaultConfig('pi'), brain, context, engines: () => runtime, available: ['pi'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true });
+      const result = await orchestrate('goal', { config, brain, context, engines: cli => ({ ...runtime, cli, capabilities: engineCapabilities(cli) }), available: ['claude', 'opencode'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true });
       expect(result.ok, result.summary).toBe(true);
       expect(maximum).toBe(1);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it('runs the lead and reviewer only on CLIs that enforce readonly, and refuses when none can', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu-readonly-routing-'));
+    const requests: Array<{ cli: string; role: string; requireReadonly?: boolean }> = [];
+    const plan = { steps: [{ id: 'build', role: 'builder', task: 'build it', dependsOn: [], parallelSafe: false }] };
+    const runtime = (cli: CliId): Engine => ({ cli, capabilities: engineCapabilities(cli), available: async () => true, async *run(request, agentId) {
+      const role = request.prompt.startsWith('Create a safe') ? 'lead' : request.prompt.startsWith('Review the completed') ? 'reviewer' : 'builder';
+      requests.push({ cli: request.cli, role, requireReadonly: request.requireReadonly });
+      const text = role === 'lead' ? JSON.stringify(plan) : role === 'reviewer' ? '{"verdict":"pass","issues":[]}' : 'built';
+      yield { type: 'agent.text', agentId, text, at } as EduEvent;
+    } });
+    const brain = { openSession: async () => ({ meta: { id: 'session' } }), closeSession: async () => undefined } as never;
+    try {
+      const routed = await orchestrate('goal', { config: { ...defaultConfig('opencode'), approvals: 'auto' }, brain, context, engines: runtime, available: ['opencode', 'codex'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true });
+      expect(routed.ok, routed.summary).toBe(true);
+      expect(requests).toEqual([
+        { cli: 'codex', role: 'lead', requireReadonly: true },
+        { cli: 'opencode', role: 'builder', requireReadonly: undefined },
+        { cli: 'codex', role: 'reviewer', requireReadonly: true },
+      ]);
+      requests.length = 0;
+      const refused = await orchestrate('goal', { config: defaultConfig('opencode'), brain, context, engines: runtime, available: ['opencode', 'agy'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: () => {}, approve: async () => true });
+      expect(refused.ok).toBe(false);
+      expect(refused.summary).toContain('The lead must run read-only, but opencode cannot enforce it');
+      expect(requests).toEqual([]);
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
@@ -205,7 +235,7 @@ describe('orchestrator contracts', () => {
     const observed: EduEvent[] = [];
     let readerReady!: () => void;
     const readerStarted = new Promise<void>(resolve => { readerReady = resolve; });
-    const runtime: Engine = { capabilities: { readonly: 'enforced', isolation: 'host', mechanism: 'test adapter', limitations: [] }, cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { capabilities: { readonly: 'enforced', isolation: 'host', mechanism: 'test adapter', limitations: [] }, cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       if (request.prompt.startsWith('Create a safe')) { yield { type: 'agent.text', agentId, text: JSON.stringify(plan), at } as EduEvent; return; }
       if (request.prompt.startsWith('fail step')) { await readerStarted; yield { type: 'error', agentId, message: 'expected failure', at } as EduEvent; return; }
       yield { type: 'usage', agentId, at, usage: { inputTokens: 10, outputTokens: 0, costUsd: 0, known: { inputTokens: true, outputTokens: true, costUsd: true } } } as EduEvent;
@@ -237,7 +267,7 @@ describe('orchestrator contracts', () => {
     })();
     const plan = { steps: [] };
     const observed: EduEvent[] = [];
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       const text = request.prompt.startsWith('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}';
       yield { type: 'agent.text', agentId, text, at } as EduEvent;
       yield { type: 'agent.end', agentId, ok: true, summary: 'done', at } as EduEvent;
@@ -263,7 +293,7 @@ describe('orchestrator contracts', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-fix-'));
     const plan = { steps: [{ id: 'build', role: 'builder', task: 'Build', dependsOn: [], parallelSafe: false }] };
     let fixes = 0; let reviews = 0;
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       let text = 'done';
       if (request.prompt.includes('Create a safe')) text = JSON.stringify(plan);
       else if (request.prompt.includes('Review the completed')) { reviews++; text = '{"verdict":"fix","issues":["Add a check"]}'; }
@@ -285,7 +315,7 @@ describe('orchestrator contracts', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-h0-'));
     const requests: EngineRunRequest[] = [];
     let contextBuilds = 0;
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       requests.push(request);
       const text = request.prompt.includes('Create a safe') ? '{"steps":[]}' : '{"verdict":"pass","issues":[]}';
       yield { type: 'agent.text', agentId, text, at } as EduEvent;
@@ -305,7 +335,7 @@ describe('orchestrator contracts', () => {
       const dir = await mkdtemp(join(tmpdir(), `edu-${level.toLowerCase()}-`));
       const requests: EngineRunRequest[] = [];
       let contextBuilds = 0;
-      const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+      const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
         requests.push(request);
         const text = request.prompt.includes('Create a safe') ? '{"steps":[]}' : '{"verdict":"pass","issues":[]}';
         yield { type: 'agent.text', agentId, text, at } as EduEvent;
@@ -334,7 +364,7 @@ describe('orchestrator contracts', () => {
     const plan = { requirements: [{ id: 'r1', text: 'prints passing' }], checks: [{ id: 'check-r1', requirementIds: ['r1'], command: nodeCommand("require('fs').accessSync('.marker'); process.stdout.write('passing')"), expect: { stdoutIncludes: 'passing' }, timeoutMs: 10000 }], steps: [{ id: 'build', role: 'builder', task: 'Implement it', dependsOn: [], parallelSafe: false }] };
     const requests: EngineRunRequest[] = [];
     const observed: EduEvent[] = [];
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       requests.push(request);
       if (request.prompt.includes('Implement it')) await writeFile(join(dir, '.marker'), 'ready');
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : request.prompt.includes('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'done';
@@ -373,7 +403,7 @@ describe('orchestrator contracts', () => {
     await exec('git', ['commit', '-qm', 'base'], { cwd: dir });
     const plan = { requirements: [{ id: 'r1', text: 'complete task' }], steps: [{ id: 'build', role: 'builder', task: 'Implement it', dependsOn: [], parallelSafe: false }] };
     const observed: EduEvent[] = [];
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       if (request.prompt.includes('Implement it')) await writeFile(join(dir, 'service.test.ts'), 'export const value = 1;\n');
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}';
       yield { type: 'agent.text', agentId, text, at } as EduEvent;
@@ -397,7 +427,7 @@ describe('orchestrator contracts', () => {
     ];
     const plan = { requirements: [{ id: 'r1', text: 'complete task' }], checks: [checks[1]], steps: [] };
     const observed: EduEvent[] = [];
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       yield { type: 'agent.text', agentId, text: request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}', at } as EduEvent;
       yield { type: 'agent.end', agentId, ok: true, summary: 'done', at } as EduEvent;
     } };
@@ -416,7 +446,7 @@ describe('orchestrator contracts', () => {
   it('does not run proposed shell commands before spec approval', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-check-boundary-'));
     const plan = { requirements: [{ id: 'r1', text: 'no side effect' }], checks: [{ id: 'injected', requirementIds: ['r1'], command: 'touch marker', expect: {}, timeoutMs: 1000 }], steps: [] };
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       yield { type: 'agent.text', agentId, text: request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}', at } as EduEvent;
       yield { type: 'agent.end', agentId, ok: true, summary: 'done', at } as EduEvent;
     } };
@@ -433,7 +463,7 @@ describe('orchestrator contracts', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-interventions-'));
     const plan = { steps: [{ id: 'build', role: 'builder', task: 'Implement it', dependsOn: [], parallelSafe: false }] };
     const observed: EduEvent[] = [];
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}';
       yield { type: 'agent.text', agentId, text, at } as EduEvent;
       yield { type: 'agent.end', agentId, ok: true, summary: 'done', at } as EduEvent;
@@ -450,7 +480,7 @@ describe('orchestrator contracts', () => {
   it.each(['error-event', 'failed-end'] as const)('fails the run on an engine %s', async failureKind => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-engine-failure-'));
     const plan = { steps: [{ id: 'read', role: 'explorer', task: 'inspect', dependsOn: [], parallelSafe: false }] };
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       if (request.prompt.includes('Create a safe')) { yield { type: 'agent.text', agentId, text: JSON.stringify(plan), at } as EduEvent; return; }
       if (failureKind === 'error-event') yield { type: 'error', agentId, message: 'engine failed', at };
       else yield { type: 'agent.end', agentId, ok: false, summary: 'engine failed', at };
@@ -468,7 +498,7 @@ describe('orchestrator contracts', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-cancelled-error-'));
     const controller = new AbortController();
     const plan = { steps: [{ id: 'read', role: 'explorer', task: 'inspect', dependsOn: [], parallelSafe: false }] };
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       if (request.prompt.includes('Create a safe')) { yield { type: 'agent.text', agentId, text: JSON.stringify(plan), at } as EduEvent; return; }
       controller.abort();
       yield { type: 'error', agentId, message: 'cancelled by engine', at };
@@ -487,7 +517,7 @@ describe('orchestrator contracts', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-fix-gate-'));
     const plan = { steps: [{ id: 'read', role: 'explorer', task: 'inspect', dependsOn: [], parallelSafe: false }] };
     let fixes = 0;
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       if (request.prompt.includes('Create a safe')) yield { type: 'agent.text', agentId, text: JSON.stringify(plan), at };
       else if (request.prompt.includes('Review the completed')) { yield { type: 'agent.text', agentId, text: '{"verdict":"fix","issues":["Inspect more"]}', at }; }
       else if (request.prompt.includes('Address these review issues')) { fixes++; yield { type: 'agent.text', agentId, text: 'fixed', at }; }
@@ -512,7 +542,7 @@ describe('orchestrator contracts', () => {
     const dir = await mkdtemp(join(tmpdir(), 'edu-review-abort-'));
     const controller = new AbortController();
     const plan = { steps: [{ id: 'read', role: 'explorer', task: 'inspect', dependsOn: [], parallelSafe: false }] };
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       if (request.prompt.includes('Create a safe')) yield { type: 'agent.text', agentId, text: JSON.stringify(plan), at };
       else if (request.prompt.includes('Review the completed')) { controller.abort(); yield { type: 'agent.text', agentId, text: '{"verdict":"pass","issues":[]}', at }; }
       else yield { type: 'agent.text', agentId, text: 'done', at };

@@ -8,8 +8,9 @@ import type { EduEvent, Engine } from '../core/contracts.js';
 import { runWorker } from '../crew/index.js';
 import { createCrewStore } from '../crew/store.js';
 import { createEduMcpServer, TOOL_ANNOTATIONS } from './server.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
-const fake: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+const fake: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
   const text = request.prompt.includes('Create a safe') ? JSON.stringify({
     requirements: [{ id: 'R-1', text: 'Check passes' }],
     checks: [{ id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 10000 }],

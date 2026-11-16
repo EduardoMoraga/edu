@@ -22,4 +22,25 @@ describe('goal resume', () => {
       }
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
+
+  it('resumes a run left running by a process that is gone, but never a live one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu3-resume-crash-'));
+    const runId = randomUUID();
+    const path = join(dir, `${runId}.status.json`);
+    const updatedAt = '2026-11-01T10:00:00.000Z';
+    const running = { runId, cwd: dir, goal: 'Build safely', status: 'running', summary: 'Run started', updatedAt, budget: { timeoutMs: 600_000 } };
+    const write = (extra: object) => writeFile(path, JSON.stringify({ ...running, ...extra }));
+    const probes = (alive: boolean, minutesLater = 1) => ({ host: 'here', isAlive: () => alive, now: () => Date.parse(updatedAt) + minutesLater * 60_000 });
+    try {
+      await write({ owner: { pid: 4321, host: 'here' } });
+      expect(await resumeGoal(dir, runId, dir, probes(false))).toContain('status interrupted');
+      await expect(resumeGoal(dir, runId, dir, probes(true))).rejects.toThrow('Cannot resume a running run');
+      // Owner on another machine, or a snapshot from before owners were recorded: only past its own timeout.
+      for (const owner of [{ owner: { pid: 4321, host: 'elsewhere' } }, {}]) {
+        await write(owner);
+        await expect(resumeGoal(dir, runId, dir, probes(false, 5))).rejects.toThrow('Cannot resume a running run');
+        expect(await resumeGoal(dir, runId, dir, probes(false, 12))).toContain('status interrupted');
+      }
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
 });

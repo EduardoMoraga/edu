@@ -5,6 +5,7 @@ import { FakeEngine } from '../../engine/fake.js';
 import { defaultConfig } from '../../orchestrator/config.js';
 import { printCommand } from '../../test-support/shell.js';
 import { captureContext, out, runCli } from '../testkit.js';
+import { engineCapabilities } from '../../engine/autonomy.js';
 
 describe('evidence CLI', () => {
   it('adds, lists, runs, and summarizes deterministic checks', async () => {
@@ -38,7 +39,7 @@ describe('evidence CLI', () => {
     let invocation = 0;
     c.ctx.availableClis = ['claude'];
     c.ctx.engineFactory = () => ({
-      cli: 'claude', available: async () => true,
+      cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true,
       async *run(request, agentId) {
         yield* new FakeEngine([{ type: 'agent.text', agentId, text: texts[invocation++] ?? 'done', at: new Date().toISOString() }]).run(request, agentId);
       },

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CliId, EduEvent, Engine } from '../../core/contracts.js';
 import { captureContext, out, runCli } from '../testkit.js';
+import { engineCapabilities } from '../../engine/autonomy.js';
 
 const at = '2026-01-01T00:00:00.000Z';
 const plan = {
@@ -13,7 +14,7 @@ const plan = {
 
 function engine(): Engine {
   return {
-    cli: 'claude', available: async () => true,
+    cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true,
     async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan)
         : request.prompt.includes('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'Completed.';
