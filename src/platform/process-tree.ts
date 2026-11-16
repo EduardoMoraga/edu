@@ -84,20 +84,23 @@ function probeFailure(command: string, error: unknown): string {
 
 /**
  * What runs at `pid`, to check a recorded pid still names the expected process before signalling it.
- * POSIX: its command line (`ps`, then `/proc` on Linux). Windows: its image name (`tasklist`), since command
- * lines need WMI. Undefined only when the pid names no process; a live pid the probe cannot inspect throws
- * `ProcessCheckError`, so a failing `ps` is never mistaken for a reused pid.
+ * Its command line on every platform: `ps` (then `/proc` on Linux) on POSIX, CIM `Win32_Process.CommandLine` on
+ * Windows. An image name alone (`node.exe`) cannot tell Edu's worker from any other Node process that reused the
+ * pid. Undefined only when the pid names no process; a live pid the probe cannot inspect throws
+ * `ProcessCheckError`, so a failing probe is never mistaken for a reused pid and nothing is signalled blindly.
  */
 export async function describeProcess(pid: number, options: DescribeProcessOptions = {}): Promise<string | undefined> {
   const platform = options.platform ?? process.platform;
   const alive = options.alive ?? processAlive;
+  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
   const [command, args] = platform === 'win32'
-    ? ['tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']] as const
+    // pid is a validated integer, so the filter carries no caller text.
+    ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`]] as const
     : ['ps', ['-o', 'args=', '-p', String(pid)]] as const;
   let reason: string;
   try {
     const stdout = await (options.run ?? runProbe)(command, [...args]);
-    const found = platform === 'win32' ? imageFromTasklist(stdout, pid) : stdout.trim() || undefined;
+    const found = stdout.trim() || undefined;
     if (found || !alive(pid)) return found;
     reason = `${command} did not list it`;
   } catch (error) {
@@ -112,15 +115,6 @@ export async function describeProcess(pid: number, options: DescribeProcessOptio
     } catch { /* hidepid, no procfs: still unverified */ }
   }
   throw new ProcessCheckError(pid, reason, platform);
-}
-
-/** The image name in `tasklist /FO CSV /NH` output for exactly `pid` ("INFO: No tasks…" means none). */
-export function imageFromTasklist(output: string, pid: number): string | undefined {
-  for (const row of output.split(/\r?\n/)) {
-    const match = /^"([^"]+)","(\d+)"/.exec(row.trim());
-    if (match && Number(match[2]) === pid) return match[1];
-  }
-  return undefined;
 }
 
 function exited(child: TreeRoot): boolean {

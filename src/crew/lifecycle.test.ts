@@ -188,13 +188,15 @@ describe('crew liveness and cancel', () => {
     expect(signals).toHaveLength(2);
   });
 
-  it('recognises its worker by command line on POSIX and by Node image on Windows', () => {
+  it('recognises its worker by command line on every platform, never by Node image alone', () => {
     const id = '0f1e2d3c-4b5a-4968-8776-655443322110';
     expect(isWorkerOf(`/usr/bin/node /opt/edu/dist/cli.js crew worker ${id}`, id, 'linux')).toBe(true);
     expect(isWorkerOf('/usr/bin/node /opt/edu/dist/cli.js crew worker another-job', id, 'darwin')).toBe(false);
     expect(isWorkerOf(undefined, id, 'linux')).toBe(false);
-    expect(isWorkerOf('node.exe', id, 'win32')).toBe(true);
-    expect(isWorkerOf('notepad.exe', id, 'win32')).toBe(false);
+    expect(isWorkerOf(`C:\\nodejs\\node.exe C:\\edu\\dist\\cli.js crew worker ${id}`, id, 'win32')).toBe(true);
+    // A reused pid now running another Node program is not this job's worker.
+    expect(isWorkerOf('node.exe', id, 'win32')).toBe(false);
+    expect(isWorkerOf('C:\\nodejs\\node.exe C:\\other\\server.js', id, 'win32')).toBe(false);
   });
 
   it('cancels a pane job by closing its pane', async () => {

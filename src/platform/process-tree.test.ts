@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { createChildRegistry, describeProcess, imageFromTasklist, killTree, killTreeSync, ProcessCheckError, type ProcessHooks, type TreeRoot } from './process-tree.js';
+import { createChildRegistry, describeProcess, killTree, killTreeSync, ProcessCheckError, type ProcessHooks, type TreeRoot } from './process-tree.js';
 
 const posix = process.platform !== 'win32';
 
@@ -78,17 +78,6 @@ describe('killTree', () => {
 });
 
 describe('describeProcess', () => {
-  it('reads the image name for exactly the asked pid from tasklist CSV', () => {
-    const output = '"node.exe","4242","Console","1","52,120 K"\r\n"node.exe","42421","Console","1","1,000 K"\r\n';
-    expect(imageFromTasklist(output, 4242)).toBe('node.exe');
-    expect(imageFromTasklist(output, 424)).toBeUndefined();
-    expect(imageFromTasklist('INFO: No tasks are running which match the specified criteria.\r\n', 4242)).toBeUndefined();
-  });
-
-  it.runIf(posix)('returns the command line of a running process', async () => {
-    expect(await describeProcess(process.pid)).toContain(process.argv0.split('/').pop() ?? 'node');
-  });
-
   const spawnFailure = () => Object.assign(new Error('spawn EPERM'), { code: 'EPERM' });
   const exitFailure = (code: number) => Object.assign(new Error('Command failed'), { code });
 
@@ -96,7 +85,7 @@ describe('describeProcess', () => {
     expect(await describeProcess(4242, { platform: 'darwin', alive: () => true, run: async () => '/usr/bin/vim notes.md\n' })).toBe('/usr/bin/vim notes.md');
     // ps exits 1 with no rows for a pid that names nothing.
     expect(await describeProcess(4242, { platform: 'darwin', alive: () => false, run: async () => { throw exitFailure(1); } })).toBeUndefined();
-    expect(await describeProcess(4242, { platform: 'win32', alive: () => false, run: async () => 'INFO: No tasks are running which match the specified criteria.\r\n' })).toBeUndefined();
+    expect(await describeProcess(4242, { platform: 'win32', alive: () => false, run: async () => '\r\n' })).toBeUndefined();
   });
 
   it.each([
@@ -125,10 +114,19 @@ describe('describeProcess', () => {
     expect(darwinProc).not.toHaveBeenCalled();
   });
 
-  it('gives the taskkill command when tasklist cannot verify a live Windows pid', async () => {
+  it('reads the full Windows command line through CIM, with only the numeric pid in the query', async () => {
+    const calls: [string, string[]][] = [];
+    const line = 'C:\\Program Files\\nodejs\\node.exe C:\\edu\\dist\\cli.js crew worker job-1';
+    expect(await describeProcess(4242, { platform: 'win32', alive: () => true, run: async (command, args) => { calls.push([command, args]); return `${line}\r\n`; } })).toBe(line);
+    expect(calls).toEqual([['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "(Get-CimInstance Win32_Process -Filter 'ProcessId=4242').CommandLine"]]]);
+    expect(await describeProcess(Number.NaN, { platform: 'win32', alive: () => true, run: async () => { throw new Error('never run'); } })).toBeUndefined();
+  });
+
+  it('gives the taskkill command when CIM cannot verify a live Windows pid', async () => {
     const check = describeProcess(4242, { platform: 'win32', alive: () => true, run: async () => { throw spawnFailure(); } });
-    await expect(check).rejects.toThrow(/tasklist could not run \(EPERM\).*taskkill \/pid 4242 \/t \/f$/);
-    await expect(describeProcess(4242, { platform: 'win32', alive: () => true, run: async () => 'INFORMACIÓN: no hay tareas en ejecución.\r\n' })).rejects.toThrow(/tasklist did not list it/);
+    await expect(check).rejects.toThrow(/powershell\.exe could not run \(EPERM\).*taskkill \/pid 4242 \/t \/f$/);
+    // A protected process reports no command line: unverified, never assumed to be the worker.
+    await expect(describeProcess(4242, { platform: 'win32', alive: () => true, run: async () => '\r\n' })).rejects.toThrow(/powershell\.exe did not list it/);
   });
 });
 
