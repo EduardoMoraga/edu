@@ -2,12 +2,24 @@
  * The machine-local folder of a brain root (`<root>/.edu-local`): exposure ledger, parsed-note cache, locks.
  * Never synced: `ensureLocalIgnored` keeps it out of git.
  */
+import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { assertInsideBrain, isUnsafeBrainPath } from './safe-path.js';
 
 /** Machine-local folder inside a brain root; git-ignored through `<root>/.gitignore`. */
 export const LOCAL_DIR = '.edu-local';
+
+/**
+ * A stable file-name key for a folder, for machine-local state the global home keeps about a workspace: the real
+ * path (symlinks resolved, so /var and /private/var agree), compared case-insensitively on Windows.
+ */
+export function folderKey(path: string, platform: NodeJS.Platform = process.platform): string {
+  let real: string;
+  try { real = realpathSync.native(path); } catch { real = resolve(path); }
+  return createHash('sha256').update(platform === 'win32' ? real.toLowerCase() : real).digest('hex').slice(0, 24);
+}
 
 /** True when `path` may be read or written inside `root` (no symlink on the way); warns and returns false otherwise. */
 export async function safeLocalTarget(root: string, path: string, quiet = false): Promise<boolean> {

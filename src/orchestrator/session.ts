@@ -95,6 +95,7 @@ export async function runSession(host: RunHost, request: RunRequest): Promise<Ru
     allowUnregisteredChecks: request.allowUnregisteredChecks,
     ...(maxAutonomy ? { maxAutonomy } : {}),
     ...(detached && detached.approvals !== 'auto' ? { requireSpecApproval: true } : {}),
+    globalRoot: global.root,
     runsDir: join(primary.root, 'runs'),
   });
 }

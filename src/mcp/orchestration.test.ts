@@ -1,5 +1,5 @@
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
-import { saveChecks } from '../evidence/registry.js';
+import { acceptChecks, saveChecks } from '../evidence/registry.js';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -26,10 +26,12 @@ describe('orchestration MCP tools', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'edu-mcp-orchestration-'));
     const root = join(cwd, '.edu');
     await mkdir(root);
-    // A registered check runs after any approval; a planner-invented one would need a person.
-    await saveChecks(cwd, [{ id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 10000 }]);
     // The person's global home (policy, approvals) sits outside the workspace, never at the real ~/.edu.
     const globalRoot = join(cwd, '..', `${basename(cwd)}-home`);
+    // A registered (accepted) check runs after any approval; a planner-invented one would need a person.
+    const checks = [{ id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 10000 }];
+    await saveChecks(cwd, checks);
+    await acceptChecks(globalRoot, cwd, checks);
     const store = createCrewStore(root, { globalRoot });
     const server = createEduMcpServer({ locations: [{ scope: 'project', root }], env: { HOME: dirname(globalRoot), EDU_HOME: globalRoot }, crewOptions: {
       brainRoot: root, workspaceRoot: cwd, store, detectClis: async () => ['claude'], engineFactory: () => fake,

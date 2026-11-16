@@ -11,6 +11,7 @@ import { assignCli } from './assign.js';
 import { extractPlan, PlanSchema } from './plan.js';
 import { orchestrate } from './run.js';
 import { engineCapabilities } from '../engine/autonomy.js';
+import { acceptChecks } from '../evidence/registry.js';
 
 const pack: ContextPack = { text: 'brief', tokens: 1, budgetTokens: 100, sections: [], deferred: [] };
 const context = { build: async () => pack };
@@ -435,7 +436,10 @@ describe('orchestrator contracts', () => {
     try {
       await mkdir(join(dir, '.edu', 'harness'), { recursive: true });
       await writeFile(join(dir, '.edu', 'harness', 'checks.json'), JSON.stringify(checks));
-      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H3' });
+      // Accepted on this machine (the global home is a temp folder too), so they count as registered.
+      const globalRoot = join(dir, 'global-home');
+      await acceptChecks(globalRoot, dir, checks);
+      const result = await orchestrate('goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(dir, 'runs'), onEvent: event => observed.push(event), approve: async () => true, harnessLevel: 'H3', globalRoot });
       expect(result.ok, result.summary).toBe(true);
       expect(observed).toContainEqual(expect.objectContaining({ type: 'entropy.finding', category: 'checks-bypassed', severity: 3 }));
       expect(observed.some(event => event.type === 'entropy.finding' && String(event.detail).includes('unrelated-check'))).toBe(false);

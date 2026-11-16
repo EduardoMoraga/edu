@@ -1,10 +1,9 @@
 import { sumUsage } from '../core/usage.js';
-import { realpathSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { ensureLocalIgnored, LOCAL_DIR } from '../brain/local-dir.js';
+import { ensureLocalIgnored, folderKey, LOCAL_DIR } from '../brain/local-dir.js';
 import { atomicWrite, exclusiveWrite, isAlreadyExists } from '../brain/store.js';
 import { retryFs } from '../platform/fs-retry.js';
 import { WorkerOutputFilter, boundedWorkerPreview, createCrewArtifacts, redactWorkerOutput } from '../context/artifacts.js';
@@ -61,10 +60,7 @@ export function isCrewWorker(env: NodeJS.ProcessEnv = process.env): boolean {
  * process of the same user can still write here: it can act as the user anyway.
  */
 export function approvalDir(globalRoot: string, brainRoot: string, platform: NodeJS.Platform = process.platform): string {
-  let real: string;
-  try { real = realpathSync.native(brainRoot); } catch { real = resolve(brainRoot); }
-  const key = createHash('sha256').update(platform === 'win32' ? real.toLowerCase() : real).digest('hex').slice(0, 24);
-  return join(resolve(globalRoot), LOCAL_DIR, 'approvals', key);
+  return join(resolve(globalRoot), LOCAL_DIR, 'approvals', folderKey(brainRoot, platform));
 }
 
 const envGlobalRoot = () => resolve(process.env.EDU_HOME || join(process.env.HOME || process.env.USERPROFILE || homedir(), '.edu'));

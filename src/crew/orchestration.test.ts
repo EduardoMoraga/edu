@@ -6,7 +6,7 @@ import type { CrewJob, EduEvent, Engine } from '../core/contracts.js';
 import { createCrew } from './index.js';
 import { runOrchestration } from './orchestration.js';
 import { approvalDir, type CrewStore } from './store.js';
-import { saveChecks } from '../evidence/registry.js';
+import { acceptChecks, saveChecks } from '../evidence/registry.js';
 import { engineCapabilities } from '../engine/autonomy.js';
 
 const roots: string[] = [];
@@ -67,8 +67,9 @@ describe('detached orchestration', () => {
   });
 
   it('auto-approves the detached spec (edu run --detach --yes) and runs registered checks', async () => {
-    const { crew, cwd } = await setup();
+    const { crew, cwd, globalRoot } = await setup();
     await saveChecks(cwd, [passCheck]);
+    await acceptChecks(globalRoot, cwd, [passCheck]);
     const job = await crew.orchestrate({ goal: 'Check automatically', cwd, autoApprove: true });
     const result = await crew.runWorker(job.id);
     expect(result.status).toBe('done');
