@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyInstall, getManifestPath, planInstall, resolveTemplatesDir, uninstall } from './installer.js';
-import { tomlDefines, tomlKeys } from './merge.js';
+import { applyInstall, getManifestPath, planInstall, uninstall } from './installer.js';
+import { packageTemplatesDir } from '../platform/package.js';
+import { tomlDefines, tomlKeys } from './toml.js';
 import { upsertManagedBlock, removeManagedBlock } from './blocks.js';
 import { codexNotifyArgv } from './codex.js';
 
@@ -15,7 +16,7 @@ async function fixture() {
   const root = join(base, 'project');
   const home = join(base, 'home');
   await Promise.all([mkdir(root), mkdir(home)]);
-  return { base, root, home, templatesDir: resolveTemplatesDir() };
+  return { base, root, home, templatesDir: packageTemplatesDir() };
 }
 async function put(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
@@ -123,8 +124,9 @@ describe('file layout is preserved', () => {
     const settings = join(opts.home, '.claude/settings.json');
     await put(settings, '{\n  // my comment\n  "theme": "dark"\n}\n');
     const error = await applyInstall(await planInstall({ ...opts, scope: 'global', clis: ['claude'] })).catch((caught: Error) => caught);
-    expect(String(error)).toContain(settings);
-    expect(String(error)).toMatch(/without comments/);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(settings);
+    expect((error as Error).message).toMatch(/without comments/);
     expect(await readFile(settings, 'utf8')).toBe('{\n  // my comment\n  "theme": "dark"\n}\n');
   });
 
@@ -171,7 +173,7 @@ describe('host paths and launches', () => {
     const root = await realpath(home);
     await applyInstall(await planInstall({ ...opts, home, root, scope: 'global', clis: ['claude'] }));
     await expect(applyInstall(await planInstall({ ...opts, home, root, scope: 'global', clis: ['claude'] }))).resolves.toBeDefined();
-    const { diagnose } = await import('./doctor.js');
+    const { diagnose } = await import('../doctor/diagnose.js');
     expect((await diagnose({ root, home, detectBinary: async () => false })).find(item => item.cli === 'claude')?.scopes).toEqual(['global']);
   });
 

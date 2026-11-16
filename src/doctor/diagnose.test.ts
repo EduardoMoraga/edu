@@ -2,9 +2,10 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { diagnose, installProblems, quarantineProblem } from './doctor.js';
-import { applyInstall, getManifestPath, planInstall, resolveTemplatesDir } from './installer.js';
-import { captureContext, out, runCli } from '../cli/testkit.js';
+import { diagnose, installProblems, quarantineProblem } from './diagnose.js';
+import { applyInstall, getManifestPath, planInstall } from '../adapters/installer.js';
+import { packageTemplatesDir } from '../platform/package.js';
+import { captureContext, out, runCli } from '../test-support/cli.js';
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -14,7 +15,7 @@ async function fixture() {
   const root = join(base, 'project');
   const home = join(base, 'home');
   await Promise.all([mkdir(root), mkdir(home)]);
-  return { base, root, home, templatesDir: resolveTemplatesDir() };
+  return { base, root, home, templatesDir: packageTemplatesDir() };
 }
 async function put(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });

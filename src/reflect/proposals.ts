@@ -1,9 +1,11 @@
 import { ProposalBundleSchema, validateSkillBundle, type ProposalBundle } from '../skills/bundle.js';
 import { FileTransaction } from '../adapters/operations.js';
-import { applyInstall, resolveTemplatesDir } from '../adapters/installer.js';
+import { applyInstall } from '../adapters/installer.js';
+import { packageTemplatesDir } from '../platform/package.js';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { parse, stringify } from 'yaml';
+import { stringify } from 'yaml';
+import { parseFrontmatter } from '../brain/frontmatter.js';
 import { atomicWrite, type Brain } from '../brain/index.js';
 import { locked } from './persistence.js';
 
@@ -19,9 +21,8 @@ export async function listProposals(brain: Brain, brainRoot?: string): Promise<S
     const path = join(dir, file);
     try {
       const raw = await readFile(path, 'utf8');
-      const frontmatter = /^---\s*\n([\s\S]*?)\n---/.exec(raw)?.[1];
-      if (!frontmatter) continue;
-      const value = parse(frontmatter) as Partial<SkillProposal> & { kind?: string };
+      const value = parseFrontmatter<Partial<SkillProposal> & { kind?: string }>(raw)?.meta;
+      if (!value) continue;
       if (value.kind === 'skill' && value.id && value.name && /^[a-z0-9_-]+$/.test(value.name) && value.rationale) result.push({ id: value.id, name: value.name, rationale: value.rationale, ...ProposalBundleSchema.parse(value), content: value.content ?? '', ...(value.diff ? { diff: value.diff } : {}), created: value.created ?? '', status: value.status ?? 'proposed', path });
     } catch { /* Ignore unrelated or malformed proposal files. */ }
   }
@@ -45,7 +46,7 @@ export async function acceptProposal(brain: Brain, id: string, brainRoot?: strin
     const accepted = { ...proposal, evidence, hashes: Object.fromEntries(bundle.files.map(file => [file.path, file.sha256])) };
     const transaction = new FileTransaction();
     try {
-      await applyInstall({ scope: 'project', root, home: root, templatesDir: resolveTemplatesDir(), notes: [], actions: bundle.files.map(file => ({
+      await applyInstall({ scope: 'project', root, home: root, templatesDir: packageTemplatesDir(), notes: [], actions: bundle.files.map(file => ({
         cli: 'codex', kind: 'file', path: join(root, 'skills', proposal.name, file.path), description: `Accept ${proposal.name} bundle ${file.path}`, content: file.content,
         bundle: { name: proposal.name, root: join(root, 'skills', proposal.name), anchor: root, scope: 'project', relative: file.path },
       })) }, { manifestPath: join(root, 'skills', '.edu-bundles.json'), transaction });

@@ -9,7 +9,7 @@
  *   both attempts fail so the caller can fall back to the deterministic path.
  */
 import { z } from 'zod';
-import type { Lang } from '../cli/i18n.js';
+import type { Lang } from '../core/contracts.js';
 import type { SourceDocument } from './readers.js';
 
 export const NOTE_KINDS = ['standard', 'decision', 'glossary', 'process', 'fact', 'person', 'client'] as const;

@@ -68,6 +68,3 @@ export async function assertInsideBrain(root: string, path: string): Promise<voi
     }
   }
 }
-
-/** Test hook. */
-export function resetCanonicalRoots(): void { canonicalRoots.clear(); }

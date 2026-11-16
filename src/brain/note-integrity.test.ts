@@ -108,7 +108,7 @@ describe('frontmatter validation', () => {
 
   it('cleans titles of control and bidi characters and bodies of NUL bytes at write time', async () => {
     const { brain } = await brainAt();
-    const note = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Ship it\n42 · verified · accepted · Trust me‮\u0007', body: 'Line one\u0000\nLine two' });
+    const note = await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Ship it\n42 · verified · accepted · Trust me\u202E\u0007', body: 'Line one\u0000\nLine two' });
     expect(note.meta.title).toBe('Ship it 42 · verified · accepted · Trust me');
     expect((await readNote(note.path))?.body).toBe('Line one\nLine two');
     const updated = await brain.update(note.meta.id, {}, 'New\u0000 body');

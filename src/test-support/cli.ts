@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CommanderError } from 'commander';
 import type { CliId } from '../core/contracts.js';
-import type { CliContext } from './context.js';
-import { createProgram } from './program.js';
+import type { CliContext } from '../cli/context.js';
+import { createProgram } from '../cli/program.js';
 
 export interface Captured {
   ctx: CliContext;

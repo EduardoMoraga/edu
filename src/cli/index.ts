@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `edu` entry point. Command wiring lives in ./program.ts (see docs/ARCHITECTURE.md §13).
+// `edu` entry point. Command wiring lives in ./program.ts (see docs/ARCHITECTURE.md §7).
 import { createProgram } from './program.js';
 
 // A closed pipe (`edu demo | head`) is a normal way to stop reading, not a crash.

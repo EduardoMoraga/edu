@@ -1,8 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { compileReportLines } from '../brain/compile.js';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 import { registerCapabilityTools } from './tools/capabilities.js';
 import { createToolContext, type EduMcpOptions } from './tools/context.js';
 import { registerCrewTools } from './tools/crew.js';
@@ -15,9 +14,6 @@ export type { EduMcpOptions } from './tools/context.js';
 export { TOOL_ANNOTATIONS } from './tools/annotations.js';
 export { MAX_RESULT_WAIT_SECONDS } from './tools/crew.js';
 export { agentOfClient, detectCallerCli } from './caller.js';
-
-/** Compact text of what compiling a new note found (shared with the CLI). */
-export const compileReportText = compileReportLines;
 
 export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   const profile = opts.toolProfile ?? 'full';

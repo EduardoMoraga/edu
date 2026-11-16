@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { join } from 'node:path';
-import { hostFiles } from './hosts.js';
+import { hostFiles } from './host-files.js';
 
 it('uses USERPROFILE and APPDATA for Windows host locations', () => {
   const files = hostFiles('C:\\Users\\Owner', { USERPROFILE: 'C:\\Users\\Owner', APPDATA: 'C:\\Users\\Owner\\AppData\\Roaming' }, ['codex', 'opencode']);

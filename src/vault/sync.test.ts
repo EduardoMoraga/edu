@@ -83,6 +83,18 @@ describe('edu sync', () => {
     expect(git(b.vault, 'show', 'origin/main:01-CONOCIMIENTO/1-canonical/D-x.md')).toContain('uses: 3');
   });
 
+  it('names a conflict copy after the file when the note id is not text', async () => {
+    const odd = (body: string) => `---\nid:\n  nested: true\ntitle: X\n---\n\n${body}\n`;
+    write(a, '01-CONOCIMIENTO/1-canonical/D-x.md', odd('edited on a'));
+    await sync(a, 'a');
+    write(b, '01-CONOCIMIENTO/1-canonical/D-x.md', odd('edited on b'));
+    const result = await sync(b, 'b');
+    expect(result.state).toBe('conflict');
+    const copy = read(b, result.conflictCopies![0]!.local);
+    expect(copy).toContain('conflict_of: 01-CONOCIMIENTO/1-canonical/D-x');
+    expect(copy).not.toContain('[object Object]');
+  });
+
   it('publishes both versions of a real conflict and every unrelated local note', async () => {
     write(a, '01-CONOCIMIENTO/1-canonical/D-x.md', note('edited on a'));
     await sync(a, 'a');

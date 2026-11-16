@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 
 // package.json is the single source of the release version. Plugin manifests are generated from it
 // (npm run build:plugins); a manifest left behind would ship one version under another's name.
@@ -10,7 +10,7 @@ const KNOWN = ['.claude-plugin/marketplace.json', 'plugins/agy/plugin.json', 'pl
 
 async function jsonFiles(dir: string): Promise<string[]> {
   const entries = await readdir(join(ROOT, dir), { withFileTypes: true }).catch(() => []);
-  const nested = await Promise.all(entries.map(entry => {
+  const nested = await Promise.all(entries.map(async entry => {
     const path = `${dir}/${entry.name}`;
     if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : jsonFiles(path);
     return entry.name.endsWith('.json') ? [path] : [];

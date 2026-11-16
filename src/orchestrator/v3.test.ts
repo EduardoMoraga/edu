@@ -6,7 +6,7 @@ import type { EduEvent, Engine, EngineRunRequest } from '../core/contracts.js';
 import { openBrain } from '../brain/index.js';
 import { FakeEngine } from '../engine/fake.js';
 import { nodeCommand, printCommand } from '../test-support/shell.js';
-import { defaultConfig } from './config.js';
+import { defaultConfig } from '../workspace/config.js';
 import { extractPlan } from './plan.js';
 import { loadPlaybook } from './playbook.js';
 import { orchestrate } from './run.js';

@@ -89,7 +89,7 @@ describe('crew dispatch policy', () => {
     const f = await fixture();
     const crew = createCrew({ brainRoot: f.root, store: f.store, startHeadless: async job => job });
     expect((await crew.dispatch({ cli: 'codex', task: 'Default', cwd: f.root })).timeoutMinutes).toBe(60);
-    const { defaultConfig } = await import('../orchestrator/config.js');
+    const { defaultConfig } = await import('../workspace/config.js');
     await writeFile(join(f.root, 'config.json'), JSON.stringify({ ...defaultConfig('codex'), crew: { timeoutMinutes: 15 } }));
     expect((await crew.dispatch({ cli: 'codex', task: 'Configured', cwd: f.root })).timeoutMinutes).toBe(15);
     expect((await crew.dispatch({ cli: 'codex', task: 'Explicit', cwd: f.root, timeoutMinutes: 5 })).timeoutMinutes).toBe(5);

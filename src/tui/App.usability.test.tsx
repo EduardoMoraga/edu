@@ -8,7 +8,7 @@ import { createChannel } from '../cli/run/channel.js';
 import type { EduEvent } from '../core/contracts.js';
 import { UNICODE_GLYPHS, createTheme } from '../identity/index.js';
 import { App, type AppProps } from './App.js';
-import { fixtureAt, oauthRun } from './fixtures.js';
+import { fixtureAt, oauthRun } from '../test-support/tui-events.js';
 import { press as pressKey, type as typeKeys, until } from '../test-support/ink.js';
 
 const plain = createTheme(0);

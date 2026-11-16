@@ -7,7 +7,7 @@ import { applyInstall } from '../adapters/installer.js';
 import { UNION } from '../adapters/merge.js';
 import { openHome } from '../cli/commands/live.js';
 import { shouldRunFirstSetup } from '../cli/commands/plugins.js';
-import { captureContext, out as output, runCli } from '../cli/testkit.js';
+import { captureContext, out as output, runCli } from '../test-support/cli.js';
 
 const packageRoot = process.cwd();
 const dirs: string[] = [];

@@ -13,6 +13,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { parse } from 'jsonc-parser';
 import type { CliId } from '../core/contracts.js';
 import { hostConfigDirs } from '../adapters/paths.js';
+import { tomlEnabledTables } from '../adapters/toml.js';
 
 export interface NativeIntegration { found: string[]; notes: string[] }
 export type NativeReport = Record<CliId, NativeIntegration>;
@@ -50,18 +51,7 @@ async function claude(home: string, env: NodeJS.ProcessEnv): Promise<NativeInteg
 async function codex(home: string, env: NodeJS.ProcessEnv): Promise<NativeIntegration> {
   const config = await text(join(hostConfigDirs(home, env).codex, 'config.toml'));
   const found: string[] = [];
-  let current: string | undefined;
-  const states = new Map<string, boolean>();
-  for (const line of (config ?? '').split(/\r?\n/)) {
-    const heading = /^\s*\[([^\]]+)\]/.exec(line)?.[1];
-    if (heading) {
-      const plugin = /^plugins\.(?:"([^"]+)"|([^.\s]+))$/.exec(heading.trim());
-      current = plugin ? plugin[1] ?? plugin[2] : undefined;
-      if (current && isEduPlugin(current) && !states.has(current)) states.set(current, true);
-      continue;
-    }
-    if (current && states.has(current) && /^\s*enabled\s*=\s*false\b/.test(line)) states.set(current, false);
-  }
+  const states = new Map([...tomlEnabledTables(config ?? '', 'plugins')].filter(([name]) => isEduPlugin(name)));
   for (const [name, on] of states) if (on) found.push(`Codex plugin ${name}`);
   return { found, notes: [] };
 }

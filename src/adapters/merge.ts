@@ -1,5 +1,6 @@
 import { applyEdits, modify, parse, printParseErrorCode, type ParseError } from 'jsonc-parser';
 import { eolOf, sectionDigest } from './blocks.js';
+import { tomlDefines, tomlKeys } from './toml.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -351,106 +352,6 @@ export function mergeToml(text: string, body: string): string {
   } else if (span) result = unmergeToml(result);
   if (top) result = `${TOML_TOP_START}${eol}${top}${eol}${TOML_TOP_END}${eol}${result}`;
   return result;
-}
-
-interface TomlKey { path: string[]; header: boolean; table: string[] }
-
-/** `a."b.c".'d'` → ['a', 'b.c', 'd']; undefined for anything that is not a plain TOML key. */
-function tomlKeyParts(key: string): string[] | undefined {
-  const parts: string[] = [];
-  let rest = key.trim();
-  while (rest) {
-    const match = /^"((?:[^"\\]|\\.)*)"/.exec(rest) ?? /^'([^']*)'/.exec(rest) ?? /^([A-Za-z0-9_-]+)/.exec(rest);
-    if (!match) return undefined;
-    parts.push(match[0].startsWith('"') ? match[1]!.replace(/\\(.)/g, '$1') : match[1]!);
-    rest = rest.slice(match[0].length).trimStart();
-    if (!rest) break;
-    if (!rest.startsWith('.')) return undefined;
-    rest = rest.slice(1).trimStart();
-  }
-  return parts.length ? parts : undefined;
-}
-
-/** Index of the `=` that ends a key, outside quotes; -1 when the line is not a key/value pair. */
-function keyEnd(line: string): number {
-  let quote: string | undefined;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i]!;
-    if (quote) { if (char === '\\' && quote === '"') i++; else if (char === quote) quote = undefined; continue; }
-    if (char === '"' || char === "'") quote = char;
-    else if (char === '=') return i;
-    else if (char === '#' || char === '[' || char === '{') return -1;
-  }
-  return -1;
-}
-
-/** Bracket depth a TOML value leaves open (multi-line arrays and inline tables), strings skipped. */
-function openBrackets(value: string): number {
-  let depth = 0; let quote: string | undefined;
-  for (let i = 0; i < value.length; i++) {
-    const char = value[i]!;
-    if (quote) { if (char === '\\' && quote === '"') i++; else if (char === quote) quote = undefined; continue; }
-    if (char === '#') break;
-    if (char === '"' || char === "'") quote = char;
-    else if (char === '[' || char === '{') depth++;
-    else if (char === ']' || char === '}') depth--;
-  }
-  return depth;
-}
-
-/**
- * Every key a TOML document defines, as full paths: table headers (`[a."b"]`, `[[a.b]]`), and keys
- * joined to their table (`edu = {…}` under `[mcp_servers]`, top-level `mcp_servers.edu.command = …`).
- * The single TOML key scanner the installer and doctor share; multi-line strings and arrays are skipped.
- */
-export function tomlKeys(text: string): TomlKey[] {
-  const keys: TomlKey[] = [];
-  let table: string[] = [];
-  let multiline: string | undefined;
-  let depth = 0;
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (multiline) { if (line.includes(multiline)) multiline = undefined; continue; }
-    if (depth > 0) { depth += openBrackets(line); continue; }
-    if (!line || line.startsWith('#')) continue;
-    const header = /^\[\[?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$/.exec(line);
-    if (header) {
-      const parts = tomlKeyParts(header[1]!);
-      table = parts ?? ['\0'];
-      if (parts) keys.push({ path: parts, header: true, table: [] });
-      continue;
-    }
-    const end = keyEnd(line);
-    if (end <= 0) continue;
-    const parts = tomlKeyParts(line.slice(0, end));
-    if (parts) keys.push({ path: [...table, ...parts], header: false, table });
-    const value = line.slice(end + 1).trim();
-    for (const quote of ['"""', "'''"]) {
-      if (value.startsWith(quote) && value.split(quote).length === 2) multiline = quote;
-    }
-    if (!multiline) depth = Math.max(0, openBrackets(value));
-  }
-  return keys;
-}
-
-/** Whether the TOML defines `path` or anything inside it, in any of TOML's spellings. */
-export function tomlDefines(text: string, path: string[]): boolean {
-  return tomlKeys(text).some(key => key.path.length >= path.length && path.every((part, i) => key.path[i] === part));
-}
-
-/** The body without its `[path]` tables (Edu's TOML body is generated, one header per table). */
-export function withoutTomlTable(body: string, path: string[]): string {
-  const out: string[] = [];
-  let skipping = false;
-  for (const line of body.split(/\r?\n/)) {
-    const header = /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*$/.exec(line);
-    if (header) {
-      const parts = tomlKeyParts(header[1]!);
-      skipping = !!parts && parts.length >= path.length && path.every((part, i) => parts[i] === part);
-    }
-    if (!skipping) out.push(line);
-  }
-  return out.join('\n').trim();
 }
 
 /** Checks only TOML keys before the first table header (the true top-level scope). */

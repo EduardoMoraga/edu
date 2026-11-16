@@ -65,7 +65,7 @@ export async function runOrchestration(job: CrewJob, options: OrchestrationWorke
         }
       },
     });
-    return store.update(job.id, { ...specPatch(), status: result.ok ? 'done' : 'failed', endedAt: now().toISOString(), summary: result.summary });
+    return await store.update(job.id, { ...specPatch(), status: result.ok ? 'done' : 'failed', endedAt: now().toISOString(), summary: result.summary });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await store.appendEvent(job.id, { type: 'error', message, at: now().toISOString() }).catch(() => undefined);

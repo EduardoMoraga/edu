@@ -54,6 +54,10 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Bug-finding lint (type-aware promise rules and core correctness); see eslint.config.js.
+      - name: Lint
+        run: npm run lint
+
       # Unit and contract tests (scripts/**/*.test.ts included). Linux runs them with the coverage ratchet.
       - name: Test
         if: runner.os != 'Linux'

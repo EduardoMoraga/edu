@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { binaryOnPath } from '../adapters/common.js';
+import { binaryOnPath } from '../platform/index.js';
 import type { CrewJob } from '../core/contracts.js';
 import { interactiveAutonomyFlags } from '../engine/autonomy.js';
 import { isTerminalCrewJobStatus } from './status.js';
@@ -121,13 +121,13 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
       if (!/agent_not_ready/.test(errorMessage(error))) throw error;
       agentStarted = true;
       const question = await lastPaneLines(paneId, options).catch(() => '');
-      return store.update(job.id, {
+      return await store.update(job.id, {
         status: 'running', paneId, agentName, pendingPrompt: prompt,
         note: `${job.cli} is waiting for your answer in herdr pane ${paneId}. Answer it there; Edu sends the task as soon as it is ready.${question ? `\n${question}` : ''}`,
       });
     }
     await sendPrompt(runner, agentName, prompt);
-    return store.update(job.id, { status: 'running', paneId, agentName, note: where, ...await promptBaseline(agentName, paneId, options, now) });
+    return await store.update(job.id, { status: 'running', paneId, agentName, note: where, ...await promptBaseline(agentName, paneId, options, now) });
   } catch (error) {
     let summary = errorMessage(error);
     if (paneId && !agentStarted) {
@@ -287,7 +287,8 @@ async function agentState(name: string, options: HerdrOptions): Promise<{ status
   const raw = parse((await (options.runner ?? defaultRunner)(['agent', 'get', name])).stdout);
   const result = raw.result as Record<string, unknown> | undefined;
   const agent = result?.agent as Record<string, unknown> | undefined;
-  const status = String(agent?.agent_status ?? agent?.status ?? agent?.state ?? result?.agent_status ?? result?.status ?? raw.status ?? '').toLowerCase();
+  const reported = [agent?.agent_status, agent?.status, agent?.state, result?.agent_status, result?.status, raw.status].find(value => value !== undefined && value !== null);
+  const status = (typeof reported === 'string' ? reported : '').toLowerCase();
   const seq = typeof agent?.state_change_seq === 'number' ? agent.state_change_seq : undefined;
   return { status, seq };
 }

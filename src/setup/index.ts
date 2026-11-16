@@ -17,11 +17,11 @@ import { UNION } from '../adapters/merge.js';
 import { removeArrayItem } from '../detach/edit.js';
 import { applyInstall, getManifestPath, planInstall, uninstall } from '../adapters/installer.js';
 import type { InstallPlan, PlannedAction } from '../adapters/types.js';
-import { initBrain } from '../cli/setup.js';
+import { initBrain } from '../workspace/init.js';
 import { backupUpgradeFiles, migrateWorkspaces } from '../update/migrate.js';
 import { removeManagedBlock, upsertManagedBlock } from '../adapters/blocks.js';
 import { readTarget, sha256, validateBundleAction } from '../adapters/operations.js';
-import { readProjects } from '../vault/registry.js';
+import { readProjects } from '../brain/registry.js';
 
 export interface SetupCommand { cli: CliId; command: string; args: string[] }
 export interface SetupResult { exitCode: number; stdout?: string; stderr?: string }

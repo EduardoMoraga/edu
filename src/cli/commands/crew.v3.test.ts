@@ -2,7 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createCrewStore } from '../../crew/store.js';
-import { captureContext, err, out, runCli, type Captured } from '../testkit.js';
+import { captureContext, err, out, runCli, type Captured } from '../../test-support/cli.js';
 
 /** A paused orchestration in `root` with an open approval gate. */
 async function paused(captured: Captured, root: string) {

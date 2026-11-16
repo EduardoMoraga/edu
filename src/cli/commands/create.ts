@@ -8,7 +8,7 @@ import type { LlmRunner } from '../../workspace/extract.js';
 import { globalHome, type CliContext } from '../context.js';
 import type { Lang } from '../i18n.js';
 import { action, look, printJson, statusLine } from '../kit.js';
-import { packageTemplatesDir } from '../package.js';
+import { packageTemplatesDir } from '../../platform/package.js';
 import { parseCli } from './setup.js';
 
 interface CreateOpts { name?: string; dir?: string; lang?: string; cli?: string; llm?: boolean; yes?: boolean; add?: boolean; json?: boolean }

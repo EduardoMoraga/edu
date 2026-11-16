@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EduEvent } from '../../core/contracts.js';
 import { ASCII_GLYPHS, UNICODE_GLYPHS } from '../../identity/index.js';
-import { fixtureAt, oauthRun } from '../fixtures.js';
+import { fixtureAt, oauthRun } from '../../test-support/tui-events.js';
 import type { DisplayLine } from '../lines.js';
 import { initialState, reduceAll } from '../state.js';
 import { uiStrings } from '../strings.js';

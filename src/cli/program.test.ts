@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { packageVersion } from './package.js';
-import { captureContext, out, runCli } from './testkit.js';
+import { packageVersion } from '../platform/package.js';
+import { captureContext, out, runCli } from '../test-support/cli.js';
 
 const COMMANDS: string[][] = [
   ['init'],

@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planInstall, applyInstall, uninstall, resolveTemplatesDir, getManifestPath } from './installer.js';
-import { diagnose } from './doctor.js';
+import { planInstall, applyInstall, uninstall, getManifestPath } from './installer.js';
+import { packageTemplatesDir } from '../platform/package.js';
+import { diagnose } from '../doctor/diagnose.js';
 import { pathsFor } from './paths.js';
 import { createClaudeIntegration } from './claude.js';
 
@@ -15,7 +16,7 @@ async function fixture() {
   const root = join(base, 'project');
   const home = join(base, 'home');
   await Promise.all([mkdir(root), mkdir(home)]);
-  return { root, home, templatesDir: resolveTemplatesDir() };
+  return { root, home, templatesDir: packageTemplatesDir() };
 }
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
@@ -315,7 +316,7 @@ describe('host-rewritten JSON files', () => {
     const { tmpdir } = await import('node:os');
     const root = await mkdtemp(join(tmpdir(), 'edu-drift-root-'));
     const home = await mkdtemp(join(tmpdir(), 'edu-drift-home-'));
-    const templatesDir = resolveTemplatesDir();
+    const templatesDir = packageTemplatesDir();
     const plan = await planInstall({ clis: ['claude'], scope: 'global', root, home, templatesDir });
     await applyInstall(plan);
     const claudeJson = join(home, '.claude.json');

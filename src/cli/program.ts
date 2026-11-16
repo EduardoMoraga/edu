@@ -31,7 +31,7 @@ import { registerUpdate } from './commands/update.js';
 import { registerVault } from './commands/vault.js';
 import { processContext, resolveGlobals, type CliContext } from './context.js';
 import { t } from './i18n.js';
-import { packageVersion } from './package.js';
+import { packageVersion } from '../platform/package.js';
 
 const GROUPS: Array<[string, string[]]> = [
   ['Get started:', ['setup', 'create', 'init', 'vault', 'sync', 'join', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities', 'help']],

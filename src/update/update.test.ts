@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/brain.js';
-import { registerProject } from '../vault/registry.js';
+import { registerProject } from '../brain/registry.js';
 import { migrateWorkspaces } from './migrate.js';
 import { compareVersions, fetchRelease, parseChecksums, pickAsset, sha256Hex, UpdateError, whatsNew, type Release } from './release.js';
 import { checkForUpdate, installPrefix, performUpdate, resolveNpm, type RunResult, type UpdateDeps } from './update.js';
@@ -28,7 +28,7 @@ const sumsFor = (bytes: Uint8Array, names: string[]) => names.map(name => `${sha
 
 function fakeFetch(handler: (url: string) => Response | Promise<Response>): typeof fetch & { urls: string[] } {
   const urls: string[] = [];
-  const fn = (async (input: string | URL | Request) => { const url = String(input); urls.push(url); return handler(url); }) as typeof fetch & { urls: string[] };
+  const fn = (async (input: string | URL | Request) => { const url = input instanceof Request ? input.url : input.toString(); urls.push(url); return handler(url); }) as typeof fetch & { urls: string[] };
   fn.urls = urls;
   return fn;
 }

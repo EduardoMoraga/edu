@@ -1,10 +1,10 @@
 /**
  * Edu shared contracts.
  *
- * Every module (brain, context, engine, orchestrator, mcp, adapters, tui, cli)
- * depends on these types and on nothing else from its siblings unless the
- * dependency is listed in docs/ARCHITECTURE.md. Changing a type here is a
- * cross-team decision owned by the lead.
+ * The core layer: every module may depend on these types and constants, and
+ * this file depends on nothing. Which modules may import each other is the
+ * layer table in docs/ARCHITECTURE.md §3 (enforced by a test). Changing a type
+ * here is a cross-team decision owned by the lead.
  */
 
 // ─── Second brain ────────────────────────────────────────────────────────────
@@ -199,6 +199,8 @@ export interface DeterministicCheck {
 // ─── Engines (the CLIs Edu drives) ───────────────────────────────────────────
 
 export type CliId = 'claude' | 'codex' | 'pi' | 'opencode' | 'agy';
+/** Every supported agent CLI, in Edu's preference order. */
+export const CLI_IDS: readonly CliId[] = ['claude', 'codex', 'pi', 'opencode', 'agy'];
 
 export type Autonomy = 'readonly' | 'ask' | 'auto' | 'full';
 
@@ -393,6 +395,9 @@ export interface RoleSpec {
 
 export type ApprovalPolicy = 'always-ask' | 'ask-on-write' | 'auto';
 
+/** Language of messages, generated pages and the TUI. */
+export type Lang = 'en' | 'es';
+
 export interface EduConfig {
   version: 1;
   mode: OrchestrationMode;
@@ -405,7 +410,7 @@ export interface EduConfig {
   routing?: Partial<Record<'executor' | 'advisor' | 'reviewer', { cli: CliId; model?: string }>>;
   execution?: { maxSpawns: number; maxConcurrency: number; timeoutMs: number; maxAdvisorCalls: number };
   brain: { obsidianVault?: string };
-  lang: 'en' | 'es';
+  lang: Lang;
   /** Brain folder relative to the workspace root (the folder holding `.edu/`). Default `.edu/brain`. */
   brainDir?: string;
   /** Where `edu create` keeps copies of the original documents, relative to the workspace root. */

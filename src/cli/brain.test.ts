@@ -2,8 +2,8 @@ import { lstat, mkdir, readFile, readlink, realpath, writeFile } from 'node:fs/p
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/index.js';
-import { readProjects } from '../vault/registry.js';
-import { captureContext, out, runCli, type Captured } from './testkit.js';
+import { readProjects } from '../brain/registry.js';
+import { captureContext, out, runCli, type Captured } from '../test-support/cli.js';
 
 async function initialized(): Promise<Captured> {
   const c = await captureContext({ detected: ['claude'] });

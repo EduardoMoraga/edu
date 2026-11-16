@@ -41,5 +41,3 @@ export interface IntegrationOptions {
   /** The platform the integration targets; tests pass win32 to check the Windows launch. */
   platform?: NodeJS.Platform;
 }
-
-export const CLI_IDS: CliId[] = ['claude', 'codex', 'pi', 'opencode', 'agy'];

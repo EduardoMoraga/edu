@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commonPrefixLength, runContextBench } from './context.js';
+import { commonPrefixLength, runContextBench } from './bench-context.js';
 
 describe('context bench', () => {
   it('measures the common prefix in code units', () => {

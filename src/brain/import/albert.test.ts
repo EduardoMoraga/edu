@@ -47,6 +47,15 @@ describe('read-only brain importers', () => {
     expect(report.imported.map(note => [note.meta.title, note.meta.tier])).toEqual([['Bare rule', 'canonical']]);
   });
 
+  it('never turns a YAML map into "[object Object]": a map title falls back to the file name', async () => {
+    const vault = await temp();
+    await mkdir(join(vault, '3-TRANSITIVO'), { recursive: true });
+    await writeFile(join(vault, '3-TRANSITIVO', 'L-002_map-title.md'), '---\ntipo:\n  a: 1\ntitle:\n  es: Uno\n---\n\nBody.\n');
+    const report = await importAlbert(vault, openBrain([{ scope: 'project', root: await temp() }]));
+    expect(report.errors).toEqual([]);
+    expect(report.imported.map(note => [note.meta.title, note.meta.kind])).toEqual([['map title', 'lesson']]);
+  });
+
   it('explains both accepted layouts when the path is not an Albert vault', async () => {
     const empty = await temp();
     await expect(importAlbert(empty, openBrain([{ scope: 'project', root: await temp() }]))).rejects.toThrow(/_ALBERT.*1-CANONICO/s);

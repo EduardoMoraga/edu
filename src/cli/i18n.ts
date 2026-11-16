@@ -4,9 +4,10 @@
  * (`--json`), identifiers and file content are never translated. The live
  * view (TUI) additionally follows the POSIX locale (`LC_ALL`/`LANG` = es*).
  */
+import type { Lang } from '../core/contracts.js';
 import { langFromEnv } from '../tui/strings.js';
 
-export type Lang = 'en' | 'es';
+export type { Lang };
 
 /**
  * Language for the live view: an explicit Spanish choice wins, otherwise the

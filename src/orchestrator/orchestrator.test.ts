@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { CliId, ContextPack, EduEvent, Engine, EngineRunRequest } from '../core/contracts.js';
 import { FakeEngine } from '../engine/fake.js';
 import { nodeCommand, printCommand } from '../test-support/shell.js';
-import { defaultConfig, loadConfig, saveConfig } from './config.js';
+import { defaultConfig, loadConfig, saveConfig } from '../workspace/config.js';
 import { assignCli } from './assign.js';
 import { extractPlan, PlanSchema } from './plan.js';
 import { orchestrate } from './run.js';
@@ -154,7 +154,7 @@ describe('orchestrator contracts', () => {
     const observed: EduEvent[] = [];
     let releaseReaders!: () => void;
     const bothReadersStarted = new Promise<void>(resolve => { releaseReaders = resolve; });
-    const runtime: Engine = { capabilities: { readonly: 'enforced', isolation: 'host', mechanism: 'test adapter', limitations: [] }, cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : request.prompt.includes('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'done';
       if (request.prompt.startsWith('A') || request.prompt.startsWith('B')) {
         active++; maximum = Math.max(maximum, active);
@@ -235,7 +235,7 @@ describe('orchestrator contracts', () => {
     const observed: EduEvent[] = [];
     let readerReady!: () => void;
     const readerStarted = new Promise<void>(resolve => { readerReady = resolve; });
-    const runtime: Engine = { capabilities: { readonly: 'enforced', isolation: 'host', mechanism: 'test adapter', limitations: [] }, cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       if (request.prompt.startsWith('Create a safe')) { yield { type: 'agent.text', agentId, text: JSON.stringify(plan), at } as EduEvent; return; }
       if (request.prompt.startsWith('fail step')) { await readerStarted; yield { type: 'error', agentId, message: 'expected failure', at } as EduEvent; return; }
       yield { type: 'usage', agentId, at, usage: { inputTokens: 10, outputTokens: 0, costUsd: 0, known: { inputTokens: true, outputTokens: true, costUsd: true } } } as EduEvent;

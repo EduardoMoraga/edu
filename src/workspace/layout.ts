@@ -3,7 +3,7 @@
  * brain is the visible `01-…` folder (`brainDir` in `.edu/config.json`), and the workspace folder
  * itself is the Obsidian vault.
  */
-import type { Lang } from '../cli/i18n.js';
+import type { Lang } from '../core/contracts.js';
 
 export interface WorkspaceLayout {
   start: string;

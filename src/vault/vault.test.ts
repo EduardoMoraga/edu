@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isUnsafeVaultPath, createVault, checkVault, registerObsidianVault } from './vault.js';
-import { readProjects, registerProject } from './registry.js';
+import { readProjects, registerProject } from '../brain/registry.js';
 
 const roots: string[] = [];
 async function fixture() {

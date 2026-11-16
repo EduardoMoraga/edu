@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { oauthRun } from './fixtures.js';
+import { oauthRun } from '../test-support/tui-events.js';
 import { renderTui } from './render.js';
 
 class FakeStdout extends EventEmitter {

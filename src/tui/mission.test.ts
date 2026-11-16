@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EduEvent } from '../core/contracts.js';
-import { fixtureAt } from './fixtures.js';
+import { fixtureAt } from '../test-support/tui-events.js';
 import { MAX_PULSES, estimateProgress } from './mission.js';
 import { reduceAll } from './state.js';
 

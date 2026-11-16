@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { openBrain } from '../brain/index.js';
 import type { BrainLocation } from '../core/contracts.js';
-import { resolveBrainLocations } from './locations.js';
+import { resolveBrainLocations } from '../brain/locations.js';
 import { selectWorkspace } from './projects.js';
 import { createEduMcpServer } from './server.js';
 import { getCapabilities } from '../release/capabilities.js';

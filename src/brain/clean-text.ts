@@ -4,7 +4,7 @@
  * differently from what it stores. Titles lose C0/C1 control characters (tab and newlines included) and bidi
  * embedding, override, isolate and mark characters; bodies only lose NUL bytes (Markdown keeps its newlines).
  */
-const TITLE_CONTROLS = /[ \t]*[\u0000-\u001f\u007f-\u009f؜‎‏‪-‮⁦-⁩]+[ \t]*/g;
+const TITLE_CONTROLS = /[ \t]*[\u0000-\u001f\u007f-\u009f\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]+[ \t]*/g;
 
 /** A title as Edu stores and prints it: controls become one space; leading and trailing spaces go. */
 export const cleanTitle = (title: string): string => title.replace(TITLE_CONTROLS, ' ').trim();

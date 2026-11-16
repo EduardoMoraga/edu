@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { openBrain } from './brain.js';
 import { LEGACY_BASE_FILES, baseFileNames, buildBases, buildDashboard, isEduOwned, projectFormula } from './bases.js';
-import type { ProjectEntry } from '../vault/registry.js';
+import type { ProjectEntry } from './registry.js';
 
 const TOP_KEYS = ['filters', 'formulas', 'properties', 'views'];
 const VIEW_KEYS = ['type', 'name', 'filters', 'order', 'sort'];

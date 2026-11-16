@@ -3,9 +3,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { EduEvent } from '../core/contracts.js';
 import { FakeEngine } from '../engine/fake.js';
-import { sampleDocx } from '../workspace/testing.js';
+import { sampleDocx } from '../test-support/docx.js';
 import { deckSnapshot } from './commands/deck.js';
-import { captureContext, err, out, runCli } from './testkit.js';
+import { captureContext, err, out, runCli } from '../test-support/cli.js';
 
 const present = (path: string) => access(path).then(() => true, () => false);
 const at = '2026-10-10T00:00:00.000Z';

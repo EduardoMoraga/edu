@@ -1,5 +1,5 @@
 import { dirname } from 'node:path';
-import { autoMaintain } from '../../brain/auto-maintain.js';
+import { autoMaintain } from '../../reflect/auto-maintain.js';
 import type { EduEvent, FeedbackContext, OutcomeLabel } from '../../core/contracts.js';
 import { diagnosePackage } from '../../evidence/classify.js';
 import { auditGitDiff } from '../../evidence/entropy.js';

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it } from 'vitest';
 import { openBrain } from '../brain/brain.js';
-import { registerProject } from '../vault/registry.js';
+import { registerProject } from '../brain/registry.js';
 import { migrateWorkspaces } from './migrate.js';
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });

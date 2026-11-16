@@ -4,12 +4,11 @@ import { open, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
-import type { BrainLocation, CliId, CrewJob, EduEvent, Engine, Usage } from '../core/contracts.js';
+import { CLI_IDS, type BrainLocation, type CliId, type CrewJob, type EduEvent, type Engine, type Usage } from '../core/contracts.js';
 import { openBrain } from '../brain/index.js';
 import { brief } from '../context/index.js';
 import { redactWorkerOutput } from '../context/artifacts.js';
 import { createEngine } from '../engine/index.js';
-import { CLI_IDS } from '../adapters/types.js';
 import { childEnv } from '../platform/child-env.js';
 import { createCrewStore, type CrewStore } from './store.js';
 import { runOrchestration } from './orchestration.js';
@@ -69,7 +68,7 @@ export async function dispatchHeadless(job: CrewJob, options: { brainRoot?: stri
     });
     child.once('error', error => { void store.update(job.id, { status: 'failed', endedAt: new Date().toISOString(), summary: error.message }); });
     child.unref();
-    return store.update(job.id, { pid: child.pid });
+    return await store.update(job.id, { pid: child.pid });
   } finally {
     await log.close();
   }
@@ -142,7 +141,7 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await store.appendEvent(job.id, { type: 'error', message, at: iso(now) }).catch(() => undefined);
-    return store.update(job.id, { status: 'failed', endedAt: iso(now), summary: message, usage });
+    return await store.update(job.id, { status: 'failed', endedAt: iso(now), summary: message, usage });
   } finally {
     clearTimeout(timer);
   }

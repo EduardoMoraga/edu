@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { parse } from 'yaml';
 import { z } from 'zod';
-import { resolveTemplatesDir } from '../adapters/index.js';
+import { parseFrontmatter } from '../brain/frontmatter.js';
+import { packageTemplatesDir } from '../platform/package.js';
 import { truncateToTokens } from '../context/index.js';
 import type { EduConfig, RoleSpec } from '../core/contracts.js';
 
@@ -28,17 +28,17 @@ export async function loadPlaybook(name: string, projectRoot: string, locations:
   const paths = [
     join(projectRoot, 'playbooks', `${name}.md`),
     join(locations.globalRoot ?? join(homedir(), '.edu'), 'playbooks', `${name}.md`),
-    join(locations.templatesDir ?? resolveTemplatesDir(), 'playbooks', 'default.md'),
+    join(locations.templatesDir ?? packageTemplatesDir(), 'playbooks', 'default.md'),
   ];
   for (const path of paths) {
     let markdown: string;
     try { markdown = await readFile(path, 'utf8'); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; }
-    const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(markdown);
-    if (!match) throw new Error(`Playbook '${path}' must begin with YAML frontmatter.`);
-    const meta = FrontmatterSchema.parse(parse(match[1]!));
+    const document = parseFrontmatter(markdown);
+    if (!document) throw new Error(`Playbook '${path}' must begin with YAML frontmatter.`);
+    const meta = FrontmatterSchema.parse(document.meta);
     if (path !== paths[2] && meta.name !== name) throw new Error(`Playbook '${path}' declares name '${meta.name}', expected '${name}'.`);
-    return { ...meta, body: match[2]!.trim(), path };
+    return { ...meta, body: document.body, path };
   }
   if (name !== 'default') throw new Error(`Playbook '${name}' not found in project, global, or bundled templates.`);
   // Keeps an unbundled development checkout usable until the default template is generated.

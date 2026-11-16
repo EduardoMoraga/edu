@@ -1,6 +1,6 @@
 /** `edu brain maintain|tidy|lint`: keep the brain healthy, and report what needs a person. */
 import type { Command } from 'commander';
-import { autoMaintain } from '../../../brain/auto-maintain.js';
+import { autoMaintain } from '../../../reflect/auto-maintain.js';
 import { LINT_KINDS, lintBrain, type LintReport } from '../../../brain/lint.js';
 import { brainPath } from '../../../brain/location.js';
 import { TIDY_KINDS, applyTidy, loadTidyPlan, planTidy, saveTidyPlan } from '../../../brain/tidy.js';

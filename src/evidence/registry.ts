@@ -81,10 +81,6 @@ export async function loadTools(root: string): Promise<HarnessTool[]> {
   return readRegistry(registryPath(root, 'tools.json'), ToolRegistrySchema, []);
 }
 
-export async function saveTools(root: string, tools: HarnessTool[]): Promise<void> {
-  await writeRegistry(registryPath(root, 'tools.json'), ToolRegistrySchema, tools);
-}
-
 export async function loadChecks(root: string): Promise<DeterministicCheck[]> {
   return readRegistry(registryPath(root, 'checks.json'), CheckRegistrySchema, []);
 }

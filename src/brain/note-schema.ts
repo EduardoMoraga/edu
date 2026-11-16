@@ -12,7 +12,7 @@
  */
 import { z } from 'zod';
 import type { NoteMeta } from '../core/contracts.js';
-import { parseMarkdown } from './frontmatter.js';
+import { parseFrontmatter } from './frontmatter.js';
 
 const TEXT_ERROR = 'must be text, not a list or a map';
 /** A YAML scalar read as text. */
@@ -64,9 +64,9 @@ export function validateMeta(raw: unknown, fallbackCreated: string): { meta: Not
 /** Parses and validates a note file's text. Never throws: what cannot be read as a note is a problem. */
 export function readNoteSource(source: string, fallbackCreated: string): NoteRead {
   let parsed;
-  try { parsed = parseMarkdown<Record<string, unknown>>(source); }
+  try { parsed = parseFrontmatter<Record<string, unknown>>(source); }
   catch (error) { return { problem: `invalid YAML frontmatter: ${firstLine(error)}` }; }
-  if (!Object.keys(parsed.meta ?? {}).length && !/^﻿?---\r?\n/.test(source)) return { problem: 'no frontmatter (a note needs id, tier and title)' };
+  if (!parsed) return { problem: 'no frontmatter (a note needs id, tier and title)' };
   const checked = validateMeta(parsed.meta, fallbackCreated);
   return 'problem' in checked ? checked : { meta: checked.meta, body: parsed.body };
 }

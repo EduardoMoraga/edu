@@ -9,7 +9,8 @@
  *
  * Pure functions only: brain.ts decides where the files go.
  */
-import { parse, stringify } from 'yaml';
+import { stringify } from 'yaml';
+import { parseFrontmatter } from './frontmatter.js';
 import { TIER_DIRS, type Tier } from '../core/contracts.js';
 
 export type BaseLang = 'en' | 'es';
@@ -181,10 +182,8 @@ export const DASHBOARD_PATHS: Record<BaseLang, string> = { es: '00-INICIO/Panel.
 
 /** True when a file's frontmatter carries `generated_by: edu`. */
 export function isEduOwned(text: string): boolean {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-  if (!match) return false;
   try {
-    const data: unknown = parse(match[1]!);
+    const data: unknown = parseFrontmatter(text)?.meta;
     return Boolean(data && typeof data === 'object' && (data as Record<string, unknown>)[DASHBOARD_MARKER] === DASHBOARD_OWNER);
   } catch { return false; }
 }

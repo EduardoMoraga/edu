@@ -3,7 +3,8 @@ import { join, relative, resolve, sep } from 'node:path';
 import { parse } from 'jsonc-parser';
 import { editInstructions } from '../detach/edit.js';
 import { ownerOf, SIGNATURES, TOOL_IDS, type ToolId } from '../detach/signatures.js';
-import { hostFiles, SKILL_DIRS, type HostId } from './hosts.js';
+import { hostFiles, SKILL_DIRS, type HostId } from '../adapters/host-files.js';
+import { scanTomlLines, tomlEnabledTables } from '../adapters/toml.js';
 
 export interface HostContext {
   host: HostId;
@@ -93,21 +94,29 @@ function scanObject(value: Record<string, unknown>, report: HostContext, owners:
 }
 
 function scanToml(text: string, report: HostContext, owners: Set<ToolId>): void {
-  const pluginStates = new Map<string, boolean>();
-  let activePlugin: string | undefined;
-  for (const line of text.split('\n')) {
-    const heading = /^\s*\[([^\]]+)\]/.exec(line)?.[1];
-    if (heading) {
-      const mcp = /^mcp_servers\.(?:"([^"]+)"|([^.]+))/.exec(heading);
-      const plugin = /^plugins\.(?:"([^"]+)"|([^.]+))/.exec(heading);
-      activePlugin = plugin?.[1] ?? plugin?.[2];
-      if (mcp) { const name = mcp[1] ?? mcp[2]!; if (!report.mcpServers.names.includes(name)) { report.mcpServers.names.push(name); const owner = ownerOf(name, 'mcp'); add(report.mcpServers.byOwner, owner ?? 'user'); if (owner) owners.add(owner); } }
-      if (activePlugin && !pluginStates.has(activePlugin)) pluginStates.set(activePlugin, true);
+  for (const line of scanTomlLines(text)) {
+    const path = line.header?.path ?? (line.key ? [...line.table, ...line.key] : undefined);
+    if (line.continuation || !path) continue;
+    const [root, name] = path;
+    if (root === 'mcp_servers' && name && !report.mcpServers.names.includes(name)) {
+      report.mcpServers.names.push(name);
+      const owner = ownerOf(name, 'mcp');
+      add(report.mcpServers.byOwner, owner ?? 'user');
+      if (owner) owners.add(owner);
     }
-    if (activePlugin && /^\s*enabled\s*=\s*false\b/.test(line)) pluginStates.set(activePlugin, false);
-    if (SIGNATURES.engram.extras?.codexInstructionKeys?.some((key) => new RegExp(`^\\s*${key}\\s*=`).test(line) && /engram/i.test(line))) owners.add('engram');
+    if (line.key?.length === 1 && SIGNATURES.engram.extras?.codexInstructionKeys?.includes(line.key[0]!) && /engram/i.test(line.text)) owners.add('engram');
   }
-  for (const [name, enabled] of pluginStates) if (enabled) { report.plugins.push(name); const owner = ownerOf(name, 'plugins'); if (owner) owners.add(owner); }
+  for (const [name, enabled] of tomlEnabledTables(text, 'plugins')) if (enabled) { report.plugins.push(name); const owner = ownerOf(name, 'plugins'); if (owner) owners.add(owner); }
+}
+
+/** The quoted value of the first plain `key = "…"` line in a Codex config, if any. */
+function tomlPathValue(text: string, key: string): string | undefined {
+  for (const line of scanTomlLines(text)) {
+    if (line.continuation || line.key?.length !== 1 || line.key[0] !== key) continue;
+    const value = /^["']([^"']+)["']/.exec(line.value ?? '')?.[1];
+    if (value) return value;
+  }
+  return undefined;
 }
 
 export async function scanContext(input: { home: string; env: NodeJS.ProcessEnv; hosts?: HostId[] }): Promise<ContextReport> {
@@ -141,7 +150,7 @@ export async function scanContext(input: { home: string; env: NodeJS.ProcessEnv;
       const home = input.env.USERPROFILE || input.home;
       const seen = new Set<string>();
       for (const key of SIGNATURES.engram.extras?.codexInstructionKeys ?? []) {
-        const value = new RegExp(`^\\s*${key}\\s*=\\s*["']([^"']+)["']`, 'm').exec(codexToml)?.[1];
+        const value = tomlPathValue(codexToml, key);
         if (!value || !value.toLowerCase().includes('engram')) continue;
         const path = value.startsWith('~/') ? join(home, value.slice(2)) : resolve(home, value);
         if (seen.has(path)) continue;

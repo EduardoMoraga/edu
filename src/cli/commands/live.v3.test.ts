@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CliId, EduEvent, Engine } from '../../core/contracts.js';
-import { captureContext, out, runCli } from '../testkit.js';
+import { captureContext, out, runCli } from '../../test-support/cli.js';
 import { engineCapabilities } from '../../engine/autonomy.js';
 
 const at = '2026-01-01T00:00:00.000Z';

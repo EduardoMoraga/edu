@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AUTO_MAINTAIN_INTERVAL_MS, autoMaintain, maintainStatePath, readMaintainState } from './auto-maintain.js';
-import { openBrain } from './brain.js';
+import { openBrain } from '../brain/brain.js';
 
 const dirs: string[] = [];
 async function temp() { const path = await mkdtemp(join(tmpdir(), 'edu-auto-maintain-')); dirs.push(path); return path; }

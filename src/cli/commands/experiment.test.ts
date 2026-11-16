@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
-import { captureContext, runCli } from '../testkit.js';
+import { captureContext, runCli } from '../../test-support/cli.js';
 import { sha256 } from '../../experiment/contract.js';
 it('inspects exact bytes read-only and runs the registered CLI with explicit approval and retained evidence', async () => {
   const c = await captureContext(); const root = await mkdtemp(join(tmpdir(), 'edu-experiment-cli-'));

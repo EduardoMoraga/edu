@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EduEvent, Engine } from '../core/contracts.js';
 import { createCrew } from './index.js';
+import { runOrchestration } from './orchestration.js';
+import type { CrewStore } from './store.js';
 import { saveChecks } from '../evidence/registry.js';
 import { engineCapabilities } from '../engine/autonomy.js';
 
@@ -46,6 +48,21 @@ async function awaiting(crew: Awaited<ReturnType<typeof setup>>['crew'], id: str
 }
 
 describe('detached orchestration', () => {
+  it('records the failure when writing the final status fails, instead of escaping its own error handling', async () => {
+    const { crew, cwd, brainRoot } = await setup();
+    await saveChecks(cwd, [passCheck]);
+    const queued = await crew.orchestrate({ goal: 'Finish while the disk fails once', cwd, autoApprove: true });
+    let failures = 0;
+    const store: CrewStore = { ...crew.store, update: async (id, patch) => {
+      if (patch.endedAt && failures++ === 0) throw new Error('disk full');
+      return crew.store.update(id, patch);
+    } };
+    const result = await runOrchestration(queued, { brainRoot, store, engineFactory: () => fakeEngine(), detectClis: async () => ['claude'], sleep: async () => undefined });
+    expect(result.status).toBe('failed');
+    expect(result.summary).toBe('disk full');
+    expect((await crew.store.events(queued.id)).some(event => event.type === 'error' && event.message === 'disk full')).toBe(true);
+  });
+
   it('auto-approves the detached spec (edu run --detach --yes) and runs registered checks', async () => {
     const { crew, cwd } = await setup();
     await saveChecks(cwd, [passCheck]);
