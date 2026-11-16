@@ -24,7 +24,19 @@ describe('edu init', () => {
     for (const dir of ['brain/1-canonical', 'brain/2-episodic', 'brain/3-transitive', 'runs', 'proposals']) {
       expect(await missing(join(root, dir))).toBe(false);
     }
-    expect(out(c)).toContain('edu install --cli codex');
+    // `edu setup` is the main command; a bare `edu install` would only integrate this project.
+    expect(out(c)).toMatch(/^ {2}edu setup +connect Edu to your coding CLIs$/m);
+    expect(out(c)).not.toContain('edu install');
+    expect(out(c)).toContain('edu demo');
+    expect(out(c)).toContain('edu run "<goal>"');
+  });
+
+  it('suggests edu setup in Spanish too', async () => {
+    const c = await captureContext({ detected: ['claude'] });
+    await runCli(c, ['--lang', 'es', 'init']);
+    expect(out(c)).toContain('Siguientes pasos:');
+    expect(out(c)).toMatch(/^ {2}edu setup +conecta Edu con tus CLI de código$/m);
+    expect(out(c)).not.toContain('edu install');
   });
 
   it('is idempotent and keeps an existing config', async () => {
