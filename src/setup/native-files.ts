@@ -1,6 +1,6 @@
 /** Internal native upgrade integrity checks shared by host-specific adapters. */
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
-import { dirname, join, posix, relative, win32 } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, win32 } from 'node:path';
 import { samePath } from '../adapters/paths.js';
 import { sha256 } from '../adapters/operations.js';
 
@@ -44,6 +44,7 @@ export async function treeOrEmpty(root: string, anchor?: string): Promise<Hashes
  */
 export { nativePath, samePath } from '../adapters/paths.js';
 export function eduOwnedRoot(registered: unknown, previousPackageRoot: string | undefined, platform: NodeJS.Platform = process.platform): registered is string {
-  return typeof registered === 'string' && (platform === 'win32' ? win32 : posix).isAbsolute(registered) &&
+  // The root is a real path on this machine, so the host's own rule decides as well as the platform's.
+  return typeof registered === 'string' && ((platform === 'win32' ? win32 : posix).isAbsolute(registered) || isAbsolute(registered)) &&
     (samePath(registered, previousPackageRoot, platform) || /[\\/]node_modules[\\/]edu-agent$/i.test(registered));
 }
