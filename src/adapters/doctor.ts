@@ -61,9 +61,10 @@ export async function diagnose(options: DiagnoseOptions): Promise<CliDiagnosis[]
   const root = resolve(options.root);
   const home = resolve(options.home ?? homedir());
   const env = options.env ?? {};
-  const manifests = await Promise.all((['project', 'global'] as const).map(async scope => ({
+  // From cwd == HOME under a symlink both paths name one file: a manifest counts only for its own scope.
+  const manifests = (await Promise.all((['project', 'global'] as const).map(async scope => ({
     scope, manifest: (await readJson<InstallManifest>(getManifestPath(scope, root, home), manifestShape)).value,
-  })));
+  })))).map(({ scope, manifest }) => ({ scope, manifest: manifest && (manifest.scope ?? scope) === scope ? manifest : undefined }));
   const setup = (await readJson<SetupRecord>(join(home, '.edu/plugin-setup.json'), setupShape)).value;
   const codexConfig = await readTarget(join(hostConfigDirs(home, env).codex, 'config.toml')).catch(() => undefined);
   let userOwnsCodexNotify = false;

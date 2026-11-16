@@ -261,7 +261,10 @@ async function applyPreparedInstall(plan: InstallPlan, transaction: FileTransact
   const otherScope: InstallScope = plan.scope === 'project' ? 'global' : 'project';
   const otherPath = getManifestPath(otherScope, plan.root, plan.home);
   if (otherPath !== manifestPath) {
-    const other = await loadManifest(otherPath);
+    // From cwd == HOME under a symlink (macOS /var → /private/var) both paths name the same file:
+    // only a manifest recorded for the other scope counts.
+    const found = await loadManifest(otherPath);
+    const other = found?.scope === otherScope ? found : undefined;
     const otherTargets = new Set(other?.actions.map(action => action.path) ?? []);
     const conflict = plan.actions.find(action => otherTargets.has(action.path) && (!isSharedTarget(action.path) || !shared.targets[action.path]));
     if (conflict) throw new Error(`Target already managed by ${otherScope} installation: ${conflict.path}`);

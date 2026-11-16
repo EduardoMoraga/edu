@@ -163,6 +163,18 @@ describe('host paths and launches', () => {
     expect(codexNotifyArgv(opts.templatesDir, 'linux')).toEqual(['edu', 'hook', 'codex-notify']);
   });
 
+  it('reinstalls globally from cwd == HOME when HOME is reached through a symlink', async () => {
+    const opts = await fixture();
+    const { realpath, symlink } = await import('node:fs/promises');
+    await symlink(opts.home, join(opts.base, 'alias'));
+    const home = join(opts.base, 'alias');
+    const root = await realpath(home);
+    await applyInstall(await planInstall({ ...opts, home, root, scope: 'global', clis: ['claude'] }));
+    await expect(applyInstall(await planInstall({ ...opts, home, root, scope: 'global', clis: ['claude'] }))).resolves.toBeDefined();
+    const { diagnose } = await import('./doctor.js');
+    expect((await diagnose({ root, home, detectBinary: async () => false })).find(item => item.cli === 'claude')?.scopes).toEqual(['global']);
+  });
+
   it('serializes two concurrent installs on one HOME', async () => {
     const opts = await fixture();
     const second = join(opts.base, 'second');
