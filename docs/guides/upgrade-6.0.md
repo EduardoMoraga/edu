@@ -71,7 +71,10 @@ MCP server, hooks and plugin until it restarts.
 | [Unregistered checks need a person](#unregistered-checks-need-a-person) | `edu run --yes` in scripts | Register the checks, or pass `--allow-unregistered-checks` |
 | [MCP never creates a brain](#mcp-never-creates-a-brain) | `edu_project_use` or MCP roots pointing at a folder without `.edu/` | Run `edu init` there first |
 | [Autonomy means the same on every CLI](#autonomy-means-the-same-on-every-cli) | Headless Codex or Pi jobs at the default `ask`; read-only jobs on OpenCode or agy | Use `--autonomy auto` to write; pick claude, codex or pi for read-only |
-| [Crew jobs time out](#crew-jobs-time-out) | Headless jobs longer than an hour | `--timeout <minutes>` or `crew.timeoutMinutes` |
+| [Crew jobs time out](#crew-jobs-time-out) | Headless and pane jobs longer than an hour; detached runs whose gates wait longer than that | `--timeout <minutes>` or `crew.timeoutMinutes` |
+| [Detached runs follow the global policy](#detached-runs-follow-the-global-policy) | `--detach` and `edu_orchestrate` runs in projects with `approvals: auto` or a playbook without spec approval; terminal `edu crew dispatch --autonomy full` | Set `approvals` or `crew.maxAutonomy` in the global config |
+| [A repository's checks need accepting](#unregistered-checks-need-a-person) | Repositories that ship `.edu/harness/checks.json`, run with `--yes` | Review them, then `edu checks accept` |
+| [`edu crew` prints for people](#edu-crew-prints-for-people) | Scripts that parse `edu crew dispatch`, `status` or `cancel` | Add `--json` |
 | [Test scripts](#test-scripts-for-contributors) | Contributors and CI that run `npm test` | Run `npm run test:perf` or `npm run test:all` for the budgets |
 
 ## Verified updates
@@ -112,7 +115,7 @@ Every approval gate gets a fresh `requestId`. A decision counts only when it nam
 is open and was written after it opened.
 
 ```bash
-edu crew status <job-id>                                # approval.requestId shows the open gate
+edu crew status <job-id>                                # the open gate, its request id and commands
 edu crew approve <job-id>                               # decide the gate open right now
 edu crew approve <job-id> --request <request-id>        # refused if another gate is open now
 edu crew reject <job-id> --request <request-id>
@@ -122,8 +125,13 @@ edu crew reject <job-id> --request <request-id>
   It is recorded as the host LLM's decision (`by: host-llm`), which does not count as a person and
   does not authorize unregistered checks.
 - `edu_orchestrate` no longer accepts `autoApprove`.
-- Crew workers (`EDU_CREW_JOB` set) can never approve, through MCP, the CLI or decision files.
-  Agents Edu starts in a herdr pane are crew workers too: their Edu tools only read.
+- Crew workers (`EDU_CREW_JOB` set) can never approve, through MCP, the CLI or decision files,
+  and `edu crew dispatch`, `edu crew cancel` and `edu run --detach` refuse inside them. Agents Edu
+  starts in a herdr pane are crew workers too: their Edu tools only read.
+- The open gate and its decision live in your global home (`~/.edu/.edu-local/approvals/`), not in
+  the workspace, so an agent that can write the workspace cannot forge a decision or change the
+  commands a gate shows. `by` records who the deciding process says it is: an unsandboxed process
+  running as you can still act as you.
 - Decision files from before 6.0 are ignored.
 - `edu brain approve` needs a terminal, or `--yes` in scripts, and refuses inside a crew worker.
 
@@ -147,9 +155,10 @@ Add the `crew` section to the existing file; keep its other keys.
 
 | Key | Default | Read from | Effect |
 |---|---|---|---|
-| `crew.maxAutonomy` | `auto` | global only | Highest autonomy an MCP caller may request in `edu_crew_dispatch`. `full` is refused until you raise it. `edu crew dispatch` from a terminal is not limited. |
+| `crew.maxAutonomy` | `auto` | global only | Highest autonomy a crew job may have, from `edu_crew_dispatch`, `edu crew dispatch` and every role of a detached run. `full` is refused until you raise it. |
 | `crew.env.passthrough` | `[]` | global only | Extra variable names agent CLIs receive. |
-| `crew.timeoutMinutes` | `60` | the workspace's config, else the global one | Default timeout of headless crew jobs, 1 to 1440. |
+| `crew.timeoutMinutes` | `60` | the workspace's config, else the global one | Default limit of crew jobs, 1 to 1440: a headless or pane job's run, and a detached run's working time and each gate's wait. |
+| `approvals` | `ask-on-write` | global, as a floor | A detached run's project config cannot be looser than this. Only `auto` here lets detached runs skip the spec gate. |
 
 An invalid `crew` section falls back to the defaults.
 
@@ -164,8 +173,9 @@ Agent CLIs started by Edu no longer inherit your whole environment. They get:
   `CODEX_*` for Codex.
 
 Anything else, such as `GITHUB_TOKEN`, `NPM_TOKEN` or `SSH_AUTH_SOCK`, must be listed in
-`crew.env.passthrough`. On Windows names match case-insensitively. Registered checks
-(`.edu/harness/checks.json`) still get the full environment: you wrote them.
+`crew.env.passthrough`. On Windows names match case-insensitively. Registered checks (in
+`.edu/harness/checks.json` and accepted with `edu checks accept`) and checks you approved in a spec
+still get the full environment: a person read the exact command.
 
 ## Unregistered checks need a person
 
@@ -175,11 +185,16 @@ A check the planner proposes that is not in `.edu/harness/checks.json` runs only
 - the run has `--allow-unregistered-checks`.
 
 `edu run --yes` and approvals from the host LLM do not run them. The run reports
-`Unregistered check(s) not run: …`. To run a check every time, register it:
+`Unregistered check(s) not run: …`. To run a check every time, register it and accept the set:
 
 ```bash
 edu checks add --id unit --req R1 --cmd "npm test"
+edu checks accept        # shows every command, asks; --yes in scripts
 ```
+
+A `.edu/harness/checks.json` that came with a repository counts as unregistered until you accept
+it on your machine. The acceptance is pinned to that exact set: any change makes it unregistered
+again. `edu checks list` says whether the current set is accepted.
 
 ## MCP never creates a brain
 
@@ -229,10 +244,35 @@ edu crew dispatch codex "migrate the test suite" --autonomy auto --timeout 180
 edu crew cancel <job-id>     # stop the whole process tree now; the job ends cancelled
 ```
 
-- Set the default with `crew.timeoutMinutes` (1 to 1440).
-- Pane jobs and `edu run` orchestrations are not stopped by it.
+- Set the default with `crew.timeoutMinutes` (1 to 1440) in the workspace or the global config.
+- A pane job past its limit is marked `failed` and its pane is closed, the next time Edu reads
+  its status (`edu crew status`, `edu watch`).
+- A detached run (`--detach`, `edu_orchestrate`) gets the limit twice: for its working time, which
+  does not count while a gate waits for a person, and for each gate's wait. Past either it ends
+  `failed` and says which.
+- The orchestrator's own `execution.timeoutMs` no longer counts time spent waiting at a gate.
 - `edu crew status` checks that each worker is alive. A worker that died is marked `failed`
   instead of staying `running`.
+
+## Detached runs follow the global policy
+
+A detached run has nobody watching it start, and its project config and playbooks can be written by
+an agent or come with a cloned repository. So:
+
+- it always stops at the spec gate, even with a playbook that skips spec approval, unless your
+  global config says `"approvals": "auto"`;
+- its project `approvals` cannot be looser than the global one (default `ask-on-write`);
+- every role is capped at the global `crew.maxAutonomy`, whatever the project or playbook asks.
+
+The dispatcher reads this policy from the global config and hands it to the worker; the worker never
+reads it from the workspace.
+
+## `edu crew` prints for people
+
+`edu crew dispatch`, `edu crew status` and `edu crew cancel` print a short view: one line per job,
+or one job with its open gate, request id and every command the gate would run. Scripts that read
+their JSON pass `--json` and get the same record as before. `edu crew result` and
+`edu crew approve|reject` still print JSON.
 
 ## Sync: conflict copies and legacy schedulers
 

@@ -73,7 +73,10 @@ servidor MCP, los hooks y el plugin anteriores hasta que se reinicia.
 | [Las verificaciones no registradas necesitan a una persona](#las-verificaciones-no-registradas-necesitan-a-una-persona) | `edu run --yes` en scripts | Registrar las verificaciones o pasar `--allow-unregistered-checks` |
 | [MCP nunca crea un cerebro](#mcp-nunca-crea-un-cerebro) | `edu_project_use` o raíces MCP que apuntan a una carpeta sin `.edu/` | Ejecutar antes `edu init` en esa carpeta |
 | [La autonomía significa lo mismo en cada CLI](#la-autonomía-significa-lo-mismo-en-cada-cli) | Trabajos headless de Codex o Pi con el `ask` por defecto; trabajos de solo lectura en OpenCode o agy | `--autonomy auto` para escribir; claude, codex o pi para solo lectura |
-| [Los trabajos del equipo tienen límite de tiempo](#los-trabajos-del-equipo-tienen-límite-de-tiempo) | Trabajos headless de más de una hora | `--timeout <minutos>` o `crew.timeoutMinutes` |
+| [Los trabajos del equipo tienen límite de tiempo](#los-trabajos-del-equipo-tienen-límite-de-tiempo) | Trabajos headless y en panel de más de una hora; ejecuciones separadas cuyas compuertas esperan más que eso | `--timeout <minutos>` o `crew.timeoutMinutes` |
+| [Las ejecuciones separadas siguen la política global](#las-ejecuciones-separadas-siguen-la-política-global) | Ejecuciones `--detach` y `edu_orchestrate` en proyectos con `approvals: auto` o un playbook sin aprobación de especificación; `edu crew dispatch --autonomy full` desde una terminal | Fijar `approvals` o `crew.maxAutonomy` en la configuración global |
+| [Las verificaciones de un repositorio hay que aceptarlas](#las-verificaciones-no-registradas-necesitan-a-una-persona) | Repositorios que traen `.edu/harness/checks.json`, ejecutados con `--yes` | Revisarlas y luego `edu checks accept` |
+| [`edu crew` imprime para personas](#edu-crew-imprime-para-personas) | Scripts que leen la salida de `edu crew dispatch`, `status` o `cancel` | Agregar `--json` |
 | [Scripts de pruebas](#scripts-de-pruebas-para-quienes-contribuyen) | Quien contribuye y la CI que ejecuta `npm test` | `npm run test:perf` o `npm run test:all` para los presupuestos de tiempo |
 
 ## Actualizaciones verificadas
@@ -114,7 +117,7 @@ Cada compuerta de aprobación recibe un `requestId` nuevo. Una decisión cuenta 
 compuerta abierta y se escribió después de que se abrió.
 
 ```bash
-edu crew status <job-id>                                # approval.requestId muestra la compuerta abierta
+edu crew status <job-id>                                # la compuerta abierta, su request id y sus comandos
 edu crew approve <job-id>                               # decide la compuerta abierta ahora
 edu crew approve <job-id> --request <request-id>        # se rechaza si ahora hay otra compuerta abierta
 edu crew reject <job-id> --request <request-id>
@@ -125,8 +128,13 @@ edu crew reject <job-id> --request <request-id>
   autoriza verificaciones no registradas.
 - `edu_orchestrate` ya no acepta `autoApprove`.
 - Los workers del equipo (con `EDU_CREW_JOB`) nunca pueden aprobar, ni por MCP, ni por la CLI, ni
-  con archivos de decisión. Los agentes que Edu inicia en un panel de herdr también son workers: sus
+  con archivos de decisión, y `edu crew dispatch`, `edu crew cancel` y `edu run --detach` se niegan
+  dentro de ellos. Los agentes que Edu inicia en un panel de herdr también son workers: sus
   herramientas de Edu solo leen.
+- La compuerta abierta y su decisión viven en su carpeta global (`~/.edu/.edu-local/approvals/`),
+  no en el espacio: un agente que puede escribir el espacio no puede falsificar una decisión ni
+  cambiar los comandos que muestra la compuerta. `by` registra quién dice ser el proceso que decide:
+  un proceso sin sandbox que corre como usted todavía puede actuar como usted.
 - Los archivos de decisión anteriores a 6.0 se ignoran.
 - `edu brain approve` necesita una terminal, o `--yes` en scripts, y se niega dentro de un worker.
 
@@ -150,9 +158,10 @@ Agregue la sección `crew` al archivo existente; conserve sus otras claves.
 
 | Clave | Por defecto | Se lee de | Efecto |
 |---|---|---|---|
-| `crew.maxAutonomy` | `auto` | solo la global | Autonomía máxima que una llamada MCP puede pedir en `edu_crew_dispatch`. `full` se rechaza hasta que usted la suba. `edu crew dispatch` desde una terminal no tiene este límite. |
+| `crew.maxAutonomy` | `auto` | solo la global | Autonomía máxima de un trabajo del equipo, desde `edu_crew_dispatch`, `edu crew dispatch` y cada rol de una ejecución separada. `full` se rechaza hasta que usted la suba. |
 | `crew.env.passthrough` | `[]` | solo la global | Nombres de variables adicionales que reciben las CLIs de agentes. |
-| `crew.timeoutMinutes` | `60` | la del espacio; si no, la global | Límite por defecto de los trabajos headless, de 1 a 1440. |
+| `crew.timeoutMinutes` | `60` | la del espacio; si no, la global | Límite por defecto de los trabajos del equipo, de 1 a 1440: la ejecución de un trabajo headless o en panel, y el tiempo de trabajo y la espera de cada compuerta de una ejecución separada. |
+| `approvals` | `ask-on-write` | la global, como piso | La configuración del proyecto de una ejecución separada no puede ser más laxa. Solo `auto` aquí deja que las ejecuciones separadas salten la compuerta de la especificación. |
 
 Una sección `crew` inválida vuelve a los valores por defecto.
 
@@ -169,7 +178,8 @@ Las CLIs que inicia Edu ya no heredan todo su entorno. Reciben:
 
 Cualquier otra, como `GITHUB_TOKEN`, `NPM_TOKEN` o `SSH_AUTH_SOCK`, debe estar en
 `crew.env.passthrough`. En Windows los nombres no distinguen mayúsculas. Las verificaciones
-registradas (`.edu/harness/checks.json`) siguen recibiendo todo el entorno: las escribió usted.
+registradas (en `.edu/harness/checks.json` y aceptadas con `edu checks accept`) y las que usted
+aprobó en una especificación siguen recibiendo todo el entorno: una persona leyó el comando exacto.
 
 ## Las verificaciones no registradas necesitan a una persona
 
@@ -180,11 +190,17 @@ cuando:
 - la ejecución lleva `--allow-unregistered-checks`.
 
 `edu run --yes` y las aprobaciones del LLM anfitrión no las ejecutan. La ejecución informa
-`Unregistered check(s) not run: …`. Para que una verificación corra siempre, regístrela:
+`Unregistered check(s) not run: …`. Para que una verificación corra siempre, regístrela y acepte
+el conjunto:
 
 ```bash
 edu checks add --id unit --req R1 --cmd "npm test"
+edu checks accept        # muestra cada comando y pregunta; --yes en scripts
 ```
+
+Un `.edu/harness/checks.json` que vino con un repositorio cuenta como no registrado hasta que usted
+lo acepta en su máquina. La aceptación queda fijada a ese conjunto exacto: cualquier cambio lo vuelve
+no registrado. `edu checks list` dice si el conjunto actual está aceptado.
 
 ## MCP nunca crea un cerebro
 
@@ -234,10 +250,36 @@ edu crew dispatch codex "migrate the test suite" --autonomy auto --timeout 180
 edu crew cancel <job-id>     # detiene ahora todo el árbol de procesos; el trabajo queda cancelled
 ```
 
-- Fije el valor por defecto con `crew.timeoutMinutes` (1 a 1440).
-- No detiene trabajos en panel ni orquestaciones de `edu run`.
+- Fije el valor por defecto con `crew.timeoutMinutes` (1 a 1440) en la configuración del espacio o
+  en la global.
+- Un trabajo en panel que pasa su límite queda `failed` y su panel se cierra, la próxima vez que Edu
+  lee su estado (`edu crew status`, `edu watch`).
+- Una ejecución separada (`--detach`, `edu_orchestrate`) recibe el límite dos veces: para su tiempo
+  de trabajo, que no corre mientras una compuerta espera a una persona, y para la espera de cada
+  compuerta. Si pasa cualquiera, termina `failed` y dice cuál.
+- El `execution.timeoutMs` del orquestador ya no cuenta el tiempo de espera en una compuerta.
 - `edu crew status` comprueba que cada worker siga vivo. Un worker que murió queda `failed` en vez
   de seguir `running`.
+
+## Las ejecuciones separadas siguen la política global
+
+Nadie mira cuando arranca una ejecución separada, y la configuración y los playbooks del proyecto
+los puede escribir un agente o venir con un repositorio clonado. Por eso:
+
+- siempre se detiene en la compuerta de la especificación, aunque el playbook omita esa aprobación,
+  salvo que su configuración global diga `"approvals": "auto"`;
+- el `approvals` del proyecto no puede ser más laxo que el global (por defecto `ask-on-write`);
+- cada rol queda limitado por el `crew.maxAutonomy` global, pida lo que pida el proyecto o el playbook.
+
+Quien lanza la ejecución lee esta política de la configuración global y se la entrega al worker; el
+worker nunca la lee del espacio.
+
+## `edu crew` imprime para personas
+
+`edu crew dispatch`, `edu crew status` y `edu crew cancel` imprimen una vista breve: una línea por
+trabajo, o un trabajo con su compuerta abierta, su request id y cada comando que ejecutaría. Los
+scripts que leen su JSON pasan `--json` y reciben el mismo registro que antes. `edu crew result` y
+`edu crew approve|reject` siguen imprimiendo JSON.
 
 ## Sync: copias de conflicto y programadores antiguos
 

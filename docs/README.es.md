@@ -202,11 +202,12 @@ edu crew cancel <job-id>                         # detiene todo su árbol de pro
 | `readonly` | leer y buscar |
 | `ask` (por defecto) | leer; escribir requiere a una persona, así que los trabajos headless de Claude, Codex y Pi no escriben |
 | `auto` | editar el espacio y ejecutar comandos |
-| `full` | hacer todo lo que la CLI permita sin preguntar; las llamadas MCP necesitan `crew.maxAutonomy: "full"` |
+| `full` | hacer todo lo que la CLI permita sin preguntar; requiere `crew.maxAutonomy: "full"` en la configuración global |
 
-Los trabajos headless se detienen a los 60 minutos: pase `--timeout <minutos>` (MCP:
-`timeoutMinutes` en `edu_crew_dispatch`) o configure `crew.timeoutMinutes`. Los trabajos en panel
-no tienen límite de tiempo. El trabajo de solo lectura va solo a CLIs que la hacen cumplir: claude,
+Los trabajos del equipo se detienen a los 60 minutos: pase `--timeout <minutos>` (MCP:
+`timeoutMinutes` en `edu_crew_dispatch`) o configure `crew.timeoutMinutes`. Un trabajo en panel que
+pasa su límite queda `failed` y su panel se cierra. `edu crew status` imprime una tabla (`--json`
+para scripts). El trabajo de solo lectura va solo a CLIs que la hacen cumplir: claude,
 codex y pi. En OpenCode, `auto` y `full` pasan `--auto`, que aprueba todo permiso que la
 configuración de OpenCode no niegue. Las opciones exactas por CLI están en la
 [guía de actualización](guides/upgrade-6.0.es.md#la-autonomía-significa-lo-mismo-en-cada-cli).
@@ -255,10 +256,17 @@ En Codex, pida "run this with edu" o "orquesta esto", o nombre la skill `edu-run
 Sin una terminal interactiva, `edu run` exige `--yes`; si no, la terminal le pide aprobar la
 especificación impresa antes de ejecutar.
 
-Las verificaciones que propone el planificador y no están registradas en
-`.edu/harness/checks.json` corren solo si usted aprueba la especificación que las lista. `--yes`
-aprueba por usted, así que esas verificaciones se omiten y se informan; regístrelas con
-`edu checks add` o pase `--allow-unregistered-checks`.
+Las verificaciones que propone el planificador y no están registradas corren solo si usted aprueba
+la especificación que las lista. `--yes` aprueba por usted, así que esas verificaciones se omiten y
+se informan; regístrelas con `edu checks add` y `edu checks accept`, o pase
+`--allow-unregistered-checks`. El `.edu/harness/checks.json` que trae un repositorio cuenta como
+registrado solo después de que usted lo revisa y ejecuta `edu checks accept` en su máquina; si
+cambia, hay que aceptarlo de nuevo.
+
+Una ejecución separada (`--detach`, `edu_orchestrate`) siempre se detiene en la compuerta de la
+especificación, y la configuración del proyecto no puede aflojar el `approvals` global ni subir
+`crew.maxAutonomy`. Su tiempo de trabajo y la espera de cada compuerta los limita
+`crew.timeoutMinutes`.
 
 Los clientes MCP pueden usar `edu_orchestrate` y `edu_crew_approve` para el mismo flujo.
 `edu_crew_approve` debe nombrar el `requestId` de la compuerta, y Edu lo registra como decisión del
@@ -271,13 +279,13 @@ Lo que Edu hace cumplir y cómo cambiarlo:
 | Área | Por defecto | Se cambia con |
 |---|---|---|
 | Instalaciones y actualizaciones | Solo paquetes que coinciden con el `SHA256SUMS` de la versión, descargados de las versiones de este repositorio en GitHub | `--allow-unverified`, solo para versiones anteriores a 6.0 |
-| Aprobaciones del equipo | Cada compuerta tiene un `requestId` y la decisión debe nombrarlo. Los workers del equipo, headless o en un panel de herdr, nunca aprueban. Cada decisión registra `cli`, `deck` o `host-llm` | `edu crew approve <id> --request <requestId>` |
+| Aprobaciones del equipo | Cada compuerta tiene un `requestId` y la decisión debe nombrarlo. Compuertas y decisiones viven en su carpeta global, fuera del espacio. Los workers del equipo, headless o en un panel de herdr, nunca aprueban, lanzan ni cancelan. Cada decisión registra `cli`, `deck` o `host-llm` | `edu crew approve <id> --request <requestId>` |
 | Notas canónicas | Solo una persona las acepta: `edu brain approve` necesita una terminal | `--yes` en scripts |
-| Autonomía desde MCP | Hasta `auto`; `full` se rechaza | `crew.maxAutonomy` en la configuración global |
+| Autonomía del equipo | Hasta `auto` desde MCP y desde la CLI; `full` se rechaza | `crew.maxAutonomy` en la configuración global |
 | Entorno de las CLIs de agentes | PATH, carpeta de usuario, idioma, terminal, proxy, temporales y las variables de autenticación de esa CLI | `crew.env.passthrough` en la configuración global |
-| Verificaciones que inventa el planificador | Corren solo después de que una persona aprueba la especificación que las lista | `edu checks add` o `--allow-unregistered-checks` |
+| Verificaciones que inventa el planificador, y el checks.json de un repositorio | Corren solo después de que una persona aprueba la especificación que las lista | `edu checks accept` (fijado por espacio hasta que checks.json cambie) o `--allow-unregistered-checks` |
 | Espacios desde MCP | Solo espacios registrados y carpetas con `.edu/`; MCP nunca crea un cerebro | `edu init` en la carpeta |
-| Roles de solo lectura | El planificador y el revisor corren solo en CLIs que hacen cumplir la solo lectura | — |
+| Roles de solo lectura | El planificador, el revisor y cada paso de solo lectura corren solo en CLIs que hacen cumplir la solo lectura | — |
 | Su configuración | Setup conserva los valores que usted definió; uninstall conserva lo editado después de instalar | — |
 
 La configuración global es `~/.edu/config.json` (o `$EDU_HOME/config.json`). El
