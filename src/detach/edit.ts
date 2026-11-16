@@ -2,6 +2,7 @@ import { applyEdits, findNodeAtLocation, modify, parse, parseTree, type ParseErr
 import type { FileKind, HostId } from '../adapters/host-files.js';
 import { ownerOf, SIGNATURES, type ToolId } from './signatures.js';
 import { jsoncFormatFor, serializeLike } from '../adapters/merge.js';
+import { scanTomlLines, type TomlLine } from '../adapters/toml.js';
 
 export interface EditResult { text: string; changes: string[] }
 const selected = (value: string, field: 'commands' | 'mcp' | 'plugins' | 'packages', tools: readonly ToolId[]) => {
@@ -193,53 +194,53 @@ function removedIndexes(before: unknown[], after: unknown[]): number[] | undefin
   return next === after.length ? removed : undefined;
 }
 
-function bracketDepth(text: string): number {
-  let depth = 0; let quote = ''; let escaped = false;
-  for (const c of text) {
-    if (escaped) { escaped = false; continue; }
-    if (quote && c === '\\') { escaped = true; continue; }
-    if (quote) { if (c === quote) quote = ''; continue; }
-    if (c === '"' || c === "'") { quote = c; continue; }
-    if (c === '#') break;
-    if (c === '[' || c === '{') depth++;
-    if (c === ']' || c === '}') depth--;
-  }
-  return depth;
+/** Tables (and keys) a tool owns in Codex config.toml: `mcp_servers.<id>`, `plugins.<id>`, `marketplaces.<id>`. */
+const TOML_OWNED: Readonly<Record<string, { field: 'mcp' | 'plugins'; label: string }>> = {
+  mcp_servers: { field: 'mcp', label: 'MCP' }, plugins: { field: 'plugins', label: 'plugin' }, marketplaces: { field: 'plugins', label: 'marketplace' },
+};
+
+/** The change to record when `path` names an entry of a selected tool, in any TOML spelling. */
+function ownedTomlEntry(path: readonly string[], tools: readonly ToolId[]): string | undefined {
+  const [root, id] = path;
+  const owned = root ? TOML_OWNED[root] : undefined;
+  return owned && id && selected(id, owned.field, tools) ? `${owned.label}: ${id}` : undefined;
+}
+
+/** A top-level key (Codex instruction files, `notify`) whose value points at a selected tool. */
+function ownedTopLevelKey(key: string, statement: string, tools: readonly ToolId[]): string | undefined {
+  const text = statement.toLowerCase();
+  const remove = tools.some(tool => SIGNATURES[tool].extras?.codexInstructionKeys?.includes(key) && text.includes(tool))
+    || (key === 'notify' && tools.some(tool => SIGNATURES[tool].commands.some(part => text.includes(part))));
+  return remove ? `config: ${key}` : undefined;
 }
 
 function tomlEdit(input: string, tools: readonly ToolId[]): EditResult {
-  const lines = input.match(/.*(?:\n|$)/g)?.filter(Boolean) ?? [];
-  const changes: string[] = [];
-  const output: string[] = [];
-  let section = ''; let dropSection = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const heading = /^\s*\[{1,2}(.+?)\]{1,2}\s*(?:#.*)?(?:\n)?$/.exec(line);
-    if (heading) {
-      section = heading[1]!.trim();
-      const plugin = /^plugins\.(?:"([^"]+)"|'([^']+)'|([^.]+))/.exec(section);
-      const mcp = /^mcp_servers\.(?:"([^"]+)"|'([^']+)'|([^.]+))/.exec(section);
-      const market = /^marketplaces\.(?:"([^"]+)"|'([^']+)'|([^.]+))/.exec(section);
-      const id = plugin?.[1] || plugin?.[2] || plugin?.[3] || mcp?.[1] || mcp?.[2] || mcp?.[3] || market?.[1] || market?.[2] || market?.[3];
-      dropSection = Boolean(id && selected(id, plugin || market ? 'plugins' : 'mcp', tools));
-      if (dropSection) changes.push(`${plugin ? 'plugin' : market ? 'marketplace' : 'MCP'}: ${id}`);
-    }
-    if (dropSection) continue;
-    if (!section) {
-      const key = /^\s*([\w-]+)\s*=\s*(.*?)(?:\n)?$/.exec(line);
-      if (key) {
-        const [statement] = key;
-        let end = i; let depth = bracketDepth(statement);
-        while (depth > 0 && end + 1 < lines.length) depth += bracketDepth(lines[++end]!);
-        const raw = lines.slice(i, end + 1).join('');
-        const remove = (tools.some((tool) => SIGNATURES[tool].extras?.codexInstructionKeys?.includes(key[1]!) && raw.toLowerCase().includes(tool)))
-          || (key[1] === 'notify' && tools.some((tool) => SIGNATURES[tool].commands.some((part) => raw.toLowerCase().includes(part))));
-        if (remove) { changes.push(`config: ${key[1]}`); i = end; continue; }
-      }
-    }
-    output.push(line);
+  // One statement per group: a header, a key with its multi-line value, or a blank/comment line.
+  const statements: TomlLine[][] = [];
+  for (const line of scanTomlLines(input)) {
+    if (line.continuation && statements.length) statements.at(-1)!.push(line);
+    else statements.push([line]);
   }
-  return { text: output.join(''), changes };
+  const changes: string[] = [];
+  let output = '';
+  let dropTable = false;
+  for (const statement of statements) {
+    const first = statement[0]!;
+    const text = statement.map(line => line.text + line.eol).join('');
+    if (first.header) {
+      const change = first.header.path && ownedTomlEntry(first.header.path, tools);
+      dropTable = Boolean(change);
+      if (change) changes.push(change);
+    }
+    if (dropTable) continue;
+    if (first.key) {
+      const change = ownedTomlEntry([...first.table, ...first.key], tools)
+        ?? (!first.table.length && first.key.length === 1 ? ownedTopLevelKey(first.key[0]!, text, tools) : undefined);
+      if (change) { changes.push(change); continue; }
+    }
+    output += text;
+  }
+  return { text: output, changes };
 }
 
 export function editContent(kind: FileKind, host: HostId, input: string, tools: readonly ToolId[]): EditResult {

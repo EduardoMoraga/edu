@@ -13,7 +13,8 @@ import { createOpenCodeIntegration } from './opencode.js';
 import { createAgyIntegration } from './agy.js';
 import { ensureParents, materialize, readTarget, sha256, FileTransaction, validateBundleAction } from './operations.js';
 import { managedBlock, managedBlockBody, removeManagedBlock, sectionDigest, upsertManagedBlock } from './blocks.js';
-import { containsPatch, EDU_MCP_TOML_PATH, mergeToml, parseJsonFile, resolveJsonPatch, tomlDefines, tomlSectionsDigest, unmergeJsonFile, unmergeToml, withoutTomlTable } from './merge.js';
+import { containsPatch, EDU_MCP_TOML_PATH, mergeToml, parseJsonFile, resolveJsonPatch, tomlSectionsDigest, unmergeJsonFile, unmergeToml } from './merge.js';
+import { tomlDefines, withoutTomlTable } from './toml.js';
 import { withInstallLock } from './install-lock.js';
 import type { InstallPlan, PlannedAction, RetiredAction } from './types.js';
 

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyInstall, getManifestPath, planInstall, uninstall } from './installer.js';
 import { packageTemplatesDir } from '../platform/package.js';
-import { tomlDefines, tomlKeys } from './merge.js';
+import { tomlDefines, tomlKeys } from './toml.js';
 import { upsertManagedBlock, removeManagedBlock } from './blocks.js';
 import { codexNotifyArgv } from './codex.js';
 

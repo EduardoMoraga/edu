@@ -37,6 +37,15 @@ describe('native plugin integrations', () => {
     expect((await nativeIntegrations(off)).codex.found).toEqual([]);
   });
 
+  it('reads the Codex plugin table in any TOML spelling, and not one inside a string', async () => {
+    const quoted = await home({ '.codex/config.toml': "[ plugins . 'edu@edu' ] # mine\r\nenabled = true\r\n" });
+    expect((await nativeIntegrations(quoted)).codex.found).toEqual(['Codex plugin edu@edu']);
+    const inline = await home({ '.codex/config.toml': '[plugins]\n"edu@edu" = { enabled = false }\n"edu@dev" = { enabled = true }\n' });
+    expect((await nativeIntegrations(inline)).codex.found).toEqual(['Codex plugin edu@dev']);
+    const text = await home({ '.codex/config.toml': 'doc = \'\'\'\n[plugins."edu@edu"]\n\'\'\'\n' });
+    expect((await nativeIntegrations(text)).codex.found).toEqual([]);
+  });
+
   it('recognizes the Pi package entry (relative path, npm) and flags a path that no longer exists', async () => {
     const h = await home({ '.pi/agent/settings.json': JSON.stringify({ packages: ['npm:pi-web-access', '../../tools/node_modules/edu-agent'] }) }, ['tools/node_modules/edu-agent']);
     expect((await nativeIntegrations(h)).pi.found).toEqual(['Pi package ../../tools/node_modules/edu-agent']);

@@ -39,6 +39,24 @@ describe('surgical detach edits', () => {
     expect(result).not.toContain('engram@engram');
     expect(result).not.toContain('[mcp_servers.engram]');
   });
+
+  it('finds owned tables in every TOML spelling and leaves look-alikes in strings alone (CRLF kept)', () => {
+    const input = [
+      'doc = """', '[mcp_servers.engram]', '"""',
+      "[ mcp_servers . 'engram' ]", 'command = "engram"',
+      "[[plugins.'engram@engram']]", 'enabled = true',
+      '[mcp_servers]', 'engram = { command = "engram" }', 'context7 = { command = "ctx" }',
+      '[other]', 'x = 1', '',
+    ].join('\r\n');
+    const { text, changes } = editContent('toml', 'codex', input, ['engram']);
+    expect(text).toBe(['doc = """', '[mcp_servers.engram]', '"""', '[mcp_servers]', 'context7 = { command = "ctx" }', '[other]', 'x = 1', ''].join('\r\n'));
+    expect(changes).toEqual(['MCP: engram', 'plugin: engram@engram', 'MCP: engram']);
+  });
+
+  it('removes a dotted top-level key for an owned server, with its multi-line value', () => {
+    const input = 'mcp_servers.engram.args = [\n  "serve",\n]\nmcp_servers.ctx.command = "ctx"\n';
+    expect(editContent('toml', 'codex', input, ['engram']).text).toBe('mcp_servers.ctx.command = "ctx"\n');
+  });
 });
 
 describe('instruction blocks with foreign markers inside', () => {
