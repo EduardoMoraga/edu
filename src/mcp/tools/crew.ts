@@ -14,13 +14,15 @@ export function registerCrewTools(ctx: ToolContext): void {
   const { register, env } = ctx;
 
   register('edu_crew_dispatch', 'Run a crew job on a coding CLI. mode pane: visible herdr pane, headless if herdr is unreachable', {
-    cli: cliIds, task: z.string().min(1), mode: z.enum(['headless', 'pane']).optional(), cwd: z.string().optional(), autonomy: autonomyLevels.optional(), maxTokens: tokenLimit,
-  }, async ({ cli, task, mode, cwd, autonomy: selectedAutonomy }) => {
+    cli: cliIds, task: z.string().min(1), mode: z.enum(['headless', 'pane']).optional(), cwd: z.string().optional(), autonomy: autonomyLevels.optional(),
+    timeoutMinutes: optionalInt(1, 1440, 'Stop a headless job after this many minutes (default: crew.timeoutMinutes, else 60)'),
+    maxTokens: tokenLimit,
+  }, async ({ cli, task, mode, cwd, autonomy: selectedAutonomy, timeoutMinutes }) => {
     // The ceiling comes from the global config only: a person raises it, never a workspace or the caller.
     const { maxAutonomy } = await loadCrewPolicy(eduHomeOf(env));
     const requested: Autonomy = selectedAutonomy ?? 'ask';
     if (!withinAutonomy(requested, maxAutonomy)) throw new Error(`Autonomy "${requested}" is above the crew ceiling "${maxAutonomy}". A person can raise crew.maxAutonomy in the global Edu config, or run edu crew dispatch from a terminal.`);
-    const job = await ctx.crew.dispatch({ cli, task, mode, cwd, autonomy: requested });
+    const job = await ctx.crew.dispatch({ cli, task, mode, cwd, autonomy: requested, ...(timeoutMinutes !== undefined ? { timeoutMinutes } : {}) });
     return JSON.stringify(job);
   });
 
@@ -45,4 +47,9 @@ export function registerCrewTools(ctx: ToolContext): void {
       pageBytes = Math.max(4, Math.floor(pageBytes / 2));
     }
   });
+
+  // Destructive, so a crew worker is refused before this runs (see TOOL_ANNOTATIONS): workers never stop other jobs.
+  register('edu_crew_cancel', 'Cancel a crew job: stop its worker (or close its pane) and mark it cancelled; a finished job is returned unchanged', {
+    jobId: z.string().min(1), maxTokens: tokenLimit,
+  }, async ({ jobId }) => JSON.stringify(await ctx.crew.cancel(jobId)));
 }

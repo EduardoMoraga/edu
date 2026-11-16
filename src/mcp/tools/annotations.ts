@@ -9,6 +9,8 @@ const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false 
 const BRAIN_WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const STARTS_AGENTS = { readOnlyHint: false, destructiveHint: true, openWorldHint: true } as const;
 const SWITCHES_WORKSPACE = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
+/** Stops a local worker (its process tree or herdr pane): its unfinished work is lost. */
+const STOPS_AGENT = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
 
 export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
   edu_brief: READ, edu_recall: READ, edu_read: READ, edu_capabilities: READ, edu_commitments: READ, edu_crew_status: READ, edu_crew_result: READ, edu_crew_artifact: READ,
@@ -20,4 +22,5 @@ export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
   edu_session_open: BRAIN_WRITE, edu_session_close: BRAIN_WRITE,
   edu_crew_dispatch: STARTS_AGENTS, edu_crew_review: STARTS_AGENTS,
   edu_orchestrate: STARTS_AGENTS, edu_crew_approve: STARTS_AGENTS,
+  edu_crew_cancel: STOPS_AGENT,
 };
