@@ -147,6 +147,16 @@ describe('detached orchestration', () => {
     expect((await worker).summary).toBe('spec rejected');
   });
 
+  it('hands one decision to exactly one taker, even when takers race and the file is read while being written', async () => {
+    const { crew, cwd } = await setup();
+    const job = await crew.orchestrate({ goal: 'Check the command', cwd });
+    const gate = await crew.store.openApproval(job.id, { title: 'Approve spec' });
+    await crew.approve(job.id, true, { by: 'cli', requestId: gate.approval!.requestId });
+    const takes = await Promise.all(Array.from({ length: 8 }, () => crew.store.takeDecision(job.id)));
+    expect(takes.filter(Boolean)).toEqual([{ approve: true, by: 'cli' }]);
+    expect((await crew.status(job.id) as typeof gate).status).toBe('running');
+  });
+
   it('refuses every approval from inside a crew worker', async () => {
     const { crew, cwd } = await setup();
     const job = await crew.orchestrate({ goal: 'Check the command', cwd });
