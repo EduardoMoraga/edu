@@ -5,7 +5,7 @@ All notable changes to Edu (`edu-agent`) are listed here. The format follows
 [Semantic Versioning](https://semver.org/). Entries before 6.0 are short summaries of the release
 commits and of each version's README.
 
-## [6.0.0] - Unreleased
+## [6.0.0] - 2026-11-16
 
 Upgrading from 5.x? Read [Upgrade to Edu 6.0](docs/guides/upgrade-6.0.md) first.
 
