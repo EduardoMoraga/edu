@@ -12,8 +12,12 @@ describe('edu crew cancel and timeout', () => {
     const store = createCrewStore(root);
     const job = await store.create({ cli: 'codex', task: 'Long task', mode: 'headless', cwd: captured.dirs.cwd, autonomy: 'ask' });
     await runCli(captured, ['crew', 'cancel', job.id.slice(0, 8)]);
-    expect(JSON.parse(out(captured))).toMatchObject({ id: job.id, status: 'cancelled' });
+    expect(out(captured)).toBe(`Cancelled ${job.id.slice(0, 8)}.`);
     expect((await store.get(job.id))?.status).toBe('cancelled');
+    // Scripts ask for the record.
+    captured.stdout.length = 0;
+    await runCli(captured, ['crew', 'cancel', job.id, '--json']);
+    expect(JSON.parse(out(captured))).toMatchObject({ id: job.id, status: 'cancelled' });
   });
 
   it('rejects a timeout that is not a whole number of minutes before creating a job', async () => {

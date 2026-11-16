@@ -7,6 +7,7 @@ import { isCrewWorker } from '../../crew/store.js';
 import { CREW_POLICY_ENV, decodeWorkerPolicy } from '../../workspace/config.js';
 import { globalHome, type CliContext } from '../context.js';
 import { action } from '../kit.js';
+import { cancelledView, dispatchedView, jobsView, jobView } from './crew-view.js';
 import { openWorkspace } from '../workspace.js';
 
 function parseCli(value: string): CliId {
@@ -19,13 +20,16 @@ export function registerCrew(program: Command, ctx: CliContext): void {
     const ws = await openWorkspace(ctx, cwd);
     return createCrew({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: cwd });
   };
+  /** People get a short view; `--json` keeps the job record for scripts (compact, one line, as before 6.0). */
+  const print = (json: boolean | undefined, value: unknown, view: () => string[]) => { ctx.out(json ? JSON.stringify(value) : view().join('\n')); };
   const root = program.command('crew').description('dispatch and inspect crew jobs');
   root.command('dispatch <cli> <task>')
     .description('dispatch a crew job')
     .option('--pane', 'dispatch into a visible Herdr pane when available')
     .option('--autonomy <level>', 'readonly, ask, auto, or full', 'ask')
-    .option('--timeout <minutes>', 'stop a headless job after this many minutes (default: crew.timeoutMinutes in config.json, else 60)')
-    .action(action<{ pane?: boolean; autonomy?: string; timeout?: string }>(ctx, async ({ g, opts }, cliArg, task) => {
+    .option('--timeout <minutes>', 'stop the job after this many minutes (default: crew.timeoutMinutes of the workspace, else of the global config, else 60)')
+    .option('--json', 'print the job record (for scripts)')
+    .action(action<{ pane?: boolean; autonomy?: string; timeout?: string; json?: boolean }>(ctx, async ({ g, opts }, cliArg, task) => {
       // Like its MCP tools, a crew worker never starts more agents.
       if (isCrewWorker(ctx.env)) throw new Error('A crew worker cannot dispatch crew jobs');
       const cli = parseCli(cliArg!);
@@ -33,19 +37,23 @@ export function registerCrew(program: Command, ctx: CliContext): void {
       if (!['readonly', 'ask', 'auto', 'full'].includes(autonomy ?? '')) throw new Error('Autonomy must be readonly, ask, auto, or full');
       const timeoutMinutes = opts.timeout === undefined ? undefined : Number(opts.timeout);
       const job = await (await crew(g.cwd)).dispatch({ cli, task: task!, mode: opts.pane ? 'pane' : 'headless', cwd: g.cwd, autonomy: autonomy as 'readonly' | 'ask' | 'auto' | 'full', timeoutMinutes });
-      ctx.out(JSON.stringify(job));
+      print(opts.json || g.json, job, () => dispatchedView(job));
     }));
   root.command('cancel <id>')
     .description('cancel a crew job: stop its worker (or close its pane) and mark it cancelled')
-    .action(action<Record<string, never>>(ctx, async ({ g }, id) => {
+    .option('--json', 'print the job record (for scripts)')
+    .action(action<{ json?: boolean }>(ctx, async ({ g, opts }, id) => {
       // Like its MCP tools, a crew worker never stops other jobs.
       if (isCrewWorker(ctx.env)) throw new Error('A crew worker cannot cancel crew jobs');
-      ctx.out(JSON.stringify(await (await crew(g.cwd)).cancel(id!)));
+      const job = await (await crew(g.cwd)).cancel(id!);
+      print(opts.json || g.json, job, () => cancelledView(job));
     }));
   root.command('status [id]')
-    .description('show crew jobs or one job')
-    .action(action<Record<string, never>>(ctx, async ({ g }, id) => {
-      ctx.out(JSON.stringify(await (await crew(g.cwd)).status(id)));
+    .description('show crew jobs, or one job with its open approval gate')
+    .option('--json', 'print the job records (for scripts)')
+    .action(action<{ json?: boolean }>(ctx, async ({ g, opts }, id) => {
+      const found = await (await crew(g.cwd)).status(id);
+      print(opts.json || g.json, found, () => Array.isArray(found) ? jobsView(found, Date.now()) : jobView(found, Date.now()));
     }));
   root.command('result <id>')
     .description('wait for a crew result')
