@@ -64,7 +64,12 @@ async function writeRegistry<T>(path: string, schema: z.ZodType<T>, value: T): P
   await atomicWrite(path, `${JSON.stringify(validated, null, 2)}\n`);
 }
 
-/** Executes a trusted, project-configured check through the platform shell. */
+/**
+ * Executes a trusted check through the platform shell: one a person registered in `.edu/harness/checks.json`,
+ * or a planner-proposed one a person approved (the orchestrator never passes any other; see run.ts).
+ * It keeps the full environment on purpose, unlike agent CLIs (platform/child-env.ts): a person wrote or
+ * approved the exact command, it is not an agent, and project test suites often need their credentials.
+ */
 export async function runCheck(check: DeterministicCheck, cwd: string, signal?: AbortSignal): Promise<CheckResult> {
   const started = Date.now();
   return new Promise((resolve, reject) => {
