@@ -102,10 +102,27 @@ describe('words', () => {
     expect(wordsFor('de')).toBe(WORDS.en);
     expect(Object.keys(WORDS)).toEqual(['en']);
     const source = await readFile(new URL('./deck-words.ts', import.meta.url), 'utf8');
-    expect(source).not.toMatch(/Agent Tree|agent-tree|MikeGT4\/agent-tree\/blob/);
+    // The licence header names the upstream project; the words below it never do.
+    const words = source.replace(/^(?:\/\/.*\n)+/, '');
+    expect(words).not.toMatch(/Agent Tree|agent-tree|MikeGT4/);
     expect(WORDS.en.commandHint).toMatch(/refresh/);
     expect(WORDS.en.stopAnswer(2)).toBe('Stopped by the user in Edu Deck after 2 tool calls.');
     expect(WORDS.en.correctionFrame('Use the cache', 'SubagentHandback')).toMatch(/^Message from the user via Edu Deck: Use the cache/);
+  });
+
+  it('every ported module names Agent Tree, its source and its licence, and the notice lists it', async () => {
+    const notice = await readFile(new URL('../../THIRD_PARTY_NOTICES.md', import.meta.url), 'utf8');
+    expect(notice).toMatch(/Source: https:\/\/github\.com\/MikeGT4\/agent-tree\n/);
+    expect(notice).toMatch(/Copyright \(c\) 2026 Mike Pollow, Digitalroots/);
+    for (const name of ['deck.tsx', 'deck-model.ts', 'deck-looks.ts', 'deck-view.tsx', 'deck-tabs.tsx', 'deck-words.ts', 'deck-state.d.ts']) {
+      const head = (await readFile(new URL(`./${name}`, import.meta.url), 'utf8')).split('\n').slice(0, 3).join('\n');
+      expect(head, name).toBe([
+        '// Edu Deck. Ported from Agent Tree 0.7.5 (https://github.com/MikeGT4/agent-tree, commit 2b5ab2d).',
+        '// Copyright (c) 2026 Mike Pollow, Digitalroots. MIT License, full text in THIRD_PARTY_NOTICES.md.',
+        '// Edu changes: Copyright (c) 2026 Eduardo Moraga. MIT License.',
+      ].join('\n'));
+      expect(notice, name).toContain(name === 'deck.tsx' ? 'templates/claude-mod/deck.tsx' : `\`${name}\``);
+    }
   });
 
   it('reads look commands in English', () => {

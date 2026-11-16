@@ -1,4 +1,4 @@
-// Edu Deck. Ported from Edu Deck 0.7.5 (https://github.com/MikeGT4/edu-deck, commit 2b5ab2d).
+// Edu Deck. Ported from Agent Tree 0.7.5 (https://github.com/MikeGT4/agent-tree, commit 2b5ab2d).
 // Copyright (c) 2026 Mike Pollow, Digitalroots. MIT License, full text in THIRD_PARTY_NOTICES.md.
 // Edu changes: Copyright (c) 2026 Eduardo Moraga. MIT License.
 import type { DeckCorrectionState, DeckLogEntry, DeckLogSource, DeckPhase, DeckStatus, DeckTab } from '../types'
