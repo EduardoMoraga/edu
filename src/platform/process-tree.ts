@@ -138,10 +138,20 @@ export interface ChildRegistryOptions {
   kill?: (child: TreeRoot, signal: NodeJS.Signals) => void;
   /** Grace between SIGTERM and SIGKILL when Edu itself stops on a signal. */
   graceMs?: number;
+  /** Blocks for `ms` (tests inject a no-op). */
+  pause?: (ms: number) => void;
+}
+
+/** A synchronous sleep: a stop signal must finish its kills before any other handler (or a re-raise) runs. */
+function pauseSync(ms: number): void {
+  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 export interface ChildRegistry {
-  /** Tracks a child until it exits; returns an untrack function. */
+  /**
+   * Tracks a child until its owner calls the returned untrack function. Not on `exit`: on POSIX the
+   * child's process group can outlive it, and a descendant that ignored SIGTERM still needs the SIGKILL.
+   */
   track(child: ChildProcess): () => void;
   readonly size: number;
 }
@@ -149,21 +159,21 @@ export interface ChildRegistry {
 /**
  * Remembers the process trees this Edu process owns and ends them when Edu is told to stop.
  *
- * On SIGINT/SIGTERM/SIGHUP every tracked tree gets SIGTERM. If the registry is the only listener, Node would
- * have exited, so after a short grace it force-kills what is left and exits with 128+signal. If another
- * listener shares the signal (`edu run` cancelling on Ctrl-C, Ink's terminal restore), the registry steps
- * aside after killing: it removes its own listeners, so that listener decides, and a library that only
- * re-raises the signal when it is alone (signal-exit) still does. On `exit`, whatever is still tracked is
- * force-killed. Listeners are installed only while something is tracked.
+ * On SIGINT/SIGTERM/SIGHUP every tracked tree gets SIGTERM, a short synchronous grace, then SIGKILL, all
+ * before any other handler runs: an owner that sees its CLI exit cannot untrack the group early, and a
+ * listener that re-raises the signal (Ink's signal-exit) cannot cut the escalation short. Then, if the
+ * registry is the only listener, it exits with 128+signal as Node would have; if another listener shares
+ * the signal (`edu run` cancelling on Ctrl-C), the registry removes its own listeners and leaves the rest
+ * to it. On `exit`, whatever is still tracked is force-killed. Listeners exist only while something is tracked.
  */
 export function createChildRegistry(options: ChildRegistryOptions = {}): ChildRegistry {
   const proc = options.proc ?? (process as unknown as ProcessHooks);
   const kill = options.kill ?? ((child: TreeRoot, signal: NodeJS.Signals) => killTreeSync(child, signal));
-  const graceMs = options.graceMs ?? 250;
+  const graceMs = options.graceMs ?? 200;
+  const pause = options.pause ?? pauseSync;
   const children = new Set<ChildProcess>();
   let signalsInstalled = false;
   let exitInstalled = false;
-  let stopping = false;
 
   const killAll = (signal: NodeJS.Signals) => {
     for (const child of children) {
@@ -178,22 +188,21 @@ export function createChildRegistry(options: ChildRegistryOptions = {}): ChildRe
   };
   for (const signal of STOP_SIGNALS) {
     handlers.set(signal, () => {
-      if (stopping) return;
       // Prepended, so this still counts one-shot listeners that run after it.
       const shared = proc.listenerCount(signal) > 1;
-      killAll('SIGTERM');
-      if (shared) { removeSignals(); return; }
-      stopping = true;
-      setTimeout(() => {
+      if (children.size) {
+        killAll('SIGTERM');
+        pause(graceMs);
         killAll('SIGKILL');
-        proc.exit(128 + (constants.signals[signal] ?? 1));
-      }, graceMs);
+      }
+      if (shared) removeSignals();
+      else proc.exit(128 + (constants.signals[signal] ?? 1));
     });
   }
   const onExit = () => killAll('SIGKILL');
 
   const install = () => {
-    if (!signalsInstalled && !stopping) {
+    if (!signalsInstalled) {
       signalsInstalled = true;
       for (const [signal, handler] of handlers) proc.prependListener(signal, handler);
     }
@@ -203,7 +212,6 @@ export function createChildRegistry(options: ChildRegistryOptions = {}): ChildRe
     }
   };
   const uninstall = () => {
-    if (stopping) return;
     removeSignals();
     if (exitInstalled) {
       exitInstalled = false;
@@ -216,12 +224,10 @@ export function createChildRegistry(options: ChildRegistryOptions = {}): ChildRe
       if (child.pid === undefined || exited(child)) return () => undefined;
       children.add(child);
       install();
-      const untrack = () => {
+      return () => {
         if (!children.delete(child)) return;
         if (!children.size) uninstall();
       };
-      child.once('exit', untrack);
-      return untrack;
     },
     get size() { return children.size; },
   };
@@ -229,7 +235,7 @@ export function createChildRegistry(options: ChildRegistryOptions = {}): ChildRe
 
 const defaultRegistry = createChildRegistry();
 
-/** Registers a child this process owns, so Edu ends its tree when it is stopped or exits. */
+/** Registers a child this process owns, so Edu ends its tree when it is stopped or exits. Untrack once its tree is gone. */
 export function trackChild(child: ChildProcess): () => void {
   return defaultRegistry.track(child);
 }

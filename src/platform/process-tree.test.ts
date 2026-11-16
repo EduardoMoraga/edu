@@ -87,20 +87,14 @@ function fakeChild(pid = 77): ChildProcess {
 }
 
 describe('child registry', () => {
-  it('ends tracked trees on SIGTERM and exits with 128+signal', async () => {
-    vi.useFakeTimers();
-    try {
-      const proc = new FakeProcess();
-      const kill = vi.fn();
-      const registry = createChildRegistry({ proc, kill, graceMs: 10 });
-      const child = fakeChild();
-      registry.track(child);
-      proc.emit('SIGTERM', 'SIGTERM');
-      expect(kill).toHaveBeenCalledWith(child, 'SIGTERM');
-      await vi.advanceTimersByTimeAsync(10);
-      expect(kill).toHaveBeenCalledWith(child, 'SIGKILL');
-      expect(proc.exit).toHaveBeenCalledWith(143);
-    } finally { vi.useRealTimers(); }
+  it('ends tracked trees on SIGTERM (terminate, grace, kill) and exits with 128+signal', () => {
+    const proc = new FakeProcess();
+    const steps: string[] = [];
+    const registry = createChildRegistry({ proc, graceMs: 10, kill: (_child, signal) => steps.push(signal), pause: ms => steps.push(`pause ${ms}`) });
+    registry.track(fakeChild());
+    proc.emit('SIGTERM', 'SIGTERM');
+    expect(steps).toEqual(['SIGTERM', 'pause 10', 'SIGKILL']);
+    expect(proc.exit).toHaveBeenCalledWith(143);
   });
 
   it('kills the trees, then leaves shutdown to another listener of the signal, even a one-shot one', () => {
@@ -108,12 +102,12 @@ describe('child registry', () => {
     const kill = vi.fn();
     const onSigint = vi.fn();
     proc.once('SIGINT', onSigint);
-    const registry = createChildRegistry({ proc, kill });
+    const registry = createChildRegistry({ proc, kill, pause: () => undefined });
     const child = fakeChild();
     registry.track(child);
     proc.emit('SIGINT', 'SIGINT');
     expect(onSigint).toHaveBeenCalled();
-    expect(kill).toHaveBeenCalledWith(child, 'SIGTERM');
+    expect(kill.mock.calls).toEqual([[child, 'SIGTERM'], [child, 'SIGKILL']]);
     expect(proc.exit).not.toHaveBeenCalled();
     expect(proc.listenerCount('SIGINT')).toBe(0);
     expect(proc.listenerCount('exit')).toBe(1);
@@ -125,10 +119,13 @@ describe('child registry', () => {
     // signal-exit (used by Ink) exits only when it is alone on the signal.
     const signalExit = () => { if (proc.listenerCount('SIGTERM') === 1) reraised(); };
     proc.on('SIGTERM', signalExit);
-    const registry = createChildRegistry({ proc, kill: vi.fn() });
+    const kill = vi.fn();
+    const registry = createChildRegistry({ proc, kill, pause: () => undefined });
     registry.track(fakeChild());
     proc.emit('SIGTERM', 'SIGTERM');
     expect(reraised).toHaveBeenCalled();
+    // The escalation already happened: the re-raise cannot cut it short.
+    expect(kill.mock.calls.map(call => call[1])).toEqual(['SIGTERM', 'SIGKILL']);
   });
 
   it('force-kills what is still tracked when the process exits', () => {
@@ -141,16 +138,17 @@ describe('child registry', () => {
     expect(kill).toHaveBeenCalledWith(child, 'SIGKILL');
   });
 
-  it('forgets children that exit and removes its listeners when nothing is tracked', () => {
+  it('keeps a child whose leader exited until its owner untracks it, then removes its listeners', () => {
     const proc = new FakeProcess();
     const registry = createChildRegistry({ proc, kill: vi.fn() });
     const first = fakeChild(1);
-    const second = fakeChild(2);
-    registry.track(first);
-    const untrackSecond = registry.track(second);
+    const untrackFirst = registry.track(first);
+    const untrackSecond = registry.track(fakeChild(2));
     expect(proc.listenerCount('SIGHUP')).toBe(1);
+    // The leader exited, but a descendant in its process group may not have.
     first.emit('exit', 0);
-    expect(registry.size).toBe(1);
+    expect(registry.size).toBe(2);
+    untrackFirst();
     untrackSecond();
     expect(registry.size).toBe(0);
     for (const event of ['SIGINT', 'SIGTERM', 'SIGHUP', 'exit']) expect(proc.listenerCount(event)).toBe(0);
@@ -164,6 +162,20 @@ describe('child registry', () => {
     expect(proc.listenerCount('SIGTERM')).toBe(0);
   });
 
+  it.runIf(posix)('still SIGKILLs a descendant that ignored SIGTERM after its parent exited', async () => {
+    const proc = new FakeProcess();
+    const registry = createChildRegistry({ proc, graceMs: 50 });
+    // The parent exits on SIGTERM; its grandchild in the same group ignores it. The pids are printed only
+    // once the grandchild has installed its handler, so the SIGTERM cannot beat Node's startup.
+    const script = `const c=require('node:child_process').spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});console.log("ready");setInterval(()=>{},1000)'],{stdio:['ignore','pipe','ignore']});c.stdout.once('data',()=>console.log(JSON.stringify([process.pid,c.pid])));setInterval(()=>{},1000);`;
+    const child = spawn(process.execPath, ['-e', script], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const pids = await new Promise<number[]>(resolve => child.stdout!.once('data', (chunk: Buffer) => resolve(JSON.parse(chunk.toString()) as number[])));
+    registry.track(child);
+    proc.emit('SIGTERM', 'SIGTERM');
+    expect(await gone(pids[0]!)).toBe(true);
+    expect(await gone(pids[1]!)).toBe(true);
+  });
+
   it.runIf(posix)('kills a real tracked tree when the owning process is terminated', async () => {
     const proc = new FakeProcess();
     const registry = createChildRegistry({ proc, graceMs: 0 });
@@ -171,6 +183,6 @@ describe('child registry', () => {
     registry.track(child);
     proc.emit('SIGTERM', 'SIGTERM');
     for (const pid of pids) expect(await gone(pid)).toBe(true);
-    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(143));
+    expect(proc.exit).toHaveBeenCalledWith(143);
   });
 });
