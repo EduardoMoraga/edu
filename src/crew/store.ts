@@ -148,31 +148,33 @@ export function createCrewStore(brainRoot: string): CrewStore {
       if (!found) throw new Error(`Crew job not found: ${id}`);
       await ensure();
       return withJobLock(lockPath(found.id), async () => {
-      const current = await this.get(found.id);
-      if (!current) throw new Error(`Crew job not found: ${id}`);
-      const patch = change(current);
-      if (!patch) return current;
-      if (patch.status && !isCrewJobStatus(patch.status)) throw new Error(`Invalid crew job status: ${patch.status}`);
-      // A finished job keeps its outcome: a late worker write cannot turn `cancelled` back into `failed`.
-      if (patch.status !== undefined && patch.status !== current.status && isTerminalCrewJobStatus(current.status)) return current;
-      const safePatch = { ...patch };
-      try {
-        if (isTerminalCrewJobStatus(patch.status)) await flushOutput(current.id);
-        if (typeof patch.summary === 'string') {
-          await artifacts.replace(current.id, 'summary', patch.summary);
-          safePatch.summary = boundedWorkerPreview(redactWorkerOutput(patch.summary), current.id);
+        const current = await this.get(found.id);
+        if (!current) throw new Error(`Crew job not found: ${id}`);
+        const patch = change(current);
+        if (!patch) return current;
+        if (patch.status && !isCrewJobStatus(patch.status)) throw new Error(`Invalid crew job status: ${patch.status}`);
+        // A finished job keeps its outcome: a late worker write cannot turn `cancelled` back into `failed`.
+        if (patch.status !== undefined && patch.status !== current.status && isTerminalCrewJobStatus(current.status)) return current;
+        const safePatch = { ...patch };
+        try {
+          if (isTerminalCrewJobStatus(patch.status)) await flushOutput(current.id);
+          if (typeof patch.summary === 'string') {
+            await artifacts.replace(current.id, 'summary', patch.summary);
+            safePatch.summary = boundedWorkerPreview(redactWorkerOutput(patch.summary), current.id);
+          }
+        } catch {
+          // Preserve terminal state even when the artifact directory is unavailable.
+          // Never put the raw summary into metadata as a fallback.
+          safePatch.summary = '[summary unavailable: artifact persistence failed]';
+          if (!isTerminalCrewJobStatus(current.status)) {
+            safePatch.status = 'failed';
+            safePatch.endedAt ??= new Date().toISOString();
+          }
         }
-      } catch {
-        // Preserve terminal state even when the artifact directory is unavailable.
-        // Never put the raw summary into metadata as a fallback.
-        safePatch.summary = '[summary unavailable: artifact persistence failed]';
-        safePatch.status = 'failed';
-        safePatch.endedAt ??= new Date().toISOString();
-      }
-      if (typeof patch.note === 'string') safePatch.note = redactWorkerOutput(patch.note);
-      const updated = { ...current, ...safePatch };
-      await atomicJson(metaPath(current.id), updated);
-      return updated;
+        if (typeof patch.note === 'string') safePatch.note = redactWorkerOutput(patch.note);
+        const updated = { ...current, ...safePatch };
+        await atomicJson(metaPath(current.id), updated);
+        return updated;
       });
     },
     async appendEvent(id, event) {
