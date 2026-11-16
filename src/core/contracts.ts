@@ -1,10 +1,10 @@
 /**
  * Edu shared contracts.
  *
- * Every module (brain, context, engine, orchestrator, mcp, adapters, tui, cli)
- * depends on these types and on nothing else from its siblings unless the
- * dependency is listed in docs/ARCHITECTURE.md. Changing a type here is a
- * cross-team decision owned by the lead.
+ * The core layer: every module may depend on these types and constants, and
+ * this file depends on nothing. Which modules may import each other is the
+ * layer table in docs/ARCHITECTURE.md §3 (enforced by a test). Changing a type
+ * here is a cross-team decision owned by the lead.
  */
 
 // ─── Second brain ────────────────────────────────────────────────────────────

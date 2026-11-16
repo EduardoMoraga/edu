@@ -55,13 +55,16 @@ production dependency.
 
 ```bash
 npm run typecheck
+npm run lint
 npm test -- --maxWorkers=2
 npm run build:plugins -- --check
 npm run build
 npm run smoke
 ```
 
-`npm run check` runs the typecheck, the tests and the build in one go. CI runs these on Ubuntu,
+`npm run check` runs the typecheck, the lint, the tests and the build in one go. The lint
+(`eslint.config.js`) is type-aware and looks only for bugs: unhandled promises, error handling that a
+returned promise skips, and core correctness rules. CI runs these on Ubuntu,
 macOS and Windows with Node 22, and the tests on Ubuntu with Node 24 and 26.
 
 ### Windows workstations
@@ -89,10 +92,12 @@ Both are generated and committed. Never edit them by hand.
 Edit `templates/`, then regenerate. Commit `dist/` and `plugins/` together with the source change
 that produced them.
 
-## Module ownership
+## Module boundaries
 
-Respect the module ownership table in `docs/ARCHITECTURE.md` §3. Keep changes inside the module or
-path family owned by your role, and coordinate with the lead before changing shared contracts.
+Respect the layer model and the allowed-dependency table in `docs/ARCHITECTURE.md` §3. The data lives
+in `src/test-support/architecture.ts`, and `src/test-support/architecture.test.ts` fails on a forbidden
+import, a module cycle or an import of `src/cli` from outside the CLI. When a new dependency is right,
+add it there and paste the rendered tables into the doc (the doc test says what changed).
 
 ## Commits
 

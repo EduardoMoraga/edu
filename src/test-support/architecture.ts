@@ -33,7 +33,7 @@ export interface ModuleSpec {
 export const MODULES: Readonly<Record<string, ModuleSpec>> = {
   core: { layer: 'core', purpose: 'Contracts: notes, events, config, engines, approvals, crew settings', mayImport: [] },
   platform: { layer: 'platform', purpose: 'Process launch and tree kill, child env, file locks, fs retries, package root, PATH lookup', mayImport: ['core'] },
-  identity: { layer: 'domain', purpose: 'Voice, banner, palette, glyphs and display-width helpers', mayImport: ['core'] },
+  identity: { layer: 'domain', purpose: 'Banner, theme, glyphs, statusline text and display-width formatting', mayImport: ['core'] },
   skills: { layer: 'domain', purpose: 'Skill bundles: validation, limits and portable paths', mayImport: ['core'] },
   engine: { layer: 'domain', purpose: 'One adapter per agent CLI: argv, autonomy flags, JSONL to EduEvent', mayImport: ['core', 'platform'] },
   brain: { layer: 'domain', purpose: 'The Markdown second brain: notes, recall, learning, lint, views, project registry', mayImport: ['core', 'platform'] },
@@ -61,7 +61,7 @@ export const MODULES: Readonly<Record<string, ModuleSpec>> = {
     layer: 'delivery', purpose: 'The `edu` command and host hooks',
     mayImport: ['adapters', 'bench', 'brain', 'chat', 'connect', 'context', 'core', 'crew', 'detach', 'doctor', 'engine', 'eval', 'evidence', 'experiment', 'identity', 'mcp', 'orchestrator', 'platform', 'reflect', 'release', 'setup', 'tui', 'update', 'vault', 'workspace'],
   },
-  index: { layer: 'delivery', purpose: 'Package entry (src/index.ts): contracts and createProgram', mayImport: ['cli', 'core'] },
+  index: { layer: 'delivery', purpose: 'Package entry: the contracts and createProgram', mayImport: ['cli', 'core'] },
 };
 
 /** The only modules that may import src/cli: the CLI itself and the package entry that re-exports createProgram. */
