@@ -99,8 +99,9 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
   // Only GitHub's release metadata is substituted. The actual OLD updater installs and verifies the new package,
   // runs its own published setup/migration order (0.10.2: setup first; RC: migration first).
   const fixture = join(temp, 'release-fixture.mjs');
+  // The release under test is whatever package.json declares; the candidate must report it after the update below.
   const nextVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
-  assert.equal(nextVersion, '5.0.1', 'This release gate must test the 5.0.1 release');
+  assert.match(nextVersion, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, 'package.json must declare a semver release version');
   await writeFile(fixture, `const original=globalThis.fetch; globalThis.fetch=async(url,opts)=>String(url).startsWith('https://api.github.com/repos/EduardoMoraga/edu/releases') ? new Response(JSON.stringify({tag_name:${JSON.stringify(`v${nextVersion}`)},name:'Local candidate fixture',body:'Local smoke only; not a published release.',assets:[{name:${JSON.stringify(`edu-agent-${nextVersion}.tgz`)},browser_download_url:${JSON.stringify(nextPackage)}}]}),{status:200,headers:{'content-type':'application/json'}}) : original(url,opts);`);
   const updateOutput = run(process.execPath, ['--import', pathToFileURL(fixture).href, entry, 'update', `v${nextVersion}`]);
   assert.equal(run(process.execPath, [entry, '--version']), nextVersion);

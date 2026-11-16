@@ -8,6 +8,7 @@ import { brainPath } from './location.js';
 import { atomicFs, atomicWrite, encodeNote, notePath, resetNoteCache } from './store.js';
 import { parseMarkdown } from './frontmatter.js';
 import { buildContext } from '../context/pack.js';
+import { expectWithinBudget } from '../test-support/perf.js';
 
 const dirs: string[] = [];
 async function temp() { const path = await mkdtemp(join(tmpdir(), 'edu-credit-')); dirs.push(path); return path; }
@@ -358,7 +359,7 @@ describe('core atomicity: aliased roots', () => {
     const started = Date.now();
     // One batch touches files whose roots are spelled differently but are the same directory.
     await Promise.all([both.recordUse([first.meta.id, second.meta.id]), both.feedback(second.meta.id, true, ev('x1')), openBrain([{ scope: 'project', root: real, brainDir: join(real, 'other-brain') }]).feedback(second.meta.id, true, ev('x2'))]);
-    expect(Date.now() - started).toBeLessThan(5000);
+    expectWithinBudget(Date.now() - started, 5000);
     // x2 went to the global file; x1 to the primary's shadow copy (isolation), neither lost.
     expect((await viaB.read(second.meta.id))!.meta.usage!.events).toContain('v:x2');
     expect((await both.read(second.meta.id))!.meta.usage!.events).toContain('v:x1');

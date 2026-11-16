@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { inspectExperiment, runExperiment } from './run.js';
+import { expectWithinBudget } from '../test-support/perf.js';
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -119,7 +120,7 @@ it.runIf(process.platform !== 'win32').each(['timeout', 'cancel'] as const)('set
   if (mode === 'cancel') setTimeout(() => controller.abort(), 100);
   const result = await running;
   const diagnostic = JSON.stringify({ platform: process.platform, mode, elapsedMs: Date.now() - started, arms: result.arms, evidencePath: result.evidencePath }, null, 2);
-  expect(Date.now() - started, diagnostic).toBeLessThan(1800);
+  expectWithinBudget(Date.now() - started, 1800, diagnostic);
   expect(result.arms.baseline.status, diagnostic).toBe(mode === 'cancel' ? 'cancelled' : 'timeout');
   expect(result.arms.candidate.status, diagnostic).toBe(mode === 'cancel' ? 'not-run' : 'ok');
   expect(JSON.parse(await readFile(result.evidencePath, 'utf8')).decision, diagnostic).toBe('inconclusive');
@@ -148,7 +149,7 @@ it.each(['timeout', 'cancel'] as const)('settles %s with a confirmed live parent
     const diagnostic = JSON.stringify({ platform: process.platform, mode, ready, elapsedMs: Date.now() - started, arms: result.arms, evidencePath: result.evidencePath }, null, 2);
     expect(ready, diagnostic).toBeDefined();
     expect(ready?.parent, diagnostic).toBeGreaterThan(0); expect(ready?.descendant, diagnostic).toBeGreaterThan(0);
-    expect(Date.now() - started, diagnostic).toBeLessThan(4000);
+    expectWithinBudget(Date.now() - started, 4000, diagnostic);
     expect(result.arms.baseline.stdout, diagnostic).toContain('descendant-ready');
     expect(result.arms.baseline.status, diagnostic).toBe(mode === 'cancel' ? 'cancelled' : 'timeout');
     expect(result.arms.candidate.status, diagnostic).toBe(mode === 'cancel' ? 'not-run' : 'ok');

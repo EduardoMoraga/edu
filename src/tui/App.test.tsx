@@ -5,14 +5,13 @@ import { ASCII_GLYPHS, UNICODE_GLYPHS, createTheme } from '../identity/index.js'
 import { App, type AppProps } from './App.js';
 import { demoEvents } from './demo.js';
 import { fixtureAt, oauthRun } from './fixtures.js';
+import { exited, press, type, until } from '../test-support/ink.js';
 
 const ANSI = /\u001B\[/;
 const plain = createTheme(0);
 
 const mount = (props: Partial<AppProps> = {}) =>
   render(<App events={oauthRun()} theme={plain} glyphs={UNICODE_GLYPHS} columns={100} rows={30} view="list" {...props} />);
-
-const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
 let instance: ReturnType<typeof render> | undefined;
 afterEach(() => {
@@ -74,61 +73,44 @@ describe('App: keyboard', () => {
   it('approves with y and hides the card', async () => {
     const onApprove = vi.fn();
     instance = mount({ onApprove });
-    await tick();
-    instance.stdin.write('d');
-    await tick();
+    await press(instance, 'd');
     expect(instance.lastFrame()).toContain('src/routes/callback.ts');
-    instance.stdin.write('y');
-    await tick();
+    await press(instance, 'y');
     expect(onApprove).toHaveBeenCalledWith('ap-1', true);
     expect(instance.lastFrame()).not.toContain('APPROVAL');
   });
   it('rejects with n', async () => {
     const onApprove = vi.fn();
     instance = mount({ onApprove });
-    await tick();
-    instance.stdin.write('n');
-    await tick();
+    await press(instance, 'n');
     expect(onApprove).toHaveBeenCalledWith('ap-1', false);
   });
   it('moves the selection with arrows', async () => {
     instance = mount();
-    await tick();
-    instance.stdin.write('\u001B[A'); // up: builder → explorer
-    await tick();
+    await press(instance, '\u001B[A'); // up: builder → explorer
     expect(instance.lastFrame()).toContain('🔍 explorer · done');
     expect(instance.lastFrame()).toContain('› Grep passport');
   });
   it('toggles help with ?', async () => {
     instance = mount();
-    await tick();
-    instance.stdin.write('?');
-    await tick();
+    await press(instance, '?');
     expect(instance.lastFrame()).toContain('KEYS');
     expect(instance.lastFrame()).toContain('cycle panes');
-    instance.stdin.write('x');
-    await tick();
+    await press(instance, 'x');
     expect(instance.lastFrame()).not.toContain('KEYS');
   });
   it('sends a composer message to the lead', async () => {
     const onSubmit = vi.fn();
     instance = mount({ onSubmit });
-    await tick();
-    for (const ch of 'ship it') {
-      instance.stdin.write(ch);
-      await tick(5);
-    }
+    await type(instance, 'ship it');
     expect(instance.lastFrame()).toContain('› ship it');
-    instance.stdin.write('\r');
-    await tick();
+    await press(instance, '\r');
     expect(onSubmit).toHaveBeenCalledWith('ship it');
   });
   it('cancels on the first ctrl+c', async () => {
     const onCancel = vi.fn();
     instance = mount({ onCancel });
-    await tick();
-    instance.stdin.write('\u0003');
-    await tick();
+    await press(instance, '\u0003');
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(instance.lastFrame()).toContain('cancelling…');
   });
@@ -180,14 +162,12 @@ describe('App: live stream', () => {
   it('consumes an async iterable and updates as events arrive', async () => {
     async function* stream(): AsyncGenerator<EduEvent> {
       yield { type: 'run.start', runId: 'r', goal: 'live goal', mode: 'solo', at: fixtureAt(0) };
-      await tick(10);
+      await new Promise((r) => setImmediate(r)); // the rest arrives on a later turn of the event loop
       yield { type: 'agent.spawn', agentId: 'a', role: 'builder', cli: 'codex', task: 'build', at: fixtureAt(1) };
       yield { type: 'agent.text', agentId: 'a', text: 'streaming now', at: fixtureAt(2) };
     }
     instance = mount({ events: stream() });
-    // Poll rather than sleep a fixed time: slow CI runners (Windows) render later.
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && !instance.lastFrame()?.includes('streaming now')) await tick(25);
+    await until(() => expect(instance!.lastFrame()).toContain('streaming now'));
     const frame = instance.lastFrame()!;
     expect(frame).toContain('"live goal"');
     expect(frame).toContain('streaming now');
@@ -199,8 +179,7 @@ describe('App: live stream', () => {
       throw new Error('pipe closed');
     }
     instance = mount({ events: broken() });
-    await tick(40);
-    expect(instance.lastFrame()).toContain('✗ event stream: pipe closed');
+    await until(() => expect(instance!.lastFrame()).toContain('✗ event stream: pipe closed'));
   });
 });
 
@@ -208,22 +187,18 @@ describe('App: home screen typing', () => {
   it('focuses the composer on mount so typing works without tab, and submits on enter', async () => {
     const onSubmit = vi.fn();
     instance = mount({ events: [], onSubmit });
-    await tick();
     expect(instance.lastFrame()).toContain('type what you want Edu to do');
-    instance.stdin.write('hola');
-    await tick();
+    await press(instance, 'hola');
     expect(instance.lastFrame()).toContain('hola');
-    instance.stdin.write('\r');
-    await tick();
+    await press(instance, '\r');
     expect(onSubmit).toHaveBeenCalledWith('hola');
   });
 
   it('quits on ctrl+c when nothing is running instead of waiting for a cancel', async () => {
     const onCancel = vi.fn();
     instance = mount({ events: [], onSubmit: () => {}, onCancel });
-    await tick();
     instance.stdin.write('\u0003');
-    await tick();
+    await exited(instance);
     expect(onCancel).not.toHaveBeenCalled();
   });
 });

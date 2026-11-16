@@ -67,6 +67,32 @@ describe('createProgram', () => {
     expect(text.indexOf('init')).toBeLessThan(text.indexOf('Work:'));
   });
 
+  it('puts every command in a named help group', async () => {
+    const c = await captureContext();
+    await runCli(c, ['--help']);
+    const text = out(c);
+    expect(text).not.toMatch(/^Commands:/m);
+    const section = (heading: string) => text.slice(text.indexOf(heading)).split(/\n\n/)[0]!;
+    expect(section('Get started:')).toMatch(/^ {2}setup\b/m);
+    expect(section('Get started:')).toMatch(/^ {2}help \[command\]/m);
+    for (const name of ['crew', 'watch']) expect(section('Work:')).toMatch(new RegExp(`^ {2}${name}\\b`, 'm'));
+  });
+
+  it.each([['brain'], ['crew'], ['eval']])('shows a command\'s help with `edu help %s`', async name => {
+    const c = await captureContext();
+    const exit = await runCli(c, ['help', name]);
+    expect(exit?.exitCode).toBe(0);
+    expect(out(c)).toContain(`Usage: edu ${name}`);
+    expect(c.stderr.join('\n')).not.toContain('unknown command');
+  });
+
+  it('shows the root help with `edu help`', async () => {
+    const c = await captureContext();
+    const exit = await runCli(c, ['help']);
+    expect(exit?.exitCode).toBe(0);
+    expect(out(c)).toContain('Usage: edu [options] [command]');
+  });
+
   it('prints help instead of the TUI when stdout is not a terminal', async () => {
     const c = await captureContext({ isTTY: false });
     const exit = await runCli(c, []);

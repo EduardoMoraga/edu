@@ -10,6 +10,7 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
+    "!dist/**/*.map",
     "templates",
     "!templates/**/*.test.ts",
     "!templates/**/*.test.tsx",
@@ -27,14 +28,17 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --project unit --project contracts",
+    "test:perf": "vitest run --project perf",
+    "test:all": "vitest run",
+    "test:coverage": "vitest run --coverage --testTimeout=60000 --project unit --project contracts",
     "build:plugins": "node --experimental-strip-types scripts/build-plugins.ts",
-    "test:watch": "vitest",
+    "test:watch": "vitest --project unit --project contracts",
     "test:deck": "node --experimental-strip-types scripts/test-claude-mod.mjs",
     "check": "npm run typecheck && npm test -- --maxWorkers=2 && npm run build",
     "prepack": "npm run build",
     "smoke": "bash scripts/smoke-install.sh",
-    "check:dist": "npm run build && git diff --exit-code -- dist"
+    "check:dist": "npm run build && node scripts/check-dist.mjs"
   },
   "keywords": [
     "agents",
@@ -81,6 +85,7 @@
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
+    "@vitest/coverage-v8": "^5.0.3",
     "ink-testing-library": "^4.0.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
