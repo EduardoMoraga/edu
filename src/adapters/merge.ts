@@ -33,6 +33,11 @@ function jsonStyle(text: string): JsonStyle {
   return { indent, eol: eolOf(text), finalNewline: /\n$/.test(text) };
 }
 
+/** `value` serialized in the layout `original` already has (indentation, line endings, final newline). */
+export function serializeLike(original: string, value: JsonRecord): string { return serialize(value, jsonStyle(original)); }
+/** jsonc-parser formatting options that match the layout `text` already has. */
+export function jsoncFormatFor(text: string) { return formatFor(text); }
+
 function serialize(value: JsonRecord, style: JsonStyle): string {
   return `${JSON.stringify(value, null, style.indent).replace(/\n/g, style.eol)}${style.finalNewline ? style.eol : ''}`;
 }

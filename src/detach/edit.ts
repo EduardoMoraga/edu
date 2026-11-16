@@ -1,6 +1,7 @@
 import { applyEdits, findNodeAtLocation, modify, parse, parseTree, type ParseError } from 'jsonc-parser';
 import type { FileKind, HostId } from '../doctor/hosts.js';
 import { ownerOf, SIGNATURES, type ToolId } from './signatures.js';
+import { jsoncFormatFor, serializeLike } from '../adapters/merge.js';
 
 export interface EditResult { text: string; changes: string[] }
 const selected = (value: string, field: 'commands' | 'mcp' | 'plugins' | 'packages', tools: readonly ToolId[]) => {
@@ -126,8 +127,10 @@ function jsonEdit(input: string, host: HostId, tools: readonly ToolId[], jsonc: 
   const changes: string[] = [];
   const result = editObject(value as Record<string, unknown>, host, tools, changes);
   if (!changes.length) return { text: input, changes };
-  if (!jsonc) return { text: `${JSON.stringify(result, null, 2)}\n`, changes };
+  // Edits keep the user's indentation and line endings.
+  if (!jsonc) return { text: serializeLike(input, result), changes };
   let text = input;
+  const format = jsoncFormatFor(input);
   // Applying leaf edits preserves JSONC comments and all unrelated whitespace.
   const before = value as Record<string, unknown>;
   for (const key of new Set([...Object.keys(before), ...Object.keys(result)])) {
@@ -147,10 +150,10 @@ function jsonEdit(input: string, host: HostId, tools: readonly ToolId[], jsonc: 
       const newMap = newValue as Record<string, unknown>;
       for (const child of new Set([...Object.keys(oldMap), ...Object.keys(newMap)])) {
         if (JSON.stringify(oldMap[child]) === JSON.stringify(newMap[child])) continue;
-        text = applyEdits(text, modify(text, [key, child], newMap[child], { formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' } }));
+        text = applyEdits(text, modify(text, [key, child], newMap[child], format));
       }
     } else {
-      text = applyEdits(text, modify(text, [key], newValue, { formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' } }));
+      text = applyEdits(text, modify(text, [key], newValue, format));
     }
   }
   return { text, changes };
