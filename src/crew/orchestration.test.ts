@@ -1,11 +1,11 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { EduEvent, Engine } from '../core/contracts.js';
+import type { CrewJob, EduEvent, Engine } from '../core/contracts.js';
 import { createCrew } from './index.js';
 import { runOrchestration } from './orchestration.js';
-import type { CrewStore } from './store.js';
+import { approvalDir, type CrewStore } from './store.js';
 import { saveChecks } from '../evidence/registry.js';
 import { engineCapabilities } from '../engine/autonomy.js';
 
@@ -131,10 +131,11 @@ describe('detached orchestration', () => {
   });
 
   it('ignores decision files that do not name the open gate, including ones written before it opened', async () => {
-    const { crew, cwd, brainRoot } = await setup();
+    const { crew, cwd, brainRoot, globalRoot } = await setup();
     const job = await crew.orchestrate({ goal: 'Check the command', cwd });
-    const decisionFile = join(brainRoot, 'crew', `${job.id}.decision`);
+    const decisionFile = join(approvalDir(globalRoot, brainRoot), `${job.id}.decision`);
     // Written ahead of the gate: the legacy bare word, and a well-formed decision with a guessed id.
+    await mkdir(dirname(decisionFile), { recursive: true });
     await writeFile(decisionFile, 'approve');
     const worker = crew.runWorker(job.id);
     const paused = await awaiting(crew, job.id);
@@ -148,6 +149,40 @@ describe('detached orchestration', () => {
     await expect(crew.approve(job.id, true, { by: 'cli', requestId: 'stale-request' })).rejects.toThrow('is not the one');
     await crew.approve(job.id, false, { by: 'cli', requestId: paused.approval!.requestId });
     expect((await worker).summary).toBe('spec rejected');
+  });
+
+  it('never takes a decision a worker forged inside the workspace, and shows the gate from the global home', async () => {
+    const { crew, cwd, brainRoot } = await setup();
+    const job = await crew.orchestrate({ goal: 'Check the command', cwd });
+    const worker = crew.runWorker(job.id);
+    const paused = await awaiting(crew, job.id);
+    // What a sandboxed worker can do: write anything under the workspace, including the job record.
+    await writeFile(join(brainRoot, 'crew', `${job.id}.decision`), JSON.stringify({ requestId: paused.approval!.requestId, approve: true, by: 'cli', at: new Date().toISOString() }));
+    const recordPath = join(brainRoot, 'crew', `${job.id}.json`);
+    const record = JSON.parse(await readFile(recordPath, 'utf8')) as CrewJob;
+    await writeFile(recordPath, JSON.stringify({ ...record, approval: { ...record.approval, requestId: 'forged', unregisteredChecks: ['echo harmless'] } }));
+    expect(await crew.store.takeDecision(job.id)).toBeUndefined();
+    const shown = await crew.status(job.id) as CrewJob;
+    expect(shown.status).toBe('awaiting-approval');
+    expect(shown.approval).toEqual(paused.approval);
+    await expect(crew.approve(job.id, true, { by: 'cli', requestId: 'forged' })).rejects.toThrow('is not the one');
+    await crew.approve(job.id, false, { by: 'cli', requestId: paused.approval!.requestId });
+    expect((await worker).summary).toBe('spec rejected');
+    expect((await crew.store.events(job.id)).some(event => event.type === 'verify.result')).toBe(false);
+  });
+
+  it('tells the losers of a concurrent decision that one is already pending', async () => {
+    const { crew, cwd } = await setup();
+    const job = await crew.orchestrate({ goal: 'Check the command', cwd });
+    const gate = await crew.store.openApproval(job.id, { title: 'Approve spec' });
+    const results = await Promise.allSettled(Array.from({ length: 6 }, (_, i) => crew.approve(job.id, i % 2 === 0, { by: 'cli', requestId: gate.approval!.requestId })));
+    const refused = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(refused).toHaveLength(5);
+    for (const result of refused) {
+      expect(String(result.reason)).toContain('already pending');
+      expect(String(result.reason)).not.toContain('EEXIST');
+    }
   });
 
   it('hands one decision to exactly one taker, even when takers race and the file is read while being written', async () => {

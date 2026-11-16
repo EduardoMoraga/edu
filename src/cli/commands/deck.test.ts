@@ -85,7 +85,7 @@ describe('edu deck', () => {
   it('exposes the open gate requestId (and the commands it would run) so the Deck can decide exactly that gate', async () => {
     const c = await captureContext();
     await mkdir(join(c.dirs.cwd, '.edu', 'brain'), { recursive: true });
-    const store = createCrewStore(join(c.dirs.cwd, '.edu'));
+    const store = createCrewStore(join(c.dirs.cwd, '.edu'), { globalRoot: c.dirs.eduHome });
     const job = await store.create({ cli: 'claude', task: 'Goal', goal: 'Goal', kind: 'orchestration', mode: 'headless', cwd: c.dirs.cwd, autonomy: 'auto' });
     const gated = await store.openApproval(job.id, { title: 'Approve spec', unregisteredChecks: ['npm test'] });
     await runCli(c, ['deck', '--json']);

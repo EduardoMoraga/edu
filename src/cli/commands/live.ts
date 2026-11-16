@@ -84,7 +84,9 @@ export function registerLive(program: Command, ctx: CliContext): void {
         }
         if (!text) throw new Error('a goal is required');
         if (opts.detach) {
-          const { createCrew } = await import('../../crew/index.js');
+          const [{ createCrew }, { isCrewWorker }] = await Promise.all([import('../../crew/index.js'), import('../../crew/store.js')]);
+          // A detached run is a crew job: a crew worker never starts one.
+          if (isCrewWorker(ctx.env)) throw new Error('A crew worker cannot start detached runs');
           const ws = await openWorkspace(ctx, g.cwd);
           const job = await createCrew({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
             goal: text, cwd: g.cwd, mode, cli, harnessLevel, playbook: opts.playbook, autoApprove: Boolean(opts.yes), allowUnregisteredChecks: Boolean(opts.allowUnregisteredChecks),

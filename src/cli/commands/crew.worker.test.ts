@@ -28,4 +28,24 @@ describe('edu crew worker and dispatch policy', () => {
     expect(err(captured)).toContain('crew.maxAutonomy');
     expect(await createCrewStore(join(captured.dirs.cwd, '.edu'), { globalRoot: captured.dirs.eduHome }).list()).toEqual([]);
   });
+
+  it('refuses dispatch, cancel and detached runs inside a crew worker', async () => {
+    const captured = await captureContext({ env: { EDU_CREW_JOB: 'worker-1' } });
+    const brainRoot = join(captured.dirs.cwd, '.edu');
+    await mkdir(brainRoot);
+    const store = createCrewStore(brainRoot, { globalRoot: captured.dirs.eduHome });
+    const job = await store.create({ cli: 'codex', task: 'Fix the test', mode: 'headless', cwd: captured.dirs.cwd, autonomy: 'ask' });
+    for (const [argv, refusal] of [
+      [['crew', 'dispatch', 'codex', 'More work'], 'cannot dispatch'],
+      [['crew', 'cancel', job.id], 'cannot cancel'],
+      [['run', 'More work', '--detach'], 'cannot start detached runs'],
+    ] as const) {
+      captured.stderr.length = 0;
+      captured.exitCode = undefined;
+      await runCli(captured, [...argv]);
+      expect(captured.exitCode, argv.join(' ')).toBe(1);
+      expect(err(captured)).toContain(refusal);
+    }
+    expect((await store.list()).map(entry => entry.status)).toEqual(['queued']);
+  });
 });
