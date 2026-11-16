@@ -59,7 +59,7 @@ function validTimeout(minutes: number | undefined): number | undefined {
 }
 
 /** True when the process at `pid` is the Edu worker for `jobId`, so a reused pid is never signalled. */
-function isWorkerOf(description: string | undefined, jobId: string, platform = process.platform): boolean {
+export function isWorkerOf(description: string | undefined, jobId: string, platform: NodeJS.Platform = process.platform): boolean {
   if (!description) return false;
   // Windows only reports the image name; the worker runs under Node.
   return platform === 'win32' ? /^node(?:\.exe)?$/i.test(description.trim()) : description.includes('crew') && description.includes(jobId);

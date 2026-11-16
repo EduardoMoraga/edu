@@ -8,7 +8,7 @@ import type { CliId, EduEvent, Engine } from '../core/contracts.js';
 import { engineCapabilities } from '../engine/autonomy.js';
 import { processAlive } from '../platform/process-tree.js';
 import type { HerdrRunner } from './herdr.js';
-import { createCrew } from './index.js';
+import { createCrew, isWorkerOf } from './index.js';
 import { CREW_JOB_STATUSES } from './status.js';
 import { createCrewStore } from './store.js';
 
@@ -186,6 +186,15 @@ describe('crew liveness and cancel', () => {
     expect(second.status).toBe('cancelled');
     expect(second.note).toContain('no longer this job\'s worker');
     expect(signals).toHaveLength(2);
+  });
+
+  it('recognises its worker by command line on POSIX and by Node image on Windows', () => {
+    const id = '0f1e2d3c-4b5a-4968-8776-655443322110';
+    expect(isWorkerOf(`/usr/bin/node /opt/edu/dist/cli.js crew worker ${id}`, id, 'linux')).toBe(true);
+    expect(isWorkerOf('/usr/bin/node /opt/edu/dist/cli.js crew worker another-job', id, 'darwin')).toBe(false);
+    expect(isWorkerOf(undefined, id, 'linux')).toBe(false);
+    expect(isWorkerOf('node.exe', id, 'win32')).toBe(true);
+    expect(isWorkerOf('notepad.exe', id, 'win32')).toBe(false);
   });
 
   it('cancels a pane job by closing its pane', async () => {

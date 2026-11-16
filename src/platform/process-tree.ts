@@ -51,12 +51,17 @@ export async function describeProcess(pid: number, platform: NodeJS.Platform = p
   const run = (command: string, args: string[]) => new Promise<string>(resolve => {
     execFile(command, args, { encoding: 'utf8', windowsHide: true, timeout: 5000 }, (error, stdout) => resolve(error ? '' : stdout));
   });
-  if (platform === 'win32') {
-    const row = (await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'])).trim();
-    const image = /^"([^"]+)","(\d+)"/.exec(row);
-    return image && Number(image[2]) === pid ? image[1] : undefined;
-  }
+  if (platform === 'win32') return imageFromTasklist(await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']), pid);
   return (await run('ps', ['-o', 'args=', '-p', String(pid)])).trim() || undefined;
+}
+
+/** The image name in `tasklist /FO CSV /NH` output for exactly `pid` ("INFO: No tasks…" means none). */
+export function imageFromTasklist(output: string, pid: number): string | undefined {
+  for (const row of output.split(/\r?\n/)) {
+    const match = /^"([^"]+)","(\d+)"/.exec(row.trim());
+    if (match && Number(match[2]) === pid) return match[1];
+  }
+  return undefined;
 }
 
 function exited(child: TreeRoot): boolean {

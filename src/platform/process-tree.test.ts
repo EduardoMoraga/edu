@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { createChildRegistry, killTree, killTreeSync, type ProcessHooks, type TreeRoot } from './process-tree.js';
+import { createChildRegistry, describeProcess, imageFromTasklist, killTree, killTreeSync, type ProcessHooks, type TreeRoot } from './process-tree.js';
 
 const posix = process.platform !== 'win32';
 
@@ -74,6 +74,19 @@ describe('killTree', () => {
     killTreeSync(fakeWindowsChild({ exitCode: 1 }), 'SIGKILL', 'win32', taskkill);
     expect(taskkill).toHaveBeenCalledTimes(1);
     expect(taskkill).toHaveBeenCalledWith(['/pid', '4242', '/t', '/f']);
+  });
+});
+
+describe('describeProcess', () => {
+  it('reads the image name for exactly the asked pid from tasklist CSV', () => {
+    const output = '"node.exe","4242","Console","1","52,120 K"\r\n"node.exe","42421","Console","1","1,000 K"\r\n';
+    expect(imageFromTasklist(output, 4242)).toBe('node.exe');
+    expect(imageFromTasklist(output, 424)).toBeUndefined();
+    expect(imageFromTasklist('INFO: No tasks are running which match the specified criteria.\r\n', 4242)).toBeUndefined();
+  });
+
+  it.runIf(posix)('returns the command line of a running process', async () => {
+    expect(await describeProcess(process.pid)).toContain(process.argv0.split('/').pop() ?? 'node');
   });
 });
 
