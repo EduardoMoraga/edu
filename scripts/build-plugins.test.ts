@@ -40,7 +40,8 @@ describe('buildPlugins', () => {
     expect(claude.version).toBe('2.3.4');
     expect(codex.version).toBe('2.3.4');
     expect(claudeMcp.edu).toEqual({ command: 'edu', args: ['mcp'] });
-    expect(codexMcp.mcpServers.edu).toEqual({ command: 'edu', args: ['mcp'] });
+    // Codex filters an MCP server's environment: a worker's server must still see EDU_CREW_JOB (worker mode).
+    expect(codexMcp.mcpServers.edu).toEqual({ command: 'edu', args: ['mcp'], env_vars: expect.arrayContaining(['EDU_CREW_JOB', 'EDU_HOME']) });
     expect(claudeHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start');
     expect(codexHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start --host codex');
     // Large imported brains on slow Windows disks need headroom: the hook timeout is in seconds.

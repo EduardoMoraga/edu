@@ -1,13 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
+import { ListToolsRequestSchema, RootsListChangedNotificationSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { NoteConflictError, autoMaintain, contentHash, openBrain } from '../brain/index.js';
 import { compileReportLines } from '../brain/compile.js';
 import { cleanTitle } from '../brain/clean-text.js';
 import { brief, estimateTokens, truncateToTokens } from '../context/index.js';
-import type { BrainLocation, ClaimBand, Note, NoteOrigin, Tier } from '../core/contracts.js';
+import type { Autonomy, BrainLocation, ClaimBand, Note, NoteOrigin, Tier } from '../core/contracts.js';
+import { brainPath, isInside } from '../brain/location.js';
+import { loadCrewPolicy, withinAutonomy } from '../orchestrator/config.js';
 import { createCrew, type CrewOptions } from '../crew/index.js';
 import { packageVersion } from '../cli/package.js';
 import { closeWithLessons, lessonsInput } from './session-learning.js';
@@ -55,6 +57,12 @@ function optionalInt(min: number, max?: number, description?: string) {
   return optional;
 }
 const tokenLimit = optionalInt(1);
+/** An optional number in [min, max]; out-of-range values reach the strict schema, which names the bound. */
+function optionalNumber(min: number, max: number, description: string) {
+  const strict = z.number().min(min).max(max).optional().describe(description);
+  published.set(strict, z.number().meta({ minimum: min, maximum: max }).optional().describe(description));
+  return strict;
+}
 /**
  * edu_recall `alt`: up to 3 more phrasings, fused with the query. The tool list is paid on every session, so the
  * published twin states the limit in its description instead of `maxItems` and per-item `minLength`.
@@ -96,11 +104,15 @@ const conflictText = (error: NoteConflictError) => `Note changed since you read 
 const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 const BRAIN_WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const STARTS_AGENTS = { readOnlyHint: false, destructiveHint: true, openWorldHint: true } as const;
+const SWITCHES_WORKSPACE = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
+/** edu_crew_result waits at most this long per call; poll again for longer jobs. */
+export const MAX_RESULT_WAIT_SECONDS = 600;
 export const TOOL_ANNOTATIONS: Record<string, { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean }> = {
   edu_brief: READ, edu_recall: READ, edu_read: READ, edu_capabilities: READ, edu_commitments: READ, edu_crew_status: READ, edu_crew_result: READ, edu_crew_artifact: READ,
   edu_projects: READ,
-  // Switching only changes which local brain this server process uses; nothing is written or deleted.
-  edu_project_use: BRAIN_WRITE,
+  // Switching writes nothing, but it replaces the brain this session writes to and the folder crew tools may
+  // work in (a non-additive change of the session's environment), so hosts should ask first.
+  edu_project_use: SWITCHES_WORKSPACE,
   edu_remember: BRAIN_WRITE, edu_feedback: BRAIN_WRITE, edu_propose_canonical: BRAIN_WRITE,
   edu_session_open: BRAIN_WRITE, edu_session_close: BRAIN_WRITE,
   edu_crew_dispatch: STARTS_AGENTS, edu_crew_review: STARTS_AGENTS,
@@ -116,32 +128,53 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   let crew = createCrew({ ...opts.crewOptions, locations: opts.crewOptions?.locations ?? opts.locations });
   let eduMdPath = opts.eduMdPath ?? join(opts.locations[0]!.root, 'EDU.md');
   let brainRoot = opts.locations[0]!.root;
+  let activeLocations = opts.locations;
   const env = opts.env ?? process.env;
   const workerProcess = Boolean(env.EDU_CREW_JOB?.trim() || env.ALBERT_CREW_JOB?.trim());
   // ~/.edu is the global brain even when found by walking up from a folder under HOME.
   const label = (locations: BrainLocation[]) => locations[0]!.scope === 'global' || resolve(locations[0]!.root) === eduHomeOf(env) ? 'global' : dirname(locations[0]!.root);
   let workspace = opts.workspace ?? label(opts.locations);
   let switched = false;
-  const use = (locations: BrainLocation[]) => {
-    brain = openBrain(locations);
-    crew = createCrew({ ...opts.crewOptions, locations });
-    eduMdPath = join(locations[0]!.root, 'EDU.md');
-    brainRoot = locations[0]!.root;
+  const use = (next: BrainLocation[]) => {
+    brain = openBrain(next);
+    crew = createCrew({ ...opts.crewOptions, locations: next });
+    eduMdPath = join(next[0]!.root, 'EDU.md');
+    brainRoot = next[0]!.root;
+    activeLocations = next;
   };
   let bound: Promise<void> | undefined;
   const bind = () => (bound ??= (async () => {
-    let locations: BrainLocation[] | undefined;
+    let rebound: BrainLocation[] | undefined;
     try {
-      locations = await opts.resolveLocations?.(server);
+      rebound = await opts.resolveLocations?.(server);
     } catch {
-      bound = undefined; // transient failure (e.g. roots/list not ready yet): retry on the next call
+      bound = undefined; // roots/list failed or reported no folder yet: ask again on the next call
       return;
     }
     // An explicit edu_project_use wins over the client's roots.
-    if (!locations?.length || switched) return;
-    use(locations);
-    workspace = label(locations);
+    if (!rebound?.length || switched) return;
+    use(rebound);
+    workspace = label(rebound);
   })());
+  // A client that changes its roots later (or reports them late) is read again on the next call.
+  server.server.setNotificationHandler(RootsListChangedNotificationSchema, () => { if (!switched) bound = undefined; });
+  /**
+   * Error text with paths under a brain shown relative to it (`.edu/…` for the project brain, `EDU_HOME/…`
+   * for the global one) and paths in the workspace relative to the workspace (`./…`): never absolute.
+   */
+  const relativePaths = (message: string) => {
+    const names = new Map<string, string>();
+    for (const location of activeLocations) {
+      names.set(location.root, location.scope === 'global' ? 'EDU_HOME' : '.edu');
+      if (location.scope === 'project') names.set(dirname(location.root), '.');
+    }
+    let text = message;
+    for (const [root, name] of [...names].sort((a, b) => b[0].length - a[0].length)) {
+      text = text.split(`${root}${sep}`).join(`${name}/`)
+        .replace(new RegExp(`${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s'"\`,;:)\\]])`, 'g'), name);
+    }
+    return text;
+  };
   const respond = async (maxTokens: number | undefined, operation: () => Promise<string>, jsonCapabilities = false) => {
     const limit = maxTokens ?? 800;
     try {
@@ -149,7 +182,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
       const text = await operation();
       return { content: [{ type: 'text' as const, text: jsonCapabilities ? text : truncateToTokens(text, limit) }] };
     } catch (error) {
-      const message = error instanceof NoteConflictError ? conflictText(error) : error instanceof Error ? error.message : String(error);
+      const message = relativePaths(error instanceof NoteConflictError ? conflictText(error) : error instanceof Error ? error.message : String(error));
       return { content: [{ type: 'text' as const, text: jsonCapabilities ? boundedCapabilities(JSON.stringify({ limitations: [`Error: ${message}`] }), SERVER_VERSION, profile, limit) : truncateToTokens(`Error: ${message}`, limit) }], isError: true };
     }
   };
@@ -200,6 +233,9 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     const note = await brain.read(claimed);
     return note?.meta.tier === 'episodic' && note.meta.kind === 'session' && note.meta.status === 'open-session' ? claimed : undefined;
   };
+  /** Every session id this server opened or reused; with the primary brain's own, the only ones it may close. */
+  const openedHere = new Set<string>();
+  const inPrimaryBrain = (note: Note) => isInside(brainPath(activeLocations[0]!), note.path);
   const clientAgent = () => agentOfClient(server.server.getClientVersion()?.name);
   const by = (): NoteOrigin => ({ agent: clientAgent(), session: currentSession });
 
@@ -295,10 +331,11 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     // Find-or-open is not atomic; serialize it per source+title across processes so concurrent opens share one session.
     return withHostLock(brainRoot, origin, `open:${title}`, async () => {
       const existing = (await brain.list({ kind: 'session', status: 'open-session' })).find(note => note.meta.source === origin && note.meta.title === title);
-      if (existing) { currentSession = existing.meta.id; return `Session id: ${existing.meta.id}\nReused ${line(existing)}`; }
+      if (existing) { currentSession = existing.meta.id; openedHere.add(existing.meta.id); return `Session id: ${existing.meta.id}\nReused ${line(existing)}`; }
       const agent = clientAgent();
       const note = await brain.openSession(title, origin, agent ? { agent } : undefined);
       currentSession = note.meta.id;
+      openedHere.add(note.meta.id);
       return `Session id: ${note.meta.id}\nOpened ${line(note)}`;
     });
   });
@@ -314,9 +351,9 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     // Read, compare and close under one lock per session id: concurrent identical closes write once.
     const text = await withHostLock(brainRoot, 'mcp-close', id, async () => {
       const current = await brain.read(id);
-      if (!current || current.meta.kind !== 'session') {
-        const open = await brain.list({ kind: 'session', status: 'open-session' });
-        throw new Error(`Session not found: ${id}. Close needs the exact id returned by edu_session_open. Open session ids: ${open.map(note => note.meta.id).join(', ') || 'none'}`);
+      // Only sessions this server opened or that live in its own brain; another workspace's session reads as unknown.
+      if (!current || current.meta.kind !== 'session' || !(openedHere.has(current.meta.id) || inPrimaryBrain(current))) {
+        throw new Error(`Session not found: ${id}. Close needs the exact id edu_session_open returned in this workspace.`);
       }
       if (source && current.meta.source !== source) throw new Error(`Session ${id} belongs to source ${current.meta.source ?? 'unknown'}, not ${source}; not closed`);
       if (lessons?.length) {
@@ -356,7 +393,8 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     workspace: z.string().min(1), maxTokens: tokenLimit,
   }, async ({ workspace: selector }) => {
     if (opts.workspaceLocked) throw new Error('The host owns this workspace. Change the host working directory and restart its Edu MCP server before switching brains.');
-    const selection = await selectWorkspace(selector, env);
+    // Registered workspaces or folders that already hold a brain; MCP never creates one.
+    const selection = await selectWorkspace(selector, env, process.cwd(), { create: false });
     use(selection.locations);
     switched = true;
     workspace = selection.root ?? 'global';
@@ -369,7 +407,11 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   register('edu_crew_dispatch', 'Run a crew job on a coding CLI. mode pane: visible herdr pane, headless if herdr is unreachable', {
     cli: cliIds, task: z.string().min(1), mode: z.enum(['headless', 'pane']).optional(), cwd: z.string().optional(), autonomy: autonomy.optional(), maxTokens: tokenLimit,
   }, async ({ cli, task, mode, cwd, autonomy: selectedAutonomy }) => {
-    const job = await crew.dispatch({ cli, task, mode, cwd, autonomy: selectedAutonomy });
+    // The ceiling comes from the global config only: a person raises it, never a workspace or the caller.
+    const { maxAutonomy } = await loadCrewPolicy(eduHomeOf(env));
+    const requested: Autonomy = selectedAutonomy ?? 'ask';
+    if (!withinAutonomy(requested, maxAutonomy)) throw new Error(`Autonomy "${requested}" is above the crew ceiling "${maxAutonomy}". A person can raise crew.maxAutonomy in the global Edu config, or run edu crew dispatch from a terminal.`);
+    const job = await crew.dispatch({ cli, task, mode, cwd, autonomy: requested });
     return JSON.stringify(job);
   });
 
@@ -378,7 +420,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   }, async ({ jobId }) => JSON.stringify(await crew.status(jobId)));
 
   register('edu_crew_result', 'Wait for and read a crew job result', {
-    jobId: z.string().min(1), waitSeconds: z.number().nonnegative().optional(), maxTokens: tokenLimit,
+    jobId: z.string().min(1), waitSeconds: optionalNumber(0, MAX_RESULT_WAIT_SECONDS, `Seconds to wait, at most ${MAX_RESULT_WAIT_SECONDS}`), maxTokens: tokenLimit,
   }, async ({ jobId, waitSeconds }) => JSON.stringify(await crew.result(jobId, waitSeconds ?? 0)));
 
   register('edu_crew_artifact', 'Page a crew job\'s sanitized output or summary; continue with nextOffset until null', {
@@ -396,22 +438,22 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   });
 
   register('edu_orchestrate', 'Start a detached orchestration (visible spec and crew job)', {
-    goal: z.string().min(1), playbook: z.string().optional(), mode: z.enum(['solo', 'crew']).optional(),
-    autoApprove: z.boolean().optional(), maxTokens: tokenLimit,
-  }, async ({ goal, playbook, mode, autoApprove }) => {
-    const job = await crew.orchestrate({ goal, playbook, mode, autoApprove });
+    goal: z.string().min(1), playbook: z.string().optional(), mode: z.enum(['solo', 'crew']).optional(), maxTokens: tokenLimit,
+  }, async ({ goal, playbook, mode }) => {
+    // No auto-approval from MCP: every gate waits for a decision naming its requestId.
+    const job = await crew.orchestrate({ goal, playbook, mode });
     const deadline = Date.now() + 60_000;
     let current = job;
     while (!current.specPath && !['done', 'failed', 'cancelled'].includes(current.status) && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 250));
       current = await crew.status(job.id) as typeof job;
     }
-    return JSON.stringify({ jobId: job.id, status: current.status, specPath: current.specPath, outcome: current.outcome, verificationSummary: current.verificationSummary });
+    return JSON.stringify({ jobId: job.id, status: current.status, specPath: current.specPath, ...(current.approval ? { requestId: current.approval.requestId } : {}), outcome: current.outcome, verificationSummary: current.verificationSummary });
   });
 
-  register('edu_crew_approve', 'Approve or reject a pending orchestration spec', {
-    jobId: z.string().min(1), approve: z.boolean(), maxTokens: tokenLimit,
-  }, async ({ jobId, approve }) => JSON.stringify(await crew.approve(jobId, approve)));
+  register('edu_crew_approve', 'Approve or reject the approval gate a crew job is waiting on (recorded as the host LLM\'s decision)', {
+    jobId: z.string().min(1), requestId: z.string().min(1).describe('The requestId of the open gate (edu_orchestrate or edu_crew_status)'), approve: z.boolean(), maxTokens: tokenLimit,
+  }, async ({ jobId, requestId, approve }) => JSON.stringify(await crew.approve(jobId, approve, { by: 'host-llm', requestId, env })));
 
   register('edu_crew_review', 'Read-only review by a different available CLI', {
     cli: cliIds.optional(), base: z.string().optional(), maxTokens: tokenLimit,

@@ -67,6 +67,8 @@ describe('eduFrom', () => {
     expect(eduFrom(snapshot({ scope: 'global' }), 1).scope).toBe('global');
     expect(eduFrom(snapshot({ scope: 'elsewhere' }), 1).scope).toBeUndefined();
     expect(edu.jobs[0]).toEqual({ id: 'abcd1234', cli: 'codex', task: 'Build the deck', status: 'awaiting-approval', mode: 'run', startedAt: 1000, tokens: 12, tokensKnown: true });
+    const gated = eduFrom(snapshot({ jobs: [{ id: 'abcd1234', status: 'awaiting-approval', requestId: '0f6c1a2e-1111-4222-8333-944455556666' }, { id: 'beef5678', status: 'awaiting-approval', requestId: '--yes' }] }), 5);
+    expect(gated.jobs.map(job => job.requestId)).toEqual(['0f6c1a2e-1111-4222-8333-944455556666', undefined]);
     expect(edu.jobs[1]?.endedAt).toBe(9000);
     expect(edu.recent).toEqual([{ title: 'A note', tier: 'transitive', at: 500 }]);
     expect(edu.session).toBeUndefined();
@@ -205,14 +207,16 @@ describe('crew verdicts', () => {
   it('only a job id or prefix ever reaches argv', () => {
     for (const id of ['abcd1234', 'abcd1234-ef56-7890', 'job_1']) expect(isJobRef(id)).toBe(true);
     for (const id of ['abc', '--help', '-x', 'a b', 'a;rm', '', 'x'.repeat(65), '../x']) expect(isJobRef(id)).toBe(false);
-    expect(verdictArgs('abcd1234', 'approve')).toEqual(['crew', 'approve', 'abcd1234']);
-    expect(verdictArgs('abcd1234', 'reject')).toEqual(['crew', 'reject', 'abcd1234']);
+    expect(verdictArgs('abcd1234', 'approve')).toEqual(['crew', 'approve', 'abcd1234', '--via', 'deck']);
+    expect(verdictArgs('abcd1234', 'reject', '0f6c1a2e-1111-4222-8333-944455556666')).toEqual(['crew', 'reject', 'abcd1234', '--via', 'deck', '--request=0f6c1a2e-1111-4222-8333-944455556666']);
+    // A requestId that could be an option or carry shell text never reaches argv.
+    for (const bad of ['--yes', 'a b', 'x;rm', '']) expect(verdictArgs('abcd1234', 'approve', bad)).toEqual(['crew', 'approve', 'abcd1234', '--via', 'deck']);
   });
 
   it('names the approval gate when the CLI reported one, as a single --option=value', () => {
-    expect(verdictArgs('abcd1234', 'approve', 'req_0123456789abcdef')).toEqual(['crew', 'approve', 'abcd1234', '--request-id=req_0123456789abcdef']);
-    expect(verdictArgs('abcd1234', 'reject', '-leading-dash-nonce')).toEqual(['crew', 'reject', 'abcd1234', '--request-id=-leading-dash-nonce']);
-    expect(verdictArgs('abcd1234', 'approve', 'x&calc&x')).toEqual(['crew', 'approve', 'abcd1234']);
+    expect(verdictArgs('abcd1234', 'approve', 'req_0123456789abcdef')).toEqual(['crew', 'approve', 'abcd1234', '--via', 'deck', '--request=req_0123456789abcdef']);
+    expect(verdictArgs('abcd1234', 'reject', '-leading-dash-nonce')).toEqual(['crew', 'reject', 'abcd1234', '--via', 'deck', '--request=-leading-dash-nonce']);
+    expect(verdictArgs('abcd1234', 'approve', 'x&calc&x')).toEqual(['crew', 'approve', 'abcd1234', '--via', 'deck']);
     for (const id of ['0123456789abcdef', '6f1c2a90-7d4e-4b8a-9c3d-0e5f6a7b8c9d', 'b64url_-AZaz09']) expect(isRequestId(id)).toBe(true);
     for (const id of ['short', 'a b c d e f', 'x"&calc&"', 'x%PATH%xx', 'x^&calc^x', 'x'.repeat(129)]) expect(isRequestId(id)).toBe(false);
   });
@@ -229,7 +233,7 @@ describe('arguments that reach edu (and cmd.exe through the npm shim on Windows)
 
   it('only plain words, options and --option=value pass the last check', () => {
     expect(plainArgv(['deck', '--json', '--session', 's1'])).toBe(true);
-    expect(plainArgv(['crew', 'approve', 'abcd1234', '--request-id=-a_b'])).toBe(true);
+    expect(plainArgv(['crew', 'approve', 'abcd1234', '--request=-a_b'])).toBe(true);
     for (const bad of ['a&b', 'a b', '"a"', 'a|b', 'a>b', '%PATH%', 'a^b', '!x!', '--x=a&b', '', '=x', '---x', 'a\nb']) expect(plainArgv(['deck', bad])).toBe(false);
   });
 });

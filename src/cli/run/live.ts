@@ -27,6 +27,8 @@ export interface LiveRunOptions {
   playbook?: string;
   cli?: CliId;
   autoApprove: boolean;
+  /** `--allow-unregistered-checks`: run planner-proposed checks without a person approving them. */
+  allowUnregisteredChecks?: boolean;
   name: string;
 }
 

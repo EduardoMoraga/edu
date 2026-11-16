@@ -5,4 +5,4 @@ export { orchestrate } from './run.js';
 export { loadPlaybook, applyPlaybookRoles, workerMethod } from './playbook.js';
 export type { Playbook, PlaybookLocations } from './playbook.js';
 export type { ContextProvider } from './types.js';
-export type { OrchestrateDeps, ApprovalRequest, RunResult, StepResult } from './run.js';
+export type { OrchestrateDeps, ApprovalAnswer, ApprovalRequest, RunResult, StepResult } from './run.js';

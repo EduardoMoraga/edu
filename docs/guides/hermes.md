@@ -65,8 +65,9 @@ Each workspace made with `edu create` has its own agent, for example "Albert". I
 
 - *"Which Edu workspaces do I have?"* calls `edu_projects`. It lists each workspace's name,
   agent and folder, and marks the active one.
-- *"Use albert"* calls `edu_project_use`. It accepts a workspace name, an agent name, a path,
-  or `global`. The switch lasts as long as the Hermes MCP session.
+- *"Use albert"* calls `edu_project_use`. It accepts a workspace name, an agent name, the path
+  of a folder that already has a `.edu` brain, or `global`; it never creates a brain. The switch
+  lasts as long as the Hermes MCP session.
 
 `edu mcp` picks its starting workspace in this order:
 

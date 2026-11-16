@@ -334,6 +334,6 @@ describe('Windows plugin localization', () => {
     const written = await localizePluginsForPlatform(root, 'win32', { installedOnly: false });
     expect(written).toHaveLength(2);
     expect(JSON.parse(await readFile(join(root, 'plugins/claude-code/.mcp.json'), 'utf8'))).toEqual({ edu: { command: 'cmd', args: ['/c', 'edu', 'mcp'] } });
-    expect(JSON.parse(await readFile(join(root, 'plugins/codex/.mcp.json'), 'utf8')).mcpServers.edu.command).toBe('cmd');
+    expect(JSON.parse(await readFile(join(root, 'plugins/codex/.mcp.json'), 'utf8')).mcpServers.edu).toMatchObject({ command: 'cmd', env_vars: expect.arrayContaining(['EDU_CREW_JOB']) });
   });
 });

@@ -205,6 +205,26 @@ export type Autonomy = 'readonly' | 'ask' | 'auto' | 'full';
 export type CrewJobStatus = 'queued' | 'running' | 'awaiting-approval' | 'done' | 'failed' | 'cancelled';
 export type CrewJobMode = 'headless' | 'pane';
 
+/**
+ * Who answered an approval gate. `policy`: an upstream `--yes`; `user`: a person at the in-process prompt
+ * (terminal or TUI); `cli` / `deck`: a person through `edu crew approve` or the Edu Deck; `host-llm`: the host
+ * agent through MCP. Only `user`, `cli` and `deck` are human decisions.
+ */
+export type ApprovalBy = 'policy' | 'user' | 'cli' | 'deck' | 'host-llm';
+/** The channels a crew decision file may name (`policy` and `user` never write decision files). */
+export type CrewDecisionBy = Extract<ApprovalBy, 'cli' | 'deck' | 'host-llm'>;
+export const HUMAN_APPROVERS: readonly ApprovalBy[] = ['user', 'cli', 'deck'];
+
+/** The approval gate a crew job is waiting on. A decision applies only when it names this `requestId`. */
+export interface CrewApproval {
+  /** Fresh random nonce per gate. */
+  requestId: string;
+  openedAt: string;
+  title: string;
+  /** Exact shell commands of unregistered checks this gate would authorize (human decisions only). */
+  unregisteredChecks?: string[];
+}
+
 /** A durable unit of work dispatched to one external coding CLI. */
 export interface CrewJob {
   id: string;
@@ -218,7 +238,12 @@ export interface CrewJob {
   playbook?: string;
   orchestrationMode?: OrchestrationMode;
   harnessLevel?: HarnessLevel;
+  /** Set only by a human CLI (`edu run --detach --yes`); never from MCP. */
   autoApprove?: boolean;
+  /** Set only by a human CLI (`--allow-unregistered-checks`): run planner-proposed checks without a human gate. */
+  allowUnregisteredChecks?: boolean;
+  /** Present while `status` is `awaiting-approval`. */
+  approval?: CrewApproval;
   outcome?: OutcomeLabel;
   specPath?: string;
   verificationSummary?: string;
@@ -308,8 +333,8 @@ export type EduEvent =
   | { type: 'usage'; agentId: string; usage: Usage; at: string }
   /** Context-window occupancy snapshot (not a delta), when the engine or Edu can measure it. */
   | { type: 'context.usage'; agentId?: string; usedTokens: number; windowTokens: number; at: string }
-  | { type: 'approval.request'; agentId: string; approvalId: string; title: string; detail: string; at: string }
-  | { type: 'approval.resolve'; approvalId: string; approved: boolean; by: 'user' | 'policy'; at: string }
+  | { type: 'approval.request'; agentId: string; approvalId: string; title: string; detail: string; unregisteredChecks?: string[]; at: string }
+  | { type: 'approval.resolve'; approvalId: string; approved: boolean; by: ApprovalBy; at: string }
   | { type: 'brain.recall'; agentId?: string; noteIds: string[]; at: string }
   | { type: 'brain.learn'; noteId: string; kind: TransitiveKind | 'canonical-proposal' | 'episode'; title: string; at: string }
   | { type: 'agent.end'; agentId: string; ok: boolean; summary: string; sessionId?: string; at: string }
@@ -385,6 +410,18 @@ export interface EduConfig {
   sourcesDir?: string;
   /** The workspace agent's identity (e.g. "Albert"), used by briefs and identity injection. */
   identity?: WorkspaceIdentity;
+  /**
+   * Crew safety settings. Read only from the global config (`EDU_HOME/config.json`), never from a project
+   * `.edu/config.json`, which an agent or a cloned repository can write.
+   */
+  crew?: CrewSettings;
+}
+
+export interface CrewSettings {
+  /** Highest autonomy an MCP caller may request for a crew job. Default `auto`; `full` needs a human to raise it. */
+  maxAutonomy?: Autonomy;
+  /** Extra environment variable names passed to agent CLIs on top of the built-in allowlist. */
+  env?: { passthrough?: string[] };
 }
 
 export interface WorkspaceIdentity { name: string; role?: string; tone?: string; summary?: string }

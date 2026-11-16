@@ -37,7 +37,8 @@ export async function createStdioServer(opts: StdioOptions = {}) {
   const workspaceLocked = env.EDU_LOCK_WORKSPACE === '1';
   const project = workspaceLocked ? undefined : opts.project?.trim() || env.EDU_PROJECT?.trim() || undefined;
   if (project) {
-    const selection = await selectWorkspace(project, env, cwd);
+    // A person named this workspace at launch, so it may be created here; MCP tools never create one.
+    const selection = await selectWorkspace(project, env, cwd, { create: true });
     return createEduMcpServer({
       locations: selection.locations, now: opts.now, env, workspace: selection.root ?? 'global',
       capabilities, toolProfile: profile,
@@ -62,7 +63,16 @@ export async function createStdioServer(opts: StdioOptions = {}) {
   });
 }
 
-/** Resolve the client's workspace and initialize its brain before exposing it to tool calls. */
+/** The client has not reported a workspace root yet; the server asks again on the next tool call. */
+export class RootsNotReady extends Error {
+  constructor() { super('MCP client roots are not available yet'); }
+}
+
+/**
+ * The brain for the client's workspace root (MCP roots). Roots come from the client, so they follow the
+ * same rule as edu_project_use: the brain that already holds that folder (its own `.edu/` or an enclosing
+ * workspace's), else the global brain. Nothing is created. Throws RootsNotReady while there is no file root.
+ */
 export async function resolveReboundLocations(
   cwd: string, env: NodeJS.ProcessEnv, listRoots: () => Promise<string[]>,
 ): Promise<BrainLocation[] | undefined> {
@@ -70,13 +80,10 @@ export async function resolveReboundLocations(
   try { roots = await listRoots(); }
   catch { roots = await listRoots(); }
   const uri = roots.find(root => root.startsWith('file://'));
-  if (!uri) return undefined;
+  if (!uri) throw new RootsNotReady();
   const dir = resolve(fileURLToPath(uri));
   if (dir === resolve(cwd)) return undefined;
-  const locations = await resolveBrainLocations(dir, env);
-  if (locations[0]?.scope !== 'project' && !locations.some(location => location.root === join(dir, '.edu'))) locations.unshift({ scope: 'project', root: join(dir, '.edu') });
-  await openBrain(locations).init(locations[0]!);
-  return locations;
+  return resolveBrainLocations(dir, env);
 }
 
 /** Some CLIs spawn MCP servers from their plugin folder; the inherited PWD still names the user's shell directory. */

@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { spawnCli } from '../platform/index.js';
+import { childEnv } from '../platform/child-env.js';
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
@@ -56,7 +57,7 @@ export async function* runJsonlProcess(
 ): AsyncIterable<EduEvent> {
   let child: ChildProcess;
   try {
-    child = spawnCli(spec.command, spec.args, { cwd, env: { ...process.env, EDU_CREW_JOB: agentId }, detached: process.platform !== 'win32', stdio: [spec.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+    child = spawnCli(spec.command, spec.args, { cwd, env: childEnv(spec.command, { EDU_CREW_JOB: agentId }), detached: process.platform !== 'win32', stdio: [spec.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     if (spec.stdin !== undefined) {
       child.stdin?.on('error', () => undefined); // a child that exits early must not crash Edu with EPIPE
       child.stdin?.end(spec.stdin);

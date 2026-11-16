@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { captureContext, out, runCli } from '../testkit.js';
 import { deckSnapshot } from './deck.js';
+import { createCrewStore } from '../../crew/store.js';
 
 async function fixture(root: string, path: string, content: string, at: number): Promise<void> {
   const target = join(root, '.edu', path);
@@ -79,6 +80,20 @@ describe('edu deck', () => {
     const nested = join(root, 'src', 'nested');
     await mkdir(nested, { recursive: true });
     expect((await deckSnapshot(nested)).project.root).toBe(root);
+  });
+
+  it('exposes the open gate requestId (and the commands it would run) so the Deck can decide exactly that gate', async () => {
+    const c = await captureContext();
+    await mkdir(join(c.dirs.cwd, '.edu', 'brain'), { recursive: true });
+    const store = createCrewStore(join(c.dirs.cwd, '.edu'));
+    const job = await store.create({ cli: 'claude', task: 'Goal', goal: 'Goal', kind: 'orchestration', mode: 'headless', cwd: c.dirs.cwd, autonomy: 'auto' });
+    const gated = await store.openApproval(job.id, { title: 'Approve spec', unregisteredChecks: ['npm test'] });
+    await runCli(c, ['deck', '--json']);
+    const [row] = JSON.parse(out(c)).jobs;
+    expect(row).toMatchObject({ id: job.id.slice(0, 8), status: 'awaiting-approval', requestId: gated.approval!.requestId, unregisteredChecks: ['npm test'] });
+    // Once the gate is decided the nonce is no longer published.
+    await store.update(job.id, { status: 'running', approval: undefined });
+    expect((await deckSnapshot(c.dirs.cwd, c.ctx.env)).jobs[0]).not.toHaveProperty('requestId');
   });
 
   it('skips malformed job JSON and unreadable note metadata', async () => {

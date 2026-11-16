@@ -195,7 +195,7 @@ export type DeckEduJob = {
   endedAt?: number
   tokens: number
   tokensKnown: boolean
-  /** The open approval gate's nonce while the job awaits approval (Edu 6.0); absent from older CLIs. */
+  /** The open approval gate's nonce while the job awaits approval (Edu 6.0; absent from older CLIs). The Deck passes it back to `edu crew approve|reject --request`. */
   requestId?: string
 }
 

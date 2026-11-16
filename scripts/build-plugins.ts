@@ -1,4 +1,5 @@
 import { assertContained, readSkillBundle, type SkillBundle } from '../src/skills/bundle.ts';
+import { codexMcpEntry } from '../src/platform/child-env.ts';
 import { access, readdir, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -69,7 +70,8 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   }));
   // Approval is driven by per-tool MCP annotations (src/mcp/server.ts): reads and local brain writes run,
   // tools that start other agents still ask. Never opt the whole server into auto-approval.
-  add('plugins/codex/.mcp.json', json({ mcpServers: { edu: mcp } }));
+  // Codex gives MCP servers a filtered environment: forward EDU_CREW_JOB (worker mode) and the brain settings.
+  add('plugins/codex/.mcp.json', json({ mcpServers: { edu: codexMcpEntry(mcp) } }));
   // `--host codex` attributes the session to Codex: its SessionStart `source` is a trigger, like Claude's.
   add('plugins/codex/hooks/hooks.json', json({ hooks: { SessionStart: [{ ...hook.hooks.SessionStart[0]!, hooks: [{ ...hook.hooks.SessionStart[0]!.hooks[0]!, command: 'edu hook session-start --host codex' }] }] } }));
   for (const skill of skills) if (!skill.metadata.hosts || skill.metadata.hosts.includes('codex')) {

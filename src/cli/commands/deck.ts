@@ -25,7 +25,11 @@ export interface DeckSnapshot {
   /** Last auto-maintenance stamp (promoted/retired from that run) and commitments currently overdue. */
   maintenance: { lastRun: number | null; promoted: number; retired: number; overdue: number };
   spec: { name: string; requirements: number; checks: number } | null;
-  jobs: Array<{ id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number; tokensKnown?: boolean }>;
+  /**
+   * `requestId`: only while the job is awaiting approval, the gate's nonce; `edu crew approve <id> --request
+   * <requestId>` decides exactly that gate. `unregisteredChecks`: the shell commands approving it would run.
+   */
+  jobs: Array<{ id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number; tokensKnown?: boolean; requestId?: string; unregisteredChecks?: string[] }>;
   approvals: number;
   recent: Array<{ title: string; tier: Tier; at: number }>;
   /**
@@ -103,6 +107,9 @@ async function crewJobs(root: string): Promise<DeckSnapshot['jobs']> {
       const usage = object(job.usage) ? job.usage : {};
       const started = Date.parse(string(job.createdAt));
       const ended = Date.parse(string(job.endedAt));
+      const gate = job.status === 'awaiting-approval' && object(job.approval) ? job.approval : undefined;
+      const requestId = gate ? string(gate.requestId) : '';
+      const checks = gate && Array.isArray(gate.unregisteredChecks) ? gate.unregisteredChecks.filter((item): item is string => typeof item === 'string') : [];
       return {
         id: string(job.id, file.name).slice(0, 8),
         cli: string(job.cli, '?'),
@@ -113,6 +120,8 @@ async function crewJobs(root: string): Promise<DeckSnapshot['jobs']> {
         endedAt: Number.isFinite(ended) ? ended : null,
         tokens: tokenMeasurement(usage as unknown as Usage).value,
         tokensKnown: tokenMeasurement(usage as unknown as Usage).known,
+        ...(requestId ? { requestId } : {}),
+        ...(checks.length ? { unregisteredChecks: checks } : {}),
       };
     } catch { return null; }
   }));

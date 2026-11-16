@@ -768,6 +768,7 @@ async function runVerdict($: EngineInterface): Promise<void> {
   await change($, t => confirmCleared(t))
   const w = wordsFor(lang).edu
   if (!isJobRef(ask.jobId)) return
+  // The gate the pane showed when the person pressed the button: the CLI refuses it if another gate opened since.
   const result = await runEdu($, verdictArgs(ask.jobId, ask.verdict, ask.requestId), 60_000).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
   if (isMissing(result)) {
     $.ui.toast(w.missing)

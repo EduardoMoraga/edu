@@ -230,11 +230,11 @@ export function isJobRef(id: string): boolean {
 
 /**
  * argv after `edu` for a crew verdict. With Edu 6.0 the verdict names the approval gate the person saw
- * (`requestId`), so a gate that reopened since is not decided by an older click; older CLIs report no
- * `requestId` and get none.
+ * (`requestId`, pinned when the button was pressed), so a gate that reopened since is not decided by an
+ * older click, and the CLI records the Deck as the channel. Older CLIs report no `requestId` and get none.
  */
 export function verdictArgs(jobId: string, verdict: 'approve' | 'reject', requestId?: string): string[] {
-  return ['crew', verdict, jobId, ...(requestId && isRequestId(requestId) ? [`--request-id=${requestId}`] : [])]
+  return ['crew', verdict, jobId, '--via', 'deck', ...(requestId && isRequestId(requestId) ? [`--request=${requestId}`] : [])]
 }
 
 export function totalNotes(brain: DeckEduBrain | undefined): number {
