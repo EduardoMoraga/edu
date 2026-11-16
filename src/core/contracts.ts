@@ -410,6 +410,18 @@ export interface EduConfig {
   sourcesDir?: string;
   /** The workspace agent's identity (e.g. "Albert"), used by briefs and identity injection. */
   identity?: WorkspaceIdentity;
+  /**
+   * Crew safety settings. Read only from the global config (`EDU_HOME/config.json`), never from a project
+   * `.edu/config.json`, which an agent or a cloned repository can write.
+   */
+  crew?: CrewSettings;
+}
+
+export interface CrewSettings {
+  /** Highest autonomy an MCP caller may request for a crew job. Default `auto`; `full` needs a human to raise it. */
+  maxAutonomy?: Autonomy;
+  /** Extra environment variable names passed to agent CLIs on top of the built-in allowlist. */
+  env?: { passthrough?: string[] };
 }
 
 export interface WorkspaceIdentity { name: string; role?: string; tone?: string; summary?: string }

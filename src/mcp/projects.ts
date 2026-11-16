@@ -34,12 +34,20 @@ const GLOBAL = new Set(['global', '~', 'edu-home']);
 const looksLikePath = (selector: string) => isAbsolute(selector) || selector.startsWith('.') || selector.startsWith('~/') || /[\\/]/.test(selector);
 
 export interface Selection { label: string; root: string | undefined; locations: BrainLocation[] }
+export interface SelectOptions {
+  /**
+   * Create the project brain when the folder has none. Only for workspaces a person named at launch
+   * (`edu mcp --project`, EDU_PROJECT, `edu connect --project`); MCP tools never create a brain.
+   */
+  create?: boolean;
+}
 
 /**
- * Resolves a selector to brain locations (project first, global last) and initializes the project
- * brain. Registry names and agent names match case-insensitively; an ambiguous agent name fails.
+ * Resolves a selector to brain locations (project first, global last). Registry names and agent names
+ * match case-insensitively; an ambiguous agent name fails. Without `create`, a path must already hold an
+ * `.edu/` brain and nothing is written; with it, a folder without one gets a new project brain.
  */
-export async function selectWorkspace(selector: string, env: NodeJS.ProcessEnv, cwd = process.cwd()): Promise<Selection> {
+export async function selectWorkspace(selector: string, env: NodeJS.ProcessEnv, cwd = process.cwd(), options: SelectOptions = {}): Promise<Selection> {
   const wanted = selector.trim();
   if (!wanted) throw new Error('Workspace selector must not be empty');
   const home = eduHomeOf(env);
@@ -51,6 +59,7 @@ export async function selectWorkspace(selector: string, env: NodeJS.ProcessEnv, 
   if (looksLikePath(wanted)) {
     const path = wanted.startsWith('~/') ? join(env.HOME || homedir(), wanted.slice(2)) : resolve(cwd, wanted);
     if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error(`Workspace folder not found: ${path}`);
+    if (!options.create && !isDirectory(join(path, '.edu'))) throw new Error(`Not an Edu workspace: ${path}. Pick a registered workspace (edu_projects) or a folder that already has a .edu brain; create one with \`edu init\` there.`);
     root = path;
   } else {
     const workspaces = await listWorkspaces(env);
@@ -68,8 +77,11 @@ export async function selectWorkspace(selector: string, env: NodeJS.ProcessEnv, 
     label = match.name;
   }
   const locations = await resolveBrainLocations(root, env);
+  if (!options.create) return { label, root: dirname(locations[0]!.root), locations };
   // A folder inside a workspace uses that workspace; a folder outside any gets its own brain.
   if (locations[0]?.scope !== 'project' && !locations.some(location => location.root === join(root, '.edu'))) locations.unshift({ scope: 'project', root: join(root, '.edu') });
   await openBrain(locations).init(locations[0]!);
   return { label, root: dirname(locations[0]!.root), locations };
 }
+
+const isDirectory = (path: string) => { try { return statSync(path).isDirectory(); } catch { return false; } };

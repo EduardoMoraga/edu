@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -56,11 +56,13 @@ describe('workspace selection', () => {
     await expect(selectWorkspace('bob', r.env)).rejects.toThrow('Unknown workspace "bob". Registered: albert-ops (Albert), notes (Edu)');
   });
 
-  it('selects HOME as one global brain and initializes a separate brain for an uninitialized child', async () => {
+  it('selects HOME as one global brain; only a launch-time selection creates a brain for an uninitialized folder', async () => {
     const r = await registry();
     expect((await selectWorkspace(r.base, r.env)).locations).toEqual([{ scope: 'global', root: r.eduHome }]);
     const child = join(r.base, 'new-project'); await mkdir(child);
-    const selected = await selectWorkspace(child, r.env);
+    await expect(selectWorkspace(child, r.env)).rejects.toThrow('Not an Edu workspace');
+    await expect(access(join(child, '.edu'))).rejects.toThrow();
+    const selected = await selectWorkspace(child, r.env, undefined, { create: true });
     expect(selected.locations).toEqual([
       { scope: 'project', root: join(child, '.edu') }, { scope: 'global', root: r.eduHome },
     ]);
@@ -105,8 +107,23 @@ describe('edu mcp --project and the project tools', () => {
     expect((await server.call('edu_projects')).text).toContain('Active: global');
   });
 
-  it('annotates the project tools: listing is a read, switching writes nothing destructive', () => {
+  it('annotates the project tools: listing is a read, switching replaces the session workspace so hosts ask', () => {
     expect(TOOL_ANNOTATIONS.edu_projects).toEqual({ readOnlyHint: true, destructiveHint: false, openWorldHint: false });
-    expect(TOOL_ANNOTATIONS.edu_project_use).toEqual({ readOnlyHint: false, destructiveHint: false, openWorldHint: false });
+    expect(TOOL_ANNOTATIONS.edu_project_use).toEqual({ readOnlyHint: false, destructiveHint: true, openWorldHint: false });
+  });
+
+  it('edu_project_use switches only to registered workspaces or folders that already hold a brain, and never creates one', async () => {
+    const r = await registry();
+    const server = await connect(await createStdioServer({ cwd: r.base, env: { ...r.env, EDU_PROJECT: 'albert' } }));
+    const stranger = join(r.base, 'stranger'); await mkdir(stranger);
+    const refused = await server.call('edu_project_use', { workspace: stranger });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain('Not an Edu workspace');
+    await expect(access(join(stranger, '.edu'))).rejects.toThrow();
+    expect((await server.call('edu_projects')).text).toContain('* albert-ops');
+    // An unregistered folder that already has a brain is allowed, read as it is.
+    const existing = join(r.base, 'existing'); await mkdir(join(existing, '.edu'), { recursive: true });
+    expect((await server.call('edu_project_use', { workspace: existing })).text).toContain(`brain ${join(existing, '.edu')}`);
+    await expect(access(join(existing, '.edu', 'EDU.md'))).rejects.toThrow();
   });
 });

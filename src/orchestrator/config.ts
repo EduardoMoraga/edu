@@ -1,10 +1,17 @@
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { z } from 'zod';
-import type { CliId, EduConfig, RoleSpec } from '../core/contracts.js';
+import type { Autonomy, CliId, EduConfig, RoleSpec } from '../core/contracts.js';
 import { atomicWrite } from '../brain/store.js';
 
 const CliSchema = z.enum(['claude', 'codex', 'pi', 'opencode', 'agy']);
 const RoleSchema = z.object({ id: z.string().min(1), title: z.string().min(1), icon: z.string().min(1), mission: z.string(), autonomy: z.enum(['readonly', 'ask', 'auto', 'full']), cli: CliSchema.optional(), model: z.string().optional() });
+const AutonomySchema = z.enum(['readonly', 'ask', 'auto', 'full']);
+const CrewSettingsSchema = z.object({
+  maxAutonomy: AutonomySchema.optional(),
+  env: z.object({ passthrough: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_()]*$/)).optional() }).strict().optional(),
+}).strict();
+
 export const EduConfigSchema = z.object({
   version: z.literal(1), mode: z.enum(['solo', 'crew']), defaultCli: CliSchema,
   playbook: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/i).default('default'),
@@ -24,7 +31,31 @@ export const EduConfigSchema = z.object({
   brain: z.object({ obsidianVault: z.string().optional() }), lang: z.enum(['en', 'es']),
   brainDir: z.string().min(1).optional(), sourcesDir: z.string().min(1).optional(),
   identity: z.object({ name: z.string().min(1), role: z.string().optional(), tone: z.string().optional(), summary: z.string().optional() }).optional(),
+  crew: CrewSettingsSchema.optional(),
 });
+
+export interface CrewPolicy { maxAutonomy: Autonomy; passthrough: string[] }
+const AUTONOMY_RANK: Record<Autonomy, number> = { readonly: 0, ask: 1, auto: 2, full: 3 };
+
+/** Whether `requested` stays within `ceiling` (readonly < ask < auto < full). */
+export function withinAutonomy(requested: Autonomy, ceiling: Autonomy): boolean {
+  return AUTONOMY_RANK[requested] <= AUTONOMY_RANK[ceiling];
+}
+
+/**
+ * Crew safety settings from the global config (`<eduHome>/config.json`) only. A project config lives inside
+ * the workspace, where agents and cloned repositories can write, so it can never raise them. A missing file
+ * means the defaults; an unreadable or invalid `crew` section fails closed to the defaults.
+ */
+export async function loadCrewPolicy(eduHome: string): Promise<CrewPolicy> {
+  const defaults: CrewPolicy = { maxAutonomy: 'auto', passthrough: [] };
+  let raw: unknown;
+  try { raw = JSON.parse(await readFile(join(eduHome, 'config.json'), 'utf8')); }
+  catch { return defaults; }
+  const parsed = CrewSettingsSchema.safeParse(raw && typeof raw === 'object' ? (raw as { crew?: unknown }).crew ?? {} : {});
+  if (!parsed.success) return defaults;
+  return { maxAutonomy: parsed.data.maxAutonomy ?? defaults.maxAutonomy, passthrough: parsed.data.env?.passthrough ?? [] };
+}
 
 export function defaultConfig(defaultCli: CliId): EduConfig {
   const roles: RoleSpec[] = [

@@ -188,7 +188,7 @@ async function connected(location: { scope: 'project'; root: string }, extra: Pa
 }
 
 describe('session id recovery', () => {
-  it('advertises the id first and never closes another session for an unknown id', async () => {
+  it('advertises the id first, never closes another session for an unknown id, and never lists open ids', async () => {
     const root = await mkdtemp(join(tmpdir(), 'edu-session-recovery-'));
     roots.push(root);
     const location = { scope: 'project' as const, root };
@@ -206,14 +206,15 @@ describe('session id recovery', () => {
       expect(text.startsWith(`Session id: ${id}`)).toBe(true);
       const wrong = await client.callTool({ name: 'edu_session_close', arguments: { id: 'wrong', summary: 'Finished.' } });
       expect(wrong.isError).toBe(true);
-      expect(wrong.content.find(item => item.type === 'text')?.text).toContain(id);
+      expect(wrong.content.find(item => item.type === 'text')?.text).toContain('exact id edu_session_open returned');
+      expect(wrong.content.find(item => item.type === 'text')?.text).not.toContain(id);
       expect((await brain.read(id))?.meta.status).toBe('open-session');
       const closed = await client.callTool({ name: 'edu_session_close', arguments: { id, summary: 'Finished.' } });
       expect(closed.isError).not.toBe(true);
       expect((await brain.read(id))?.meta.status).toBe('closed');
       const empty = await client.callTool({ name: 'edu_session_close', arguments: { id: 'missing', summary: 'Again.' } });
       expect(empty.isError).toBe(true);
-      expect(empty.content.find(item => item.type === 'text')?.text).toContain('Open session ids: none');
+      expect(empty.content.find(item => item.type === 'text')?.text).toContain('Session not found: missing');
     } finally { await client.close(); await server.close(); }
   });
 
