@@ -1,5 +1,8 @@
 # Install and upgrade Edu 2.1
 
+> This guide is for Edu 2.1. For the current release, see [Upgrade to Edu 6.0](upgrade-6.0.md) and
+> [Git installs](../../CONTRIBUTING.md#git-installs).
+
 Edu 2.1 keeps existing brains, identities, notes, custom skills and brain pointers. It adds explicit usage completeness, declared skill bundles and optional trusted-command experiments. Experiments do not run during installation or upgrade.
 
 ## Install from a source checkout
