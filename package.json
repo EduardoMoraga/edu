@@ -10,6 +10,7 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
+    "!dist/**/*.map",
     "templates",
     "!templates/**/*.test.ts",
     "!templates/**/*.test.tsx",
@@ -37,7 +38,7 @@
     "check": "npm run typecheck && npm test -- --maxWorkers=2 && npm run build",
     "prepack": "npm run build",
     "smoke": "bash scripts/smoke-install.sh",
-    "check:dist": "npm run build && git diff --exit-code -- dist"
+    "check:dist": "npm run build && node scripts/check-dist.mjs"
   },
   "keywords": [
     "agents",
