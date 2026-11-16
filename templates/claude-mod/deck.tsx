@@ -10,6 +10,7 @@ import type { LookRow } from './deck-looks.ts'
 import {
   EDU_TICK_MS,
   EDU_TIMEOUT_MS,
+  approvable,
   errorText,
   eduArgs,
   eduDue,
@@ -744,8 +745,13 @@ function watchEdu($: EngineInterface): void {
 async function askCrew($: EngineInterface, jobId: string, verdict: 'approve' | 'reject'): Promise<void> {
   if (!isJobRef(jobId)) return
   const shown = await read($, eduData).catch(() => undefined)
-  const requestId = shown?.jobs.find(job => job.id === jobId)?.requestId
-  await change($, t => confirmAsked(t, jobId, verdict, requestId))
+  const job = shown?.jobs.find(item => item.id === jobId)
+  // Approving runs the gate's unregistered checks in the shell: never from the pane unless all of them were on screen.
+  if (verdict === 'approve' && job && !approvable(job)) {
+    if (job.checksCut) $.ui.toast(`Edu: ${wordsFor(lang).edu.checksCut(jobId)}`)
+    return
+  }
+  await change($, t => confirmAsked(t, jobId, verdict, job?.requestId))
 }
 
 /**

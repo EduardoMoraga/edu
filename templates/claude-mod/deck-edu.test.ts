@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CHECK_LIMIT,
+  CHECKS_KEPT,
   EDU_ACTIVE_MS,
   EDU_BACKOFF_MAX_MS,
   EDU_IDLE_MS,
@@ -8,6 +10,7 @@ import {
   TASK_LIMIT,
   activeJobs,
   ago,
+  approvable,
   eduArgs,
   eduDue,
   eduFailed,
@@ -120,6 +123,53 @@ describe('eduFrom', () => {
       expect(eduFrom(snapshot({ jobs: [{ ...job, requestId }] }), 1).jobs[0]).not.toHaveProperty('requestId');
     }
     expect(eduFrom(snapshot(), 1).jobs[0]).not.toHaveProperty('requestId');
+  });
+
+  it('reads the unregistered checks a gate would run, only while it awaits approval', () => {
+    const job = { id: 'abcd1234', status: 'awaiting-approval', requestId: 'req_0123456789abcdef' };
+    const gated = eduFrom(snapshot({ jobs: [{ ...job, unregisteredChecks: ['npm run lint:strict', 'pytest -q'] }] }), 1).jobs[0]!;
+    expect(gated.unregisteredChecks).toEqual(['npm run lint:strict', 'pytest -q']);
+    expect(approvable(gated)).toBe(true);
+    expect(eduFrom(snapshot({ jobs: [{ ...job, status: 'running', unregisteredChecks: ['make'] }] }), 1).jobs[0]).not.toHaveProperty('unregisteredChecks');
+    for (const unregisteredChecks of [undefined, [], 'make', null]) {
+      const plain = eduFrom(snapshot({ jobs: [{ ...job, unregisteredChecks }] }), 1).jobs[0]!;
+      expect(plain).not.toHaveProperty('unregisteredChecks');
+      expect(approvable(plain)).toBe(true);
+    }
+    expect(approvable(eduFrom(snapshot(), 1).jobs[1]!)).toBe(false);
+  });
+
+  it('shows hidden characters in a check instead of dropping them, so a command cannot hide a second one', () => {
+    const c = (code: number) => String.fromCodePoint(code);
+    const checks = ['rm -rf build\nmake', `echo ok${c(0x202e)}${c(0x07)}`, `a${c(0x200b)}b\tc`, `x${c(0x2028)}y${c(0x2066)}z`, 'npm test'];
+    const shown = eduFrom(snapshot({ jobs: [{ id: 'abcd1234', status: 'awaiting-approval', unregisteredChecks: checks }] }), 1).jobs[0]!.unregisteredChecks;
+    expect(shown).toEqual(['rm -rf build⟨U+000A⟩make', 'echo ok⟨U+202E⟩⟨U+0007⟩', 'a⟨U+200B⟩b⟨U+0009⟩c', 'x⟨U+2028⟩y⟨U+2066⟩z', 'npm test']);
+  });
+
+  it('marks checks it cannot show in full, and then offers no approval from the pane', () => {
+    const at = (unregisteredChecks: unknown[]) => eduFrom(snapshot({ jobs: [{ id: 'abcd1234', status: 'awaiting-approval', unregisteredChecks }] }), 1).jobs[0]!;
+    const many = at(Array.from({ length: CHECKS_KEPT + 1 }, (_, i) => `check ${i}`));
+    expect(many.unregisteredChecks).toHaveLength(CHECKS_KEPT);
+    expect(many.checksCut).toBe(true);
+    expect(approvable(many)).toBe(false);
+    const long = at(['x'.repeat(CHECK_LIMIT + 1)]);
+    expect(long.unregisteredChecks?.[0]).toBe(`${'x'.repeat(CHECK_LIMIT)}…`);
+    expect(long.checksCut).toBe(true);
+    const odd = at(['make', 7]);
+    expect(odd.unregisteredChecks).toEqual(['make']);
+    expect(odd.checksCut).toBe(true);
+    const fits = at(['y'.repeat(CHECK_LIMIT)]);
+    expect(fits).not.toHaveProperty('checksCut');
+    expect(approvable(fits)).toBe(true);
+  });
+
+  it('says what approving runs before the person decides', () => {
+    expect(words.confirmApprove('abcd1234', 0)).toBe('Approve crew run abcd1234? It starts other agents.');
+    expect(words.confirmApprove('abcd1234', 1)).toBe('Approve crew run abcd1234? It starts other agents and runs the command above in your shell.');
+    expect(words.confirmApprove('abcd1234', 2)).toBe('Approve crew run abcd1234? It starts other agents and runs the 2 commands above in your shell.');
+    expect(words.checksWarning(1)).toMatch(/^Approving runs this command in your shell\./);
+    expect(words.checksWarning(3)).toMatch(/^Approving runs these 3 commands in your shell\./);
+    expect(words.checksCut('abcd1234')).toContain('edu crew status abcd1234');
   });
 
   it('reads a cancelled job as finished, not active', () => {
