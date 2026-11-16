@@ -1,12 +1,14 @@
 /**
- * `edu update`: compare the running version with a GitHub release and, when asked, install it with the
- * npm that belongs to the running Node, verify it, run the NEW binary's `setup --yes` and its workspace
- * migration hook. Network and processes are injected (`UpdateDeps`) so tests use fakes.
- * A failed install stops before setup; npm failures may leave a partially changed installation.
+ * `edu update`: compare the running version with a GitHub release and, when asked, download its package
+ * and SHA256SUMS from the pinned release origin, verify the checksum, install the verified local file
+ * with the npm that belongs to the running Node, verify the version, then run the NEW binary's
+ * `setup --yes` and its workspace migration hook. Network and processes are injected (`UpdateDeps`).
+ * A failed download or checksum stops before npm runs; a failed install stops before setup.
  */
-import { access } from 'node:fs/promises';
-import { posix, win32 } from 'node:path';
-import { compareVersions, fetchRelease, type Release } from './release.js';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join as hostJoin, posix, win32 } from 'node:path';
+import { CHECKSUMS_ASSET, compareVersions, fetchRelease, parseChecksums, predatesChecksums, sha256Hex, trustedAssetUrl, type Release } from './release.js';
 import type { WorkspaceMigration } from './migrate.js';
 
 export interface RunResult { code: number; stdout: string; stderr: string }
@@ -28,10 +30,40 @@ export interface UpdateDeps {
 export type Relation = 'older' | 'same' | 'newer';
 export interface UpdateCheck { current: string; release: Release; relation: Relation }
 
-export type StepName = 'install' | 'verify' | 'setup' | 'migrate';
+export type StepName = 'download' | 'install' | 'verify' | 'setup' | 'migrate';
 export type StepStatus = 'ok' | 'failed' | 'skipped';
 export interface StepResult { step: StepName; status: StepStatus; detail?: string }
-export interface UpdateOutcome { ok: boolean; installed: boolean; steps: StepResult[]; migrations?: WorkspaceMigration[] }
+/** `verified`: the package matched the release's SHA256SUMS (false only for a pre-6.0 release with --allow-unverified). */
+export interface UpdateOutcome { ok: boolean; installed: boolean; verified?: boolean; steps: StepResult[]; migrations?: WorkspaceMigration[] }
+export interface UpdateOptions { /** Install a release that predates SHA256SUMS (5.x and earlier). */ allowUnverified?: boolean }
+
+async function download(deps: Pick<UpdateDeps, 'fetch' | 'currentVersion'>, url: string): Promise<Uint8Array> {
+  let response: Response;
+  try { response = await deps.fetch(url, { headers: { 'user-agent': `edu-agent/${deps.currentVersion}` }, signal: AbortSignal.timeout(10 * 60_000) }); }
+  catch (error) { throw new Error(`cannot download ${url} (${error instanceof Error ? error.message : String(error)})`); }
+  if (!response.ok) throw new Error(`GitHub answered HTTP ${response.status} for ${url}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * The release package, downloaded only from the pinned origin and checked against SHA256SUMS. A release
+ * with no SHA256SUMS is refused, except a pre-6.0 one with `allowUnverified`.
+ */
+export async function downloadVerified(deps: Pick<UpdateDeps, 'fetch' | 'currentVersion'>, release: Release, options: UpdateOptions = {}): Promise<{ data: Uint8Array; verified: boolean; sha256: string }> {
+  if (!trustedAssetUrl(release.assetUrl, release.tag, release.assetName)) throw new Error(`refusing ${release.assetUrl}: Edu installs only from the release download URL of ${release.tag}`);
+  if (release.checksumsUrl && !trustedAssetUrl(release.checksumsUrl, release.tag, CHECKSUMS_ASSET)) throw new Error(`refusing ${release.checksumsUrl}: not the SHA256SUMS of ${release.tag}`);
+  if (!release.checksumsUrl) {
+    if (!predatesChecksums(release.version)) throw new Error(`release ${release.tag} publishes no ${CHECKSUMS_ASSET}, so its package cannot be verified; nothing was installed`);
+    if (!options.allowUnverified) throw new Error(`release ${release.tag} predates verified releases (no ${CHECKSUMS_ASSET}); rerun with --allow-unverified to install it anyway`);
+  }
+  const data = await download(deps, release.assetUrl);
+  const actual = sha256Hex(data);
+  if (!release.checksumsUrl) return { data, verified: false, sha256: actual };
+  const expected = parseChecksums(new TextDecoder().decode(await download(deps, release.checksumsUrl))).get(release.assetName);
+  if (!expected) throw new Error(`${CHECKSUMS_ASSET} of ${release.tag} lists no ${release.assetName}; nothing was installed`);
+  if (expected !== actual) throw new Error(`checksum mismatch for ${release.assetName}: ${CHECKSUMS_ASSET} says ${expected}, the download is ${actual}; nothing was installed`);
+  return { data, verified: true, sha256: actual };
+}
 
 export async function checkForUpdate(deps: Pick<UpdateDeps, 'fetch' | 'currentVersion' | 'env'>, tag?: string): Promise<UpdateCheck> {
   const release = await fetchRelease({
@@ -67,16 +99,37 @@ export function installPrefix(packageRoot: string, platform: NodeJS.Platform): s
 
 const tail = (text: string, lines = 8) => text.trim().split('\n').slice(-lines).join('\n');
 
-export async function performUpdate(deps: UpdateDeps, release: Release, onStep: (step: StepName) => void = () => {}): Promise<UpdateOutcome> {
+export async function performUpdate(deps: UpdateDeps, release: Release, onStep: (step: StepName) => void = () => {}, options: UpdateOptions = {}): Promise<UpdateOutcome> {
+  onStep('download');
+  let fetched: Awaited<ReturnType<typeof downloadVerified>>;
+  try { fetched = await downloadVerified(deps, release, options); }
+  catch (error) {
+    return { ok: false, installed: false, steps: [{ step: 'download', status: 'failed', detail: error instanceof Error ? error.message : String(error) }] };
+  }
+  // npm installs the verified bytes from a private temporary folder, never the URL itself.
+  const folder = await mkdtemp(hostJoin(tmpdir(), 'edu-update-'));
+  try {
+    const tarball = hostJoin(folder, release.assetName);
+    await writeFile(tarball, fetched.data);
+    const outcome = await installVerified(deps, release, tarball, onStep, fetched.verified
+      ? { step: 'download', status: 'ok', detail: `sha256 ${fetched.sha256} matches ${CHECKSUMS_ASSET}` }
+      : { step: 'download', status: 'ok', detail: `UNVERIFIED: ${release.tag} has no ${CHECKSUMS_ASSET} (installed with --allow-unverified)` });
+    return { ...outcome, verified: fetched.verified };
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+}
+
+async function installVerified(deps: UpdateDeps, release: Release, tarball: string, onStep: (step: StepName) => void, downloaded: StepResult): Promise<UpdateOutcome> {
   const { join } = pathFor(deps.platform);
-  const steps: StepResult[] = [];
+  const steps: StepResult[] = [downloaded];
   const done = (outcome: Omit<UpdateOutcome, 'steps'>): UpdateOutcome => ({ ...outcome, steps });
   const npm = await resolveNpm(deps);
   const prefix = installPrefix(deps.packageRoot, deps.platform);
   const prefixArgs = prefix ? ['--prefix', prefix] : [];
 
   onStep('install');
-  const install = await deps.run(npm, ['install', '-g', release.assetUrl, '--no-fund', '--no-audit', ...prefixArgs], { env: deps.env, timeoutMs: 10 * 60_000 });
+  const install = await deps.run(npm, ['install', '-g', tarball, '--no-fund', '--no-audit', ...prefixArgs], { env: deps.env, timeoutMs: 10 * 60_000 });
   if (install.code !== 0) {
     steps.push({ step: 'install', status: 'failed', detail: tail(install.stderr || install.stdout) || `npm exited with ${install.code}` });
     return done({ ok: false, installed: false });

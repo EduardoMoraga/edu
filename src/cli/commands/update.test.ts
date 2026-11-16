@@ -1,20 +1,32 @@
+import { createHash } from 'node:crypto';
 import { Command } from 'commander';
 import { describe, expect, it } from 'vitest';
 import type { RunResult, UpdateDeps } from '../../update/update.js';
 import { captureContext, out, runCli, type Captured } from '../testkit.js';
 import { registerUpdate } from './update.js';
 
-const release = (tag: string) => ({
+const release = (tag: string, sums = true) => ({
   tag_name: tag, name: tag, body: '## Novedades\n- **Espacios** desde documentos\n- `edu update`', html_url: `https://github.com/EduardoMoraga/edu/releases/tag/${tag}`,
-  assets: [{ name: 'edu-agent.tgz', browser_download_url: `https://github.com/EduardoMoraga/edu/releases/download/${tag}/edu-agent.tgz` }],
+  assets: [
+    { name: 'edu-agent.tgz', browser_download_url: `https://github.com/EduardoMoraga/edu/releases/download/${tag}/edu-agent.tgz` },
+    ...(sums ? [{ name: 'SHA256SUMS', browser_download_url: `https://github.com/EduardoMoraga/edu/releases/download/${tag}/SHA256SUMS` }] : []),
+  ],
 });
+const PACKAGE = 'package bytes';
+/** A GitHub serving the release JSON, the package, and a SHA256SUMS (`digest` forges a wrong one). */
+const github = (sums = true, digest = createHash('sha256').update(PACKAGE).digest('hex')) => (async (input: string | URL | Request) => {
+  const url = String(input);
+  if (url.endsWith('.tgz')) return new Response(PACKAGE);
+  if (url.endsWith('/SHA256SUMS')) return new Response(`${digest}  edu-agent.tgz\n`);
+  return new Response(JSON.stringify(release('v0.8.0', sums)), { status: 200 });
+}) as typeof fetch;
 
 function deps(over: Partial<UpdateDeps> & { script?: (args: string[]) => Partial<RunResult> | undefined } = {}): UpdateDeps & { calls: string[][] } {
   const calls: string[][] = [];
   const { script, ...rest } = over;
   return {
     calls,
-    fetch: (async () => new Response(JSON.stringify(release('v0.8.0')), { status: 200 })) as typeof fetch,
+    fetch: github(),
     run: async (_cmd, args) => {
       calls.push(args);
       const scripted = script?.(args);
@@ -97,5 +109,30 @@ describe('edu update', () => {
     await runCli(h, ['--help']);
     expect(out(h)).toMatch(/update \[options\] \[tag\]/);
     expect(out(h)).not.toContain('internal');
+  });
+
+  it('refuses a package that does not match SHA256SUMS and installs nothing', async () => {
+    const c = await captureContext();
+    const d = deps({ fetch: github(true, 'f'.repeat(64)) });
+    await run(c, ['update'], d);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('Download or checksum verification failed; nothing was installed.');
+    expect(c.stderr.join('\n')).toContain('checksum mismatch');
+    expect(d.calls).toEqual([]);
+  });
+
+  it('installs a release without SHA256SUMS only with --allow-unverified, and warns', async () => {
+    const c = await captureContext();
+    const refused = deps({ fetch: github(false) });
+    await run(c, ['update'], refused);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('--allow-unverified');
+    expect(refused.calls).toEqual([]);
+    const w = await captureContext();
+    const allowed = deps({ fetch: github(false) });
+    await run(w, ['update', '--allow-unverified'], allowed);
+    expect(w.exitCode).toBeUndefined();
+    expect(w.stderr.join('\n')).toContain('installed WITHOUT a checksum check');
+    expect(allowed.calls[0]?.[0]).toBe('install');
   });
 });

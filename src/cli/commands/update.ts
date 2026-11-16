@@ -7,7 +7,7 @@ import { globalHome, type CliContext } from '../context.js';
 import { action, look, printJson, statusLine } from '../kit.js';
 import { packageTemplatesDir, packageVersion } from '../package.js';
 
-interface UpdateOpts { check?: boolean; to?: string; json?: boolean }
+interface UpdateOpts { check?: boolean; to?: string; json?: boolean; allowUnverified?: boolean }
 
 const M = {
   en: {
@@ -20,7 +20,9 @@ const M = {
     older: '{tag} is older than the running Edu {current}. Run `edu update {tag}` to install it anyway.',
     runIt: 'Run: edu update',
     checkout: 'Note: this edu runs from {root} (not an npm global install); the release goes to npm\'s global prefix.',
-    steps: { install: 'Installing {asset}…', verify: 'Checking the new version…', setup: 'Running the new `edu setup --yes`…', migrate: 'Migrating registered workspaces…' },
+    steps: { download: 'Downloading {asset} and checking it against SHA256SUMS…', install: 'Installing {asset}…', verify: 'Checking the new version…', setup: 'Running the new `edu setup --yes`…', migrate: 'Migrating registered workspaces…' },
+    downloadFailed: 'Download or checksum verification failed; nothing was installed. Edu {current} stays as it is.',
+    unverified: 'Warning: {tag} predates verified releases, so its package was installed WITHOUT a checksum check.',
     installFailed: 'Install failed; verify the installed binary before retrying. npm may have changed files.',
     verifyFailed: 'npm finished, but the new version could not be verified.',
     installed: 'Edu {version} installed.',
@@ -43,7 +45,9 @@ const M = {
     older: '{tag} es anterior a Edu {current}. Ejecuta `edu update {tag}` para instalarla igual.',
     runIt: 'Ejecuta: edu update',
     checkout: 'Nota: este edu corre desde {root} (no es una instalación global de npm); la versión se instala en el prefijo global de npm.',
-    steps: { install: 'Instalando {asset}…', verify: 'Verificando la nueva versión…', setup: 'Ejecutando el nuevo `edu setup --yes`…', migrate: 'Migrando los espacios registrados…' },
+    steps: { download: 'Descargando {asset} y comprobándolo con SHA256SUMS…', install: 'Instalando {asset}…', verify: 'Verificando la nueva versión…', setup: 'Ejecutando el nuevo `edu setup --yes`…', migrate: 'Migrando los espacios registrados…' },
+    downloadFailed: 'La descarga o la verificación del checksum falló; no se instaló nada. Edu {current} queda como está.',
+    unverified: 'Aviso: {tag} es anterior a las versiones verificadas; su paquete se instaló SIN comprobar el checksum.',
     installFailed: 'La instalación falló; verifica el binario antes de reintentar. npm puede haber cambiado archivos.',
     verifyFailed: 'npm terminó, pero no se pudo verificar la nueva versión.',
     installed: 'Edu {version} instalado.',
@@ -81,6 +85,7 @@ export function registerUpdate(program: Command, ctx: CliContext, overrides: Par
     .option('--check', 'only report whether an update is available')
     .option('--to <tag>', 'same as [tag] (`--version` is taken by `edu --version`)')
     .option('--json', 'machine-readable output')
+    .option('--allow-unverified', 'install a release older than 6.0, which has no SHA256SUMS (not recommended)')
     .action(
       action<UpdateOpts>(ctx, async ({ g, opts }, tagArg) => {
         const deps = { ...defaultUpdateDeps(ctx), ...overrides };
@@ -113,10 +118,17 @@ export function registerUpdate(program: Command, ctx: CliContext, overrides: Par
 
         const lk = look(ctx);
         if (!json && !installPrefix(deps.packageRoot, deps.platform)) ctx.out(fill(m.checkout, vars));
-        const outcome = await performUpdate(deps, release, (step: StepName) => { if (!json) ctx.out(fill(m.steps[step], vars)); });
+        const outcome = await performUpdate(deps, release, (step: StepName) => { if (!json) ctx.out(fill(m.steps[step], vars)); }, { allowUnverified: Boolean(opts.allowUnverified) });
         if (!outcome.ok) ctx.setExitCode(1);
         if (json) return printJson(ctx, { current, version: release.version, tag: release.tag, ...outcome, restartRequired: outcome.installed, whatsNew: news });
         const byStep = new Map(outcome.steps.map(s => [s.step, s]));
+        const download = byStep.get('download');
+        if (download?.status === 'failed') {
+          ctx.err(statusLine(lk, 'fail', fill(m.downloadFailed, vars)));
+          if (download.detail) ctx.err(`  ${download.detail}`);
+          return;
+        }
+        if (outcome.verified === false) ctx.err(statusLine(lk, 'warn', fill(m.unverified, vars)));
         const install_ = byStep.get('install');
         if (install_?.status === 'failed') {
           ctx.err(statusLine(lk, 'fail', fill(m.installFailed, vars)));
