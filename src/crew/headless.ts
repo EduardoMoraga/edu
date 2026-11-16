@@ -9,6 +9,8 @@ import { openBrain } from '../brain/index.js';
 import { brief } from '../context/index.js';
 import { redactWorkerOutput } from '../context/artifacts.js';
 import { createEngine } from '../engine/index.js';
+import { CLI_IDS } from '../adapters/types.js';
+import { childEnv } from '../platform/child-env.js';
 import { createCrewStore, type CrewStore } from './store.js';
 import { runOrchestration } from './orchestration.js';
 
@@ -23,6 +25,26 @@ export interface WorkerOptions {
   now?: () => Date;
   detectClis?: () => Promise<CliId[]>;
   sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * The detached worker's environment. Agents can read their parent's environment (`/proc/<ppid>/environ` on Linux,
+ * `ps eww` on macOS), so filtering only the agent CLIs is not enough: the worker gets the allowlist of the CLIs it
+ * may start (the job's CLI; every CLI for an orchestration) plus what it needs itself: Node's settings (NODE_*),
+ * EDU_HOME pinned to the job's brain, and the crew-worker marker when a worker dispatched it. Registered checks of
+ * a detached orchestration run with this environment too; `crew.env.passthrough` in the global config adds more.
+ */
+export function workerEnv(job: Pick<CrewJob, 'kind' | 'cli'>, root: string, options: { source?: NodeJS.ProcessEnv; platform?: NodeJS.Platform } = {}): NodeJS.ProcessEnv {
+  const platform = options.platform ?? process.platform;
+  const source = { ...(options.source ?? process.env), EDU_HOME: root };
+  const env: NodeJS.ProcessEnv = {};
+  for (const cli of job.kind === 'orchestration' ? CLI_IDS : [job.cli]) Object.assign(env, childEnv(cli, {}, { source, platform }));
+  const ownNeed = (name: string) => {
+    const key = platform === 'win32' ? name.toUpperCase() : name;
+    return key.startsWith('NODE_') || key === 'EDU_CREW_JOB' || key === 'ALBERT_CREW_JOB';
+  };
+  for (const [name, value] of Object.entries(source)) if (value !== undefined && ownNeed(name)) env[name] = value;
+  return env;
 }
 
 function defaultBrainRoot(): string { return resolve(process.env.EDU_HOME || join(homedir(), '.edu')); }
@@ -42,7 +64,7 @@ export async function dispatchHeadless(job: CrewJob, options: { brainRoot?: stri
       cwd: job.cwd,
       detached: true,
       stdio: ['ignore', log.fd, log.fd],
-      env: { ...process.env, EDU_HOME: root },
+      env: workerEnv(job, root),
       windowsHide: true,
     });
     child.once('error', error => { void store.update(job.id, { status: 'failed', endedAt: new Date().toISOString(), summary: error.message }); });
