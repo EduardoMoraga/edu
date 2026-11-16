@@ -73,7 +73,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "commander": "^15.0.0",
+    "commander": "^15.1.0",
     "cross-spawn": "^7.0.6",
     "ink": "^8.0.0",
     "jsonc-parser": "^3.3.1",
