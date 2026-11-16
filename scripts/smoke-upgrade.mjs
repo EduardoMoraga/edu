@@ -51,7 +51,8 @@ try {
     await symlink(process.execPath, join(tools, 'node'));
     await writeFile(join(tools, 'npm'), `#!/bin/sh\nexec "${process.execPath}" "${npmCli}" "$@"\n`, { mode: 0o755 });
   }
-  // A single native host fixture never runs an agent. It reports an existing plugin.
+  // A single native host fixture never runs an agent. It reports an existing plugin. A cache without a recorded
+  // baseline (any release but 0.10.2 and 2.0.0-rc.1) is refreshed through the public remove + add path.
   for (const cli of ['codex']) {
     const js = join(tools, `${cli}.cjs`);
     const body = `const fs=require('node:fs'),p=require('node:path');
@@ -65,7 +66,8 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
  fs.rmSync(base,{recursive:true,force:true});fs.mkdirSync(base,{recursive:true});fs.cpSync(src,p.join(base,version),{recursive:true});
  fs.writeFileSync(stateFile,JSON.stringify({version,refreshes:state().refreshes+1}));
  console.log(JSON.stringify({pluginId:'edu@edu',version,installedPath:p.join(base,version)}));
-}else process.exit(1);`;
+}else if(args.join(' ')==='plugin remove edu@edu')fs.rmSync(base,{recursive:true,force:true});
+else process.exit(1);`;
     await writeFile(js, body);
     if (windows) await writeFile(join(tools, `${cli}.cmd`), `@echo off\r\n"${process.execPath}" "${js}" %*\r\n`);
     else await writeFile(join(tools, cli), `#!${process.execPath}\n${body}\n`, { mode: 0o755 });
