@@ -60,14 +60,18 @@ describe('default uninstall keeps edits made after install (C1)', () => {
     const opts = await fixture();
     const settings = join(opts.root, '.claude/settings.json');
     const mcp = join(opts.root, '.mcp.json');
+    const opencode = join(opts.root, 'opencode.json');
     await put(settings, '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]}}\n');
-    const manifest = await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['claude'] }));
+    await put(opencode, '{ "theme": "tokyo" }\n');
+    const manifest = await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['claude', 'opencode'] }));
     expect(manifest.actions.find(action => action.path === mcp)?.backup).toBeUndefined();
     await writeFile(settings, JSON.stringify({ ...await json(settings), permissions: { deny: ['Read(.env)'] } }));
     await writeFile(mcp, JSON.stringify({ mcpServers: { ...(await json(mcp)).mcpServers, mine: { command: 'mine' } } }));
+    await writeFile(opencode, JSON.stringify({ ...await json(opencode), mcp: { ...(await json(opencode)).mcp, later: { type: 'local', command: ['later'] } } }));
     await uninstall({ manifestPath: getManifestPath('project', opts.root, opts.home) });
     expect(await json(settings)).toEqual({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] }, permissions: { deny: ['Read(.env)'] } });
     expect(await json(mcp)).toEqual({ mcpServers: { mine: { command: 'mine' } } });
+    expect(await json(opencode)).toEqual({ theme: 'tokyo', mcp: { later: { type: 'local', command: ['later'] } } });
   });
 
   it('still restores the exact install-time snapshot when nothing changed since install', async () => {
