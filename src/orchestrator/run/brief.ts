@@ -1,6 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { loadChecks, loadTools } from '../../evidence/registry.js';
+import { checksAccepted, loadChecks, loadTools } from '../../evidence/registry.js';
 import type { EduConfig } from '../../core/contracts.js';
 import { assignCli } from '../assign.js';
 import { capRoleAutonomy } from '../../workspace/config.js';
@@ -36,7 +36,10 @@ export async function briefPhase(run: RunState): Promise<Playbook> {
   await writeStatus(run, 'running', 'Run started; inspect event log before resuming interrupted work.');
   if (run.harnessLevel !== 'H0') {
     const [tools, checks] = await Promise.all([loadTools(deps.cwd), loadChecks(deps.cwd)]);
-    run.registeredChecks = checks;
+    // A repository ships its own checks.json: its checks count as registered only once a person accepted this exact set.
+    const accepted = deps.globalRoot !== undefined && await checksAccepted(deps.globalRoot, deps.cwd, checks);
+    run.registeredChecks = accepted ? checks : [];
+    if (checks.length && !accepted) run.limitations.push(`The checks in .edu/harness/checks.json are not accepted on this machine (new, or changed since): they count as unregistered and run only after a person approves a spec that lists them. Review them and run edu checks accept to trust them.`);
     run.registryInfo = JSON.stringify({ tools, checks }, null, 2);
   }
   if (contextual) {

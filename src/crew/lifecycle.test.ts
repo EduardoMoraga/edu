@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openBrain } from '../brain/index.js';
-import type { CliId, EduEvent, Engine } from '../core/contracts.js';
+import type { CliId, CrewJob, EduEvent, Engine } from '../core/contracts.js';
 import { engineCapabilities } from '../engine/autonomy.js';
 import { processAlive } from '../platform/process-tree.js';
 import type { HerdrRunner } from './herdr.js';
@@ -13,13 +13,15 @@ import { CREW_JOB_STATUSES } from './status.js';
 import { createCrewStore } from './store.js';
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'edu-crew-life-'));
   roots.push(root);
   const location = { scope: 'project' as const, root };
   await openBrain([location]).init(location);
+  // The person's global home (policy, approvals) is a temp folder too: never the real ~/.edu.
+  vi.stubEnv('EDU_HOME', join(root, '.global-home'));
   return { root, location, store: createCrewStore(root) };
 }
 
@@ -85,13 +87,20 @@ describe('crew dispatch policy', () => {
     expect((await f.store.list()).map(job => job.cli)).toEqual(['pi']);
   });
 
-  it('records the timeout from the request, else config.json, else 60 minutes', async () => {
+  it('records the timeout from the request, else the workspace config, else the global config, else 60 minutes', async () => {
     const f = await fixture();
-    const crew = createCrew({ brainRoot: f.root, store: f.store, startHeadless: async job => job });
+    const globalRoot = join(f.root, '.global-home');
+    await mkdir(globalRoot, { recursive: true });
+    const crew = createCrew({ brainRoot: f.root, globalRoot, store: f.store, startHeadless: async job => job, detectClis: async () => ['codex'] });
     expect((await crew.dispatch({ cli: 'codex', task: 'Default', cwd: f.root })).timeoutMinutes).toBe(60);
+    // A global config holding only the crew section counts.
+    await writeFile(join(globalRoot, 'config.json'), JSON.stringify({ crew: { timeoutMinutes: 15 } }));
+    expect((await crew.dispatch({ cli: 'codex', task: 'Global', cwd: f.root })).timeoutMinutes).toBe(15);
+    // An orchestration gets the same limit (its working time and each gate's wait).
+    expect((await crew.orchestrate({ goal: 'Global', cwd: f.root, cli: 'codex' })).timeoutMinutes).toBe(15);
     const { defaultConfig } = await import('../workspace/config.js');
-    await writeFile(join(f.root, 'config.json'), JSON.stringify({ ...defaultConfig('codex'), crew: { timeoutMinutes: 15 } }));
-    expect((await crew.dispatch({ cli: 'codex', task: 'Configured', cwd: f.root })).timeoutMinutes).toBe(15);
+    await writeFile(join(f.root, 'config.json'), JSON.stringify({ ...defaultConfig('codex'), crew: { timeoutMinutes: 20 } }));
+    expect((await crew.dispatch({ cli: 'codex', task: 'Configured', cwd: f.root })).timeoutMinutes).toBe(20);
     expect((await crew.dispatch({ cli: 'codex', task: 'Explicit', cwd: f.root, timeoutMinutes: 5 })).timeoutMinutes).toBe(5);
     await expect(crew.dispatch({ cli: 'codex', task: 'Bad', cwd: f.root, timeoutMinutes: 0 })).rejects.toThrow('whole number of minutes');
   });
@@ -197,6 +206,22 @@ describe('crew liveness and cancel', () => {
     // A reused pid now running another Node program is not this job's worker.
     expect(isWorkerOf('node.exe', id, 'win32')).toBe(false);
     expect(isWorkerOf('C:\\nodejs\\node.exe C:\\other\\server.js', id, 'win32')).toBe(false);
+  });
+
+  it('ends a pane job past its timeout: failed first, then its pane closed', async () => {
+    const f = await fixture();
+    const job = await f.store.create({ cli: 'claude', task: 'Pane', mode: 'pane', cwd: f.root, autonomy: 'ask', timeoutMinutes: 5 });
+    await f.store.update(job.id, { status: 'running', paneId: 'pane-7', agentName: 'edu-y' });
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async args => { calls.push(args); return { stdout: JSON.stringify({ result: { agent: { agent_status: 'working' } } }), stderr: '' }; };
+    let now = Date.parse(job.createdAt) + 4 * 60_000;
+    const crew = createCrew({ brainRoot: f.root, store: f.store, herdr: { runner }, clock: () => now });
+    expect((await crew.status(job.id) as CrewJob).status).toBe('running');
+    expect(calls.some(args => args[0] === 'pane' && args[1] === 'close')).toBe(false);
+    now += 2 * 60_000;
+    const expired = await crew.status(job.id) as CrewJob;
+    expect(expired).toMatchObject({ status: 'failed', summary: expect.stringContaining('Timed out after 5 minute(s)') });
+    expect(calls).toContainEqual(['pane', 'close', 'pane-7']);
   });
 
   it('cancels a pane job by closing its pane', async () => {

@@ -4,7 +4,7 @@ import { assignCli } from '../assign.js';
 import type { Playbook } from '../playbook.js';
 import { builderPrompt, readonlyCli, recordApplications, runAgent } from './agents.js';
 import { verifyChecks } from './checks.js';
-import { answerOf, askApproval, awaitApproval, isHuman, needsApproval } from './gates.js';
+import { answerOf, askApproval, isHuman, needsApproval, waitForAnswer } from './gates.js';
 import { at, closeEpisode, emit, supportContext, type RunState } from './state.js';
 
 const VerdictSchema = z.object({ verdict: z.enum(['pass', 'fix']), issues: z.array(z.string()) }).strict();
@@ -113,7 +113,7 @@ async function consultAdvisor(run: RunState): Promise<string> {
   const approvalId = `${runId}-approval-advisor`;
   // Unlike step gates, a failed disclosure approval fails the run, and only a person can consent to it.
   await emit(run, { type: 'approval.request', agentId, approvalId, title, detail, at: at(run) });
-  const answer = answerOf(await awaitApproval(deps.approve({ agentId, stepId: 'advisor', title, detail }), deps.signal), 'user');
+  const answer = answerOf(await waitForAnswer(run, () => deps.approve({ agentId, stepId: 'advisor', title, detail })), 'user');
   await emit(run, { type: 'approval.resolve', approvalId, approved: answer.approved, by: answer.by, at: at(run) });
   if (answer.approved && !isHuman(answer.by)) run.limitations.push(`Advisor skipped: the disclosure was approved by ${answer.by}, not a person.`);
   if (!answer.approved || !isHuman(answer.by)) return '';

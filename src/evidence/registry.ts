@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { DeterministicCheck } from '../core/contracts.js';
+import { ensureLocalIgnored, folderKey, LOCAL_DIR } from '../brain/local-dir.js';
 import { atomicWrite } from '../brain/store.js';
 import { killTree, trackChild } from '../platform/process-tree.js';
 
@@ -89,6 +91,41 @@ export async function saveChecks(root: string, checks: DeterministicCheck[]): Pr
   await writeRegistry(registryPath(root, 'checks.json'), CheckRegistrySchema, checks);
 }
 
+/**
+ * The identity of a check set: every field that decides what runs and what passes, in file order. Any change
+ * (a command, an expectation, a check added, removed or reordered) gives a new hash.
+ */
+export function checkSetHash(checks: DeterministicCheck[]): string {
+  const canonical = checks.map(check => [check.id, check.requirementIds, check.command, check.expect.exitCode ?? null, check.expect.stdoutIncludes ?? null, check.timeoutMs]);
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+/**
+ * Where a person's acceptance of a workspace's checks is pinned: in their global home, outside the workspace, so a
+ * cloned repository or an agent cannot accept its own checks.
+ */
+const acceptancePath = (globalRoot: string, workspace: string) => join(globalRoot, LOCAL_DIR, 'checks', `${folderKey(workspace)}.json`);
+
+/**
+ * True when a person accepted exactly this check set for this workspace (`edu checks accept`). `.edu/harness/checks.json`
+ * ships with repositories, so until then its checks count as unregistered: they run only after a person approves a spec
+ * that lists their exact commands. A changed set needs accepting again.
+ */
+export async function checksAccepted(globalRoot: string, workspace: string, checks: DeterministicCheck[]): Promise<boolean> {
+  if (!checks.length) return true;
+  try {
+    const pinned = JSON.parse(await readFile(acceptancePath(globalRoot, workspace), 'utf8')) as { hash?: unknown };
+    return pinned?.hash === checkSetHash(checks);
+  } catch { return false; }
+}
+
+/** Pins `checks` as accepted for `workspace` in the global home. */
+export async function acceptChecks(globalRoot: string, workspace: string, checks: DeterministicCheck[]): Promise<void> {
+  await mkdir(join(globalRoot, LOCAL_DIR, 'checks'), { recursive: true });
+  await ensureLocalIgnored(globalRoot);
+  await atomicWrite(acceptancePath(globalRoot, workspace), `${JSON.stringify({ workspace: resolve(workspace), hash: checkSetHash(checks), acceptedAt: new Date().toISOString() }, null, 2)}\n`);
+}
+
 async function readRegistry<T>(path: string, schema: z.ZodType<T>, fallback: T): Promise<T> {
   try {
     return schema.parse(JSON.parse(await readFile(path, 'utf8')));
@@ -104,8 +141,9 @@ async function writeRegistry<T>(path: string, schema: z.ZodType<T>, value: T): P
 }
 
 /**
- * Executes a trusted check through the platform shell: one a person registered in `.edu/harness/checks.json`,
- * or a planner-proposed one a person approved (the orchestrator never passes any other; see run.ts).
+ * Executes a trusted check through the platform shell: one from `.edu/harness/checks.json` a person accepted on this
+ * machine (`checksAccepted`), or any other a person approved in a spec that listed its exact command (the orchestrator
+ * never passes any other; see run/approve.ts).
  * It keeps the full environment on purpose, unlike agent CLIs (platform/child-env.ts): a person wrote or
  * approved the exact command, it is not an agent, and project test suites often need their credentials.
  */

@@ -19,6 +19,8 @@ async function fixture() {
   const location = { scope: 'project' as const, root };
   const brain = openBrain([location]);
   await brain.init(location);
+  // The person's global home (policy, approvals) is a temp folder too: never the real ~/.edu.
+  vi.stubEnv('EDU_HOME', join(root, '.global-home'));
   return { root, location, store: createCrewStore(root) };
 }
 afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });

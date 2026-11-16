@@ -194,10 +194,11 @@ edu crew cancel <job-id>                         # stop its whole process tree
 | `readonly` | read and search |
 | `ask` (default) | read; writes need a person, so headless Claude, Codex and Pi jobs do not write |
 | `auto` | edit the workspace and run commands |
-| `full` | do anything the CLI allows without asking; MCP callers need `crew.maxAutonomy: "full"` |
+| `full` | do anything the CLI allows without asking; needs `crew.maxAutonomy: "full"` in the global config |
 
-Headless jobs stop after 60 minutes: pass `--timeout <minutes>` (MCP: `timeoutMinutes` on
-`edu_crew_dispatch`), or set `crew.timeoutMinutes`. Pane jobs have no timeout. Read-only work goes
+Crew jobs stop after 60 minutes: pass `--timeout <minutes>` (MCP: `timeoutMinutes` on
+`edu_crew_dispatch`), or set `crew.timeoutMinutes`. A pane job past its limit is marked failed and
+its pane closed. `edu crew status` prints a table (`--json` for scripts). Read-only work goes
 only to CLIs that enforce it: claude, codex and pi. OpenCode `auto` and `full` pass `--auto`, which
 approves every permission OpenCode's config does not deny. The exact flags per CLI are in the
 [upgrade guide](docs/guides/upgrade-6.0.md#autonomy-means-the-same-on-every-cli).
@@ -242,9 +243,15 @@ In Codex, ask "run this with edu" or name the `edu-run` skill. `edu watch` shows
 card, every agent and each check live. Non-interactive stdin requires `--yes`; otherwise
 the terminal asks you to approve the printed spec before execution.
 
-Checks the planner proposes that are not registered in `.edu/harness/checks.json` run only when
-you approve the spec that lists them. `--yes` approves for you, so those checks are skipped and
-reported; register them with `edu checks add`, or pass `--allow-unregistered-checks`.
+Checks the planner proposes that are not registered run only when you approve the spec that lists
+them. `--yes` approves for you, so those checks are skipped and reported; register them with
+`edu checks add` and `edu checks accept`, or pass `--allow-unregistered-checks`. A repository's own
+`.edu/harness/checks.json` counts as registered only after you review it and run
+`edu checks accept` on your machine; changing it needs a new acceptance.
+
+A detached run (`--detach`, `edu_orchestrate`) always stops at the spec gate, and its project
+config cannot loosen the global `approvals` or raise `crew.maxAutonomy`. Its working time and each
+gate's wait are limited by `crew.timeoutMinutes`.
 
 MCP clients can use `edu_orchestrate` and `edu_crew_approve` for the same detached workflow.
 `edu_crew_approve` must name the gate's `requestId`, and Edu records it as the host LLM's decision,
@@ -257,13 +264,13 @@ What Edu enforces, and how to change it:
 | Area | Default | Change it with |
 |---|---|---|
 | Installs and updates | Only packages that match the release's `SHA256SUMS`, downloaded from this repository's GitHub releases | `--allow-unverified`, only for releases older than 6.0 |
-| Crew approvals | Each gate has a `requestId` and a decision must name it. Crew workers, headless or in a herdr pane, can never approve. Each decision records `cli`, `deck` or `host-llm` | `edu crew approve <id> --request <requestId>` |
+| Crew approvals | Each gate has a `requestId` and a decision must name it. Gates and decisions live in your global home, outside the workspace. Crew workers, headless or in a herdr pane, can never approve, dispatch or cancel. Each decision records `cli`, `deck` or `host-llm` | `edu crew approve <id> --request <requestId>` |
 | Canonical notes | Only a person accepts them: `edu brain approve` needs a terminal | `--yes` in scripts |
-| Autonomy from MCP | Up to `auto`; `full` is refused | `crew.maxAutonomy` in the global config |
+| Crew autonomy | Up to `auto` from MCP and the CLI; `full` is refused | `crew.maxAutonomy` in the global config |
 | Agent CLI environment | PATH, home, locale, terminal, proxy, temp and that CLI's own auth variables | `crew.env.passthrough` in the global config |
-| Checks the planner invents | Run only after a person approves the spec that lists them | `edu checks add`, or `--allow-unregistered-checks` |
+| Checks the planner invents, and a repository's own checks.json | Run only after a person approves the spec that lists them | `edu checks accept` (pinned per workspace until checks.json changes), or `--allow-unregistered-checks` |
 | Workspaces from MCP | Registered workspaces and folders with `.edu/` only; MCP never creates a brain | `edu init` in the folder |
-| Read-only roles | The planner and the reviewer run only on CLIs that enforce read-only | — |
+| Read-only roles | The planner, the reviewer and every read-only step run only on CLIs that enforce read-only | — |
 | Your configs | Setup keeps values you set; uninstall keeps edits made after install | — |
 
 The global config is `~/.edu/config.json` (or `$EDU_HOME/config.json`). A project's

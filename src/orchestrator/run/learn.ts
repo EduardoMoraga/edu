@@ -17,7 +17,7 @@ const UNSAFE = ['weakened-tests', 'checks-bypassed', 'unsafe-invalid'];
  */
 export async function learnPhase(run: RunState, success: boolean): Promise<RunResult> {
   const { runId, deps, requirements, limitations } = run;
-  clearTimeout(run.timer);
+  run.clock.clear();
   await persistStatus(run, false, 'Finalization pending; consult the event log if interrupted.');
   await run.composer.close();
   const entropyUnsafe = await auditEntropy(run);

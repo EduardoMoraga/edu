@@ -36,7 +36,9 @@ code changes, the test names what to update here.
 
 ```
 ~/.edu/                         global brain (personal preferences, cross-project lessons) and machine records
-├── config.json                 EduConfig; crew.maxAutonomy and crew.env.passthrough are read only from here
+├── config.json                 EduConfig; crew.maxAutonomy, crew.env.passthrough and the approvals floor of detached runs are read only from here
+├── .edu-local/approvals/<key>/ open crew gates (<jobId>.gate.json) and decisions, per job brain, outside every workspace
+├── .edu-local/checks/<key>.json the check set a person accepted for a workspace (`edu checks accept`)
 ├── projects.json               registered workspaces (src/brain/registry.ts)
 ├── manifest.json               install manifest of `edu install` (global scope)
 ├── plugin-setup.json           what `edu setup` registered natively in each host
@@ -56,8 +58,8 @@ code changes, the test names what to update here.
 ├── proposals/                  self-improvement proposals awaiting a person
 ├── specs/                      run specs a person approves before building
 ├── runs/                       <runId>.jsonl event streams, <runId>.status.json, <runId>/ episode packages
-├── crew/                       <jobId>.json record, .jsonl events, .log, .decision for approval gates
-├── harness/                    tools.json and checks.json: commands a person registered as trusted checks
+├── crew/                       <jobId>.json record (a display copy of its open gate), .jsonl events, .log
+├── harness/                    tools.json and checks.json: registered checks once a person accepted the set on this machine
 ├── reflect-queue/              structured evidence waiting for consolidation
 ├── state/                      maintain.json, consolidation.json, sync.json
 ├── backups/                    copies taken before Edu rewrites a file
@@ -120,7 +122,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | bench | service | brain, core |
 | experiment | service | platform, skills |
 | connect | service | platform |
-| mcp | delivery | brain, context, core, crew, platform, reflect, release, workspace |
+| mcp | delivery | brain, context, core, crew, platform, reflect, release |
 | tui | delivery | core, crew, identity |
 | cli | delivery | adapters, bench, brain, chat, connect, context, core, crew, detach, doctor, engine, eval, evidence, experiment, identity, mcp, orchestrator, platform, reflect, release, setup, tui, update, vault, workspace |
 | index | delivery | cli, core |
@@ -271,7 +273,11 @@ Top-level commands, grouped as `edu --help` shows them. `edu help <command>` sho
 
 **Approvals.** Every crew approval gate (including a detached run's spec) gets a fresh random `requestId`. A
 decision applies only when it names the open gate's `requestId` and was written after the gate opened;
-stale, forged, early and pre-6.0 decision files are discarded. `edu crew approve|reject` take
+stale, forged, early and pre-6.0 decision files are discarded. The open gate and its decision live in the
+global home (`.edu-local/approvals/<key>/`), never in the workspace: a sandboxed agent can write its
+workspace (and the job record, which only shows a copy of the gate) but not there. `by` is attribution
+reported by the deciding process; an unsandboxed process of the same user can still act as the user.
+`edu crew approve|reject` take
 `--request <id>` and `--via cli|deck`; `edu_crew_approve` requires `requestId`. Every decision records
 who made it (`cli`, `deck` or `host-llm`); a `host-llm` approval never counts as a person's
 intervention. Canonical notes change only through `edu brain approve`, which needs a TTY or `--yes`.
@@ -279,10 +285,19 @@ intervention. Canonical notes change only through `edu brain approve`, which nee
 **Autonomy ceiling.** Roles and crew jobs run at `readonly`, `ask`, `auto` or `full`, mapped to each
 CLI's own permission flags (`src/engine/autonomy.ts`). `crew.maxAutonomy` (default `auto`) is read only
 from the global `~/.edu/config.json`: a project config sits where agents and cloned repositories can
-write, so it can never raise it. Roles above the ceiling run at the ceiling (and the run says so); MCP
-dispatch above it is refused. Planners and reviewers must run read-only on a CLI that can enforce it.
-Checks the planner invents run only after a person approves a spec that lists the exact commands, or
-with `--allow-unregistered-checks`.
+write, so it can never raise it. Roles above the ceiling run at the ceiling (and the run says so);
+dispatch above it, from MCP or the CLI, is refused. The planner, the reviewer and every read-only step
+run on a CLI that enforces read-only, or the run stops before approval. Checks the planner invents, and a
+repository's `.edu/harness/checks.json` until a person accepted that exact set (`edu checks accept`),
+run only after a person approves a spec that lists the exact commands, or with
+`--allow-unregistered-checks`.
+
+**Detached runs.** The dispatcher resolves the safety policy (ceiling, passthrough, approvals floor) from
+the global config and hands it to the `edu crew worker` in `EDU_CREW_POLICY`, with a digest of the job;
+the job's brain travels in `EDU_CREW_BRAIN` and `EDU_HOME` stays the global home. The worker never reads
+the policy from the workspace and refuses a job record edited after dispatch. A detached run always
+stops at the spec gate unless the global `approvals` is `auto`, and its working time and each gate's
+wait are limited by `crew.timeoutMinutes`.
 
 **Child environment.** Agent CLIs start with `childEnv(cli)`: PATH, HOME/USERPROFILE, locale, TERM,
 proxy and temp variables, plus that CLI's own auth variables. Anything else (for example `GITHUB_TOKEN`
@@ -291,9 +306,10 @@ shims are resolved and started without `cmd.exe` where possible (`src/platform/i
 or timed-out job's whole process tree is killed (`killTree`).
 
 **Worker mode.** A crew worker runs with `EDU_CREW_JOB` set (Codex forwards it to Edu's MCP server).
-In worker mode the MCP server serves only the `read-only` tools of section 6, and the crew store, the
-CLI and decision files refuse any approval: a worker can read and recall, but never write notes,
-approve, dispatch, cancel or switch workspaces.
+In worker mode the MCP server serves only the `read-only` tools of section 6, and the crew store and the
+CLI refuse any approval, dispatch, cancel or detached run: a worker can read and recall, but never write
+notes, approve, dispatch, cancel or switch workspaces. This is a guard for cooperative agents; the
+global-home location of gates and decisions is what keeps a sandboxed agent out.
 
 **Installs and updates.** Host configs are merged only in Edu's own keys, blocks and TOML sections;
 user values are never overwritten, and uninstall keeps edits made after install. `edu update` and the

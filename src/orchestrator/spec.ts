@@ -1,13 +1,14 @@
 import { join } from 'node:path';
 import { atomicWrite, slugify } from '../brain/store.js';
-import type { CliId, EduConfig, HarnessLevel } from '../core/contracts.js';
+import type { CliId, EduConfig, HarnessLevel, RoleId } from '../core/contracts.js';
 import { assignCli } from './assign.js';
 import type { Plan } from './plan.js';
 
 export interface SpecDocument { path: string; markdown: string }
 
 /** Materializes the exact plan/check commands that the approval callback sees. */
-export async function writeSpec(root: string, goal: string, playbookName: string, harness: HarnessLevel, plan: Plan, config: EduConfig, available: CliId[], now: Date, runId: string): Promise<SpecDocument> {
+/** `cliOf` names the CLI each step really runs on (a read-only step may move to one that enforces it); default `assignCli`. */
+export async function writeSpec(root: string, goal: string, playbookName: string, harness: HarnessLevel, plan: Plan, config: EduConfig, available: CliId[], now: Date, runId: string, cliOf: (role: RoleId) => CliId = role => assignCli(role, config, available)): Promise<SpecDocument> {
   const stamp = `${now.toISOString().slice(0, 10).replaceAll('-', '')}-${now.toISOString().slice(11, 16).replace(':', '')}`;
   const path = join(root, 'specs', `${stamp}-${slugify(goal) || 'run'}-${runId.slice(0, 8)}.md`);
   const lines = [
@@ -25,7 +26,7 @@ export async function writeSpec(root: string, goal: string, playbookName: string
     ]),
     ...(plan.checks.length ? [] : ['- No deterministic checks specified.', '']),
     '## Steps', '',
-    ...plan.steps.map(step => `- **${step.id}** — ${step.role} (${assignCli(step.role, config, available)}): ${step.task}${step.dependsOn.length ? `; after ${step.dependsOn.join(', ')}` : ''}`),
+    ...plan.steps.map(step => `- **${step.id}** — ${step.role} (${cliOf(step.role)}): ${step.task}${step.dependsOn.length ? `; after ${step.dependsOn.join(', ')}` : ''}`),
     ...(plan.steps.length ? [] : ['- No execution steps specified.']), '',
   ];
   const markdown = `${lines.join('\n')}\n`;

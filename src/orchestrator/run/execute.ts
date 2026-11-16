@@ -1,7 +1,6 @@
 import type { StepResult } from '../run.js';
 import type { Plan } from '../plan.js';
-import { assignCli } from '../assign.js';
-import { builderPrompt, recordApplications, runAgent } from './agents.js';
+import { builderPrompt, recordApplications, runAgent, stepCli } from './agents.js';
 import { reproduceChecks } from './checks.js';
 import { saveTaskState, supportContext, type RunState } from './state.js';
 
@@ -17,7 +16,7 @@ export async function executePhase(run: RunState, plan: Plan): Promise<Map<strin
   if (run.harnessLevel === 'H3') run.workflowEvidence = await reproduceChecks(run, run.effectiveChecks);
   const completed = new Map<string, string>();
   const pending = new Map(plan.steps.map(step => [step.id, step]));
-  const enforcedReader = (step: Step) => run.config.roles.find(role => role.id === step.role)?.autonomy === 'readonly' && deps.engines(assignCli(step.role, run.config, deps.available)).capabilities?.readonly === 'enforced';
+  const enforcedReader = (step: Step) => run.config.roles.find(role => role.id === step.role)?.autonomy === 'readonly' && deps.engines(stepCli(run, step.role)).capabilities?.readonly === 'enforced';
   while (pending.size) {
     if (deps.signal?.aborted) throw new Error('Run cancelled.');
     const ready = [...pending.values()].filter(step => step.dependsOn.every(id => completed.has(id)));
@@ -49,9 +48,9 @@ export async function executePhase(run: RunState, plan: Plan): Promise<Map<strin
 }
 
 async function executeStep(run: RunState, step: Step, signal?: AbortSignal): Promise<StepResult> {
-  const { runId, goal, deps } = run;
+  const { runId, goal } = run;
   const role = run.config.roles.find(candidate => candidate.id === step.role);
-  const cli = assignCli(step.role, run.config, deps.available);
+  const cli = stepCli(run, step.role);
   const dependencyContext = step.dependsOn.map(id => `${id}: ${run.steps.find(item => item.id === id)?.summary ?? ''}`).join('\n');
   const prompt = step.role === 'builder'
     ? `${builderPrompt(step.task, goal, run.workflowEvidence, run.harnessLevel)}\n\nDependencies:\n${dependencyContext}`

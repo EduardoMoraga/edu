@@ -102,13 +102,30 @@ export function childEnv(cli: CliId | string, extra: Record<string, string | und
 
 const truthy = (value: string | undefined) => Boolean(value && !/^(?:0|false|no|off)$/i.test(value.trim()));
 
-/** `crew.env.passthrough` from `EDU_HOME/config.json` (never a project config); empty when absent or invalid. */
+/**
+ * The variable that carries a detached crew worker's policy, resolved by its parent from the global config
+ * (workspace/config.ts `CREW_POLICY_ENV`; repeated here because this file loads with Node built-ins only).
+ */
+const WORKER_POLICY_ENV = 'EDU_CREW_POLICY';
+
+const validNames = (list: unknown): string[] =>
+  Array.isArray(list) ? list.filter((name): name is string => typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_()]*$/.test(name)) : [];
+
+/**
+ * `crew.env.passthrough` of the global config (never a project config); empty when absent or invalid. A detached
+ * worker takes it from the policy its parent handed down and never reads a file: its EDU_HOME and brain may be
+ * somewhere an agent can write. A policy that does not parse yields nothing.
+ */
 export function configuredPassthrough(source: NodeJS.ProcessEnv = process.env): string[] {
+  const handed = source[WORKER_POLICY_ENV];
+  if (handed !== undefined) {
+    try { return validNames((JSON.parse(handed) as { passthrough?: unknown } | null)?.passthrough); }
+    catch { return []; }
+  }
   const eduHome = resolve(source.EDU_HOME || join(source.HOME || source.USERPROFILE || homedir(), '.edu'));
   try {
     const config = JSON.parse(readFileSync(join(eduHome, 'config.json'), 'utf8')) as { crew?: { env?: { passthrough?: unknown } } };
-    const list = config?.crew?.env?.passthrough;
-    return Array.isArray(list) ? list.filter((name): name is string => typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_()]*$/.test(name)) : [];
+    return validNames(config?.crew?.env?.passthrough);
   } catch { return []; }
 }
 

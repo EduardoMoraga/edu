@@ -13,6 +13,16 @@ export function answerOf(value: boolean | ApprovalAnswer, fallback: ApprovalBy):
   return typeof value === 'boolean' ? { approved: value, by: fallback } : { approved: value.approved === true, by: value.by };
 }
 
+/**
+ * Waits for an answer to a gate. The execution budget does not run while a person decides; the caller's own signal
+ * (Ctrl-C, a detached worker's gate-wait limit) still ends the wait.
+ */
+export async function waitForAnswer<T>(run: RunState, approval: () => Promise<T>): Promise<T> {
+  run.clock.pause();
+  try { return await awaitApproval(approval(), run.deps.signal); }
+  finally { run.clock.resume(); }
+}
+
 export async function awaitApproval<T>(approval: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return approval;
   if (signal.aborted) throw new Error('Run cancelled while awaiting approval.');
@@ -45,7 +55,7 @@ export async function askApproval(run: RunState, gate: Gate): Promise<ApprovalAn
   const { agentId, approvalId, stepId, title, detail } = gate;
   await emit(run, { type: 'approval.request', agentId, approvalId, title, detail, ...(gate.unregisteredChecks?.length ? { unregisteredChecks: gate.unregisteredChecks } : {}), at: at(run) });
   let answer: ApprovalAnswer = { approved: false, by: gate.fallback ?? (deps.autoApprove ? 'policy' : 'user') };
-  try { answer = answerOf(await awaitApproval(deps.approve({ agentId, stepId, title, detail }), deps.signal), answer.by); }
+  try { answer = answerOf(await waitForAnswer(run, () => deps.approve({ agentId, stepId, title, detail })), answer.by); }
   catch (error) { await emit(run, { type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at(run) }); }
   if (deps.signal?.aborted) throw new Error(gate.cancelled);
   await emit(run, { type: 'approval.resolve', approvalId, approved: answer.approved, by: answer.by, at: at(run) });

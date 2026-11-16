@@ -10,6 +10,7 @@ import type { CliId, EduConfig, EduEvent, Engine, HarnessLevel, OrchestrationMod
 import { resolveBrainLocations } from '../brain/locations.js';
 import { packageTemplatesDir } from '../platform/package.js';
 import { initBrain } from '../workspace/init.js';
+import type { CrewPolicy } from '../workspace/config.js';
 import type { ApprovalAnswer, ApprovalRequest, RunResult } from './run.js';
 
 export const NO_CLI_MESSAGE = 'No supported coding CLI found on PATH. Install one, or try: edu demo';
@@ -22,6 +23,12 @@ export interface RunHost {
   env: NodeJS.ProcessEnv;
   /** Home directory used when `env` has no HOME. */
   home: string;
+  /**
+   * Set for detached runs (crew workers): the safety policy the dispatching parent resolved from the global config.
+   * No config file is read for it, the autonomy ceiling always applies, a project's `approvals` cannot be looser than
+   * the global one, and the spec gate always opens unless the global `approvals` is `auto`.
+   */
+  policy?: CrewPolicy;
 }
 
 export interface RunRequest {
@@ -55,7 +62,7 @@ export async function runSession(host: RunHost, request: RunRequest): Promise<Ru
   if (!(await exists(eduMdPath))) {
     await initBrain({ location: primary, templatesDir: packageTemplatesDir(), detected: available, lang: request.lang });
   }
-  const [{ defaultConfig, loadConfig, loadCrewPolicy }, { orchestrate }, { buildContext }, { createEngine }] = await Promise.all([
+  const [{ defaultConfig, loadConfig, loadCrewPolicy, stricterApprovals }, { orchestrate }, { buildContext }, { createEngine }] = await Promise.all([
     import('../workspace/config.js'),
     import('./run.js'),
     import('../context/index.js'),
@@ -63,11 +70,14 @@ export async function runSession(host: RunHost, request: RunRequest): Promise<Ru
   ]);
   const configPath = join(primary.root, 'config.json');
   const base = await exists(configPath) ? await loadConfig(configPath) : defaultConfig(available[0] ?? 'claude');
-  const config = { ...base, mode: request.mode ?? base.mode, defaultCli: request.cli ?? base.defaultCli, approvals: request.autoApprove ? 'auto' as const : base.approvals };
+  // A detached run has nobody watching it start: the person's global approval policy is its floor.
+  const detached = host.policy;
+  const approvals = request.autoApprove ? 'auto' as const : detached ? stricterApprovals(base.approvals, detached.approvals) : base.approvals;
+  const config = { ...base, mode: request.mode ?? base.mode, defaultCli: request.cli ?? base.defaultCli, approvals };
   // A project's config and playbooks live where agents and cloned repositories can write, so the person's global
-  // crew.maxAutonomy bounds their roles. The global brain's own config is the person's choice.
+  // crew.maxAutonomy bounds their roles. The global brain's own config is the person's choice, in the foreground.
   const global = locations.find(location => location.scope === 'global')!;
-  const maxAutonomy = primary.scope === 'project' ? (await loadCrewPolicy(global.root)).maxAutonomy : undefined;
+  const maxAutonomy = detached ? detached.maxAutonomy : primary.scope === 'project' ? (await loadCrewPolicy(global.root)).maxAutonomy : undefined;
 
   return orchestrate(request.goal, {
     config,
@@ -84,6 +94,8 @@ export async function runSession(host: RunHost, request: RunRequest): Promise<Ru
     autoApprove: request.autoApprove,
     allowUnregisteredChecks: request.allowUnregisteredChecks,
     ...(maxAutonomy ? { maxAutonomy } : {}),
+    ...(detached && detached.approvals !== 'auto' ? { requireSpecApproval: true } : {}),
+    globalRoot: global.root,
     runsDir: join(primary.root, 'runs'),
   });
 }
