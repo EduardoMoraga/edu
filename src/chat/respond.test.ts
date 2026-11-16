@@ -12,7 +12,9 @@ const at = '2026-10-08T12:00:00.000Z';
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(dir => rm(dir, { recursive: true, force: true }))); });
 
-async function setup(texts: string[]) {
+async function setup(texts: string[], tail: (agentId: string, index: number) => EduEvent[] = (agentId, index) => [
+  { type: 'agent.end', agentId, ok: true, summary: 'complete', sessionId: `session-${index}`, at },
+]) {
   const cwd = await mkdtemp(join(tmpdir(), 'edu-chat-'));
   dirs.push(cwd);
   const root = join(cwd, '.edu');
@@ -26,10 +28,11 @@ async function setup(texts: string[]) {
     available: async () => true,
     async *run(request: EngineRunRequest, agentId: string) {
       requests.push(request);
+      const index = next++;
       yield* new FakeEngine([
-        { type: 'agent.text', agentId, text: texts[next] ?? '', at },
+        { type: 'agent.text', agentId, text: texts[index] ?? '', at },
         { type: 'usage', agentId, usage: { inputTokens: 3, outputTokens: 5 }, at },
-        { type: 'agent.end', agentId, ok: true, summary: 'complete', sessionId: `session-${next++}`, at },
+        ...tail(agentId, index),
       ]).run(request, agentId);
     },
   });
@@ -62,6 +65,18 @@ describe('respond', () => {
     expect(requests[1]?.prompt).toContain('What did we decide about checking sources?');
     expect(requests[1]?.prompt).toContain('Why?');
     expect(history.turns).toHaveLength(4);
+  });
+
+  it('never routes a TASK line from a run that stopped before its end or reported an error', async () => {
+    const cut = await setup(['TASK: Delete every'], () => []);
+    await expect(respond({ ...cut.deps, message: 'clean up' })).rejects.toThrow('stopped before finishing its answer');
+    expect(cut.events.at(-1)).toMatchObject({ type: 'agent.end', ok: false });
+    const errored = await setup(['TASK: Ship it'], (agentId, index) => [
+      { type: 'error', agentId, message: 'claude exited with code 1: rate limited', at },
+      { type: 'agent.end', agentId, ok: true, summary: 'complete', sessionId: `session-${index}`, at },
+    ]);
+    await expect(respond({ ...errored.deps, message: 'ship' })).rejects.toThrow('Edu chat engine failed: claude exited with code 1: rate limited');
+    expect(errored.history.turns).toEqual([]);
   });
 
   it('classifies only an exact TASK line as a task', async () => {

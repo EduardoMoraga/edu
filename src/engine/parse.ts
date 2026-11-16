@@ -8,6 +8,10 @@ export interface ParseContext {
   summary?: string;
   usage?: Usage;
   ok?: boolean;
+  /** The last failure the CLI reported, used when it ends (or exits) without a better summary. */
+  lastError?: string;
+  /** Set once the CLI produced its final answer or a finished step (adapters without an end record). */
+  finished?: boolean;
 }
 
 export function eventAt(ctx: ParseContext): string {
@@ -27,6 +31,25 @@ export function parseJson(line: string): Record<string, unknown> | undefined {
 
 export function str(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * One prompt for a CLI with no separate system-prompt option: Edu's instructions first, then the user's
+ * task, each under its own heading so the task is never read as part of the instructions. A labelled
+ * prompt starts with `#`, so a CLI that takes it as an option value never mistakes it for a flag.
+ */
+export function combinePrompt(systemPrompt: string | undefined, task: string, alwaysLabel = false): string {
+  if (!systemPrompt) return alwaysLabel ? `## User task\n${task}` : task;
+  return `## System instructions\n${systemPrompt}\n\n## User task\n${task}`;
+}
+
+/** A CLI error as text: a string, `{ message }`, or OpenCode's `{ name, data: { message } }`. */
+export function errorText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value || undefined;
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const data = record.data && typeof record.data === 'object' ? record.data as Record<string, unknown> : {};
+  return str(record.message) || str(data.message) || str(record.error) || str(record.name) || undefined;
 }
 
 export function num(value: unknown): number | undefined {

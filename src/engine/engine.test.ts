@@ -57,6 +57,29 @@ describe('engine argv builders', () => {
     expect(built.args).toContain('--permission-mode');
     expect(built.args).toContain('default');
   });
+  it('never puts a flag-like task where a CLI would parse it as an option', () => {
+    const hostile = (cli: CliId): EngineRunRequest => ({ cli, prompt: '--model evil/x @/etc/passwd', cwd: '/workspace', autonomy: 'readonly' });
+    const pi = buildPiArgv(hostile('pi'));
+    expect(pi.stdin).toBe('--model evil/x @/etc/passwd');
+    expect(pi.args.join(' ')).not.toContain('evil');
+    const opencode = buildOpencodeArgv(hostile('opencode'));
+    expect(opencode.args.slice(-2)).toEqual(['--', '--model evil/x @/etc/passwd']);
+    const agy = buildAgyArgv(hostile('agy'));
+    const prompt = agy.args[agy.args.indexOf('-p') + 1]!;
+    expect(prompt.startsWith('-')).toBe(false);
+    expect(prompt).toBe('## User task\n--model evil/x @/etc/passwd');
+    expect(buildClaudeArgv(hostile('claude')).args.join(' ')).not.toContain('evil');
+    expect(buildCodexArgv(hostile('codex')).args.join(' ')).not.toContain('evil');
+  });
+
+  it('puts system instructions first and labels the task as the user task', () => {
+    for (const cli of ['codex', 'agy', 'opencode'] as const) {
+      const built = builders[cli](request(cli, 'auto'));
+      const prompt = cli === 'codex' ? built.stdin! : built.args.at(cli === 'agy' ? built.args.indexOf('-p') + 1 : -1)!;
+      expect(prompt).toBe('## System instructions\nBe careful.\n\n## User task\ninspect this file');
+    }
+  });
+
   it('enables OpenCode thinking output so reasoning parts are emitted', () => {
     expect(buildOpencodeArgv(request('opencode', 'ask')).args).toContain('--thinking');
   });
@@ -81,7 +104,8 @@ describe('native JSONL fixtures', () => {
     const usage = events.find((event): event is Extract<EduEvent, { type: 'usage' }> => event.type === 'usage');
     expect(usage?.usage.inputTokens).toBe(cli === 'claude' ? 135 : cli === 'pi' || cli === 'opencode' ? 139 : 120);
     expect(usage?.usage.raw?.inputTokens).toBe(120);
-    expect(usage?.usage.outputTokens).toBe(30);
+    // OpenCode reports reasoning apart from output and bills it as output (fixture: 30 + 6).
+    expect(usage?.usage.outputTokens).toBe(cli === 'opencode' ? 36 : 30);
     if (cli === 'codex' || cli === 'agy') expect(usage?.usage.costUsd).toBeUndefined();
     else expect(usage?.usage.costUsd).toBe(0.0012);
     if (cli === 'codex') {
@@ -102,6 +126,42 @@ describe('native JSONL fixtures', () => {
     expect(calls).toHaveLength(1);
     expect(results).toHaveLength(1);
     expect(results[0]?.callId).toBe(calls[0]?.callId);
+  });
+
+  it.each(cliIds)('%s ends its realistic error fixture as a failure with the CLI error text', async (cli) => {
+    const path = fileURLToPath(new URL(`./fixtures/${cli}-error.jsonl`, import.meta.url));
+    const lines = (await readFile(path, 'utf8')).trim().split('\n');
+    const ctx = context();
+    const events = lines.flatMap((line) => parsers[cli](line, ctx));
+    if (cli === 'opencode') events.push(...finalizeOpencode(ctx));
+    const ends = events.filter((event): event is Extract<EduEvent, { type: 'agent.end' }> => event.type === 'agent.end');
+    expect(ends).toHaveLength(1);
+    expect(ends[0]).toMatchObject({ ok: false, sessionId: `${cli}-error-session` });
+    const expected: Record<CliId, string> = {
+      claude: 'Invalid API key', codex: '401 Unauthorized', pi: 'rate_limit_error', opencode: 'invalid x-api-key', agy: 'RESOURCE_EXHAUSTED',
+    };
+    expect(ends[0]!.summary).toContain(expected[cli]);
+  });
+
+  it('fails a Claude result marked is_error even when its subtype says success', () => {
+    const [, end] = parseClaudeLine(JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: 'Credit balance is too low', usage: { input_tokens: 1, output_tokens: 0 } }), context());
+    expect(end).toMatchObject({ type: 'agent.end', ok: false, summary: 'Credit balance is too low' });
+    const [maxTurns] = parseClaudeLine(JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true }), context());
+    expect(maxTurns).toMatchObject({ type: 'agent.end', ok: false, summary: 'Claude ended with error_max_turns' });
+  });
+
+  it('reads the message of a Codex turn.failed error object and keeps retried stream errors non-fatal', () => {
+    const ctx = context();
+    expect(parseCodexLine(JSON.stringify({ type: 'error', message: 'Reconnecting... 1/5' }), ctx)).toEqual([]);
+    expect(parseCodexLine(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }), ctx).at(-1)).toMatchObject({ type: 'agent.end', ok: true });
+    expect(parseCodexLine(JSON.stringify({ type: 'turn.failed', error: { message: 'model overloaded' } }), context()).at(-1)).toMatchObject({ type: 'agent.end', ok: false, summary: 'model overloaded' });
+  });
+
+  it('fails an OpenCode run that exits cleanly without any finished output', () => {
+    expect(finalizeOpencode(context())).toEqual([expect.objectContaining({ type: 'agent.end', ok: false, summary: 'OpenCode exited without producing a result' })]);
+    const ctx = context();
+    parseOpencodeLine(JSON.stringify({ type: 'step_finish', part: { type: 'step-finish', reason: 'error', tokens: { input: 1, output: 0 } } }), ctx);
+    expect(finalizeOpencode(ctx)).toEqual([expect.objectContaining({ ok: false })]);
   });
 
   it('marks Pi failed when its final assistant message and retry both fail', () => {
@@ -155,6 +215,13 @@ describe('process and fake engine', () => {
     )) events.push(event);
     expect(events.map((event) => event.type)).toEqual(['agent.text', 'agent.end']);
     expect(events.at(-1)).toMatchObject({ type: 'agent.end', sessionId: 'open-session', summary: 'Final answer' });
+  });
+
+  it('reports a CLI that exits 0 without its final record as a failure, with the output it did print', async () => {
+    const script = `console.log('Error: not logged in. Run the login command first.');`;
+    const events: EduEvent[] = [];
+    for await (const event of runJsonlProcess({ command: process.execPath, args: ['-e', script] }, process.cwd(), 'no-end', parseClaudeLine)) events.push(event);
+    expect(events).toEqual([expect.objectContaining({ type: 'error', message: expect.stringContaining('exited without reporting a result: Error: not logged in') })]);
   });
 
   it('drops oversized lines, emits an error, then continues with the next line', async () => {

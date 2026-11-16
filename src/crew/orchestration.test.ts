@@ -5,12 +5,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EduEvent, Engine } from '../core/contracts.js';
 import { createCrew } from './index.js';
 import { saveChecks } from '../evidence/registry.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
 function fakeEngine(): Engine {
-  return { cli: 'claude', available: async () => true, async *run(request, agentId) {
+  return { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
     const text = request.prompt.includes('Create a safe') ? JSON.stringify({
       requirements: [{ id: 'R-1', text: 'Command passes' }],
       checks: [{ id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 10000 }],

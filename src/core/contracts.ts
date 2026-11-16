@@ -265,6 +265,8 @@ export interface CrewJob {
   /** Hash of the pane text right after the prompt; changed text plus idle means the agent answered. */
   promptPaneHash?: string;
   promptedAt?: string;
+  /** Headless task jobs stop after this many minutes (default 60, or `crew.timeoutMinutes` in config.json). */
+  timeoutMinutes?: number;
 }
 
 export interface EngineRunRequest {
@@ -411,8 +413,9 @@ export interface EduConfig {
   /** The workspace agent's identity (e.g. "Albert"), used by briefs and identity injection. */
   identity?: WorkspaceIdentity;
   /**
-   * Crew safety settings. Read only from the global config (`EDU_HOME/config.json`), never from a project
-   * `.edu/config.json`, which an agent or a cloned repository can write.
+   * Crew settings. The safety settings (`maxAutonomy`, `env`) are read only from the global config
+   * (`EDU_HOME/config.json`), never from a project `.edu/config.json`, which an agent or a cloned repository
+   * can write. `timeoutMinutes` is a dispatch default and may come from either.
    */
   crew?: CrewSettings;
 }
@@ -422,6 +425,8 @@ export interface CrewSettings {
   maxAutonomy?: Autonomy;
   /** Extra environment variable names passed to agent CLIs on top of the built-in allowlist. */
   env?: { passthrough?: string[] };
+  /** Default crew job timeout in minutes (1–1440; built-in default 60). */
+  timeoutMinutes?: number;
 }
 
 export interface WorkspaceIdentity { name: string; role?: string; tone?: string; summary?: string }

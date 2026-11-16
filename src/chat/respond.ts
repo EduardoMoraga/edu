@@ -56,8 +56,11 @@ export async function respond(options: RespondOptions): Promise<ChatResult> {
   const pending: EduEvent[] = [];
   let output = '';
   let sessionId: string | undefined;
+  // Success needs the engine's own successful end and no error on the way: a run that stopped early
+  // (or only half-printed a `TASK:` line) must never be taken as an answer or start an orchestration.
   let ended = false;
-  let ok = true;
+  let ok = false;
+  const failures: string[] = [];
   try {
     for await (const event of measuredEngine(engines(config.defaultCli)).run({
       invocation: { id: crypto.randomUUID(), purpose: 'chat' },
@@ -69,9 +72,15 @@ export async function respond(options: RespondOptions): Promise<ChatResult> {
         ended = true;
         ok = event.ok;
         sessionId = event.sessionId;
-      } else pending.push(event);
+        if (!event.ok && event.summary) failures.push(event.summary);
+      } else {
+        if (event.type === 'error') failures.push(event.message);
+        pending.push(event);
+      }
     }
     const text = output.trim();
+    if (failures.length) throw new Error(`Edu chat engine failed: ${failures.join('; ')}`);
+    if (!ended) throw new Error('Edu chat engine stopped before finishing its answer');
     if (!ok) throw new Error('Edu chat engine failed');
     if (!text) throw new Error('Edu chat engine returned no answer');
     await onEvent({ type: 'agent.text', agentId: CHAT_AGENT, text, at: at() });

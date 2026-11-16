@@ -1,14 +1,16 @@
 import { sumUsage } from '../core/usage.js';
-import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { atomicWrite } from '../brain/store.js';
 import { WorkerOutputFilter, boundedWorkerPreview, createCrewArtifacts, redactWorkerOutput } from '../context/artifacts.js';
 import type { Autonomy, CliId, CrewDecisionBy, CrewJob, CrewJobMode, CrewJobStatus, EduEvent } from '../core/contracts.js';
+import { processAlive } from '../platform/process-tree.js';
+import { isCrewJobStatus, isTerminalCrewJobStatus } from './status.js';
 
 export interface NewCrewJob extends Pick<CrewJob, 'cli' | 'task' | 'mode' | 'cwd' | 'autonomy'> {
   kind?: CrewJob['kind']; goal?: string; playbook?: string; orchestrationMode?: CrewJob['orchestrationMode'];
-  harnessLevel?: CrewJob['harnessLevel']; autoApprove?: boolean; allowUnregisteredChecks?: boolean;
+  harnessLevel?: CrewJob['harnessLevel']; autoApprove?: boolean; allowUnregisteredChecks?: boolean; timeoutMinutes?: number;
 }
 export type CrewJobPatch = Partial<Pick<CrewJob, 'status' | 'approval' | 'pid' | 'paneId' | 'agentName' | 'endedAt' | 'pendingPrompt' | 'observedWorking' | 'promptSeq' | 'promptPaneHash' | 'promptedAt' | 'summary' | 'usage' | 'note' | 'outcome' | 'specPath' | 'verificationSummary'>>;
 
@@ -22,6 +24,11 @@ export interface CrewStore {
   get(id: string): Promise<CrewJob | undefined>;
   list(): Promise<CrewJob[]>;
   update(id: string, patch: CrewJobPatch): Promise<CrewJob>;
+  /**
+   * Locked read-modify-write: `change` sees the current record and returns a patch, or undefined to leave
+   * it alone. Use it whenever the patch depends on what the job says now (claiming a prompt, a sweep).
+   */
+  mutate(id: string, change: (current: CrewJob) => CrewJobPatch | undefined): Promise<CrewJob>;
   appendEvent(id: string, event: EduEvent): Promise<void>;
   flushOutput(id: string): Promise<void>;
   events(id: string): Promise<EduEvent[]>;
@@ -40,7 +47,48 @@ export function isCrewWorker(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 const DECISION_BY = new Set<CrewDecisionBy>(['cli', 'deck', 'host-llm']);
-const statuses = new Set<CrewJobStatus>(['queued', 'running', 'awaiting-approval', 'done', 'failed', 'cancelled']);
+const LOCK_WAIT_MS = 10_000;
+const LOCK_STALE_MS = 30_000;
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Cross-process exclusion per job: `mkdir` is atomic on every platform. A lock is stale when its owner
+ * process is gone or it is far older than any update takes, so a killed worker never wedges its job.
+ */
+async function withJobLock<T>(dir: string, body: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      await mkdir(dir);
+      await writeFile(join(dir, 'owner'), String(process.pid));
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    if (await staleLock(dir)) {
+      // Claim by rename, so two waiters cannot both remove a lock a third one just took.
+      const claimed = `${dir}.stale-${process.pid}-${randomUUID()}`;
+      try { await rename(dir, claimed); await rm(claimed, { recursive: true, force: true }); } catch { /* another waiter won */ }
+      continue;
+    }
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for the crew job lock: ${dir}`);
+    await pause(10);
+  }
+  try { return await body(); }
+  finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+async function staleLock(dir: string): Promise<boolean> {
+  try {
+    const age = Date.now() - (await stat(dir)).mtimeMs;
+    const owner = Number((await readFile(join(dir, 'owner'), 'utf8').catch(() => '')).trim());
+    if (Number.isInteger(owner) && owner > 0) return !processAlive(owner) || age > LOCK_STALE_MS;
+    return age > 2000; // created but its owner never wrote: the creator died in between
+  } catch {
+    return false; // gone or unreadable: retry mkdir
+  }
+}
+
 const safeId = (id: string) => {
   if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error(`Invalid crew job id: ${id}`);
   return id;
@@ -65,6 +113,7 @@ export function createCrewStore(brainRoot: string): CrewStore {
   const metaPath = (id: string) => join(root, `${safeId(id)}.json`);
   const eventPath = (id: string) => join(root, `${safeId(id)}.jsonl`);
   const decisionPath = (id: string) => join(root, `${safeId(id)}.decision`);
+  const lockPath = (id: string) => join(root, `${safeId(id)}.lock`);
   const ensure = () => mkdir(root, { recursive: true });
   // The brain's atomic write retries the rename while Windows reports the target as held open (a status
   // poller reading the job), instead of failing the job with EPERM.
@@ -93,7 +142,7 @@ export function createCrewStore(brainRoot: string): CrewStore {
       }
       try {
         const job: unknown = JSON.parse(await readFile(metaPath(id), 'utf8'));
-        if (!job || typeof job !== 'object' || !('id' in job) || !('status' in job) || !statuses.has((job as CrewJob).status)) throw new Error(`Invalid crew job record: ${id}`);
+        if (!job || typeof job !== 'object' || !('id' in job) || !('status' in job) || !isCrewJobStatus((job as CrewJob).status)) throw new Error(`Invalid crew job record: ${id}`);
         return job as CrewJob;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
@@ -107,27 +156,41 @@ export function createCrewStore(brainRoot: string): CrewStore {
       return jobs.filter((job): job is CrewJob => Boolean(job)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     },
     async update(id, patch) {
-      const current = await this.get(id);
-      if (!current) throw new Error(`Crew job not found: ${id}`);
-      if (patch.status && !statuses.has(patch.status)) throw new Error(`Invalid crew job status: ${patch.status}`);
-      const safePatch = { ...patch };
-      try {
-        if (patch.status && ['done', 'failed', 'cancelled'].includes(patch.status)) await flushOutput(current.id);
-        if (typeof patch.summary === 'string') {
-          await artifacts.replace(current.id, 'summary', patch.summary);
-          safePatch.summary = boundedWorkerPreview(redactWorkerOutput(patch.summary), current.id);
+      return this.mutate(id, () => patch);
+    },
+    async mutate(id, change) {
+      const found = await this.get(id);
+      if (!found) throw new Error(`Crew job not found: ${id}`);
+      await ensure();
+      return withJobLock(lockPath(found.id), async () => {
+        const current = await this.get(found.id);
+        if (!current) throw new Error(`Crew job not found: ${id}`);
+        const patch = change(current);
+        if (!patch) return current;
+        if (patch.status && !isCrewJobStatus(patch.status)) throw new Error(`Invalid crew job status: ${patch.status}`);
+        // A finished job keeps its outcome: a late worker write cannot turn `cancelled` back into `failed`.
+        if (patch.status !== undefined && patch.status !== current.status && isTerminalCrewJobStatus(current.status)) return current;
+        const safePatch = { ...patch };
+        try {
+          if (isTerminalCrewJobStatus(patch.status)) await flushOutput(current.id);
+          if (typeof patch.summary === 'string') {
+            await artifacts.replace(current.id, 'summary', patch.summary);
+            safePatch.summary = boundedWorkerPreview(redactWorkerOutput(patch.summary), current.id);
+          }
+        } catch {
+          // Preserve terminal state even when the artifact directory is unavailable.
+          // Never put the raw summary into metadata as a fallback.
+          safePatch.summary = '[summary unavailable: artifact persistence failed]';
+          if (!isTerminalCrewJobStatus(current.status)) {
+            safePatch.status = 'failed';
+            safePatch.endedAt ??= new Date().toISOString();
+          }
         }
-      } catch {
-        // Preserve terminal state even when the artifact directory is unavailable.
-        // Never put the raw summary into metadata as a fallback.
-        safePatch.summary = '[summary unavailable: artifact persistence failed]';
-        safePatch.status = 'failed';
-        safePatch.endedAt ??= new Date().toISOString();
-      }
-      if (typeof patch.note === 'string') safePatch.note = redactWorkerOutput(patch.note);
-      const updated = { ...current, ...safePatch };
-      await atomicJson(metaPath(id), updated);
-      return updated;
+        if (typeof patch.note === 'string') safePatch.note = redactWorkerOutput(patch.note);
+        const updated = { ...current, ...safePatch };
+        await atomicJson(metaPath(current.id), updated);
+        return updated;
+      });
     },
     async appendEvent(id, event) {
       const job = await this.get(id);

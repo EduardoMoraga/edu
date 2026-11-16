@@ -7,6 +7,7 @@ import type { Engine } from '../core/contracts.js';
 import { printCommand } from '../test-support/shell.js';
 import { defaultConfig } from './config.js';
 import { orchestrate } from './run.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 it('persists bounded verified feedback for long note ids independently per note', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'edu-feedback-id-'));
@@ -33,7 +34,7 @@ it('persists bounded verified feedback for long note ids independently per note'
       checks: [{ id: 'node-check', requirementIds: ['R-1'], command: printCommand('checked'), expect: { exitCode: 0, stdoutIncludes: 'checked' }, timeoutMs: 10000 }],
       steps: [{ id: 'build', role: 'builder', task: 'Apply the fixture guidance', dependsOn: [], parallelSafe: false }],
     };
-    const engine: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const engine: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan)
         : request.prompt.includes('Review the completed') ? '{"verdict":"pass","issues":[]}'
         : [long, other].map(note => `EDU_APPLIED ${JSON.stringify({ noteId: note.meta.id, requirementIds: ['R-1'], application: `Applied [[${note.meta.id}]] to satisfy the checked requirement.` })}`).join('\n');

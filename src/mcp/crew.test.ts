@@ -21,7 +21,7 @@ describe('crew MCP tools', () => {
     const brain = openBrain([location]);
     await brain.init(location);
     const engine: Engine = {
-      cli: 'claude', available: async () => true,
+      cli: 'claude', available: async () => true, capabilities: { readonly: 'enforced', isolation: 'host', limitations: [] },
       async *run() { yield { type: 'agent.text', agentId: 'review', text: 'Clear.', at: new Date().toISOString() } satisfies EduEvent; },
     };
     const server = createEduMcpServer({ locations: [location], env: {}, crewOptions: {

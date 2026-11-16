@@ -10,6 +10,7 @@ import { defaultConfig } from './config.js';
 import { extractPlan } from './plan.js';
 import { loadPlaybook } from './playbook.js';
 import { orchestrate } from './run.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 const at = '2026-01-01T00:00:00.000Z';
 const playbook = (name: string, method: string) => `---\nname: ${name}\ndescription: Test method\nharness: H3\nrequireSpecApproval: true\nmaxFixRounds: 1\n---\n\n${method}\n`;
@@ -68,7 +69,7 @@ describe('v3 orchestration', () => {
     try {
       await mkdir(join(root, 'playbooks'), { recursive: true });
       await writeFile(join(root, 'playbooks', 'default.md'), playbook('default', 'Use this custom sequence.'));
-      const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, id) {
+      const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, id) {
         requests.push(request);
         let output: string;
         if (request.prompt.includes('Create a safe')) { order.push('plan'); output = JSON.stringify(plan); }
@@ -96,7 +97,7 @@ describe('v3 orchestration', () => {
     try {
       await mkdir(join(root, 'playbooks'), { recursive: true });
       await writeFile(join(root, 'playbooks', 'default.md'), playbook('default', 'Review first.'));
-      const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, id) {
+      const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, id) {
         yield* new FakeEngine([{ type: 'agent.text', agentId: id, text: JSON.stringify(plan), at }]).run(request, id);
       } };
       const result = await orchestrate('Goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(root, 'runs'), onEvent: event => events.push(event), approve: async () => false });
@@ -114,7 +115,7 @@ describe('v3 orchestration', () => {
     const unsafe = { requirements: [{ id: 'R-1', text: 'safe' }], checks: [{ id: 'check', requirementIds: ['R-1'], command: 'rm -rf .', expect: { exitCode: 0 }, timeoutMs: 1000 }], steps: [] };
     const repaired = { ...unsafe, checks: [{ ...unsafe.checks[0], command: printCommand('safe') }] };
     let leadCalls = 0;
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, id) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, id) {
       const output = request.prompt.includes('Create a safe') ? JSON.stringify(unsafe) : request.prompt.includes('Your previous response was rejected') ? (leadCalls++, JSON.stringify(repaired)) : '{"verdict":"pass","issues":[]}';
       yield* new FakeEngine([{ type: 'agent.text', agentId: id, text: output, at }]).run(request, id);
     } };
@@ -134,7 +135,7 @@ describe('v3 orchestration', () => {
     const root = join(dir, '.edu');
     const marker = join(dir, 'ran');
     const plan = { requirements: [{ id: 'R-1', text: 'works' }], checks: [{ id: 'invented', requirementIds: ['R-1'], command: nodeCommand("require('fs').writeFileSync('ran', 'x')"), expect: { exitCode: 0 }, timeoutMs: 10000 }], steps: [] };
-    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, id) {
+    const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, id) {
       const output = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}';
       yield* new FakeEngine([{ type: 'agent.text', agentId: id, text: output, at }, { type: 'agent.end', agentId: id, ok: true, summary: 'done', at }]).run(request, id);
     } };

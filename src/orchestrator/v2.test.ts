@@ -7,6 +7,7 @@ import { nodeCommand } from '../test-support/shell.js';
 import { classifyPackage } from '../evidence/classify.js';
 import { defaultConfig } from './config.js';
 import { orchestrate } from './run.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 async function fixture(options: { rounds?: number; reviews?: string[]; fail?: boolean; repair?: boolean; applied?: string; level?: HarnessLevel; rejectFix?: boolean; noChecks?: boolean; reviewBreaks?: boolean; failFeedback?: boolean; reviewEvidenceFailure?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'edu-orchestrator-v2-'));
@@ -21,7 +22,7 @@ async function fixture(options: { rounds?: number; reviews?: string[]; fail?: bo
   await writeFile(join(dir, '.edu', 'harness', 'tools.json'), JSON.stringify([{ id: 'UNIQUE_TOOL', command: 'node --version' }]));
   await mkdir(join(root, 'playbooks'), { recursive: true });
   await writeFile(join(root, 'playbooks', 'default.md'), `---\nname: default\ndescription: Fixture\nharness: H3\nrequireSpecApproval: true\nmaxFixRounds: ${options.rounds ?? 1}\n---\n\nFixture method.\n`);
-  const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+  const runtime: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
     requests.push(request);
     let text: string;
     if (request.prompt.includes('Create a safe')) text = JSON.stringify(plan);

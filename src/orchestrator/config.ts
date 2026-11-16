@@ -10,6 +10,7 @@ const AutonomySchema = z.enum(['readonly', 'ask', 'auto', 'full']);
 const CrewSettingsSchema = z.object({
   maxAutonomy: AutonomySchema.optional(),
   env: z.object({ passthrough: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_()]*$/)).optional() }).strict().optional(),
+  timeoutMinutes: z.number().int().min(1).max(1440).optional(),
 }).strict();
 
 export const EduConfigSchema = z.object({

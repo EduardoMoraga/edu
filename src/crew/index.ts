@@ -6,9 +6,12 @@ import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Autonomy, BrainLocation, CliId, CrewDecisionBy, CrewJob, CrewJobMode, Engine, HarnessLevel, OrchestrationMode } from '../core/contracts.js';
 import { detectEngines, createEngine } from '../engine/index.js';
+import { enforcesReadonly } from '../engine/autonomy.js';
 import { truncateToTokens } from '../context/index.js';
-import { dispatchHeadless, runWorker } from './headless.js';
-import { dispatchPane, herdrTarget, refreshPane, type HerdrOptions } from './herdr.js';
+import { processAlive, describeProcess, killTree } from '../platform/process-tree.js';
+import { DEFAULT_CREW_TIMEOUT_MINUTES, dispatchHeadless, runWorker } from './headless.js';
+import { closePane, dispatchPane, herdrTarget, refreshPane, type HerdrOptions } from './herdr.js';
+import { isTerminalCrewJobStatus } from './status.js';
 import { createCrewStore, type CrewStore } from './store.js';
 
 const execFile = promisify(execFileCallback);
@@ -26,11 +29,42 @@ export interface CrewOptions {
   clock?: () => number;
   diff?: (base: string, cwd: string) => Promise<string>;
   startHeadless?: (job: CrewJob, options: { brainRoot: string }) => Promise<CrewJob>;
+  /** Default minutes before a headless task job is stopped; else `crew.timeoutMinutes` in config.json, else 60. */
+  timeoutMinutes?: number;
+  /** Process probes (tests inject fakes). */
+  isAlive?: (pid: number) => boolean;
+  describeProcess?: (pid: number) => Promise<string | undefined>;
+  stopProcess?: (pid: number, signal: NodeJS.Signals) => Promise<void>;
+  /** How long a cancelled worker gets to stop its CLI before it is force-killed. */
+  cancelGraceMs?: number;
 }
-export interface DispatchInput { cli: CliId; task: string; mode?: CrewJobMode; cwd?: string; autonomy?: Autonomy }
+export interface DispatchInput { cli: CliId; task: string; mode?: CrewJobMode; cwd?: string; autonomy?: Autonomy; timeoutMinutes?: number }
 /** `autoApprove` and `allowUnregisteredChecks` are human CLI flags; the MCP tools never pass them. */
 export interface OrchestrationInput { goal: string; cwd?: string; cli?: CliId; mode?: OrchestrationMode; playbook?: string; harnessLevel?: HarnessLevel; autoApprove?: boolean; allowUnregisteredChecks?: boolean }
 export interface ReviewInput { cli?: CliId; base?: string; callerCli?: CliId }
+
+/** A worker past its timeout by this much has stopped reporting: its job is marked failed. */
+const OVERDUE_GRACE_MS = 5 * 60_000;
+
+async function configuredTimeout(root: string): Promise<number | undefined> {
+  try {
+    const { loadConfig } = await import('../orchestrator/config.js');
+    return (await loadConfig(join(root, 'config.json'))).crew?.timeoutMinutes;
+  } catch { return undefined; } // no or unreadable config: the built-in default applies
+}
+
+function validTimeout(minutes: number | undefined): number | undefined {
+  if (minutes === undefined) return undefined;
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) throw new Error('Crew timeout must be a whole number of minutes from 1 to 1440');
+  return minutes;
+}
+
+/** True when the process at `pid` is the Edu worker for `jobId`, so a reused pid is never signalled. */
+export function isWorkerOf(description: string | undefined, jobId: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (!description) return false;
+  // Windows only reports the image name; the worker runs under Node.
+  return platform === 'win32' ? /^node(?:\.exe)?$/i.test(description.trim()) : description.includes('crew') && description.includes(jobId);
+}
 
 export function createCrew(options: CrewOptions = {}) {
   const root = options.brainRoot ?? options.locations?.[0]?.root ?? defaultRoot();
@@ -39,6 +73,36 @@ export function createCrew(options: CrewOptions = {}) {
   const detect = options.detectClis ?? detectEngines;
   const sleep = options.sleep ?? (ms => new Promise(resolveSleep => setTimeout(resolveSleep, ms)));
   const clock = options.clock ?? Date.now;
+  const isAlive = options.isAlive ?? processAlive;
+  const describe = options.describeProcess ?? describeProcess;
+  const stop = options.stopProcess ?? ((pid: number, signal: NodeJS.Signals) => killTree({ pid }, signal));
+  const readonlyEnforced = (cli: CliId) => measuredEngine(engineFactory(cli)).capabilities?.readonly === 'enforced';
+
+  /** Marks a headless job whose worker died, or stopped reporting past its timeout, as failed. */
+  async function sweep(job: CrewJob): Promise<CrewJob> {
+    if (isTerminalCrewJobStatus(job.status) || job.pid === undefined) return job;
+    const dead = !isAlive(job.pid);
+    const limit = (job.timeoutMinutes ?? DEFAULT_CREW_TIMEOUT_MINUTES) * 60_000;
+    const overdue = job.kind !== 'orchestration' && job.status === 'running' && clock() > Date.parse(job.createdAt) + limit + OVERDUE_GRACE_MS;
+    if (!dead && !overdue) return job;
+    return store.mutate(job.id, current => isTerminalCrewJobStatus(current.status) || current.pid !== job.pid ? undefined : {
+      status: 'failed', endedAt: new Date(clock()).toISOString(),
+      summary: dead ? `Worker process ${job.pid} stopped without finishing the job.` : `Worker exceeded its ${limit / 60_000}-minute timeout and stopped reporting.`,
+    });
+  }
+  const refresh = (job: CrewJob) => job.mode === 'pane' ? refreshPane(job, { ...options.herdr, store, brainRoot: root }) : sweep(job);
+
+  /** Stops a headless worker: SIGTERM lets it end its CLI's tree; whatever is left after the grace is force-killed. */
+  async function stopWorker(job: CrewJob): Promise<string | undefined> {
+    const pid = job.pid;
+    if (pid === undefined || !isAlive(pid)) return undefined;
+    if (!isWorkerOf(await describe(pid), job.id)) return `Process ${pid} is no longer this job's worker; nothing was signalled.`;
+    await stop(pid, 'SIGTERM');
+    const deadline = clock() + (options.cancelGraceMs ?? 3000);
+    while (isAlive(pid) && clock() < deadline) await sleep(50);
+    if (isAlive(pid)) await stop(pid, 'SIGKILL');
+    return undefined;
+  }
   const workspaceRoot = options.workspaceRoot ?? (options.locations?.find(loc => loc.scope === 'project')?.root
     ? dirname(options.locations.find(loc => loc.scope === 'project')!.root)
     : options.brainRoot ? (basename(options.brainRoot) === '.edu' ? dirname(options.brainRoot) : options.brainRoot) : process.cwd());
@@ -78,12 +142,17 @@ export function createCrew(options: CrewOptions = {}) {
       if (fromBoundary === '..' || fromBoundary.startsWith(`..${sep}`) || isAbsolute(fromBoundary)) {
         throw new Error(`Crew dispatch cwd is outside the workspace: ${input.cwd ?? cwd}`);
       }
+      const autonomy = input.autonomy ?? 'ask';
+      if (autonomy === 'readonly' && !enforcesReadonly(input.cli)) {
+        throw new Error(`${input.cli} cannot enforce read-only work; dispatch it to claude, codex or pi, or choose another autonomy level`);
+      }
+      const timeoutMinutes = validTimeout(input.timeoutMinutes) ?? validTimeout(options.timeoutMinutes) ?? await configuredTimeout(root) ?? DEFAULT_CREW_TIMEOUT_MINUTES;
       const requestedMode = input.mode ?? 'headless';
       // Inside herdr: a pane beside the caller. Outside (Hermes, launchd) with a reachable server: a tab
       // in the "Edu" herdr workspace. Otherwise headless, and the job says why.
       const target = requestedMode === 'pane' ? await herdrTarget(options.herdr) : undefined;
       const pane = target !== undefined && target.kind !== 'none';
-      const job = await store.create({ cli: input.cli, task: input.task.trim(), mode: pane ? 'pane' : 'headless', cwd, autonomy: input.autonomy ?? 'ask' });
+      const job = await store.create({ cli: input.cli, task: input.task.trim(), mode: pane ? 'pane' : 'headless', cwd, autonomy, timeoutMinutes });
       if (target?.kind === 'none') await store.update(job.id, { note: `Herdr unavailable (${target.reason}); dispatched as headless.` });
       if (pane) return dispatchPane(job, { ...options.herdr, store, brainRoot: root, target });
       return (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root });
@@ -92,31 +161,53 @@ export function createCrew(options: CrewOptions = {}) {
       if (jobId) {
         const job = await store.get(jobId);
         if (!job) throw new Error(`Crew job not found: ${jobId}`);
-        return job.mode === 'pane' ? refreshPane(job, { ...options.herdr, store, brainRoot: root }) : job;
+        return refresh(job);
       }
       const jobs = await store.list();
-      return Promise.all(jobs.map(job => job.mode === 'pane' ? refreshPane(job, { ...options.herdr, store, brainRoot: root }) : job));
+      return Promise.all(jobs.map(refresh));
     },
     async result(jobId: string, waitSeconds = 0): Promise<CrewJob> {
       if (!Number.isFinite(waitSeconds) || waitSeconds < 0) throw new Error('waitSeconds must be a non-negative number');
       const deadline = clock() + Math.floor(waitSeconds * 1000);
       while (true) {
         const current = await this.status(jobId) as CrewJob;
-        if (['done', 'failed', 'cancelled'].includes(current.status) || clock() >= deadline) return current;
+        if (isTerminalCrewJobStatus(current.status) || clock() >= deadline) return current;
         await sleep(Math.min(250, Math.max(1, deadline - clock())));
       }
+    },
+    /**
+     * Cancels a job: marks it `cancelled` first (so the dying worker's own write cannot win), then stops
+     * its worker process tree, or closes its herdr pane. A finished job is returned unchanged.
+     */
+    async cancel(jobId: string): Promise<CrewJob> {
+      const job = await store.get(jobId);
+      if (!job) throw new Error(`Crew job not found: ${jobId}`);
+      const cancelled = await store.mutate(job.id, current => isTerminalCrewJobStatus(current.status) ? undefined : {
+        status: 'cancelled', endedAt: new Date(clock()).toISOString(), summary: 'Cancelled on request.',
+      });
+      if (cancelled.status !== 'cancelled' || isTerminalCrewJobStatus(job.status)) return cancelled;
+      let note: string | undefined;
+      try {
+        if (cancelled.mode === 'pane') await closePane(cancelled, { ...options.herdr, store, brainRoot: root });
+        else note = await stopWorker(cancelled);
+      } catch (error) {
+        note = `Could not stop the job's process: ${error instanceof Error ? error.message : String(error)}`;
+      }
+      return note ? store.update(job.id, { note }) : cancelled;
     },
     async review(input: ReviewInput = {}): Promise<{ cli: CliId; summary: string }> {
       const available = await detect();
       const callerEnv = options.callerEnv ?? process.env;
       const caller = input.callerCli ?? (callerEnv.ANTIGRAVITY || callerEnv.ANTIGRAVITY_AGENT || callerEnv.GEMINI_CLI ? 'agy' : undefined);
-      const reviewer = input.cli ?? available.find(cli => cli !== caller);
-      if (!reviewer || !available.includes(reviewer)) throw new Error('No available reviewer CLI different from the caller; specify an installed --cli');
+      // The diff under review is untrusted input: only a CLI that enforces read-only may see it.
+      const reviewer = input.cli ?? available.find(cli => cli !== caller && readonlyEnforced(cli));
+      if (!reviewer || !available.includes(reviewer)) throw new Error('No available read-only reviewer CLI different from the caller (claude, codex or pi); specify an installed --cli');
+      if (!readonlyEnforced(reviewer)) throw new Error(`${reviewer} cannot enforce a read-only review; use claude, codex or pi`);
       const base = input.base ?? 'HEAD';
       const rawDiff = await (options.diff ?? defaultDiff)(base, workspaceRoot);
       const prompt = `Review the following changes. Do not modify files. Return concrete findings first, then residual risks.\n\n\`\`\`diff\n${truncateToTokens(rawDiff, 6000)}\n\`\`\``;
       let summary = '';
-      for await (const event of measuredEngine(engineFactory(reviewer)).run({ invocation: { id: crypto.randomUUID(), purpose: 'review' }, cli: reviewer, prompt, cwd: workspaceRoot, autonomy: 'readonly', systemPrompt: 'You are an independent, read-only code reviewer. Never request write access.' }, `review-${Date.now()}`)) {
+      for await (const event of measuredEngine(engineFactory(reviewer)).run({ invocation: { id: crypto.randomUUID(), purpose: 'review' }, cli: reviewer, prompt, cwd: workspaceRoot, autonomy: 'readonly', requireReadonly: true, systemPrompt: 'You are an independent, read-only code reviewer. Never request write access.' }, `review-${Date.now()}`)) {
         if (event.type === 'agent.text') summary += event.text;
         else if (event.type === 'agent.end' || event.type === 'run.end') {
           if (!event.ok) throw new Error('reviewer ended unsuccessfully');
@@ -148,5 +239,7 @@ export const dispatch = (input: DispatchInput) => defaultCrew.dispatch(input);
 export const status = (jobId?: string) => defaultCrew.status(jobId);
 export const result = (jobId: string, waitSeconds?: number) => defaultCrew.result(jobId, waitSeconds);
 export const review = (input?: ReviewInput) => defaultCrew.review(input);
-export { runWorker } from './headless.js';
+export const cancel = (jobId: string) => defaultCrew.cancel(jobId);
+export { DEFAULT_CREW_TIMEOUT_MINUTES, runWorker } from './headless.js';
 export { createCrewStore } from './store.js';
+export { CREW_JOB_STATUSES, TERMINAL_CREW_JOB_STATUSES, isCrewJobStatus, isTerminalCrewJobStatus } from './status.js';

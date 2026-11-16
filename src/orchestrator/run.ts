@@ -1,6 +1,7 @@
 import { measuredEngine } from '../engine/measurement.js';
 import { appendFile, mkdir, open, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { atomicWrite } from '../brain/store.js';
 import { autoMaintain } from '../brain/auto-maintain.js';
@@ -141,7 +142,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     }
     const session = await deps.brain.openSession(`Run: ${goal}`, 'edu:orchestrator');
     sessionId = session.meta.id;
-    await atomicWrite(join(deps.runsDir, `${runId}.status.json`), `${JSON.stringify({ runId, cwd: deps.cwd, goal, sessionId, status: 'running', summary: 'Run started; inspect event log before resuming interrupted work.', steps, budget: { ...budget.limits, spawns: budget.spawns, advisorCalls: budget.advisorCalls }, updatedAt: at() }, null, 2)}\n`);
+    await atomicWrite(join(deps.runsDir, `${runId}.status.json`), `${JSON.stringify({ runId, cwd: deps.cwd, goal, sessionId, status: 'running', owner: { pid: process.pid, host: hostname() }, summary: 'Run started; inspect event log before resuming interrupted work.', steps, budget: { ...budget.limits, spawns: budget.spawns, advisorCalls: budget.advisorCalls }, updatedAt: at() }, null, 2)}\n`);
     if (harnessLevel !== 'H0') {
       const [tools, checks] = await Promise.all([loadTools(deps.cwd), loadChecks(deps.cwd)]);
       registeredChecks = checks;
@@ -159,7 +160,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
       const capabilities = engineFor(cli).capabilities!;
       if (role.autonomy === 'readonly' && capabilities.readonly !== 'enforced') limitations.push(`${role.id}/${cli}: readonly enforcement unsupported; steps run serially. ${capabilities.limitations.join(' ')}`);
     }
-    const leadCli = assignCli('lead', activeDeps.config, deps.available);
+    const leadCli = readonlyCli('lead');
     const planningMethod = `Playbook: ${playbook.name}\n${playbook.description}\n\n${playbook.body}`;
     const prompt = planningPrompt(goal, '', { harnessLevel, playbook: planningMethod });
     const planText = await runText(activeDeps, emit, leadCli, leadId, 'lead', prompt, 'readonly', supportContext(), methodSummary);
@@ -329,7 +330,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
         if (results.some(result => !result.ok)) throw new Error(`Deterministic verification failed after ${playbook.maxFixRounds} fix round(s).`);
       }
       const reviewerId = `${runId}-reviewer${reviewRounds++ ? `-${reviewRounds}` : ''}`;
-      const reviewerCli = assignCli('reviewer', activeDeps.config, deps.available);
+      const reviewerCli = readonlyCli('reviewer');
       const review = await runText(activeDeps, emit, reviewerCli, reviewerId, 'reviewer',
         `Review the completed work. Return strict JSON {"verdict":"pass"|"fix","issues":[string]}.\nGoal: ${goal}\nRequirements: ${JSON.stringify(requirements)}\nSteps: ${JSON.stringify(steps)}\nAdvisory risks (untrusted opinion, not evidence): ${advisorEvidence || 'Not consulted.'}`,
         'readonly', supportContext(), methodSummary);
@@ -369,6 +370,23 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     if (sessionId) await closeEpisode(sessionId, summary).catch(() => {});
     await emit({ type: 'error', message: summary, at: at() });
     return await finish(false);
+  }
+
+  /**
+   * The lead plans before any approval and the reviewer reads untrusted diffs: both must run on a CLI that
+   * enforces read-only. The assigned CLI is kept when it can; otherwise another installed one that can
+   * (a reviewer still prefers a vendor other than the builder's), or the run stops with a clear reason.
+   */
+  function readonlyCli(role: 'lead' | 'reviewer'): CliId {
+    const assigned = assignCli(role, activeDeps.config, deps.available);
+    const enforced = (cli: CliId) => engineFor(cli).capabilities?.readonly === 'enforced';
+    if (enforced(assigned)) return assigned;
+    const builderCli = role === 'reviewer' ? assignCli('builder', activeDeps.config, deps.available) : undefined;
+    const candidates = deps.available.filter(enforced).sort((a, b) => Number(a === builderCli) - Number(b === builderCli));
+    const fallback = candidates[0];
+    if (!fallback) throw new Error(`The ${role} must run read-only, but ${assigned} cannot enforce it and no installed CLI can. Install claude, codex or pi, or route the ${role} to one of them.`);
+    limitations.push(`${role}: ${assigned} cannot enforce read-only, so the ${role} ran on ${fallback}.`);
+    return fallback;
   }
 
   async function executeStep(step: { id: string; role: string; task: string; dependsOn: string[] }, signal?: AbortSignal): Promise<StepResult> {
@@ -459,7 +477,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
   }
 
   async function persistStatus(success: boolean, detail: string) {
-    await atomicWrite(join(deps.runsDir, `${runId}.status.json`), `${JSON.stringify({ runId, cwd: deps.cwd, goal, sessionId, status: success ? 'completed' : terminalStatus, summary: detail, steps, budget: { ...budget.limits, spawns: budget.spawns, advisorCalls: budget.advisorCalls }, updatedAt: at() }, null, 2)}\n`);
+    await atomicWrite(join(deps.runsDir, `${runId}.status.json`), `${JSON.stringify({ runId, cwd: deps.cwd, goal, sessionId, status: success ? 'completed' : terminalStatus, owner: { pid: process.pid, host: hostname() }, summary: detail, steps, budget: { ...budget.limits, spawns: budget.spawns, advisorCalls: budget.advisorCalls }, updatedAt: at() }, null, 2)}\n`);
   }
 
   /** Waits for one step gate and records it with the channel that answered. A failed approval is a rejection. */
@@ -576,7 +594,9 @@ async function runText(deps: OrchestrateDeps, emit: (event: EduEvent) => Promise
   await emit({ type: 'agent.spawn', agentId, role: roleId, cli, task: prompt.slice(0, 160), at: (deps.now?.() ?? new Date()).toISOString() });
   await emit({ type: 'agent.status', agentId, status: 'running', at: (deps.now?.() ?? new Date()).toISOString() });
   const purpose = (agentId.includes('fix') || agentId.endsWith('-repair')) || prompt.includes('Invalid plan') || prompt.startsWith('Your previous') ? 'recovery' : roleId === 'lead' ? 'planning' : roleId === 'reviewer' ? 'review' : 'task';
-  const request: EngineRunRequest = { invocation: { id: randomUUID(), purpose }, cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, systemPrompt: [role?.mission, roleId === 'lead' ? '' : methodSummary, roleId === 'builder' && context.includes('Brain context pack:') ? 'If you actually apply a supplied note, cite it explicitly on a separate line: EDU_APPLIED {"noteId":"L-id","requirementIds":["R-1"],"application":"Applied [[L-id]] by ..."}. Report only concrete application, never mere exposure or presumed benefit.' : ''].filter(Boolean).join('\n\n'), ...(model ? { model } : {}), signal };
+  // Planning, review and advice must be read-only in fact, not only by request.
+  const requireReadonly = autonomy === 'readonly' && (roleId === 'lead' || roleId === 'reviewer' || roleId === 'advisor');
+  const request: EngineRunRequest = { invocation: { id: randomUUID(), purpose }, cli, prompt: `${prompt}\n\nContext pack:\n${context}`, cwd: deps.cwd, autonomy, ...(requireReadonly ? { requireReadonly } : {}), systemPrompt: [role?.mission, roleId === 'lead' ? '' : methodSummary, roleId === 'builder' && context.includes('Brain context pack:') ? 'If you actually apply a supplied note, cite it explicitly on a separate line: EDU_APPLIED {"noteId":"L-id","requirementIds":["R-1"],"application":"Applied [[L-id]] by ..."}. Report only concrete application, never mere exposure or presumed benefit.' : ''].filter(Boolean).join('\n\n'), ...(model ? { model } : {}), signal };
   let text = ''; let summary = ''; let sessionId: string | undefined;
   try {
     for await (const event of measuredEngine(deps.engines(cli)).run(request, agentId)) {

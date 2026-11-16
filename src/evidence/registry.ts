@@ -4,6 +4,49 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { DeterministicCheck } from '../core/contracts.js';
 import { atomicWrite } from '../brain/store.js';
+import { killTree, trackChild } from '../platform/process-tree.js';
+
+/** Check output kept per stream: enough for a failing test report, bounded for memory and prompts. */
+export const CHECK_OUTPUT_HEAD_CHARS = 4 * 1024;
+export const CHECK_OUTPUT_TAIL_CHARS = 12 * 1024;
+
+/** Keeps the start and the end of a stream (where a failing test prints its summary) and counts the rest. */
+class CappedText {
+  private head = '';
+  private tail = '';
+  private omitted = 0;
+  push(text: string): void {
+    if (this.head.length < CHECK_OUTPUT_HEAD_CHARS) {
+      const room = CHECK_OUTPUT_HEAD_CHARS - this.head.length;
+      this.head += text.slice(0, room);
+      text = text.slice(room);
+    }
+    if (!text) return;
+    this.tail += text;
+    if (this.tail.length > CHECK_OUTPUT_TAIL_CHARS) {
+      this.omitted += this.tail.length - CHECK_OUTPUT_TAIL_CHARS;
+      this.tail = this.tail.slice(-CHECK_OUTPUT_TAIL_CHARS);
+    }
+  }
+  toString(): string {
+    return this.omitted ? `${this.head}\n[… ${this.omitted} characters omitted …]\n${this.tail}` : this.head + this.tail;
+  }
+}
+
+/** Finds `needle` across chunk boundaries without keeping the whole stream. */
+function streamMatcher(needle: string | undefined) {
+  let carry = '';
+  let found = needle === undefined || needle === '';
+  return {
+    push(text: string) {
+      if (found) return;
+      const window = carry + text;
+      found = window.includes(needle!);
+      carry = window.slice(-(needle!.length - 1) || window.length);
+    },
+    get found() { return found; },
+  };
+}
 
 export const ToolSchema = z.object({
   id: z.string().min(1),
@@ -78,59 +121,49 @@ export async function runCheck(check: DeterministicCheck, cwd: string, signal?: 
       return;
     }
     const child = spawn(check.command, { cwd, ...checkSpawnOptions(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-    let output = '';
-    let stdout = '';
-    let stderr = '';
+    const untrack = trackChild(child);
+    // Output is capped at the source: it is kept in memory, written to events and fed back into prompts.
+    const output = new CappedText();
+    const stdout = new CappedText();
+    const stderr = new CappedText();
+    const expected = streamMatcher(check.expect?.stdoutIncludes);
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killProcessGroup(child.pid, 'SIGTERM');
-      const forceKill = setTimeout(() => killProcessGroup(child.pid, 'SIGKILL'), 250);
-      forceKill.unref();
-    }, check.timeoutMs);
-    timer.unref();
-    const onAbort = () => {
-      killProcessGroup(child.pid, 'SIGTERM');
-      const forceKill = setTimeout(() => killProcessGroup(child.pid, 'SIGKILL'), 250);
+    // The shell is the child; killTree ends it with the command it runs (Windows: the whole tree via taskkill).
+    const stop = () => {
+      void killTree(child, 'SIGTERM');
+      const forceKill = setTimeout(() => void killTree(child, 'SIGKILL'), 250);
       forceKill.unref();
     };
-    signal?.addEventListener('abort', onAbort, { once: true });
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); output += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); output += chunk.toString(); });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stop();
+    }, check.timeoutMs);
+    timer.unref();
+    signal?.addEventListener('abort', stop, { once: true });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => { stdout.push(chunk); output.push(chunk); expected.push(chunk); });
+    child.stderr.on('data', (chunk: string) => { stderr.push(chunk); output.push(chunk); });
     child.once('error', (error) => {
       clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
+      untrack();
+      signal?.removeEventListener('abort', stop);
       if (signal?.aborted) {
-        resolve({ checkId: check.id, ok: false, exitCode: null, durationMs: Date.now() - started, timedOut: false, output: `${output}${error.message}`, stdout, stderr });
+        resolve({ checkId: check.id, ok: false, exitCode: null, durationMs: Date.now() - started, timedOut: false, output: `${output.toString()}${error.message}`, stdout: stdout.toString(), stderr: stderr.toString() });
       } else reject(error);
     });
     child.once('close', (code) => {
       clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
+      untrack();
+      signal?.removeEventListener('abort', stop);
       const exitCode = code;
       const expectedExit = check.expect?.exitCode ?? 0;
-      const ok = !timedOut && !signal?.aborted && exitCode === expectedExit &&
-        (check.expect?.stdoutIncludes === undefined || stdout.includes(check.expect.stdoutIncludes));
-      resolve({ checkId: check.id, ok, exitCode, durationMs: Date.now() - started, timedOut, output, stdout, stderr });
+      const ok = !timedOut && !signal?.aborted && exitCode === expectedExit && expected.found;
+      resolve({ checkId: check.id, ok, exitCode, durationMs: Date.now() - started, timedOut, output: output.toString(), stdout: stdout.toString(), stderr: stderr.toString() });
     });
   });
 }
 
 export function checkSpawnOptions(platform: NodeJS.Platform = process.platform) {
   return { shell: true, detached: platform !== 'win32' } as const;
-}
-
-function killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): void {
-  if (pid === undefined) return;
-  if (process.platform === 'win32') {
-    if (signal === 'SIGKILL') {
-      const killer = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
-      killer.unref();
-    } else {
-      try { process.kill(pid, signal); } catch { /* The process may have already exited. */ }
-    }
-    return;
-  }
-  try { process.kill(-pid, signal); }
-  catch { /* The process may have already exited or the platform may not support groups. */ }
 }

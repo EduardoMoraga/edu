@@ -1,13 +1,11 @@
 import type { EngineRunRequest } from '../core/contracts.js';
 import { makeEngine } from './adapter.js';
 import { autonomyFlags } from './autonomy.js';
-import { endEvent, makeUsage, parseJson, str, textEvent, toolCall, toolResult, type ParseContext } from './parse.js';
+import { combinePrompt, endEvent, errorText, makeUsage, parseJson, str, textEvent, toolCall, toolResult, type ParseContext } from './parse.js';
 import type { CommandSpec } from './process.js';
 
-export const SYSTEM_PROMPT_SEPARATOR = '\n\n--- System instructions ---\n';
-
 export function buildCodexArgv(req: EngineRunRequest): CommandSpec {
-  const prompt = req.systemPrompt ? `${req.systemPrompt}${SYSTEM_PROMPT_SEPARATOR}${req.prompt}` : req.prompt;
+  const prompt = combinePrompt(req.systemPrompt, req.prompt);
   const args = ['exec', '--json', ...autonomyFlags('codex', req.autonomy), '--skip-git-repo-check'];
   if (req.model) args.push('--model', req.model);
   if (req.resumeSessionId) args.push('resume', req.resumeSessionId);
@@ -41,8 +39,15 @@ export function parseLine(line: string, ctx: ParseContext) {
   }
   if (type === 'turn.completed' || type === 'turn.failed') {
     const events = data.usage && typeof data.usage === 'object' ? makeUsage(ctx, data.usage as Record<string, unknown>, 'inclusive-cache') : [];
-    events.push(endEvent(ctx, type !== 'turn.failed', str(data.error) ?? '', str(data.thread_id)));
+    // turn.failed carries `error: { message }`; a top-level `error` record may have said why earlier.
+    const summary = type === 'turn.failed' ? errorText(data.error) ?? ctx.lastError ?? 'Codex turn failed' : '';
+    events.push(endEvent(ctx, type !== 'turn.failed', summary, str(data.thread_id)));
     return events;
+  }
+  // Codex also reports retried stream errors this way, so the record alone does not end the run.
+  if (type === 'error') {
+    ctx.lastError = errorText(data.message) ?? errorText(data.error) ?? ctx.lastError;
+    return [];
   }
   if (type === 'response.output_text.delta' && typeof data.delta === 'string') return [textEvent(ctx, data.delta)];
   if (type === 'response.reasoning_summary_text.delta' && typeof data.delta === 'string') return [textEvent(ctx, data.delta, true)];

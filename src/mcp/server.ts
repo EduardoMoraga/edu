@@ -10,7 +10,7 @@ import { brief, estimateTokens, truncateToTokens } from '../context/index.js';
 import type { Autonomy, BrainLocation, ClaimBand, Note, NoteOrigin, Tier } from '../core/contracts.js';
 import { brainPath, isInside } from '../brain/location.js';
 import { loadCrewPolicy, withinAutonomy } from '../orchestrator/config.js';
-import { createCrew, type CrewOptions } from '../crew/index.js';
+import { createCrew, isTerminalCrewJobStatus, type CrewOptions } from '../crew/index.js';
 import { packageVersion } from '../cli/package.js';
 import { closeWithLessons, lessonsInput } from './session-learning.js';
 import { withHostLock } from '../platform/file-lock.js';
@@ -444,7 +444,7 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     const job = await crew.orchestrate({ goal, playbook, mode });
     const deadline = Date.now() + 60_000;
     let current = job;
-    while (!current.specPath && !['done', 'failed', 'cancelled'].includes(current.status) && Date.now() < deadline) {
+    while (!current.specPath && !isTerminalCrewJobStatus(current.status) && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 250));
       current = await crew.status(job.id) as typeof job;
     }

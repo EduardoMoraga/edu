@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import type { Engine, EduEvent } from '../core/contracts.js';
 import { RunBudget } from './budget.js';
 import { defaultConfig, EduConfigSchema } from './config.js';
 import { assignCli } from './assign.js';
 import { orchestrate } from './run.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 const collect = async (events: AsyncIterable<EduEvent>) => { for await (const _ of events) { /* drain */ } };
-const engine: Engine = { cli: 'pi', available: async () => true, async *run() {} };
+const engine: Engine = { cli: 'pi', capabilities: engineCapabilities('pi'), available: async () => true, async *run() {} };
 const request = { cli: 'pi' as const, prompt: 'test', cwd: '.', autonomy: 'readonly' as const };
 
 describe('Edu 3 execution budgets and routes', () => {
@@ -79,6 +80,8 @@ describe('Edu 3 execution budgets and routes', () => {
       expect(status.status).toBe('budget_exhausted');
       expect(status.sessionId).toBe('exact-session-id');
       expect(status.budget.spawns).toBe(1);
+      // The snapshot names its process, so resume can tell a crashed run from a live one.
+      expect(status.owner).toEqual({ pid: process.pid, host: hostname() });
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });

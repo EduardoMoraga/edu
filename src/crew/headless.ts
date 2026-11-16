@@ -12,6 +12,9 @@ import { createEngine } from '../engine/index.js';
 import { createCrewStore, type CrewStore } from './store.js';
 import { runOrchestration } from './orchestration.js';
 
+/** A crew task job stops after this many minutes unless the job or the workspace config says otherwise. */
+export const DEFAULT_CREW_TIMEOUT_MINUTES = 60;
+
 export interface WorkerOptions {
   brainRoot?: string;
   locations?: BrainLocation[];
@@ -61,8 +64,13 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
   let summary = '';
   let usage: Usage = sumUsage([]);
   let failed = false;
+  const timeoutMinutes = job.timeoutMinutes ?? DEFAULT_CREW_TIMEOUT_MINUTES;
+  const deadline = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
   try {
-    await store.update(job.id, { status: 'running', pid: process.pid, note: undefined });
+    const started = await store.update(job.id, { status: 'running', pid: process.pid, note: undefined });
+    // Cancelled before this worker got going: do not start the CLI at all.
+    if (started.status !== 'running') return started;
     const brain = openBrain(locations);
     const context = await brief(brain, 1200, { eduMdPath: join(locations[0]!.root, 'EDU.md') });
     const engine = (options.engineFactory ?? createEngine)(job.cli);
@@ -71,7 +79,13 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
       'Respect the requested autonomy and report a concise result, including blockers and verification.',
       context ? `\n## Brain brief\n${context}` : '',
     ].filter(Boolean).join('\n');
-    for await (const event of measuredEngine(engine).run({ invocation: { id: crypto.randomUUID(), purpose: 'task' }, cli: job.cli, prompt: job.task, cwd: job.cwd, autonomy: job.autonomy, systemPrompt }, job.id)) {
+    const request = {
+      invocation: { id: crypto.randomUUID(), purpose: 'task' as const }, cli: job.cli, prompt: job.task, cwd: job.cwd, autonomy: job.autonomy, systemPrompt,
+      signal: deadline.signal, ...(job.autonomy === 'readonly' ? { requireReadonly: true } : {}),
+    };
+    // The timeout bounds the CLI's run; it starts with the CLI.
+    timer = setTimeout(() => deadline.abort(), timeoutMinutes * 60_000);
+    for await (const event of measuredEngine(engine).run(request, job.id)) {
       const stamped = { ...event, at: event.at || iso(now) } as EduEvent;
       await store.appendEvent(job.id, stamped);
       if (event.type === 'agent.end' || event.type === 'run.end') {
@@ -88,6 +102,10 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
     // already released by WorkerOutputFilter may enter the summary or brain.
     await store.flushOutput(job.id);
     const output = await store.artifact(job.id, 'output', 0, 900);
+    if (deadline.signal.aborted) {
+      failed = true;
+      summary = `Timed out after ${timeoutMinutes} minute(s); the CLI was stopped.${summary ? `\n${summary}` : ''}`;
+    }
     if (!summary) summary = output.text;
     const status = failed ? 'failed' : 'done';
     const finalSummary = `${summary.trim() || (failed ? 'Worker failed without a summary.' : 'Worker completed without a summary.')}${output.truncated ? `\n[stream preview truncated; full sanitized output: edu_crew_artifact jobId=${job.id} kind=output]` : ''}`;
@@ -103,5 +121,7 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
     const message = error instanceof Error ? error.message : String(error);
     await store.appendEvent(job.id, { type: 'error', message, at: iso(now) }).catch(() => undefined);
     return store.update(job.id, { status: 'failed', endedAt: iso(now), summary: message, usage });
+  } finally {
+    clearTimeout(timer);
   }
 }
