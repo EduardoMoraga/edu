@@ -1291,8 +1291,15 @@ function registerCrew(program, ctx) {
   }
   root.command("worker <id>").description("run a queued crew job (internal detached entry point)").action(async (id) => {
     const globalRoot = globalHome(ctx);
+    const refuse = (why) => {
+      ctx.err(`Crew worker refused: ${why}`);
+      ctx.setExitCode(1);
+    };
+    if (isCrewWorker(ctx.env)) return refuse("a crew worker cannot start crew workers");
+    const policy = decodeWorkerPolicy(ctx.env[CREW_POLICY_ENV]);
+    if (!ctx.env[CREW_POLICY_ENV] || policy.job === void 0) return refuse("this internal entry point runs only jobs started by `edu crew dispatch` or `edu run --detach`");
     try {
-      await runWorker(id, { brainRoot: ctx.env[CREW_BRAIN_ENV] || globalRoot, globalRoot, policy: decodeWorkerPolicy(ctx.env[CREW_POLICY_ENV]) });
+      await runWorker(id, { brainRoot: ctx.env[CREW_BRAIN_ENV] || globalRoot, globalRoot, policy });
     } catch (error) {
       ctx.err(`Crew worker failed: ${error instanceof Error ? error.message : String(error)}`);
       ctx.setExitCode(1);
@@ -4411,4 +4418,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-SL2FSNWD.js.map
+//# sourceMappingURL=chunk-GFMFRCAM.js.map
