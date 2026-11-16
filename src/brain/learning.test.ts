@@ -27,3 +27,23 @@ describe('brain learning', () => {
     expect(rankNotes('reliable architecture', [low, high], date)[0]?.note.meta.id).toBe('L-high');
   });
 });
+
+describe('6.0 learning fixes', () => {
+  const now = new Date('2026-07-01T00:00:00Z');
+  it('ages a never-used note from its creation instead of ranking it as fresh', () => {
+    expect(learnedWeight({ uses: 0, wins: 0, losses: 0 }, now)).toBe(0.5);
+    expect(learnedWeight({ uses: 0, wins: 0, losses: 0 }, now, 45, '2026-05-17T00:00:00Z')).toBeCloseTo(0.25, 5);
+    expect(learnedWeight({ uses: 0, wins: 0, losses: 0 }, now, 45, '2026-06-30T00:00:00Z')).toBeGreaterThan(0.49);
+    // Exposure still wins over creation when both exist.
+    expect(learnedWeight({ uses: 1, wins: 0, losses: 0, lastUsed: now.toISOString() }, now, 45, '2020-01-01T00:00:00Z')).toBe(0.5);
+  });
+
+  it('never retires a proven lesson on advisory losses; only verified failures can', () => {
+    const meta = (usage: object) => ({ ...note('L-p', 'x').meta, status: 'proven' as const, usage: { uses: 0, wins: 0, losses: 0, ...usage } });
+    expect(lessonStatus(meta({ losses: 9 }), now)).toBe('proven');
+    expect(lessonStatus(meta({ losses: 3, verifiedWins: 3, verifiedLosses: 3 }), now)).toBe('proven');
+    expect(lessonStatus(meta({ losses: 3, verifiedLosses: 3 }), now)).toBe('retired');
+    // A candidate can still be retired by advisory losses.
+    expect(lessonStatus({ ...meta({ losses: 3 }), status: 'candidate' }, now)).toBe('retired');
+  });
+});

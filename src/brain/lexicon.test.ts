@@ -85,3 +85,22 @@ describe('fuzzy fallback', () => {
     expect(fuzzyCandidates('q700', ['q701'])).toEqual([]);
   });
 });
+
+describe('tokenize across scripts', () => {
+  it('keeps ASCII and accented Latin tokens as before', () => {
+    expect(tokenize("Café déjà-vu: don't use snake_case v2")).toEqual(['cafe', 'deja', 'vu', 'don', 't', 'use', 'snake', 'case', 'v2']);
+  });
+  it('indexes Cyrillic and Greek words, folding case', () => {
+    expect(tokenize('Миграция БАЗЫ данных')).toEqual(['миграция', 'базы', 'данных']);
+    expect(tokenize('Ελληνικά ΚΕΙΜΕΝΑ')).toEqual(['ελληνικα', 'κειμενα']);
+  });
+  it('splits CJK runs into overlapping bigrams and separates them from Latin runs', () => {
+    expect(tokenize('数据库迁移')).toEqual(['数据', '据库', '库迁', '迁移']);
+    expect(tokenize('API设计 v2')).toEqual(['api', '设计', 'v2']);
+    expect(tokenize('データの移行')).toEqual(['デー', 'ータ', 'タの', 'の移', '移行']);
+    expect(tokenize('数')).toEqual(['数']);
+  });
+  it('folds compatibility forms (ligatures, full-width letters)', () => {
+    expect(tokenize('ﬁle Ａｂｃ１２')).toEqual(['file', 'abc12']);
+  });
+});
