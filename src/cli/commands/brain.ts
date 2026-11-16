@@ -4,6 +4,7 @@ import type { Command } from 'commander';
 import { autoMaintain } from '../../brain/auto-maintain.js';
 import { compileReportLines } from '../../brain/compile.js';
 import { listCanonicalProposals, reviewCanonicalProposals } from '../../brain/proposals.js';
+import { isCrewWorker } from '../../crew/store.js';
 import { LINT_KINDS, lintBrain, type LintReport } from '../../brain/lint.js';
 import { brainPath, isInside } from '../../brain/location.js';
 import { TIDY_KINDS, applyTidy, loadTidyPlan, planTidy, saveTidyPlan } from '../../brain/tidy.js';
@@ -41,6 +42,8 @@ const REVIEW = {
     failed: 'Could not review {id}: {error}',
     nothing: 'Say what to review: edu brain approve <id...> | --all | --reject <id>',
     summary: '{accepted} accepted · {rejected} rejected · {errors} error(s)',
+    worker: 'A crew worker cannot approve or reject canonical notes; a person decides them.',
+    needTty: 'Approving canonical notes is a person\'s decision: run it in a terminal, or pass --yes to confirm you are that person.',
   },
   es: {
     none: 'Nada que aprobar: no hay notas canónicas propuestas.',
@@ -51,12 +54,14 @@ const REVIEW = {
     failed: 'No se pudo revisar {id}: {error}',
     nothing: 'Indica qué revisar: edu brain approve <id...> | --all | --reject <id>',
     summary: '{accepted} aceptadas · {rejected} rechazadas · {errors} error(es)',
+    worker: 'Un worker del crew no puede aprobar ni rechazar notas canónicas; las decide una persona.',
+    needTty: 'Aprobar notas canónicas lo decide una persona: ejecútalo en una terminal, o pasa --yes para confirmar que eres esa persona.',
   },
 } as const;
 const fill = (text: string, vars: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (_, key: string) => String(vars[key] ?? `{${key}}`));
 const collect = (value: string, previous: string[]) => [...previous, value];
 
-interface ApproveOpts { all?: boolean; reject?: string[]; reason?: string; json?: boolean }
+interface ApproveOpts { all?: boolean; reject?: string[]; reason?: string; json?: boolean; yes?: boolean }
 
 interface RecallOpts { limit?: string; json?: boolean; alt?: string[] }
 interface RememberOpts { kind?: string; body?: string; band?: string; due?: string; json?: boolean }
@@ -336,12 +341,16 @@ export function registerBrain(program: Command, ctx: CliContext): void {
     .option('--all', 'accept every pending proposal (except those passed to --reject)')
     .option('--reject <id>', 'reject a proposal: deleted, with a record in episodic memory (repeatable)', collect, [])
     .option('--reason <text>', 'why the rejected proposals were wrong (kept in the record)')
+    .option('--yes', 'confirm a person is deciding when stdin is not a terminal (scripts)')
     .option('--json', 'machine-readable output')
     .action(
       action<ApproveOpts>(ctx, async ({ g, opts, cmd }) => {
         const ids = (cmd.args as string[]).filter(Boolean);
         const reject = opts.reject ?? [];
         const m = REVIEW[g.lang];
+        // Canonical notes are human-approved truth: never from a crew worker, and never silently from a pipe.
+        if (isCrewWorker(ctx.env)) throw new Error(m.worker);
+        if (!ctx.stdinIsTTY && !opts.yes) throw new Error(m.needTty);
         if (!ids.length && !opts.all && !reject.length) throw new Error(m.nothing);
         const ws = await openWorkspace(ctx, g.cwd);
         const result = await reviewCanonicalProposals(ws.brain, { approve: ids, all: Boolean(opts.all), reject, reason: opts.reason });

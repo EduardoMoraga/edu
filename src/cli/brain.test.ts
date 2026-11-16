@@ -161,7 +161,14 @@ describe('edu context / proposals / doctor', () => {
     expect(JSON.parse(out(c)).map((p: { id: string }) => p.id)).toEqual(['K-retail-margin', 'K-weekly-cadence', 'K-wrong-guess']);
     c.stdout.length = 0;
 
-    await runCli(c, ['brain', 'approve', 'K-retail-margin', '--reject', 'K-wrong-guess', '--reason', 'made up']);
+    // Not a terminal and no --yes: nothing is decided.
+    await runCli(c, ['brain', 'approve', 'K-retail-margin']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('pass --yes');
+    expect((await brain.read('K-retail-margin'))?.meta.status).toBe('proposed');
+    c.exitCode = undefined; c.stderr.length = 0;
+
+    await runCli(c, ['brain', 'approve', 'K-retail-margin', '--reject', 'K-wrong-guess', '--reason', 'made up', '--yes']);
     expect(c.exitCode).toBeUndefined();
     expect(out(c)).toContain('Accepted K-retail-margin');
     expect(out(c)).toContain('Rejected K-wrong-guess');
@@ -172,6 +179,8 @@ describe('edu context / proposals / doctor', () => {
     expect(record?.body).toContain('Reason: made up');
     c.stdout.length = 0;
 
+    // A terminal counts as a person deciding.
+    c.ctx.stdinIsTTY = true;
     await runCli(c, ['brain', 'approve', '--all', '--json']);
     expect(JSON.parse(out(c))).toEqual({ accepted: ['K-weekly-cadence'], rejected: [], errors: [] });
     c.stdout.length = 0;
@@ -182,14 +191,26 @@ describe('edu context / proposals / doctor', () => {
 
   it('reports unknown ids and refuses an empty approve', async () => {
     const c = await initialized();
-    await runCli(c, ['brain', 'approve']);
+    await runCli(c, ['brain', 'approve', '--yes']);
     expect(c.exitCode).toBe(1);
     expect(c.stderr.join('\n')).toContain('edu brain approve <id...>');
 
     const d = await initialized();
-    await runCli(d, ['brain', 'approve', 'K-missing']);
+    await runCli(d, ['brain', 'approve', 'K-missing', '--yes']);
     expect(d.exitCode).toBe(1);
     expect(d.stderr.join('\n')).toContain('Canonical note not found: K-missing');
+  });
+
+  it('never lets a crew worker approve or reject canonical notes, even with --yes or a terminal', async () => {
+    const c = await initialized();
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    await brain.proposeCanonical({ tier: 'canonical', kind: 'domain', title: 'Retail margin', body: 'Margin is 30%.', band: 'inferred', source: 'manual.md' });
+    c.ctx.env = { ...c.ctx.env, EDU_CREW_JOB: 'job-1' };
+    c.ctx.stdinIsTTY = true;
+    await runCli(c, ['brain', 'approve', '--all', '--yes']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('crew worker cannot approve');
+    expect((await brain.read('K-retail-margin'))?.meta.status).toBe('proposed');
   });
 
   it('registers the workspace brain from its current brainDir after init', async () => {
