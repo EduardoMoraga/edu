@@ -1,12 +1,24 @@
 /** `edu brain status|recall|read`: look at the brain without changing it. */
 import type { Command } from 'commander';
 import type { CliContext } from '../../context.js';
-import { t } from '../../i18n.js';
+import type { RecallHit } from '../../../core/contracts.js';
+import { t, type Lang } from '../../i18n.js';
 import { action, look, parseIntOption, printJson } from '../../kit.js';
 import { lessonCount, openWorkspace } from '../../workspace.js';
 import { collect } from './shared.js';
 
 interface RecallOpts { limit?: string; json?: boolean; alt?: string[] }
+
+/** A hit's `why` in `lang`, from its parts; English reads exactly as `why` (what JSON and MCP keep). */
+function recallWhy(hit: RecallHit, lang: Lang): string {
+  const reason = hit.reason;
+  if (!reason) return hit.why;
+  const weight = reason.weight.toFixed(2);
+  const main = reason.named !== undefined
+    ? t(lang, 'brain.recallNamed', { name: reason.named, weight })
+    : t(lang, 'brain.recallMatched', { terms: (reason.matched ?? []).join(', '), weight });
+  return reason.passage ? `${main} ${t(lang, 'brain.recallPassage', { passage: JSON.stringify(reason.passage) })}` : main;
+}
 
 export function registerBrainInspect(brain: Command, ctx: CliContext): void {
   brain
@@ -47,7 +59,7 @@ export function registerBrainInspect(brain: Command, ctx: CliContext): void {
         for (const hit of hits) {
           const band = hit.note.meta.band ? ` [${hit.note.meta.band}]` : '';
           ctx.out(`${hit.score.toFixed(2).padStart(6)}  ${hit.note.meta.id}${band}  ${hit.note.meta.title}`);
-          ctx.out(`        ${hit.why}`);
+          ctx.out(`        ${recallWhy(hit, g.lang)}`);
         }
       }),
     );

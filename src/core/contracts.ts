@@ -146,7 +146,11 @@ export interface RecallHit {
   note: Note;
   score: number;         // final rank score (relevance × learned weight)
   why: string;           // one line: matched terms / learned weight, for transparency
+  reason?: RecallReason; // the parts of `why`, so a person's view can say it in their language
 }
+
+/** Why a note was recalled: named by id or alias, or the terms it matched; its learned weight; the passage shown. */
+export interface RecallReason { named?: string; matched?: string[]; weight: number; passage?: string }
 
 /** Where a brain lives. Project brains overlay the global brain. */
 export interface BrainLocation {
