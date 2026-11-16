@@ -39,7 +39,7 @@ export const MODULES: Readonly<Record<string, ModuleSpec>> = {
   brain: { layer: 'domain', purpose: 'The Markdown second brain: notes, recall, learning, lint, views, project registry', mayImport: ['core', 'platform'] },
   context: { layer: 'domain', purpose: 'Token estimates, context packs and the session brief', mayImport: ['brain', 'core'] },
   evidence: { layer: 'domain', purpose: 'Episode packages, check registry, attribution and metrics', mayImport: ['brain', 'core', 'platform'] },
-  adapters: { layer: 'service', purpose: 'Per-host install plans: managed blocks, JSON/TOML merges, manifests, host files', mayImport: ['core', 'platform', 'skills'] },
+  adapters: { layer: 'service', purpose: 'Per-host install plans: managed blocks, JSON/TOML merges, manifests, host files', mayImport: ['brain', 'core', 'platform', 'skills'] },
   detach: { layer: 'service', purpose: 'Removes other tools from host configs, with backups and undo', mayImport: ['adapters', 'platform'] },
   doctor: { layer: 'service', purpose: 'Health checks: CLI integration, native plugins, context weight', mayImport: ['adapters', 'core', 'detach', 'platform'] },
   release: { layer: 'service', purpose: 'Release capabilities of the running version', mayImport: ['platform'] },

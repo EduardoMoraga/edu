@@ -4,7 +4,8 @@ import { applyInstall } from '../adapters/installer.js';
 import { packageTemplatesDir } from '../platform/package.js';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { parse, stringify } from 'yaml';
+import { stringify } from 'yaml';
+import { parseFrontmatter } from '../brain/frontmatter.js';
 import { atomicWrite, type Brain } from '../brain/index.js';
 import { locked } from './persistence.js';
 
@@ -20,9 +21,8 @@ export async function listProposals(brain: Brain, brainRoot?: string): Promise<S
     const path = join(dir, file);
     try {
       const raw = await readFile(path, 'utf8');
-      const frontmatter = /^---\s*\n([\s\S]*?)\n---/.exec(raw)?.[1];
-      if (!frontmatter) continue;
-      const value = parse(frontmatter) as Partial<SkillProposal> & { kind?: string };
+      const value = parseFrontmatter<Partial<SkillProposal> & { kind?: string }>(raw)?.meta;
+      if (!value) continue;
       if (value.kind === 'skill' && value.id && value.name && /^[a-z0-9_-]+$/.test(value.name) && value.rationale) result.push({ id: value.id, name: value.name, rationale: value.rationale, ...ProposalBundleSchema.parse(value), content: value.content ?? '', ...(value.diff ? { diff: value.diff } : {}), created: value.created ?? '', status: value.status ?? 'proposed', path });
     } catch { /* Ignore unrelated or malformed proposal files. */ }
   }

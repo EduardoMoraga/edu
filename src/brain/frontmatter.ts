@@ -5,13 +5,27 @@ export interface MarkdownDocument<T extends object = Record<string, unknown>> {
   body: string;
 }
 
-export function parseMarkdown<T extends object = Record<string, unknown>>(source: string): MarkdownDocument<T> {
-  // Windows PowerShell 5.1 writes UTF-8 with a BOM; without stripping it the frontmatter is not recognized.
+/**
+ * The one frontmatter splitter: every Markdown file Edu reads (notes, playbooks, proposals, agent
+ * templates, dashboards, synced notes) goes through it. Strips a UTF-8 BOM (Windows PowerShell 5.1 writes
+ * one) and normalizes CRLF. `yaml` is the text between the `---` fences, undefined when the source has no
+ * frontmatter; `body` is everything after the closing fence, untrimmed (or the whole source).
+ */
+export function splitFrontmatter(source: string): { yaml?: string; body: string } {
   const normalized = source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
-  const match = normalized.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/);
-  if (!match) return { meta: {} as T, body: normalized.trimEnd() };
-  const meta = (parse(match[1] ?? '') ?? {}) as T;
-  return { meta, body: (match[2] ?? '').trim() };
+  const match = /^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/.exec(normalized);
+  return match ? { yaml: match[1]!, body: match[2]! } : { body: normalized };
+}
+
+/** The parsed frontmatter and trimmed body, or undefined when the source has none. YAML errors throw. */
+export function parseFrontmatter<T extends object = Record<string, unknown>>(source: string): MarkdownDocument<T> | undefined {
+  const { yaml, body } = splitFrontmatter(source);
+  if (yaml === undefined) return undefined;
+  return { meta: (parse(yaml) ?? {}) as T, body: body.trim() };
+}
+
+export function parseMarkdown<T extends object = Record<string, unknown>>(source: string): MarkdownDocument<T> {
+  return parseFrontmatter<T>(source) ?? { meta: {} as T, body: splitFrontmatter(source).body.trimEnd() };
 }
 
 export function serializeMarkdown(meta: Record<string, unknown>, body: string): string {
@@ -28,12 +42,11 @@ export function parseMarkdownLenient<T extends object = Record<string, unknown>>
   try {
     return { ...parseMarkdown<T>(source), recovered: false };
   } catch {
-    const normalized = source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
-    const match = normalized.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/);
-    if (!match) throw new Error('Unparseable frontmatter');
+    const { yaml, body } = splitFrontmatter(source);
+    if (yaml === undefined) throw new Error('Unparseable frontmatter');
     const meta: Record<string, unknown> = {};
     let lastKey: string | undefined;
-    for (const line of (match[1] ?? '').split('\n')) {
+    for (const line of yaml.split('\n')) {
       const pair = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(line);
       if (pair) {
         lastKey = pair[1]!;
@@ -42,7 +55,7 @@ export function parseMarkdownLenient<T extends object = Record<string, unknown>>
         meta[lastKey] = `${meta[lastKey] as string} ${line.trim()}`.trim();
       }
     }
-    return { meta: meta as T, body: (match[2] ?? '').trim(), recovered: true };
+    return { meta: meta as T, body: body.trim(), recovered: true };
   }
 }
 

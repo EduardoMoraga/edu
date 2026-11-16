@@ -14,7 +14,7 @@
 import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { extname, join, resolve } from 'node:path';
-import { parseMarkdownLenient, serializeMarkdown } from '../brain/frontmatter.js';
+import { parseMarkdownLenient, serializeMarkdown, splitFrontmatter } from '../brain/frontmatter.js';
 import { DASHBOARD_PATHS } from '../brain/bases.js';
 import { isInside } from '../brain/location.js';
 import { withLogLock, withUsageLock } from '../brain/note-lock.js';
@@ -167,17 +167,16 @@ export async function remoteUrl(vault: string, env?: NodeJS.ProcessEnv): Promise
 
 /** Note text with its frontmatter usage counters removed, to compare real content. */
 export function withoutCounters(text: string): string {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  if (lines[0] !== '---') return lines.join('\n');
-  const end = lines.indexOf('---', 1);
-  if (end < 0) return lines.join('\n');
+  const { yaml, body } = splitFrontmatter(text);
+  if (yaml === undefined) return body;
   let usage = false;
-  return [...lines.slice(0, end).filter(line => {
+  const kept = yaml.split('\n').filter(line => {
     if (/^usage:/.test(line)) { usage = true; return false; }
     if (usage && /^\s+/.test(line)) return false;
     usage = false;
     return !COUNTER.test(line);
-  }), ...lines.slice(end)].join('\n');
+  });
+  return ['---', ...kept, '---', body].join('\n');
 }
 
 const larger = (a: unknown, b: unknown): unknown => typeof a === 'number' && typeof b === 'number' ? Math.max(a, b) : b ?? a;
@@ -207,9 +206,9 @@ export function mergeCounters(upstream: string, local: string): string {
 
 /** A new session note with nothing but the automatic end line and transcript path. */
 export function isEmptySession(text: string): boolean {
-  const parts = text.split(/^---$/m);
-  if (parts.length < 3) return false;
-  return parts.slice(2).join('---').split('\n').every(line =>
+  const { yaml, body } = splitFrontmatter(text);
+  if (yaml === undefined) return false;
+  return body.split('\n').every(line =>
     !line.trim() || /^Transcript: /.test(line) || / session .* ended \(.*\)\.$/.test(line));
 }
 

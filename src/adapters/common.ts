@@ -1,6 +1,7 @@
 import { assertContained, readSkillBundle, UnsupportedSkillPathError, UnsupportedSkillEncodingError, canonicalAnchor } from '../skills/bundle.js';
 import { readdir, readFile, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parseFrontmatter, type MarkdownDocument } from '../brain/frontmatter.js';
 import { binaryOnPath } from '../platform/index.js';
 import type { CliId, InstallScope } from '../core/contracts.js';
 import type { IntegrationOptions, PlannedAction } from './types.js';
@@ -73,15 +74,13 @@ export async function agentTemplates(templatesDir: string): Promise<AgentTemplat
   const result: AgentTemplate[] = [];
   for (const filename of (await readdir(dir)).filter(name => name.endsWith('.md')).sort()) {
     const text = await readFile(join(dir, filename), 'utf8');
-    const parts = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text);
-    if (!parts) throw new Error(`Malformed agent template: ${filename}`);
-    const fields = Object.fromEntries(parts[1]!.split('\n').map(line => {
-      const index = line.indexOf(':');
-      return [line.slice(0, index).trim(), line.slice(index + 1).trim()];
-    }));
-    const name = fields.id;
+    let template: MarkdownDocument | undefined;
+    try { template = parseFrontmatter(text); } catch { template = undefined; }
+    if (!template) throw new Error(`Malformed agent template: ${filename}`);
+    const field = (key: string) => typeof template.meta[key] === 'string' ? template.meta[key] : undefined;
+    const name = field('id');
     if (!name || !/^[\w-]+$/.test(name)) throw new Error(`Invalid agent template: ${filename}`);
-    result.push({ name, description: fields.mission ?? fields.title ?? name, tools: fields.autonomy === 'readonly' ? 'Read, Grep, Glob' : 'Read, Write, Edit, Bash, Grep, Glob', prompt: parts[2]!.trim() });
+    result.push({ name, description: field('mission') ?? field('title') ?? name, tools: field('autonomy') === 'readonly' ? 'Read, Grep, Glob' : 'Read, Write, Edit, Bash, Grep, Glob', prompt: template.body });
   }
   return result;
 }
