@@ -6,7 +6,8 @@ import { pathsFor } from './paths.js';
 import { createIntegration } from './integration.js';
 
 async function plan(scope: InstallScope, root: string, options: IntegrationOptions): Promise<PlannedAction[]> {
-  const paths = pathsFor('opencode', scope, root, options.home);
+  const paths = pathsFor('opencode', scope, root, options.home, options.dirs);
+  const launch = eduMcpLaunch(options.platform);
   const agents: Record<string, unknown> = {};
   for (const agent of await agentTemplates(options.templatesDir)) {
     agents[agent.name] = { description: agent.description, prompt: agent.prompt, mode: 'subagent' };
@@ -14,7 +15,7 @@ async function plan(scope: InstallScope, root: string, options: IntegrationOptio
   return [
     ...instructionActions('opencode', scope, root, options),
     ...await skillActions('opencode', scope, root, options),
-    { cli: 'opencode', kind: 'json-merge', path: paths.mcp!, description: 'Register Edu MCP server and agents', jsonPatch: { mcp: { edu: { type: 'local', command: [eduMcpLaunch().command, ...eduMcpLaunch().args], enabled: true } }, agent: agents } },
+    { cli: 'opencode', kind: 'json-merge', path: paths.mcp!, description: 'Register Edu MCP server and agents', jsonPatch: { mcp: { edu: { type: 'local', command: [launch.command, ...launch.args], enabled: true } }, agent: agents } },
   ];
 }
 

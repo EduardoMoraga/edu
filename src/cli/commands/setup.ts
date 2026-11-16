@@ -84,7 +84,7 @@ export function registerSetup(program: Command, ctx: CliContext): void {
           if (!clis.length) throw new Error(t(g.lang, 'install.noCli'));
         }
         const { planInstall, describePlan, applyInstall, getManifestPath } = await import('../../adapters/index.js');
-        const plan = await planInstall({ clis, scope, root: g.cwd, home: ctx.home, templatesDir: packageTemplatesDir() });
+        const plan = await planInstall({ clis, scope, root: g.cwd, home: ctx.home, templatesDir: packageTemplatesDir(), env: ctx.env });
         const json = g.json || opts.json;
         if (json && opts.dryRun) {
           printJson(ctx, {
@@ -107,10 +107,16 @@ export function registerSetup(program: Command, ctx: CliContext): void {
             return;
           }
         }
+        const planned = plan.notes.length;
         const manifest = await applyInstall(plan);
         const manifestPath = getManifestPath(scope, plan.root, plan.home);
-        if (json) printJson(ctx, { manifest: manifestPath, actions: manifest.actions.length });
-        else ctx.out(t(g.lang, 'install.done', { count: manifest.actions.length, manifest: manifestPath }));
+        // Values the user already defined (a statusLine, an agent, an MCP server) are kept and named here.
+        const kept = plan.notes.slice(planned);
+        if (json) printJson(ctx, { manifest: manifestPath, actions: manifest.actions.length, notes: kept });
+        else {
+          for (const note of kept) ctx.out(`! ${note}`);
+          ctx.out(t(g.lang, 'install.done', { count: manifest.actions.length, manifest: manifestPath }));
+        }
       }),
     );
 
