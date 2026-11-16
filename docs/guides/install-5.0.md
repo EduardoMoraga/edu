@@ -1,6 +1,7 @@
-# Installing Edu 5.0
+# Installing Edu
 
 One command installs Edu and connects it to every coding CLI it finds. One command takes it out again.
+Upgrading from 5.x? See [Upgrade to Edu 6.0](upgrade-6.0.md).
 
 ## Install
 
@@ -16,8 +17,10 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/EduardoMoraga/edu/main/scripts/install.ps1 | iex
 ```
 
-The installer checks Node.js 22 or newer, runs `npm install -g` on the release package, then runs
-`edu setup --yes`. Setup finds `claude`, `codex`, `pi`, `opencode` and `agy` on `PATH`, configures each
+The installer checks Node.js 22 or newer, downloads the release package and its `SHA256SUMS` from
+`https://github.com/EduardoMoraga/edu/releases/download/<tag>/`, checks the checksum, runs
+`npm install -g` on the verified local file, then runs `edu setup --yes`. A mismatch installs nothing.
+Setup finds `claude`, `codex`, `pi`, `opencode` and `agy` on `PATH`, configures each
 one without asking, skips the ones that are not installed, and ends with one row per host:
 
 ```
@@ -57,7 +60,9 @@ The block always says: reuse an injected brief, otherwise call `edu_brief` once.
 | `EDU_YES=1` | `--yes` | Never ask. Any failed step makes the exit status 1. |
 | `EDU_HOSTS=claude,codex` | `--hosts claude,codex` | Set up only these hosts (`edu setup --yes --cli …`). |
 | `EDU_JOIN=<repo-url>` | `--join <repo-url>` | After setup, run `edu join <repo-url> --cloud`. |
-| `EDU_ASSET=<url or .tgz>` | | Package to install (default: the latest release). |
+| `EDU_ASSET=<url or .tgz>` | | Package to install: a release asset URL under the release download prefix (verified), or a local `.tgz` you built (installed as given). Default: the latest release. |
+| `EDU_ALLOW_UNVERIFIED=1` | `--allow-unverified` | Also install a release older than 6.0, which has no `SHA256SUMS`. A 6.0+ release without it is always refused. |
+| `EDU_ASSUME_NO=1` | | Never ask, and answer no (declines the fnm offer). `EDU_YES=1` wins if both are set. |
 | `EDU_LANG=es` | | Spanish messages. |
 | `EDU_DRY_RUN=1` | `--dry-run` | Print the commands without running them. |
 
@@ -105,12 +110,14 @@ project in the current directory:
 
 What it guarantees:
 
-- **Exact.** A file Edu changed is restored from the backup taken before the change. A file Edu created
-  is deleted. JSON and TOML merges lose only Edu's keys. Where Edu was the only change, every config file
-  ends up byte-for-byte as it was before setup. Tests check this with all five hosts on the managed-file
-  path and on the plugin path.
-- **Safe.** A managed file you edited after setup stops the uninstall (`Edu installation drift`).
-  `--force` restores it anyway.
+- **Exact.** A file Edu changed and nobody touched since is restored from the backup taken before the
+  change. A file you or a host edited since (a login, permissions, new MCP servers, Codex trust entries)
+  keeps those edits: only Edu's keys, block or sections leave it. A file Edu created is deleted. Where Edu
+  was the only change, every config file ends up byte-for-byte as it was before setup. Tests check this
+  with all five hosts on the managed-file path and on the plugin path.
+- **Safe.** A change inside the part Edu manages stops the uninstall (`Edu installation drift`) and names
+  the file. `--force` removes Edu's part anyway. Edits outside Edu's part are not drift.
+- **Transactional.** A failure half-way rolls back every file the uninstall already changed.
 - **Idempotent.** A second run prints `Nothing to remove` and exits 0.
 - **The brain stays.** `~/.edu` (or `EDU_HOME`) is kept unless you pass `--purge-brain`, which asks for
   confirmation. Without a terminal it also needs `--yes`. It refuses to delete a directory that holds your
