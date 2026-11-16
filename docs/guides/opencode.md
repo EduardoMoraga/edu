@@ -38,7 +38,8 @@ the `edu` server; `edu doctor` shows the integration.
   session sidebar: brain tiers and crew jobs with their status. `/edu-deck` (also in the
   command palette) shows the wordmark and the full summary. OpenCode 2 has no slot for
   replacing the home logo, so the wordmark lives in that dialog. It reads `edu deck --json` every 3 seconds; with an older `edu` it shows the
-  identity only.
+  identity only. While `edu deck` fails, the pause between reads doubles, up to one minute;
+  `/edu-deck` still reads at once.
 - **`edu` theme** (warm accent on dark): choose it with `/themes`, or set
   `"theme": { "name": "edu" }` in `~/.config/opencode/cli.json`. Edu never selects it for you.
 - Commands: `/edu-brief`, `/edu-recall <topic>`, `/edu-remember <note>`, `/edu-reflect`,

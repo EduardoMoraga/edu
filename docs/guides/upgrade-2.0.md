@@ -1,5 +1,7 @@
 # Actualizar a Edu 2.0 sin perder tu cerebro
 
+> Esta guía es de Edu 2.0. Para la versión actual, vea [Actualizar a Edu 6.0](upgrade-6.0.es.md).
+
 **Estado: candidata en desarrollo; esta guía no anuncia una versión ya publicada.** El comando de actualización es `edu update`, no `updated`. Una actualización de código no entrena el modelo ni reemplaza automáticamente las instrucciones de conversaciones que siguen abiertas.
 
 ## Cuando esté publicada la versión aprobada

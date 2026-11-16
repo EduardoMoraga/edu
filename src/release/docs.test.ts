@@ -8,6 +8,11 @@ import { createProgram } from '../cli/program.js';
 // The docs a user reads before installing must not send them to a missing file or a command that does not exist.
 const ROOT = join(import.meta.dirname, '..', '..');
 const READMES = ['README.md', 'docs/README.es.md'];
+/** Docs whose code blocks may show only commands edu defines: the READMEs and the guides for the current release. */
+// The Claude Code guide is claude-code.md. On case-insensitive filesystems (macOS, Windows) claude.md IS
+// CLAUDE.md: Claude Code loads it as project instructions, and git (core.ignorecase) drops it through the
+// CLAUDE.md rule in .gitignore.
+const COMMAND_DOCS = [...READMES, 'docs/guides/claude-code.md', 'docs/guides/upgrade-6.0.md', 'docs/guides/upgrade-6.0.es.md'];
 
 const posix = (path: string) => path.split(sep).join('/');
 
@@ -72,24 +77,26 @@ async function unknownCommands(file: string, program: Command): Promise<string[]
 let docs: string[] = [];
 let program: Command;
 beforeAll(async () => {
-  docs = ['README.md', ...(await markdownUnder('docs'))];
+  docs = ['README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', ...(await markdownUnder('docs'))];
   program = createProgram({}, { exitOverride: true });
 });
 
 describe('documentation', () => {
-  it('finds the READMEs and the docs tree', () => {
-    expect(docs).toEqual(expect.arrayContaining([...READMES, 'docs/ARCHITECTURE.md']));
+  it('finds the READMEs, the current guides and the docs tree', () => {
+    expect(docs).toEqual(expect.arrayContaining([...COMMAND_DOCS, 'docs/ARCHITECTURE.md']));
   });
 
-  // Skipped until the docs workstream fixes the links it finds (remove .skip to list them). At v5.0.1:
-  // README.md and docs/README.es.md link docs/guides/claude.md, which has never existed.
-  it.skip('has no broken relative links in README.md and docs/**', async () => {
+  it('has no doc named claude.md, which is CLAUDE.md on case-insensitive filesystems', () => {
+    expect(docs.filter(file => file.split('/').pop()!.toLowerCase() === 'claude.md')).toEqual([]);
+  });
+
+  it('has no broken relative links in README.md and docs/**', async () => {
     const broken = (await Promise.all(docs.map(brokenLinks))).flat();
     expect(broken).toEqual([]);
   });
 
-  it('shows only commands that edu defines in README code blocks', async () => {
-    const unknown = (await Promise.all(READMES.map(file => unknownCommands(file, program)))).flat();
+  it('shows only commands that edu defines in the READMEs and current guides', async () => {
+    const unknown = (await Promise.all(COMMAND_DOCS.map(file => unknownCommands(file, program)))).flat();
     expect(unknown).toEqual([]);
   });
 });
