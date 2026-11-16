@@ -19,6 +19,7 @@ import {
   eduMissing,
   failureReason,
   isJobRef,
+  plainArgv,
   timedOut,
   unknownOption,
   verdictArgs,
@@ -649,35 +650,26 @@ let eduRunning: Promise<void> | undefined
 let eduAgain = false
 let eduRanAt: number | undefined
 let eduSessionFlag = true
-let eduHead: readonly string[] | undefined
 let lastEdu: DeckEdu | undefined
 
-const EDU_HEADS: readonly (readonly string[])[] = [['edu'], ['cmd', '/c', 'edu']]
 const EDU_TOOL = /(?:^|__)edu_/
 
 type EduMissing = { missing: string }
 
 /**
- * Runs the edu CLI by argv (no shell); on Windows its npm shim needs `cmd /c`. `{ missing }` when neither
- * starts, with what the engine said; a run that times out rejects.
+ * Runs `edu <args>` by argv, never through a shell of ours. On Windows Claude Code's `$.process.run`
+ * finds the npm `edu.cmd` shim on PATH (PATHEXT) and starts it with escaped arguments, but the shim
+ * still hands them to cmd.exe, so every argument must pass `plainArgv` first. `{ missing }` when edu
+ * cannot start, with what the engine said; a run that times out rejects.
  */
 async function runEdu($: EngineInterface, args: readonly string[], timeoutMs = EDU_TIMEOUT_MS): Promise<ProcessRunResult | EduMissing> {
-  const reasons: string[] = []
-  for (const head of eduHead ? [eduHead] : EDU_HEADS) {
-    try {
-      const result = await $.process.run([...head, ...args], { timeoutMs })
-      if (head[0] === 'cmd' && result.exitCode !== 0 && /not recognized/i.test(result.stderr)) {
-        reasons.push(result.stderr)
-        continue
-      }
-      eduHead = head
-      return result
-    } catch (error) {
-      if (timedOut(error)) throw error
-      reasons.push(errorText(error))
-    }
+  if (!plainArgv(args)) throw new Error('refused an argument that is not a plain id')
+  try {
+    return await $.process.run(['edu', ...args], { timeoutMs })
+  } catch (error) {
+    if (timedOut(error)) throw error
+    return { missing: errorText(error) }
   }
-  return { missing: reasons[0] ?? '' }
 }
 
 const isMissing = (value: unknown): value is EduMissing => typeof value === 'object' && value !== null && 'missing' in value

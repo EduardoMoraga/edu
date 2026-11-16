@@ -148,9 +148,26 @@ export function eduDue(edu: DeckEdu | undefined, now: number, lastRunAt: number 
   return now - lastRunAt >= period
 }
 
-/** argv after `edu`: the snapshot, plus this session's Edu note when the CLI knows `--session`. */
+/**
+ * argv after `edu`: the snapshot, plus this session's Edu note when the CLI knows `--session`. A session id
+ * that is not a plain id is left out: on Windows the npm shim hands its arguments to cmd.exe again.
+ */
 export function eduArgs(sessionId: string | undefined, withSession: boolean): string[] {
-  return ['deck', '--json', ...(withSession && sessionId ? ['--session', sessionId] : [])]
+  return ['deck', '--json', ...(withSession && sessionId && isSessionRef(sessionId) ? ['--session', sessionId] : [])]
+}
+
+/** A host session id as Claude Code makes them (a UUID): letters, digits, `-` and `_`, starting with a letter or digit. */
+export function isSessionRef(id: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id)
+}
+
+/**
+ * The last check before `$.process.run`: every argument is a plain word, an option, or `--option=value`
+ * made of letters, digits, `-` and `_`. Nothing a shell or cmd.exe reads as syntax (`&|<>^%!"` or spaces)
+ * can pass, whatever launches the npm shim.
+ */
+export function plainArgv(args: readonly string[]): boolean {
+  return args.every(arg => arg.length <= 200 && /^(?:--?)?[A-Za-z0-9][A-Za-z0-9_-]*(?:=[A-Za-z0-9_-]+)?$/.test(arg))
 }
 
 /** Edu 5.0 does not know `--session`: commander answers "unknown option". */

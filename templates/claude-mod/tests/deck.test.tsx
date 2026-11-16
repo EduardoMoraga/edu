@@ -25,7 +25,7 @@ const SNAPSHOT = {
   updatedAt: 3000,
 }
 
-type EduCli = { missing?: boolean; old?: boolean; broken?: boolean; crewFails?: boolean; idle?: boolean; slow?: { sleep: (ms: number) => Promise<void> } }
+type EduCli = { missing?: boolean; old?: boolean; broken?: boolean; crewFails?: boolean; idle?: boolean; slow?: { sleep: (ms: number) => Promise<void> }; sessionId?: string }
 type Appended = { agentId?: string; message: { type: string; content: { type: string; text: string }[] } }
 
 function engine(on: On, cli: EduCli = {}) {
@@ -96,7 +96,7 @@ function engine(on: On, cli: EduCli = {}) {
   on('ui.invalidate', (_, e, next) => next(e))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
-  on('session.id', () => ({ value: 's1' }) as never)
+  on('session.id', () => ({ value: cli.sessionId ?? 's1' }) as never)
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('agent.list', () => ({ value: [] }) as never)
   on('agent.spawn', async (_, e) => {
@@ -247,6 +247,12 @@ describe('Edu Deck', () => {
     await ui.unmount()
   })
 
+  test('a host session id that is not a plain id never reaches argv', async ($, on) => {
+    const seen = engine(on, { sessionId: 's1" & calc & "' })
+    await start($)
+    expect(seen.runs.filter(argv => argv[1] === 'deck').every(argv => argv.join(' ') === 'edu deck --json')).toBe(true)
+  })
+
   test('a refused verdict is reported with the CLI reason', async ($, on) => {
     const seen = engine(on, { crewFails: true })
     await start($)
@@ -261,11 +267,9 @@ describe('Edu Deck', () => {
   test('without the edu command the deck says how to get it and the tree still works', async ($, on) => {
     const seen = engine(on, { missing: true })
     await start($)
-    // The plain command first, then the Windows npm shim through cmd; neither starts, so Edu is missing.
-    expect(seen.runs.slice(0, 2)).toEqual([
-      ['edu', 'deck', '--json', '--session', 's1'],
-      ['cmd', '/c', 'edu', 'deck', '--json', '--session', 's1'],
-    ])
+    // Only edu itself, by argv: never cmd /c (Claude Code resolves the Windows npm shim on its own).
+    expect(seen.runs[0]).toEqual(['edu', 'deck', '--json', '--session', 's1'])
+    expect(seen.runs.every(argv => argv[0] === 'edu')).toBe(true)
     const ui = await $.ui.mount(pane(90))
     expect(await screen(ui)).toMatch(/The edu command is not on PATH/)
     await ui.press({ key: 'tab:edu' })

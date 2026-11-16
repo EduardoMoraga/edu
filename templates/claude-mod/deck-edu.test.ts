@@ -15,6 +15,8 @@ import {
   elapsed,
   failureReason,
   isJobRef,
+  isSessionRef,
+  plainArgv,
   stripParts,
   timedOut,
   totalNotes,
@@ -129,6 +131,7 @@ describe('refresh policy', () => {
 
   it('asks for the session only while the CLI knows the flag', () => {
     expect(eduArgs('s1', true)).toEqual(['deck', '--json', '--session', 's1']);
+    expect(eduArgs('6f1c2a90-7d4e-4b8a-9c3d-0e5f6a7b8c9d', true)).toEqual(['deck', '--json', '--session', '6f1c2a90-7d4e-4b8a-9c3d-0e5f6a7b8c9d']);
     expect(eduArgs('s1', false)).toEqual(['deck', '--json']);
     expect(eduArgs(undefined, true)).toEqual(['deck', '--json']);
     expect(unknownOption("error: unknown option '--session'")).toBe(true);
@@ -154,6 +157,22 @@ describe('crew verdicts', () => {
     for (const id of ['abc', '--help', '-x', 'a b', 'a;rm', '', 'x'.repeat(65), '../x']) expect(isJobRef(id)).toBe(false);
     expect(verdictArgs('abcd1234', 'approve')).toEqual(['crew', 'approve', 'abcd1234']);
     expect(verdictArgs('abcd1234', 'reject')).toEqual(['crew', 'reject', 'abcd1234']);
+  });
+});
+
+describe('arguments that reach edu (and cmd.exe through the npm shim on Windows)', () => {
+  it('a host session id must be a plain id', () => {
+    for (const id of ['s1', '6f1c2a90-7d4e-4b8a-9c3d-0e5f6a7b8c9d', 'session_2']) expect(isSessionRef(id)).toBe(true);
+    for (const id of ['', '-s', '--help', 's1&calc', 's1|x', 's1>x', 's1"x', "s1'x", 's 1', '%TEMP%', 's1^x', 's1!x', 's1\\nx', 'x'.repeat(129)]) {
+      expect(isSessionRef(id)).toBe(false);
+      expect(eduArgs(id, true)).toEqual(['deck', '--json']);
+    }
+  });
+
+  it('only plain words, options and --option=value pass the last check', () => {
+    expect(plainArgv(['deck', '--json', '--session', 's1'])).toBe(true);
+    expect(plainArgv(['crew', 'approve', 'abcd1234', '--request-id=-a_b'])).toBe(true);
+    for (const bad of ['a&b', 'a b', '"a"', 'a|b', 'a>b', '%PATH%', 'a^b', '!x!', '--x=a&b', '', '=x', '---x', 'a\\nb']) expect(plainArgv(['deck', bad])).toBe(false);
   });
 });
 
