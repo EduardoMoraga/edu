@@ -32,6 +32,25 @@ export function optionalNumber(min: number, max: number, description: string) {
  */
 export const altQueries = z.array(z.string().min(1)).max(3).optional();
 published.set(altQueries, z.array(z.string()).optional().describe('Up to 3 rephrasings or translations (e.g. Spanish, English)'));
+/** Longest note or session title the tools accept: titles land in catalog.md, log.md and every listing. */
+export const MAX_TITLE_CHARS = 300;
+export const titleField = z.string().min(1).max(MAX_TITLE_CHARS, `must be at most ${MAX_TITLE_CHARS} characters; put the detail in the body`);
+// The SDK validates against the published schema first: keep that one lenient so the strict one names the limit.
+published.set(titleField, z.string().describe(`At most ${MAX_TITLE_CHARS} characters`));
+
+/** A metadata value on one line: line breaks (which would split catalog and log lines) become spaces. */
+export const oneLine = (value: string): string => value.replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
+
+const ISO_DATE = /^(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
+/** A real calendar date, YYYY-MM-DD, optionally with an ISO time. */
+export const isoDate = z.string().refine(value => {
+  const day = ISO_DATE.exec(value)?.[1];
+  return day !== undefined && !Number.isNaN(Date.parse(value)) && new Date(`${day}T00:00:00Z`).toISOString().startsWith(day);
+}, 'must be an ISO date such as 2026-12-31 (or an ISO date-time)');
+/** An optional due date (edu_remember `due`). */
+export const dueDate = isoDate.optional().describe('ISO date, e.g. 2026-12-31');
+published.set(dueDate, z.string().optional().describe('ISO date, e.g. 2026-12-31'));
+
 export const bands = z.enum(['verified', 'inferred', 'hypothesis']);
 export const tiers = z.enum(['canonical', 'episodic', 'transitive']);
 export const transitiveKinds = z.enum(['decision', 'hypothesis', 'commitment', 'lesson']);

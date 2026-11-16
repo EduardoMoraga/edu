@@ -114,3 +114,34 @@ describe('edu_recall', () => {
     } finally { await t.close(); }
   });
 });
+
+describe('MCP write hygiene', () => {
+  it('caps titles, keeps owner, due and tags on one line, and accepts only real ISO dates', async () => {
+    const t = await connected();
+    try {
+      const long = 'x'.repeat(301);
+      for (const [name, args] of [
+        ['edu_remember', { tier: 'episodic', title: long, body: 'b' }],
+        ['edu_propose_canonical', { kind: 'standard', title: long, body: 'b' }],
+        ['edu_session_open', { title: long }],
+      ] as const) {
+        const refused = await t.call(name, args);
+        expect(refused.isError, name).toBe(true);
+        expect(refused.text).toContain('title must be at most 300 characters');
+      }
+      expect(await t.brain.list()).toEqual([]);
+      expect((await t.call('edu_remember', { tier: 'episodic', title: 'y'.repeat(300), body: 'b' })).isError).toBe(false);
+      for (const due of ['2026-02-30', 'tomorrow', '2026-12-31\nstatus: done']) {
+        const bad = await t.call('edu_remember', { tier: 'transitive', kind: 'commitment', band: 'inferred', title: `Ship ${due.length}`, body: 'b', due });
+        expect(bad.isError, due).toBe(true);
+        expect(bad.text).toContain('ISO date');
+      }
+      const ok = await t.call('edu_remember', { tier: 'transitive', kind: 'commitment', band: 'inferred', title: 'Ship it', body: 'b', due: '2026-12-31', owner: 'Ana\nstatus: done', tags: ['a\r\nb', '\n'] });
+      expect(ok.isError, ok.text).toBe(false);
+      const note = (await t.brain.list({ kind: 'commitment' }))[0]!;
+      expect(note.meta).toMatchObject({ due: '2026-12-31', owner: 'Ana status: done' });
+      expect(note.meta.tags).toContain('a b');
+      expect(note.meta.tags?.some(tag => /[\r\n]/.test(tag) || !tag.trim())).toBe(false);
+    } finally { await t.close(); }
+  });
+});

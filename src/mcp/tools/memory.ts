@@ -6,7 +6,7 @@ import { compileReportLines } from '../../brain/compile.js';
 import { brief, estimateTokens, truncateToTokens } from '../../context/index.js';
 import type { ClaimBand, Tier } from '../../core/contracts.js';
 import { noteLine as line, type ToolContext } from './context.js';
-import { altQueries, bands, canonicalKinds, optionalInt, tiers, tokenLimit, transitiveKinds } from './schema.js';
+import { altQueries, bands, canonicalKinds, dueDate, oneLine, optionalInt, tiers, titleField, tokenLimit, transitiveKinds } from './schema.js';
 
 /** The trailer edu_recall prints for hits that did not fit its token budget. */
 const moreHits = (count: number) => `… ${count} more hit${count === 1 ? '' : 's'} not shown (raise maxTokens, lower limit or narrow the query)`;
@@ -59,8 +59,8 @@ export function registerMemoryTools(ctx: ToolContext): void {
   });
 
   register('edu_remember', 'Write an episodic or transitive note; reports new links, possible conflicts, redactions', {
-    tier: z.enum(['episodic', 'transitive']), kind: transitiveKinds.optional(), title: z.string().min(1), body: z.string(),
-    band: bands.optional().describe('Claim band; required for transitive notes'), tags: z.array(z.string()).optional(), owner: z.string().optional(), due: z.string().optional(),
+    tier: z.enum(['episodic', 'transitive']), kind: transitiveKinds.optional(), title: titleField, body: z.string(),
+    band: bands.optional().describe('Claim band; required for transitive notes'), tags: z.array(z.string()).optional(), owner: z.string().optional(), due: dueDate,
     links: z.array(z.string().min(1)).optional().describe('Related note ids'), supersedes: z.string().min(1).optional().describe('Id of the note this replaces'),
     session: z.string().min(1).optional().describe('Your Edu session id, if one was injected'),
     maxTokens: tokenLimit,
@@ -69,8 +69,11 @@ export function registerMemoryTools(ctx: ToolContext): void {
     // 6.0: a transitive note states how strongly it may be asserted; Edu never invents a band for it.
     if (tier === 'transitive' && !band) throw new Error('Invalid arguments: band is required for transitive notes: verified (backed by checked evidence), inferred (reasoned from evidence) or hypothesis (unproven)');
     const provenSession = await ctx.session.proven(session);
+    // Metadata stays on one line: a line break would split catalog.md and log.md entries.
+    const cleanTags = tags?.map(oneLine).filter(Boolean);
     const { note, report } = await ctx.brain.remember({
-      tier, kind: tier === 'transitive' ? kind ?? 'lesson' : undefined, title, body, band: band as ClaimBand | undefined, tags, owner, due,
+      tier, kind: tier === 'transitive' ? kind ?? 'lesson' : undefined, title, body, band: band as ClaimBand | undefined,
+      tags: cleanTags, owner: owner === undefined ? undefined : oneLine(owner) || undefined, due,
       ...(links?.length ? { links: [...new Set(links)] } : {}), ...(supersedes ? { supersedes } : {}), source: 'mcp', by: { ...ctx.by(), ...(provenSession ? { session: provenSession } : {}) },
     });
     return [`Created ${line(note)}`, ...compileReportLines(report), ...(session && !provenSession ? [`Session ${session} ignored: not an open session of this brain`] : [])].join('\n');
@@ -86,7 +89,7 @@ export function registerMemoryTools(ctx: ToolContext): void {
   });
 
   register('edu_propose_canonical', 'Propose a canonical note; a human must accept it', {
-    kind: canonicalKinds, title: z.string().min(1), body: z.string(), band: bands.optional(), maxTokens: tokenLimit,
+    kind: canonicalKinds, title: titleField, body: z.string(), band: bands.optional(), maxTokens: tokenLimit,
   }, async ({ kind, title, body, band }) => {
     const note = await ctx.brain.proposeCanonical({ tier: 'canonical', kind, title, body, band, source: 'mcp', by: ctx.by() });
     return `Proposed ${line(note)}`;

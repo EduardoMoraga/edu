@@ -4,13 +4,13 @@ import { autoMaintain } from '../../reflect/auto-maintain.js';
 import { withHostLock } from '../../platform/file-lock.js';
 import { closeWithLessons, lessonsInput } from '../session-learning.js';
 import { noteLine as line, type ToolContext } from './context.js';
-import { tokenLimit } from './schema.js';
+import { titleField, tokenLimit } from './schema.js';
 
 export function registerSessionTools(ctx: ToolContext): void {
   const { register, session } = ctx;
 
   register('edu_session_open', 'Open a work session (reuses the open one with the same source and title)', {
-    title: z.string().min(1), source: z.string().optional(), maxTokens: tokenLimit,
+    title: titleField, source: z.string().optional(), maxTokens: tokenLimit,
   }, async ({ title, source }) => {
     const origin = source ?? 'mcp';
     // Find-or-open is not atomic; serialize it per source+title across processes so concurrent opens share one session.
