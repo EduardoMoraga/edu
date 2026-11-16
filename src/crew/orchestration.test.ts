@@ -223,4 +223,32 @@ describe('detached orchestration', () => {
     expect(events).toContainEqual(expect.objectContaining({ type: 'approval.resolve', approved: true, by: 'host-llm' }));
     expect(events.some(event => event.type === 'verify.result' || event.type === 'intervention')).toBe(false);
   });
+
+  it('stops a run whose gate gets no decision within the crew timeout, and says so', async () => {
+    const { crew, cwd, brainRoot, globalRoot } = await setup();
+    const job = await crew.orchestrate({ goal: 'Check the command', cwd });
+    expect(job.timeoutMinutes).toBe(60);
+    // Every reading of the clock moves it a minute on: the gate expires after about an hour of polls.
+    let clock = Date.now();
+    const result = await runOrchestration(job, { brainRoot, globalRoot, policy: { maxAutonomy: 'auto', passthrough: [], approvals: 'ask-on-write' }, store: crew.store,
+      engineFactory: () => fakeEngine(), detectClis: async () => ['claude'], sleep: async () => undefined, now: () => new Date(clock += 60_000) });
+    expect(result.status).toBe('failed');
+    expect(result.summary).toBe('Approval gate "Approve spec" got no decision within 60 minute(s); the run was stopped.');
+    const shown = await crew.status(job.id) as CrewJob;
+    expect(shown.approval).toBeUndefined();
+    await expect(crew.approve(job.id, true, { by: 'cli' })).rejects.toThrow('not awaiting approval');
+  });
+
+  it('stops a run that works past the crew timeout, and says so', async () => {
+    const { crew, cwd, brainRoot, globalRoot } = await setup();
+    // 30 ms of work, so the test needs no fixed wait: the planner itself waits for the stop.
+    const job = await crew.store.create({ cli: 'claude', task: 'Hang', goal: 'Hang', kind: 'orchestration', mode: 'headless', cwd, autonomy: 'auto', timeoutMinutes: 0.0005 });
+    const hanging: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
+      await new Promise(resolve => request.signal?.addEventListener('abort', resolve, { once: true }));
+      yield { type: 'agent.end', agentId, ok: false, summary: 'stopped', at: new Date().toISOString() } satisfies EduEvent;
+    } };
+    const result = await runOrchestration(job, { brainRoot, globalRoot, policy: { maxAutonomy: 'auto', passthrough: [], approvals: 'ask-on-write' }, store: crew.store,
+      engineFactory: () => hanging, detectClis: async () => ['claude'], sleep: async () => undefined });
+    expect(result).toMatchObject({ status: 'failed', summary: 'Timed out after 0.0005 minute(s) of work; the run was stopped.' });
+  });
 });

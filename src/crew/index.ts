@@ -1,7 +1,7 @@
 import { measuredEngine } from '../engine/measurement.js';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { realpath } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Autonomy, BrainLocation, CliId, CrewDecisionBy, CrewJob, CrewJobMode, Engine, HarnessLevel, OrchestrationMode } from '../core/contracts.js';
 import { detectEngines, createEngine } from '../engine/index.js';
@@ -44,17 +44,19 @@ export interface CrewOptions {
 }
 export interface DispatchInput { cli: CliId; task: string; mode?: CrewJobMode; cwd?: string; autonomy?: Autonomy; timeoutMinutes?: number }
 /** `autoApprove` and `allowUnregisteredChecks` are human CLI flags; the MCP tools never pass them. */
-export interface OrchestrationInput { goal: string; cwd?: string; cli?: CliId; mode?: OrchestrationMode; playbook?: string; harnessLevel?: HarnessLevel; autoApprove?: boolean; allowUnregisteredChecks?: boolean }
+export interface OrchestrationInput { goal: string; cwd?: string; cli?: CliId; mode?: OrchestrationMode; playbook?: string; harnessLevel?: HarnessLevel; autoApprove?: boolean; allowUnregisteredChecks?: boolean; timeoutMinutes?: number }
 export interface ReviewInput { cli?: CliId; base?: string; callerCli?: CliId }
 
 /** A worker past its timeout by this much has stopped reporting: its job is marked failed. */
 const OVERDUE_GRACE_MS = 5 * 60_000;
 
+/** `crew.timeoutMinutes` of the config in `root`; undefined when absent, unreadable or not 1–1440 whole minutes. */
 async function configuredTimeout(root: string): Promise<number | undefined> {
   try {
-    const { loadConfig } = await import('../workspace/config.js');
-    return (await loadConfig(join(root, 'config.json'))).crew?.timeoutMinutes;
-  } catch { return undefined; } // no or unreadable config: the built-in default applies
+    const raw = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as { crew?: { timeoutMinutes?: unknown } } | null;
+    const minutes = raw?.crew?.timeoutMinutes;
+    return typeof minutes === 'number' && Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440 ? minutes : undefined;
+  } catch { return undefined; } // no or unreadable config: the next source applies
 }
 
 function validTimeout(minutes: number | undefined): number | undefined {
@@ -85,6 +87,9 @@ export function createCrew(options: CrewOptions = {}) {
   const describe = options.describeProcess ?? describeProcess;
   const stop = options.stopProcess ?? ((pid: number, signal: NodeJS.Signals) => killTree({ pid }, signal));
   const readonlyEnforced = (cli: CliId) => measuredEngine(engineFactory(cli)).capabilities?.readonly === 'enforced';
+  /** A job's limit: the request, the crew option, the workspace's config, the global config, then 60 minutes. */
+  const timeoutFor = async (requested: number | undefined) => validTimeout(requested) ?? validTimeout(options.timeoutMinutes)
+    ?? await configuredTimeout(root) ?? (resolve(root) === globalRoot ? undefined : await configuredTimeout(globalRoot)) ?? DEFAULT_CREW_TIMEOUT_MINUTES;
 
   /** Marks a headless job whose worker died, or stopped reporting past its timeout, as failed. */
   async function sweep(job: CrewJob): Promise<CrewJob> {
@@ -98,7 +103,25 @@ export function createCrew(options: CrewOptions = {}) {
       summary: dead ? `Worker process ${job.pid} stopped without finishing the job.` : `Worker exceeded its ${limit / 60_000}-minute timeout and stopped reporting.`,
     });
   }
-  const refresh = (job: CrewJob) => job.mode === 'pane' ? refreshPane(job, { ...options.herdr, store, brainRoot: root }) : sweep(job);
+  /**
+   * A pane job past its `timeoutMinutes` is marked failed first (so the closing pane cannot report it done), then its
+   * pane is closed. Undefined while it is within its limit.
+   */
+  async function expirePane(job: CrewJob): Promise<CrewJob | undefined> {
+    const minutes = job.timeoutMinutes ?? DEFAULT_CREW_TIMEOUT_MINUTES;
+    if (isTerminalCrewJobStatus(job.status) || clock() <= Date.parse(job.createdAt) + minutes * 60_000) return undefined;
+    let expired = false;
+    const failed = await store.mutate(job.id, current => {
+      if (isTerminalCrewJobStatus(current.status)) return undefined;
+      expired = true;
+      return { status: 'failed', endedAt: new Date(clock()).toISOString(), summary: `Timed out after ${minutes} minute(s); the pane agent was stopped.` };
+    });
+    if (!expired) return failed;
+    try { await closePane(failed, { ...options.herdr, store, brainRoot: root }); }
+    catch (error) { return store.update(job.id, { note: `Could not close pane ${failed.paneId ?? ''}: ${error instanceof Error ? error.message : String(error)}` }); }
+    return failed;
+  }
+  const refresh = async (job: CrewJob) => job.mode === 'pane' ? await expirePane(job) ?? refreshPane(job, { ...options.herdr, store, brainRoot: root }) : sweep(job);
 
   /** Stops a headless worker: SIGTERM lets it end its CLI's tree; whatever is left after the grace is force-killed. */
   async function stopWorker(job: CrewJob): Promise<string | undefined> {
@@ -126,7 +149,9 @@ export function createCrew(options: CrewOptions = {}) {
       const cli = input.cli ?? available[0];
       if (!cli || !available.includes(cli)) throw new Error('No available CLI for orchestration');
       const current = await policy();
-      const job = await store.create({ cli, task: input.goal.trim(), goal: input.goal.trim(), kind: 'orchestration', mode: 'headless', cwd, autonomy: 'auto', orchestrationMode: input.mode, playbook: input.playbook, harnessLevel: input.harnessLevel, autoApprove: input.autoApprove, allowUnregisteredChecks: input.allowUnregisteredChecks });
+      // Its working time and each gate's wait for a person (see runOrchestration).
+      const timeoutMinutes = await timeoutFor(input.timeoutMinutes);
+      const job = await store.create({ cli, task: input.goal.trim(), goal: input.goal.trim(), kind: 'orchestration', mode: 'headless', cwd, autonomy: 'auto', orchestrationMode: input.mode, playbook: input.playbook, harnessLevel: input.harnessLevel, autoApprove: input.autoApprove, allowUnregisteredChecks: input.allowUnregisteredChecks, timeoutMinutes });
       await store.update(job.id, { status: 'running' });
       try { return await start(job, current); }
       catch (error) {
@@ -160,7 +185,7 @@ export function createCrew(options: CrewOptions = {}) {
       if (!withinAutonomy(autonomy, current.maxAutonomy)) {
         throw new Error(`Autonomy "${autonomy}" is above the crew ceiling "${current.maxAutonomy}". A person can raise crew.maxAutonomy in the global Edu config (${join(globalRoot, 'config.json')}).`);
       }
-      const timeoutMinutes = validTimeout(input.timeoutMinutes) ?? validTimeout(options.timeoutMinutes) ?? await configuredTimeout(root) ?? DEFAULT_CREW_TIMEOUT_MINUTES;
+      const timeoutMinutes = await timeoutFor(input.timeoutMinutes);
       const requestedMode = input.mode ?? 'headless';
       // Inside herdr: a pane beside the caller. Outside (Hermes, launchd) with a reachable server: a tab
       // in the "Edu" herdr workspace. Otherwise headless, and the job says why.

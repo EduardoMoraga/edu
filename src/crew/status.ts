@@ -3,6 +3,12 @@ import type { CrewJobStatus } from '../core/contracts.js';
 /** Every crew job status. Readers import this list; none keeps its own copy. */
 export const CREW_JOB_STATUSES = ['queued', 'running', 'awaiting-approval', 'done', 'failed', 'cancelled'] as const satisfies readonly CrewJobStatus[];
 
+/**
+ * A crew job's default limit in minutes, unless the job, the workspace config or the global config says otherwise: a
+ * headless task's run, a pane job's life, a detached orchestration's working time and each of its gate waits.
+ */
+export const DEFAULT_CREW_TIMEOUT_MINUTES = 60;
+
 /** Statuses a job never leaves. */
 export const TERMINAL_CREW_JOB_STATUSES = ['done', 'failed', 'cancelled'] as const satisfies readonly CrewJobStatus[];
 

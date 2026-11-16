@@ -1,8 +1,10 @@
 import { homedir } from 'node:os';
 import type { CliId, CrewJob, EduEvent, Engine } from '../core/contracts.js';
 import { detectEngines } from '../engine/index.js';
+import { budgetClock } from '../orchestrator/run/state.js';
 import { runSession } from '../orchestrator/session.js';
 import type { CrewPolicy } from '../workspace/config.js';
+import { DEFAULT_CREW_TIMEOUT_MINUTES } from './status.js';
 import type { CrewStore } from './store.js';
 
 export interface OrchestrationWorkerOptions {
@@ -18,11 +20,21 @@ export interface OrchestrationWorkerOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
-/** Runs one persisted orchestration and waits for one-shot approval decisions. */
+/**
+ * Runs one persisted orchestration and waits for one-shot approval decisions. Nobody watches a detached run, so it has
+ * two limits, both the job's `timeoutMinutes`: its working time (the time a gate waits for a person does not count),
+ * and each gate's wait for a decision. Past either, the run is stopped and the job ends `failed`, saying which.
+ */
 export async function runOrchestration(job: CrewJob, options: OrchestrationWorkerOptions): Promise<CrewJob> {
   const { store } = options;
   const now = options.now ?? (() => new Date());
   const sleep = options.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  const minutes = job.timeoutMinutes ?? DEFAULT_CREW_TIMEOUT_MINUTES;
+  const limitMs = minutes * 60_000;
+  const stop = new AbortController();
+  let stopped: string | undefined;
+  const halt = (reason: string) => { if (stopped === undefined) { stopped = reason; stop.abort(new Error(reason)); } };
+  const work = budgetClock(limitMs, () => halt(`Timed out after ${minutes} minute(s) of work; the run was stopped.`));
   const latestChecks = new Map<string, boolean>();
   // The spec path is persisted with the next update so that a spec awaiting approval becomes visible
   // together with `awaiting-approval`: readers that wait for `specPath` (edu_orchestrate) never see the
@@ -62,19 +74,29 @@ export async function runOrchestration(job: CrewJob, options: OrchestrationWorke
       cli: job.cli, harnessLevel: job.harnessLevel, playbook: job.playbook,
       autoApprove: job.autoApprove, allowUnregisteredChecks: job.allowUnregisteredChecks, engines: options.engineFactory,
       onEvent,
-      approve: async () => {
+      signal: stop.signal,
+      approve: async request => {
         if (job.autoApprove) return true;
-        while (true) {
-          const decision = await store.takeDecision(job.id);
-          if (decision !== undefined) return { approved: decision.approve, by: decision.by };
-          await sleep(250);
-        }
+        // Waiting for a person is not work; it has its own limit, and the polling ends with the run.
+        work.pause();
+        const expires = now().getTime() + limitMs;
+        try {
+          while (!stop.signal.aborted) {
+            const decision = await store.takeDecision(job.id);
+            if (decision !== undefined) return { approved: decision.approve, by: decision.by };
+            if (now().getTime() >= expires) { halt(`Approval gate "${request.title}" got no decision within ${minutes} minute(s); the run was stopped.`); break; }
+            await sleep(250);
+          }
+          throw new Error(stopped ?? 'Run stopped.');
+        } finally { work.resume(); }
       },
     });
-    return await store.update(job.id, { ...specPatch(), status: result.ok ? 'done' : 'failed', endedAt: now().toISOString(), summary: result.summary });
+    return await store.update(job.id, { ...specPatch(), status: result.ok && !stopped ? 'done' : 'failed', endedAt: now().toISOString(), summary: stopped ?? result.summary });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = stopped ?? (error instanceof Error ? error.message : String(error));
     await store.appendEvent(job.id, { type: 'error', message, at: now().toISOString() }).catch(() => undefined);
-    return store.update(job.id, { ...specPatch(), status: 'failed', endedAt: now().toISOString(), summary: message });
+    return await store.update(job.id, { ...specPatch(), status: 'failed', endedAt: now().toISOString(), summary: message });
+  } finally {
+    work.clear();
   }
 }

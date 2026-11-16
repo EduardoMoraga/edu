@@ -24,9 +24,10 @@ export interface RunState {
   /** The caller's config with the playbook's role overrides (the caller's config until the playbook loads). */
   config: EduConfig;
   readonly budget: RunBudget;
-  /** Aborts when the execution budget's `timeoutMs` elapses. */
+  /** Aborts when the execution budget's `timeoutMs` of work elapses. */
   readonly deadline: AbortSignal;
-  readonly timer: NodeJS.Timeout;
+  /** The execution budget's clock: it stops while a gate waits for a person (see `waitForAnswer`). */
+  readonly clock: BudgetClock;
   readonly composer: ComposerObserver;
   /** HEAD when the run started; the entropy audit diffs against it. */
   readonly startCommit?: string;
@@ -61,13 +62,40 @@ export interface RunState {
   readonly suppliedNotes: Set<string>;
 }
 
+export interface BudgetClock { pause(): void; resume(): void; clear(): void }
+
+/**
+ * Calls `expire` once `ms` of running time has passed. Paused time does not count (pauses may nest), so a run that
+ * waits hours for a person is not "out of budget" when they answer; `clear` stops it for good.
+ */
+export function budgetClock(ms: number, expire: () => void): BudgetClock {
+  let remaining = ms;
+  let since = Date.now();
+  let paused = 0;
+  let done = false;
+  const arm = () => { const timer = setTimeout(() => { done = true; expire(); }, Math.max(0, remaining)); timer.unref(); return timer; };
+  let timer: NodeJS.Timeout | undefined = arm();
+  return {
+    pause() {
+      if (done || paused++ > 0) return;
+      clearTimeout(timer);
+      remaining -= Date.now() - since;
+    },
+    resume() {
+      if (done || paused === 0 || --paused > 0) return;
+      since = Date.now();
+      timer = arm();
+    },
+    clear() { done = true; clearTimeout(timer); timer = undefined; },
+  };
+}
+
 /** Sets up a run (budget deadline, engines, event log) and emits `run.start`. */
 export async function startRun(goal: string, input: OrchestrateDeps): Promise<RunState> {
   const runId = randomUUID();
   const budget = new RunBudget(input.config);
   const deadline = new AbortController();
-  const timer = setTimeout(() => deadline.abort(new BudgetExhausted('Execution budget exhausted: timeoutMs.')), budget.limits.timeoutMs);
-  timer.unref();
+  const clock = budgetClock(budget.limits.timeoutMs, () => deadline.abort(new BudgetExhausted('Execution budget exhausted: timeoutMs.')));
   const signal = input.signal ? AbortSignal.any([input.signal, deadline.signal]) : deadline.signal;
   const startCommit = await exec('git', ['rev-parse', 'HEAD'], { cwd: input.cwd }).then(result => result.stdout.trim()).catch(() => undefined);
   const engines = new Map<CliId, Engine>();
@@ -79,7 +107,7 @@ export async function startRun(goal: string, input: OrchestrateDeps): Promise<Ru
   const deps: OrchestrateDeps = { ...input, signal, engines: engineFor };
   await mkdir(deps.runsDir, { recursive: true });
   const run: RunState = {
-    runId, goal, deps, config: deps.config, budget, deadline: deadline.signal, timer, startCommit,
+    runId, goal, deps, config: deps.config, budget, deadline: deadline.signal, clock, startCommit,
     composer: composerObserver(deps.composerMessages),
     harnessLevel: deps.harnessLevel ?? 'H3', methodSummary: '', terminalStatus: 'blocked', episodeClosed: false,
     pack: { text: '', tokens: 0, budgetTokens: deps.config.context.budgetTokens, sections: [], deferred: [] },

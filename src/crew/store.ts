@@ -239,7 +239,9 @@ export function createCrewStore(brainRoot: string, options: CrewStoreOptions = {
           }
         }
         if (typeof patch.note === 'string') safePatch.note = redactWorkerOutput(patch.note);
-        const updated = { ...current, ...safePatch };
+        const updated: CrewJob = { ...current, ...safePatch };
+        // A finished job has no open gate, whatever was on display when it ended.
+        if (isTerminalCrewJobStatus(updated.status)) delete updated.approval;
         await atomicJson(metaPath(current.id), updated);
         // A job that ends while a gate is open (cancelled, failed, expired) leaves no gate a decision could still name.
         if (current.status === 'awaiting-approval' && isTerminalCrewJobStatus(updated.status)) await closeGate(current.id).catch(() => undefined);

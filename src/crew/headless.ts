@@ -12,12 +12,11 @@ import { redactWorkerOutput } from '../context/artifacts.js';
 import { createEngine } from '../engine/index.js';
 import { childEnv } from '../platform/child-env.js';
 import { CREW_POLICY_ENV, DEFAULT_CREW_POLICY, encodeWorkerPolicy, loadCrewPolicy, withinAutonomy, type CrewPolicy, type WorkerPolicy } from '../workspace/config.js';
-import { isTerminalCrewJobStatus } from './status.js';
+import { DEFAULT_CREW_TIMEOUT_MINUTES, isTerminalCrewJobStatus } from './status.js';
 import { createCrewStore, type CrewStore } from './store.js';
 import { runOrchestration } from './orchestration.js';
 
-/** A crew task job stops after this many minutes unless the job or the workspace config says otherwise. */
-export const DEFAULT_CREW_TIMEOUT_MINUTES = 60;
+export { DEFAULT_CREW_TIMEOUT_MINUTES } from './status.js';
 
 export interface WorkerOptions {
   brainRoot?: string;
