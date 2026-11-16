@@ -81,7 +81,13 @@ export function registerCrew(program: Command, ctx: CliContext): void {
       // The dispatcher names the job's brain and hands down the safety policy it resolved; EDU_HOME stays the
       // person's global home. Without a policy (not started by a dispatcher) the defaults apply.
       const globalRoot = globalHome(ctx);
-      try { await runWorker(id, { brainRoot: ctx.env[CREW_BRAIN_ENV] || globalRoot, globalRoot, policy: decodeWorkerPolicy(ctx.env[CREW_POLICY_ENV]) }); }
+      const refuse = (why: string) => { ctx.err(`Crew worker refused: ${why}`); ctx.setExitCode(1); };
+      // Only a dispatcher starts workers: never an agent inside a crew job, and never without the policy and job
+      // digest the dispatcher resolved (a self-made EDU_CREW_POLICY without a digest could raise its own ceiling).
+      if (isCrewWorker(ctx.env)) return refuse('a crew worker cannot start crew workers');
+      const policy = decodeWorkerPolicy(ctx.env[CREW_POLICY_ENV]);
+      if (!ctx.env[CREW_POLICY_ENV] || policy.job === undefined) return refuse('this internal entry point runs only jobs started by `edu crew dispatch` or `edu run --detach`');
+      try { await runWorker(id, { brainRoot: ctx.env[CREW_BRAIN_ENV] || globalRoot, globalRoot, policy }); }
       catch (error) { ctx.err(`Crew worker failed: ${error instanceof Error ? error.message : String(error)}`); ctx.setExitCode(1); }
     });
 }

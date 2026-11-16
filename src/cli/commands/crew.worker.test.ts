@@ -48,4 +48,26 @@ describe('edu crew worker and dispatch policy', () => {
     }
     expect((await store.list()).map(entry => entry.status)).toEqual(['queued']);
   });
+
+  it('runs a worker only for a dispatcher: never inside a crew job, never on a self-made policy without a job digest', async () => {
+    const captured = await captureContext();
+    const brainRoot = join(captured.dirs.cwd, '.edu');
+    await mkdir(brainRoot);
+    const store = createCrewStore(brainRoot, { globalRoot: captured.dirs.eduHome });
+    const job = await store.create({ cli: 'claude', task: 'Escalate', mode: 'headless', cwd: captured.dirs.cwd, autonomy: 'full' });
+    const selfMade = encodeWorkerPolicy({ maxAutonomy: 'full', passthrough: [], approvals: 'auto' });
+    for (const [env, refusal] of [
+      [{ EDU_CREW_JOB: 'worker-1', EDU_CREW_BRAIN: brainRoot, EDU_CREW_POLICY: selfMade }, 'cannot start crew workers'],
+      [{ EDU_CREW_BRAIN: brainRoot, EDU_CREW_POLICY: selfMade }, 'runs only jobs started by'],
+      [{ EDU_CREW_BRAIN: brainRoot }, 'runs only jobs started by'],
+    ] as const) {
+      captured.stderr.length = 0;
+      captured.exitCode = undefined;
+      captured.ctx.env = { ...captured.ctx.env, EDU_CREW_JOB: undefined, EDU_CREW_POLICY: undefined, ...env };
+      await runCli(captured, ['crew', 'worker', job.id]);
+      expect(captured.exitCode).toBe(1);
+      expect(err(captured)).toContain(refusal);
+    }
+    expect((await store.get(job.id))?.status).toBe('queued');
+  });
 });
