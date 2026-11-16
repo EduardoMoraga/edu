@@ -28,6 +28,17 @@ describe('builder autonomy flags', () => {
     expect(interactiveAutonomyFlags('claude', 'auto')).toEqual(autonomyFlags('claude', 'auto'));
   });
 
+  it('lets OpenCode auto-approve at auto and full only, headless and in a pane', () => {
+    expect(autonomyFlags('opencode', 'auto')).toEqual(['--auto']);
+    expect(autonomyFlags('opencode', 'full')).toEqual(['--auto']);
+    expect(autonomyFlags('opencode', 'ask')).toEqual([]);
+    expect(autonomyFlags('opencode', 'readonly')).toEqual([]);
+    expect(enforcesReadonly('opencode')).toBe(false); // --auto is no read-only mode: readonly stays refused
+    // The interactive `opencode` command takes the same --auto (OpenCode 2.2).
+    expect(interactiveAutonomyFlags('opencode', 'auto')).toEqual(['--auto']);
+    expect(interactiveAutonomyFlags('opencode', 'ask')).toEqual([]);
+  });
+
   it('declares enforced readonly exactly for the CLIs with a readonly flag', () => {
     const levels: Autonomy[] = ['readonly'];
     for (const cli of ['claude', 'codex', 'pi', 'opencode', 'agy'] as CliId[]) {

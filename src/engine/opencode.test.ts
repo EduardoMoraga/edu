@@ -10,6 +10,17 @@ afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(dirs.splice(0).map
 
 const request = (cwd: string): EngineRunRequest => ({ cli: 'opencode', prompt: 'inspect this file', cwd, autonomy: 'ask' });
 
+describe('OpenCode autonomy', () => {
+  it('passes --auto only at auto and full, so headless runs never stall on a permission prompt', () => {
+    const args = (autonomy: EngineRunRequest['autonomy']) => buildOpencodeArgv({ ...request('/workspace'), autonomy }).args;
+    for (const autonomy of ['auto', 'full'] as const) {
+      expect(args(autonomy)).toContain('--auto');
+      expect(args(autonomy).indexOf('--auto')).toBeLessThan(args(autonomy).indexOf('--')); // an option, not the message
+    }
+    for (const autonomy of ['ask', 'readonly'] as const) expect(args(autonomy)).not.toContain('--auto');
+  });
+});
+
 describe('OpenCode working directory', () => {
   it('passes no --dir, which OpenCode 2.x no longer accepts', () => {
     expect(buildOpencodeArgv(request('/workspace')).args).not.toContain('--dir');
