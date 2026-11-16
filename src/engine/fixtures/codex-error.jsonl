@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"codex-error-session"}
+{"type":"turn.started"}
+{"type":"error","message":"stream error: unexpected status 401 Unauthorized; retrying 1/5 in 200ms…"}
+{"type":"error","message":"unexpected status 401 Unauthorized: Missing bearer or basic authentication in header"}
+{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized: Missing bearer or basic authentication in header"}}

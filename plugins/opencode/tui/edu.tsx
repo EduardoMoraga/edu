@@ -22,6 +22,8 @@ const id = 'edu.deck'
 const windows = process.platform === 'win32'
 const EDU = process.env.EDU_BIN || 'edu'
 const REFRESH_MS = 3000
+/** Longest pause between `edu deck` polls while they keep failing (edu missing, old or broken). */
+const DECK_BACKOFF_MAX_MS = 60_000
 
 // Edu's warm accent on dark, the same palette as the Claude Code deck and the Pi extension.
 const ACCENT = '#F5A97F'
@@ -159,11 +161,17 @@ function setup(context) {
   const [deck, setDeck] = createSignal(undefined)
   const [now, setNow] = createSignal(Date.now())
   let inflight = false
-  const refresh = async () => {
-    if (inflight) return
+  // Failed polls in a row; the timer waits 6 s, 12 s, … up to a minute before the next one.
+  let failures = 0
+  let retryAt = 0
+  /** One poll at a time; while polls fail only `force` (the /edu-deck dialog) skips the backoff. */
+  const refresh = async (force = false) => {
+    if (inflight || (!force && failures > 0 && Date.now() < retryAt)) return
     inflight = true
     try {
       const next = await fetchDeck(cwd())
+      failures = next ? 0 : failures + 1
+      if (failures) retryAt = Date.now() + Math.min(DECK_BACKOFF_MAX_MS, REFRESH_MS * 2 ** Math.min(failures, 10))
       // A failed refresh keeps the last good snapshot instead of flickering to empty.
       if (next || !deck()) setDeck(next)
       setNow(Date.now())
@@ -268,7 +276,7 @@ function setup(context) {
 
   // OpenCode 2 has no home-logo slot; the wordmark and tagline open the /edu-deck dialog instead.
   const open = async () => {
-    await refresh()
+    await refresh(true)
     const message = [...WORDMARK_SMALL, TAGLINE, '', summary(deck(), cwd())].join('\n')
     await context.ui.dialog.alert({ title: '◆ Edu Deck', message })
   }

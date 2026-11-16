@@ -1,7 +1,7 @@
 import type { EngineRunRequest } from '../core/contracts.js';
 import { makeEngine } from './adapter.js';
 import { autonomyFlags } from './autonomy.js';
-import { endEvent, makeUsage, parseJson, str, textEvent, toolCall, toolResult, type ParseContext } from './parse.js';
+import { endEvent, errorText, makeUsage, parseJson, str, textEvent, toolCall, toolResult, type ParseContext } from './parse.js';
 import type { CommandSpec } from './process.js';
 
 export function buildClaudeArgv(req: EngineRunRequest): CommandSpec {
@@ -45,7 +45,11 @@ export function parseLine(line: string, ctx: ParseContext) {
     const events = data.usage && typeof data.usage === 'object'
       ? makeUsage(ctx, { ...(data.usage as Record<string, unknown>), total_cost_usd: data.total_cost_usd }, 'exclusive-cache')
       : (typeof data.total_cost_usd === 'number' ? makeUsage(ctx, { cost_usd: data.total_cost_usd }, 'exclusive-cache') : []);
-    events.push(endEvent(ctx, !String(data.subtype ?? '').includes('error'), str(data.result) ?? '', session));
+    // `is_error` marks failures that still report subtype "success" (an API, auth or billing error).
+    const subtype = str(data.subtype);
+    const failed = data.is_error === true || (subtype ?? '').includes('error');
+    const errors = Array.isArray(data.errors) ? data.errors.map(errorText).filter(Boolean).join('; ') : '';
+    events.push(endEvent(ctx, !failed, str(data.result) || errors || (failed ? `Claude ended with ${subtype ?? 'an error'}` : ''), session));
     return events;
   }
   if (type === 'system' && typeof data.session_id === 'string') {

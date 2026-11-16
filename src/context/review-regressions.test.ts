@@ -6,6 +6,7 @@ import { openBrain } from '../brain/index.js';
 import type { Note, NoteMeta } from '../core/contracts.js';
 import { buildContext } from './pack.js';
 import { estimateTokens } from './tokens.js';
+import { expectWithinBudget } from '../test-support/perf.js';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -77,7 +78,7 @@ it.each(['transitive', 'canonical'] as const)('packs 400 long %s bodies within t
   expect(included.length).toBeGreaterThan(0);
   expect(pack.deferred.length).toBeGreaterThan(390);
   expect(new Set([...included, ...pack.deferred])).toEqual(new Set(notes.map(value => value.meta.id)));
-  expect(elapsed).toBeLessThan(5000);
+  expectWithinBudget(elapsed, 5000);
 }, 90_000);
 
 

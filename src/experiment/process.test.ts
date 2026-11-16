@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { sha256 } from './contract.js';
+import { expectWithinBudget } from '../test-support/perf.js';
 const state = vi.hoisted(() => ({ children: [] as any[] }));
 vi.mock('node:child_process', () => ({ spawn: () => {
   const child = Object.assign(new EventEmitter(), { pid: undefined, stdout: new PassThrough(), stderr: new PassThrough(), unref: vi.fn() });
@@ -19,7 +20,7 @@ it('settles a process whose close event never arrives, destroys owned streams an
     spec.sourceSha256 = (await inspectExperiment(JSON.stringify(spec))).sourceSha256;
     const manifest = JSON.stringify(spec), started = Date.now();
     const result = await runExperiment(manifest, { approve: sha256(manifest), evidenceRoot: join(root, 'evidence') });
-    expect(Date.now() - started).toBeLessThan(1500);
+    expectWithinBudget(Date.now() - started, 1500);
     expect(result.arms.baseline.status).toBe('timeout'); expect(result.arms.candidate.status).toBe('timeout');
     expect(state.children).toHaveLength(2);
     for (const child of state.children) { expect(child.stdout.destroyed).toBe(true); expect(child.stderr.destroyed).toBe(true); expect(child.unref).toHaveBeenCalled(); }

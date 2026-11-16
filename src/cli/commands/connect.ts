@@ -75,7 +75,7 @@ export function registerConnect(program: Command, ctx: CliContext, deps: { runne
       if (!existsSync(path)) throw new Error(es ? `No encontré la configuración de Hermes en ${path}. Instala Hermes o usa --config.` : `Hermes config not found at ${path}. Install Hermes or pass --config.`);
       if (opts.project) {
         const { selectWorkspace } = await import('../../mcp/projects.js');
-        await selectWorkspace(opts.project, { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home }, g.cwd); // fail early on a typo
+        await selectWorkspace(opts.project, { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home }, g.cwd, { create: true }); // fail early on a typo
       }
 
       const entry = hermesEntry(eduServiceMcpLaunch({ env: ctx.env }), opts.project);

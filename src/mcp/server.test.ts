@@ -6,7 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/index.js';
 import { estimateTokens } from '../context/index.js';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 import { createEduMcpServer } from './server.js';
 
 // These tests exercise a regular host even when the test runner itself was
@@ -35,7 +35,7 @@ describe('Edu MCP tools', () => {
     try {
       const names = (await client.listTools()).tools.map(tool => tool.name);
       expect(names).toEqual(expect.arrayContaining(['edu_brief', 'edu_recall', 'edu_read', 'edu_remember', 'edu_feedback', 'edu_propose_canonical', 'edu_commitments', 'edu_session_open', 'edu_session_close']));
-      const remembered = await call('edu_remember', { tier: 'transitive', kind: 'commitment', title: 'Ship release', body: 'Prepare the release.', due: '2026-10-09' });
+      const remembered = await call('edu_remember', { tier: 'transitive', band: 'inferred', kind: 'commitment', title: 'Ship release', body: 'Prepare the release.', due: '2026-10-09' });
       expect(remembered.result.isError).not.toBe(true);
       const note = (await brain.list({ kind: 'commitment' }))[0]!;
       expect((await call('edu_commitments')).text).toContain('Ship release');
@@ -188,7 +188,7 @@ async function connected(location: { scope: 'project'; root: string }, extra: Pa
 }
 
 describe('session id recovery', () => {
-  it('advertises the id first and never closes another session for an unknown id', async () => {
+  it('advertises the id first, never closes another session for an unknown id, and never lists open ids', async () => {
     const root = await mkdtemp(join(tmpdir(), 'edu-session-recovery-'));
     roots.push(root);
     const location = { scope: 'project' as const, root };
@@ -206,14 +206,15 @@ describe('session id recovery', () => {
       expect(text.startsWith(`Session id: ${id}`)).toBe(true);
       const wrong = await client.callTool({ name: 'edu_session_close', arguments: { id: 'wrong', summary: 'Finished.' } });
       expect(wrong.isError).toBe(true);
-      expect(wrong.content.find(item => item.type === 'text')?.text).toContain(id);
+      expect(wrong.content.find(item => item.type === 'text')?.text).toContain('exact id edu_session_open returned');
+      expect(wrong.content.find(item => item.type === 'text')?.text).not.toContain(id);
       expect((await brain.read(id))?.meta.status).toBe('open-session');
       const closed = await client.callTool({ name: 'edu_session_close', arguments: { id, summary: 'Finished.' } });
       expect(closed.isError).not.toBe(true);
       expect((await brain.read(id))?.meta.status).toBe('closed');
       const empty = await client.callTool({ name: 'edu_session_close', arguments: { id: 'missing', summary: 'Again.' } });
       expect(empty.isError).toBe(true);
-      expect(empty.content.find(item => item.type === 'text')?.text).toContain('Open session ids: none');
+      expect(empty.content.find(item => item.type === 'text')?.text).toContain('Session not found: missing');
     } finally { await client.close(); await server.close(); }
   });
 

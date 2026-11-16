@@ -3,10 +3,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planInstall, applyInstall, uninstall, resolveTemplatesDir, getManifestPath } from './installer.js';
-import { diagnose } from './doctor.js';
+import { planInstall, applyInstall, uninstall, getManifestPath } from './installer.js';
+import { packageTemplatesDir } from '../platform/package.js';
+import { diagnose } from '../doctor/diagnose.js';
 import { pathsFor } from './paths.js';
 import { createClaudeIntegration } from './claude.js';
+import { codexNotifyArgv } from './codex.js';
+
+/** The notify line setup writes on this platform (Windows runs Node with Edu's script, never through cmd.exe). */
+const notifyLine = (templatesDir: string) => `notify = [${codexNotifyArgv(templatesDir).map(arg => JSON.stringify(arg)).join(', ')}]`;
 
 const dirs: string[] = [];
 async function fixture() {
@@ -15,7 +20,7 @@ async function fixture() {
   const root = join(base, 'project');
   const home = join(base, 'home');
   await Promise.all([mkdir(root), mkdir(home)]);
-  return { root, home, templatesDir: resolveTemplatesDir() };
+  return { root, home, templatesDir: packageTemplatesDir() };
 }
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
@@ -246,7 +251,7 @@ describe('installer', () => {
     await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['codex'] }));
     const installed = await readFile(path, 'utf8');
     const top = /# edu:top:start\n([\s\S]*?)\n# edu:top:end/.exec(installed)?.[1] ?? '';
-    expect(top).toBe('notify = ["edu", "hook", "codex-notify"]');
+    expect(top).toBe(notifyLine(opts.templatesDir));
     expect(installed.indexOf('notify =')).toBeLessThan(installed.indexOf('[mcp_servers.other]'));
     expect(installed).toContain('[mcp_servers.edu]');
     await uninstall({ manifestPath: join(opts.root, '.edu/manifest.json') });
@@ -262,7 +267,7 @@ describe('installer', () => {
     await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['codex'] }));
     const installed = await readFile(path, 'utf8');
     expect(installed).toContain('notify = ["my-hook"]');
-    expect(installed).not.toContain('notify = ["edu", "hook", "codex-notify"]');
+    expect(installed).not.toContain(notifyLine(opts.templatesDir));
     expect((await diagnose({ ...opts, detectBinary: async () => false })).find(item => item.cli === 'codex')?.notes)
       .toContain('A user-owned top-level Codex notify command is preserved; Edu did not add its notify hook.');
   });
@@ -315,7 +320,7 @@ describe('host-rewritten JSON files', () => {
     const { tmpdir } = await import('node:os');
     const root = await mkdtemp(join(tmpdir(), 'edu-drift-root-'));
     const home = await mkdtemp(join(tmpdir(), 'edu-drift-home-'));
-    const templatesDir = resolveTemplatesDir();
+    const templatesDir = packageTemplatesDir();
     const plan = await planInstall({ clis: ['claude'], scope: 'global', root, home, templatesDir });
     await applyInstall(plan);
     const claudeJson = join(home, '.claude.json');

@@ -29,7 +29,7 @@ it('fills the budget after a short header instead of discarding the body', () =>
 });
 
 it('preserves Unicode graphemes at truncation boundaries', () => {
-  const unit = '👩🏽‍💻e\u0301東京';
+  const unit = '👩🏽\u200D💻e\u0301東京';
   const input = unit.repeat(100);
   const boundaries = new Set([...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(input)].map(part => part.index));
   for (let budget = 1; budget < 80; budget++) {
@@ -37,4 +37,12 @@ it('preserves Unicode graphemes at truncation boundaries', () => {
     expect(estimateTokens(result)).toBeLessThanOrEqual(budget);
     expect(boundaries.has(result.replace(/…$/, '').length)).toBe(true);
   }
+});
+
+it('errs high for non-Latin scripts', () => {
+  const russian = 'Перед миграцией базы данных делайте резервную копию.';
+  expect(estimateTokens(russian)).toBeGreaterThanOrEqual(Math.ceil(russian.length * 0.5));
+  expect(estimateTokens(russian)).toBeGreaterThan(estimateTokens('x'.repeat(russian.length)) * 1.5);
+  expect(estimateTokens('数据库迁移')).toBeGreaterThanOrEqual(5);
+  expect(estimateTokens('👩🏽\u200D💻')).toBeGreaterThanOrEqual(3);
 });

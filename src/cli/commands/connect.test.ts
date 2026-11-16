@@ -6,7 +6,7 @@ import { parse } from 'yaml';
 import { deadServers, hermesEntry, planHermesConnect } from '../../connect/hermes.js';
 import { appendToSequence, removeNestedEntry, setNestedEntry } from '../../connect/yaml.js';
 import { registerConnect, type HermesRunner } from './connect.js';
-import { captureContext, out } from '../testkit.js';
+import { captureContext, out } from '../../test-support/cli.js';
 import { createProgram } from '../program.js';
 import { CommanderError } from 'commander';
 

@@ -30,10 +30,9 @@ export function registerWatch(program: Command, ctx: CliContext): void {
         const disk = fsCrewSource(ws.primary.root, jobId => crew.status(jobId));
         const source = {
           ...disk,
-          // The TUI's job metadata contract predates the persisted approval state.
-          // The worker emits agent.status=awaiting-approval in the event stream.
+          // crew.status() refreshes pane jobs and marks jobs whose worker died before they are listed.
           list: async () => (await crew.status() as import('../../core/contracts.js').CrewJob[]).map(job => ({
-            id: job.id, cli: job.cli, task: job.task, status: job.status === 'awaiting-approval' ? 'running' as const : job.status,
+            id: job.id, cli: job.cli, task: job.task, status: job.status,
             createdAt: job.createdAt, endedAt: job.endedAt, summary: job.summary, mode: job.mode,
           })),
         };

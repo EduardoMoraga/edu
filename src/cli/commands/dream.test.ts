@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openBrain } from '../../brain/index.js';
-import { captureContext, out, runCli, type Captured } from '../testkit.js';
+import { captureContext, out, runCli, type Captured } from '../../test-support/cli.js';
 
 async function initialized(): Promise<Captured> {
   const c = await captureContext({ detected: [] });
@@ -37,6 +37,19 @@ describe('edu brain lint', () => {
     reset(c);
     await runCli(c, ['brain', 'lint', '--stale-days', 'soon']);
     expect(c.stderr.join('\n')).toContain('--stale-days');
+  });
+
+  it('says its summary in Spanish', async () => {
+    const c = await initialized();
+    await runCli(c, ['--lang', 'es', 'brain', 'lint']);
+    expect(out(c)).toContain('Sin hallazgos en 0 notas.');
+    reset(c);
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    await brain.write({ tier: 'transitive', kind: 'lesson', title: 'Points nowhere', body: 'See [[never-written]].' });
+    await brain.write({ tier: 'transitive', kind: 'commitment', title: 'Send the report', body: 'Due long ago.', due: '2020-01-01', links: ['L-points-nowhere'] });
+    await runCli(c, ['--lang', 'es', 'brain', 'lint']);
+    expect(out(c)).toMatch(/^2 hallazgo\(s\) en 2 notas: 1 error\(es\) · 1 advertencia\(s\) · 0 informativo\(s\) — missing-page 1, overdue 1$/m);
+    expect(out(c)).not.toContain('finding(s)');
   });
 });
 

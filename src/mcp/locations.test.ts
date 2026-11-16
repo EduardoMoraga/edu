@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveBrainLocations } from './locations.js';
+import { resolveBrainLocations } from '../brain/locations.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -31,20 +31,29 @@ describe('launchDirectory', () => {
   });
 });
 
-it('initializes a rebound workspace brain after a transient roots/list failure', async () => {
+it('rebinds to the brain a client root already holds after a transient roots/list failure, creating nothing', async () => {
   const { resolveReboundLocations } = await import('./stdio.js');
   const root = await mkdtemp(join(tmpdir(), 'edu-rebound-'));
   roots.push(root);
   let attempts = 0;
   // The ceiling keeps the search out of the real home: on Windows tmpdir() sits under it, next to a real ~/.edu.
-  const locations = await resolveReboundLocations('/plugin/edu', { EDU_HOME: join(root, 'global'), EDU_CEILING_DIRECTORIES: tmpdir() }, async () => {
+  const env = { EDU_HOME: join(root, 'global'), EDU_CEILING_DIRECTORIES: tmpdir() };
+  const listRoots = async () => {
     attempts++;
     if (attempts === 1) throw new Error('roots not ready');
-    return [`file://${root}`];
-  });
+    return [pathToFileURL(root).href];
+  };
+  // A root without a brain gets the global brain; MCP roots never create a project brain.
+  expect(await resolveReboundLocations('/plugin/edu', env, listRoots)).toEqual([{ scope: 'global', root: join(root, 'global') }]);
   expect(attempts).toBe(2);
-  expect(locations?.[0]).toEqual({ scope: 'project', root: join(root, '.edu') });
-  expect(await readFile(join(root, '.edu/EDU.md'), 'utf8')).toContain('Edu');
+  await expect(readFile(join(root, '.edu/EDU.md'), 'utf8')).rejects.toThrow();
+  await mkdir(join(root, '.edu'));
+  expect((await resolveReboundLocations('/plugin/edu', env, listRoots))?.[0]).toEqual({ scope: 'project', root: join(root, '.edu') });
+});
+
+it('reports roots that are not ready yet so the server asks again later', async () => {
+  const { resolveReboundLocations, RootsNotReady } = await import('./stdio.js');
+  await expect(resolveReboundLocations('/plugin/edu', {}, async () => [])).rejects.toBeInstanceOf(RootsNotReady);
 });
 
 it('recognizes the global brain reached while walking ancestors instead of calling it a project', async () => {

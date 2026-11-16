@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendLog } from '../brain/catalog.js';
 import { logLockDir } from '../brain/note-lock.js';
-import { conflictBranches, ensureRepoFiles, isAppendOnly, isEmptySession, isGenerated, mergeAppendOnly, remoteUrl, syncBrain, withoutCounters } from './sync.js';
+import { conflictBranches, ensureRepoFiles, isAppendOnly, isEmptySession, isGenerated, mergeAppendOnly, mergeCounters, remoteUrl, syncBrain, trackedConflictCopies, withoutCounters } from './sync.js';
 
-const env = { ...process.env, GIT_AUTHOR_NAME: 'Edu', GIT_AUTHOR_EMAIL: 'edu@example.com', GIT_COMMITTER_NAME: 'Edu', GIT_COMMITTER_EMAIL: 'edu@example.com', GIT_CONFIG_NOSYSTEM: '1' };
+const env = { ...process.env, GIT_AUTHOR_NAME: 'Edu', GIT_AUTHOR_EMAIL: 'edu@example.com', GIT_COMMITTER_NAME: 'Edu', GIT_COMMITTER_EMAIL: 'edu@example.com', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '' };
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
 
 const note = (body: string, uses = 1) => `---\nid: D-x\ntitle: X\nupdated: 2026-11-0${uses}T00:00:00Z\nusage:\n  uses: ${uses}\n  lastUsed: 2026-11-0${uses}T00:00:00Z\n---\n\n${body}\n`;
@@ -33,6 +33,8 @@ const sync = (m: { home: string }, host: string, cloud = false) => syncBrain({ e
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'edu-sync-'));
+  env.GIT_CONFIG_GLOBAL = join(root, 'gitconfig');
+  writeFileSync(env.GIT_CONFIG_GLOBAL, '');
   git(root, 'init', '-q', '--bare', '-b', 'main', 'remote.git');
   const seed = join(root, 'seed');
   git(root, 'init', '-q', '-b', 'main', seed);
@@ -71,18 +73,34 @@ describe('edu sync', () => {
     expect(git(b.vault, 'status', '-sb')).toBe('## main...origin/main');
   });
 
-  it('takes upstream when both sides changed only usage counters', async () => {
+  it('merges the largest usage counters and latest dates', async () => {
     write(a, '01-CONOCIMIENTO/1-canonical/D-x.md', note('first', 2));
     await sync(a, 'a');
     write(b, '01-CONOCIMIENTO/1-canonical/D-x.md', note('first', 3));
     const result = await sync(b, 'b');
     expect(result.state).toBe('ok');
-    expect(read(b, '01-CONOCIMIENTO/1-canonical/D-x.md')).toBe(note('first', 2));
+    expect(read(b, '01-CONOCIMIENTO/1-canonical/D-x.md')).toBe(note('first', 3));
+    expect(git(b.vault, 'show', 'origin/main:01-CONOCIMIENTO/1-canonical/D-x.md')).toContain('uses: 3');
   });
 
-  it('moves a real conflict to a branch and keeps syncing', async () => {
+  it('names a conflict copy after the file when the note id is not text', async () => {
+    const odd = (body: string) => `---\nid:\n  nested: true\ntitle: X\n---\n\n${body}\n`;
+    write(a, '01-CONOCIMIENTO/1-canonical/D-x.md', odd('edited on a'));
+    await sync(a, 'a');
+    write(b, '01-CONOCIMIENTO/1-canonical/D-x.md', odd('edited on b'));
+    const result = await sync(b, 'b');
+    expect(result.state).toBe('conflict');
+    const copy = read(b, result.conflictCopies![0]!.local);
+    expect(copy).toContain('conflict_of: 01-CONOCIMIENTO/1-canonical/D-x');
+    expect(copy).not.toContain('[object Object]');
+  });
+
+  it('publishes both versions of a real conflict and every unrelated local note', async () => {
     write(a, '01-CONOCIMIENTO/1-canonical/D-x.md', note('edited on a'));
     await sync(a, 'a');
+    write(b, '01-CONOCIMIENTO/1-canonical/D-local.md', note('only on b'));
+    git(b.vault, 'add', '-A');
+    git(b.vault, 'commit', '-qm', 'local note before the conflict');
     write(b, '01-CONOCIMIENTO/1-canonical/D-x.md', note('edited on b'));
     const result = await sync(b, 'b');
     expect(result.state).toBe('conflict');
@@ -90,10 +108,62 @@ describe('edu sync', () => {
     expect(git(b.vault, 'ls-remote', '--heads', 'origin', result.branch!)).not.toBe('');
     expect(git(b.vault, 'show', `${result.branch}:01-CONOCIMIENTO/1-canonical/D-x.md`)).toContain('edited on b');
     expect(read(b, '01-CONOCIMIENTO/1-canonical/D-x.md')).toContain('edited on a');
+    expect(result.conflictCopies).toHaveLength(1);
+    const copy = result.conflictCopies![0]!.local;
+    expect(copy).toMatch(/D-x\.conflict-b-[0-9a-f]+\.md$/);
+    expect(read(b, copy)).toContain('edited on b');
+    expect(read(b, copy)).toContain('conflict_of: D-x');
+    expect(read(b, copy)).toMatch(/id: D-x-conflict-b-[0-9a-f]+/);
+    expect(read(b, '01-CONOCIMIENTO/1-canonical/D-local.md')).toContain('only on b');
+    expect(git(b.vault, 'show', `origin/main:${copy}`)).toContain('edited on b');
+    expect(git(b.vault, 'status', '-sb')).toBe('## main...origin/main');
     write(b, '01-CONOCIMIENTO/1-canonical/D-z.md', note('later'));
     expect((await sync(b, 'b')).state).toBe('ok');
     expect((await sync(a, 'a')).state).toBe('ok');
     expect(read(a, '01-CONOCIMIENTO/1-canonical/D-z.md')).toContain('later');
+    expect(read(a, copy)).toContain('edited on b');
+    expect(await trackedConflictCopies(b.vault, env)).toEqual([{ path: '01-CONOCIMIENTO/1-canonical/D-x.md', local: copy }]);
+  });
+
+  it('keeps both notes when two machines add the same title and path', async () => {
+    const path = '01-CONOCIMIENTO/1-canonical/D-new.md';
+    write(a, path, note('new from a'));
+    write(b, path, note('new from b'));
+    await sync(a, 'a');
+    const result = await sync(b, 'b');
+    expect(result.state).toBe('conflict');
+    expect(read(b, path)).toContain('new from a');
+    const copy = result.conflictCopies![0]!.local;
+    expect(read(b, copy)).toContain('new from b');
+    expect(git(b.vault, 'show', `origin/main:${copy}`)).toContain('new from b');
+  });
+
+  it('resolves a generated-file conflict in the same rebase as a real note conflict', async () => {
+    const index = '01-CONOCIMIENTO/0-index/INDEX.md';
+    write(a, index, 'Generated: A\n');
+    write(a, '01-CONOCIMIENTO/1-canonical/D-x.md', note('from a'));
+    await sync(a, 'a');
+    write(b, index, 'Generated: B\n');
+    write(b, '01-CONOCIMIENTO/1-canonical/D-x.md', note('from b'));
+    const result = await sync(b, 'b');
+    expect(result.state).toBe('conflict');
+    expect(result.resolved).toContain(index);
+    expect(result.conflictCopies).toHaveLength(1);
+    expect(read(b, index)).toBe('Generated: A\n');
+    expect(read(b, result.conflictCopies![0]!.local)).toContain('from b');
+  });
+
+  it('keeps a non-note file conflict visible too', async () => {
+    write(a, 'README.txt', 'upstream\n');
+    await sync(a, 'a');
+    await sync(b, 'b');
+    write(a, 'README.txt', 'upstream edit\n');
+    await sync(a, 'a');
+    write(b, 'README.txt', 'local edit\n');
+    const result = await sync(b, 'b');
+    expect(result.state).toBe('conflict');
+    expect(read(b, 'README.txt')).toBe('upstream edit\n');
+    expect(read(b, result.conflictCopies![0]!.local)).toBe('local edit\n');
   });
 
   it('keeps counters, bases and empty sessions local in cloud mode', async () => {
@@ -259,6 +329,18 @@ describe('sync helpers', () => {
     expect(withoutCounters(note('a', 1))).toBe(withoutCounters(note('a', 2)));
     expect(withoutCounters(note('a'))).not.toBe(withoutCounters(note('b')));
     expect(withoutCounters('no frontmatter\nupdated: 1')).toBe('no frontmatter\nupdated: 1');
+    expect(withoutCounters(note('a', 1).replace(/\n/g, '\r\n'))).toBe(withoutCounters(note('a', 2)));
+  });
+  it('combines all usage counters by max and dates by latest', () => {
+    const up = '---\nid: D-x\nupdated: 2026-11-02T00:00:00Z\nusage:\n  uses: 9\n  wins: 1\n  losses: 5\n  lastUsed: 2026-11-01T00:00:00Z\n---\n\nSame\n';
+    const mine = '---\nid: D-x\nupdated: 2026-11-01T00:00:00Z\nusage:\n  uses: 3\n  wins: 4\n  losses: 2\n  lastUsed: 2026-11-03T00:00:00Z\n---\n\nSame\n';
+    expect(withoutCounters(up)).toBe(withoutCounters(mine.replace(/\n/g, '\r\n')));
+    const merged = mergeCounters(up, mine);
+    expect(merged).toContain('uses: 9');
+    expect(merged).toContain('wins: 4');
+    expect(merged).toContain('losses: 5');
+    expect(merged).toContain('lastUsed: 2026-11-03T00:00:00Z');
+    expect(merged).toContain('updated: 2026-11-02T00:00:00Z');
   });
   it('spots session notes with no content', () => {
     expect(isEmptySession('---\nid: s\n---\n\nPi session x ended (exit).\n')).toBe(true);

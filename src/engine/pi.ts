@@ -10,8 +10,8 @@ export function buildPiArgv(req: EngineRunRequest): CommandSpec {
   if (req.systemPrompt) args.push('--append-system-prompt', req.systemPrompt);
   if (req.model) args.push('--model', req.model);
   if (req.resumeSessionId) args.push('--session', req.resumeSessionId);
-  args.push(req.prompt);
-  return { command: 'pi', args };
+  // Pi reads a piped prompt from stdin, so a task like `--model x` or `@file` is never parsed as argv.
+  return { command: 'pi', args, stdin: req.prompt };
 }
 
 export function parseLine(line: string, ctx: ParseContext) {
@@ -47,8 +47,10 @@ export function parseLine(line: string, ctx: ParseContext) {
     const content = Array.isArray(message.content) ? message.content : [];
     ctx.summary = content.flatMap((raw) => raw && typeof raw === 'object' && (raw as Record<string, unknown>).type === 'text'
       ? [str((raw as Record<string, unknown>).text) ?? ''] : []).join('');
-    if (message.stopReason === 'error') ctx.ok = false;
-    else if (message.stopReason) ctx.ok = true;
+    if (message.stopReason === 'error') {
+      ctx.ok = false;
+      ctx.lastError = str(message.errorMessage) ?? ctx.lastError;
+    } else if (message.stopReason) ctx.ok = true;
     const usageRaw = message.usage && typeof message.usage === 'object' ? message.usage as Record<string, unknown> : undefined;
     const usage = usageRaw ? piUsage(usageRaw) : ctx.usage;
     ctx.usage = undefined;
@@ -56,13 +58,15 @@ export function parseLine(line: string, ctx: ParseContext) {
   }
   if (type === 'auto_retry_end' && data.success === false) {
     ctx.ok = false;
+    ctx.lastError = str(data.finalError) ?? ctx.lastError;
     return [];
   }
   if (type === 'agent_settled') {
     const events: EduEvent[] = [];
     if (ctx.usage) events.push({ type: 'usage', agentId: ctx.agentId, usage: ctx.usage, at: ctx.at ?? new Date().toISOString() });
     ctx.usage = undefined;
-    events.push(endEvent(ctx, data.aborted !== true && ctx.ok !== false, ctx.summary ?? '', ctx.sessionId));
+    const ok = data.aborted !== true && ctx.ok !== false;
+    events.push(endEvent(ctx, ok, ctx.summary || (ok ? '' : ctx.lastError ?? (data.aborted === true ? 'Pi run aborted' : 'Pi run failed')), ctx.sessionId));
     return events;
   }
   return [];

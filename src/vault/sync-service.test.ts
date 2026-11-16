@@ -1,6 +1,13 @@
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { WINDOWS_TASK, windowsTask } from './sync-service.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { installSchedule, legacySchedules, replaceLegacySchedules, scheduleStatus, uninstallSchedule, WINDOWS_TASK, windowsTask } from './sync-service.js';
+
+const roots: string[] = [];
+const home = () => { const dir = mkdtempSync(join(tmpdir(), 'edu-schedule-')); roots.push(dir); return dir; };
+afterEach(() => { for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+const runner = () => { const calls: string[][] = []; return { calls, run: async (cmd: string, args: string[]) => { calls.push([cmd, ...args]); return 0; } }; };
 
 describe('Windows scheduled sync', () => {
   const task = windowsTask({
@@ -28,5 +35,95 @@ describe('Windows scheduled sync', () => {
 
   it('defaults the script to ~/.edu', () => {
     expect(windowsTask({ home: 'C:\\Users\\edu', node: 'n', cli: 'c' }).script).toBe(join('C:\\Users\\edu', '.edu', 'edu-sync.cmd'));
+  });
+});
+
+describe('scheduled sync lifecycle', () => {
+  it('writes, loads, reports and removes a LaunchAgent in a fake HOME', async () => {
+    const h = home();
+    const r = runner();
+    const options = { home: h, node: '/usr/local/bin/node', cli: '/app/cli.js', minutes: 7, path: '/usr/local/bin', env: { EDU_HOME: join(h, '.edu') }, platform: 'darwin' as const, run: r.run };
+    const installed = await installSchedule(options);
+    expect(installed).toMatchObject({ kind: 'launchd', started: true, legacy: [] });
+    const plist = readFileSync(installed.files[0]!, 'utf8');
+    expect(plist).toContain('<string>--reason</string><string>timer</string>');
+    expect(plist).toContain('<integer>420</integer>');
+    expect(plist).toContain(`EDU_HOME</key><string>${join(h, '.edu')}</string>`);
+    expect(r.calls).toEqual([['launchctl', 'unload', installed.files[0]], ['launchctl', 'load', '-w', installed.files[0]]]);
+    expect(await scheduleStatus(options)).toMatchObject({ installed: true, files: installed.files, legacy: [] });
+    expect(await uninstallSchedule(options)).toMatchObject({ removed: installed.files, stopped: true });
+    expect((await scheduleStatus(options)).installed).toBe(false);
+  });
+
+  it('writes, enables, reports and removes a systemd user timer', async () => {
+    const h = home();
+    const r = runner();
+    const options = { home: h, node: '/opt/node', cli: '/opt/edu/cli.js', minutes: 3, platform: 'linux' as const, run: r.run };
+    const installed = await installSchedule(options);
+    expect(installed).toMatchObject({ kind: 'systemd', started: true, legacy: [] });
+    expect(readFileSync(installed.files[0]!, 'utf8')).toContain('ExecStart=/opt/node /opt/edu/cli.js sync --reason timer');
+    expect(readFileSync(installed.files[1]!, 'utf8')).toContain('OnUnitActiveSec=3min');
+    expect(r.calls).toContainEqual(['systemctl', '--user', 'enable', '--now', 'edu-sync.timer']);
+    expect((await scheduleStatus(options)).installed).toBe(true);
+    expect((await uninstallSchedule(options)).removed).toEqual(installed.files);
+    expect(r.calls).toContainEqual(['systemctl', '--user', 'disable', '--now', 'edu-sync.timer']);
+  });
+
+  it('creates, queries and deletes the Windows task through an injected runner', async () => {
+    const h = home();
+    const r = runner();
+    const options = { home: h, eduHome: join(h, '.edu'), node: 'C:\\node.exe', cli: 'C:\\edu\\cli.js', platform: 'win32' as const, run: r.run };
+    const installed = await installSchedule(options);
+    expect(installed).toMatchObject({ kind: 'schtasks', started: true, legacy: [] });
+    expect(readFileSync(installed.files[0]!, 'utf8')).toContain('sync --reason timer');
+    expect((await scheduleStatus(options)).installed).toBe(true);
+    expect((await uninstallSchedule(options)).removed).toEqual(installed.files);
+    expect(r.calls).toContainEqual(['schtasks', '/Query', '/TN', WINDOWS_TASK]);
+    expect(r.calls).toContainEqual(['schtasks', '/Delete', '/F', '/TN', WINDOWS_TASK]);
+  });
+});
+
+describe('legacy sync detection and replacement', () => {
+  it('reports a matching LaunchAgent and removes it only when explicitly replaced', async () => {
+    const h = home();
+    const vault = join(h, 'Vault');
+    const dir = join(h, 'Library', 'LaunchAgents');
+    mkdirSync(dir, { recursive: true });
+    const legacy = join(dir, 'old-vault.plist');
+    const unrelated = join(dir, 'calendar.plist');
+    const otherVault = join(dir, 'other-vault.plist');
+    writeFileSync(legacy, `<plist><dict><key>ProgramArguments</key><array><string>/bin/sh</string><string>${vault}/scripts/run.sh</string></array></dict></plist>`);
+    writeFileSync(unrelated, '<plist><dict><key>ProgramArguments</key><array><string>/bin/true</string></array></dict></plist>');
+    writeFileSync(otherVault, `<plist><dict><key>ProgramArguments</key><array><string>${vault}2/scripts/sync</string></array></dict></plist>`);
+    const r = runner();
+    const options = { home: h, vault, platform: 'darwin' as const, run: r.run };
+    expect(await legacySchedules(options)).toEqual([legacy]);
+    const installed = await installSchedule({ ...options, node: '/bin/node', cli: '/edu/cli.js' });
+    expect(installed.legacy).toEqual([legacy]);
+    expect((await scheduleStatus(options)).legacy).toEqual([legacy]);
+    expect(readFileSync(legacy, 'utf8')).toContain(vault);
+    expect(await replaceLegacySchedules(options)).toEqual([legacy]);
+    expect(r.calls).toContainEqual(['launchctl', 'unload', '-w', legacy]);
+    expect(readFileSync(unrelated, 'utf8')).toContain('/bin/true');
+    expect(readFileSync(otherVault, 'utf8')).toContain(`${vault}2`);
+  });
+
+  it('recognizes a legacy systemd vault script and removes its matching timer only', async () => {
+    const h = home();
+    const dir = join(h, '.config', 'systemd', 'user');
+    mkdirSync(dir, { recursive: true });
+    const service = join(dir, 'old.service');
+    const timer = join(dir, 'old.timer');
+    const unrelated = join(dir, 'other.service');
+    writeFileSync(service, '[Service]\nExecStart=/home/user/bin/edu-vault-sync\n');
+    writeFileSync(timer, '[Timer]\nOnUnitActiveSec=5min\n');
+    writeFileSync(unrelated, '[Service]\nExecStart=/bin/true\n');
+    const r = runner();
+    const options = { home: h, platform: 'linux' as const, run: r.run };
+    expect(await legacySchedules(options)).toEqual([service]);
+    expect((await scheduleStatus(options)).legacy).toEqual([service]);
+    expect(await replaceLegacySchedules(options)).toEqual([timer, service]);
+    expect(r.calls).toContainEqual(['systemctl', '--user', 'disable', '--now', 'old.timer']);
+    expect(readFileSync(unrelated, 'utf8')).toContain('/bin/true');
   });
 });

@@ -1,18 +1,21 @@
 /** `edu doctor`: Node, CLIs (+ sign-in hint), integrations, brains, Obsidian link. */
 import { join } from 'node:path';
 import type { Command } from 'commander';
-import { openBrain } from '../../brain/index.js';
+import { brainPath, openBrain } from '../../brain/index.js';
 import type { BrainLocation, CliId } from '../../core/contracts.js';
 import { globalHome, type CliContext } from '../context.js';
 import { t } from '../i18n.js';
 import { action, look, printJson, statusLine, type Level } from '../kit.js';
-import { brainDir, linkPath, linkState } from '../link.js';
+import { brainDir, linkPath, linkState } from '../../vault/link.js';
 import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
-import { readProjects } from '../../vault/registry.js';
+import { readProjects } from '../../brain/registry.js';
 import { scanContext } from '../../doctor/context.js';
 import { integrationPreflight } from '../../doctor/integrations.js';
 import { readSyncState } from '../../vault/sync.js';
 import { describeSync } from './sync.js';
+import { dirname } from 'node:path';
+import { packageRoot } from '../../platform/package.js';
+import { binaryOnPath } from '../../platform/index.js';
 
 export const AUTH_HINTS: Record<CliId, string> = {
   claude: 'run `claude` once and sign in, or set ANTHROPIC_API_KEY',
@@ -70,8 +73,15 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
           return;
         }
         const lines: DoctorLine[] = [nodeLine(process.version, lang)];
-        const { diagnose } = await import('../../adapters/index.js');
-        const clis = await diagnose({ root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env });
+        // Hosts start `edu mcp` and the hooks by name: without `edu` on PATH every integration fails silently.
+        lines.push(await binaryOnPath('edu', ctx.env)
+          ? { level: 'ok', text: lang === 'es' ? '`edu` está en el PATH' : '`edu` is on PATH' }
+          : { level: 'fail', text: lang === 'es' ? '`edu` no está en el PATH: los hosts no pueden iniciar `edu mcp` ni los hooks. Agregue el bin global de npm (npm prefix -g) al PATH.' : '`edu` is not on PATH: hosts cannot start `edu mcp` or its hooks. Add the npm global bin directory (npm prefix -g) to PATH.' });
+        const { diagnose, installProblems, quarantineProblem } = await import('../../doctor/diagnose.js');
+        const diagnoseOptions = { root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env, packageRoot: packageRoot() };
+        const clis = await diagnose(diagnoseOptions);
+        const problems = await installProblems(diagnoseOptions);
+        for (const problem of problems) lines.push(problem);
         for (const d of clis) {
           if (!d.installed) lines.push({ level: 'warn', text: t(lang, 'doctor.cliMissing', { cli: d.cli }) });
           else if (d.drift) lines.push({ level: 'fail', text: t(lang, 'doctor.cliDrift', { cli: d.cli }) });
@@ -93,13 +103,18 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         const brains = [];
         for (const loc of locations) {
           const ready = await exists(join(loc.root, 'EDU.md'));
-          const total = ready ? (await openBrain([loc]).stats()).total : 0;
-          brains.push({ ...loc, ready, total });
+          const brain = ready ? openBrain([loc]) : undefined;
+          const total = brain ? (await brain.stats()).total : 0;
+          // Files that are not valid notes are quarantined: never loaded, never overwritten. stats() just listed them.
+          const quarantined = brain ? await brain.problems() : [];
+          brains.push({ ...loc, ready, total, quarantined: { count: quarantined.length, paths: quarantined.map(problem => problem.path) } });
           lines.push(
             ready
               ? { level: 'ok', text: t(lang, 'doctor.brain', { scope: loc.scope, root: loc.root, total }) }
               : { level: 'warn', text: t(lang, 'doctor.brainMissing', { scope: loc.scope, root: loc.root, flag: loc.scope === 'global' ? ' --global' : '' }) },
           );
+          const unreadable = quarantineProblem(loc.scope, brainPath(loc), quarantined, lang);
+          if (unreadable) lines.push(unreadable);
         }
 
         let vault: { link?: string; state: string } = { state: 'none' };
@@ -129,7 +144,7 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         }
 
         if (g.json || opts.json) {
-          printJson(ctx, { node: process.version, clis, projects: projects.projects, brains, vault, sync: sync ?? null, lines });
+          printJson(ctx, { node: process.version, clis, problems, projects: projects.projects, brains, vault, sync: sync ?? null, lines });
           return;
         }
         const style = look(ctx);

@@ -5,8 +5,9 @@ import { expect, it, vi } from 'vitest';
 import { openBrain } from '../brain/brain.js';
 import type { Engine } from '../core/contracts.js';
 import { printCommand } from '../test-support/shell.js';
-import { defaultConfig } from './config.js';
+import { defaultConfig } from '../workspace/config.js';
 import { orchestrate } from './run.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 it('persists bounded verified feedback for long note ids independently per note', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'edu-feedback-id-'));
@@ -15,7 +16,11 @@ it('persists bounded verified feedback for long note ids independently per note'
     const location = { root, scope: 'project' as const };
     const brain = openBrain([location]);
     await brain.init(location);
-    const long = await brain.write({ title: 'a'.repeat(203), tier: 'transitive', kind: 'lesson', body: 'Fixture application guidance.' });
+    // Edu caps the ids it creates; an older or hand-written note can still carry an id longer than an event id.
+    const longId = `L-${'a'.repeat(203)}`;
+    await mkdir(join(root, 'brain', '3-transitive'), { recursive: true });
+    await writeFile(join(root, 'brain', '3-transitive', 'L-long.md'), `---\nid: ${longId}\ntier: transitive\ntitle: Long id\nkind: lesson\nstatus: candidate\ntags: []\nlinks: []\ncreated: 2026-01-01T00:00:00.000Z\n---\n\nFixture application guidance.\n`);
+    const long = (await brain.read(longId))!;
     const other = await brain.write({ title: 'Independent note', tier: 'transitive', kind: 'lesson', body: 'Another fixture guidance.' });
     const idle = await brain.write({ title: 'Not applied', tier: 'transitive', kind: 'lesson', body: 'Exposure is not success.' });
     expect(long.meta.id.length).toBeGreaterThan(200);
@@ -29,7 +34,7 @@ it('persists bounded verified feedback for long note ids independently per note'
       checks: [{ id: 'node-check', requirementIds: ['R-1'], command: printCommand('checked'), expect: { exitCode: 0, stdoutIncludes: 'checked' }, timeoutMs: 10000 }],
       steps: [{ id: 'build', role: 'builder', task: 'Apply the fixture guidance', dependsOn: [], parallelSafe: false }],
     };
-    const engine: Engine = { cli: 'claude', available: async () => true, async *run(request, agentId) {
+    const engine: Engine = { cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true, async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan)
         : request.prompt.includes('Review the completed') ? '{"verdict":"pass","issues":[]}'
         : [long, other].map(note => `EDU_APPLIED ${JSON.stringify({ noteId: note.meta.id, requirementIds: ['R-1'], application: `Applied [[${note.meta.id}]] to satisfy the checked requirement.` })}`).join('\n');
@@ -40,7 +45,7 @@ it('persists bounded verified feedback for long note ids independently per note'
       brain, config: { ...defaultConfig('claude'), playbook: 'local', approvals: 'auto' },
       context: { build: async () => ({ text: contextText, tokens: 100, budgetTokens: 8000, sections: [{ title: 'Lessons', text: contextText, tokens: 100, noteIds: notes.map(note => note.meta.id) }], deferred: [] }) },
       engines: () => engine, available: ['claude'], cwd, runsDir: join(root, 'runs'),
-      autoApprove: true, onEvent: () => {}, approve: async () => true,
+      autoApprove: true, allowUnregisteredChecks: true, onEvent: () => {}, approve: async () => true,
     });
     expect(result.ok, result.summary).toBe(true);
     expect(result.events).toContainEqual(expect.objectContaining({ type: 'verify.result', kind: 'deterministic', checkId: 'node-check', ok: true }));

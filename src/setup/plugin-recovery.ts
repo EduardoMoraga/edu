@@ -10,7 +10,7 @@
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { SetupResult, SetupRunner } from './index.js';
-import { nativePath } from './native-files.js';
+import { samePath } from './native-files.js';
 
 export type RecoverableHost = 'claude' | 'codex' | 'pi';
 
@@ -97,14 +97,14 @@ export async function registeredAt(host: RecoverableHost, runner: SetupRunner, r
     const matches = Array.isArray(parsed?.installed) ? parsed.installed.filter(e => e?.pluginId === 'edu@edu') : [];
     const entry = matches[0];
     return matches.length === 1 && entry!.installed === true && entry!.enabled === true && entry!.marketplaceSource?.sourceType === 'local' &&
-      nativePath(entry!.marketplaceSource.source) === root && nativePath(entry!.source?.path) === join(root, 'plugins/codex');
+      samePath(entry!.marketplaceSource.source, root) && samePath(entry!.source?.path, join(root, 'plugins/codex'));
   }
   const plugins = json(await run(['plugin', 'list', '--json']));
   const entries = Array.isArray(plugins) ? plugins.filter(e => e?.id === 'edu@edu') : [];
   if (entries.length !== 1 || entries[0].scope !== 'user' || entries[0].enabled !== true || entries[0].errors?.length) return false;
   const markets = json(await run(['plugin', 'marketplace', 'list', '--json']));
   const edu = Array.isArray(markets) ? markets.filter(m => m?.name === 'edu') : [];
-  return edu.length === 1 && edu[0].source === 'directory' && edu[0].path === root;
+  return edu.length === 1 && edu[0].source === 'directory' && samePath(edu[0].path, root);
 }
 
 /** Re-registers `root` through public commands and verifies it; throws when the host does not end there. */

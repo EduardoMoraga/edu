@@ -2,8 +2,8 @@ import { lstat, mkdir, readFile, readlink, realpath, writeFile } from 'node:fs/p
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/index.js';
-import { readProjects } from '../vault/registry.js';
-import { captureContext, out, runCli, type Captured } from './testkit.js';
+import { readProjects } from '../brain/registry.js';
+import { captureContext, out, runCli, type Captured } from '../test-support/cli.js';
 
 async function initialized(): Promise<Captured> {
   const c = await captureContext({ detected: ['claude'] });
@@ -36,6 +36,27 @@ describe('edu brain', () => {
     const status = JSON.parse(out(c));
     expect(status.total).toBe(1);
     expect(status.byTier.transitive).toBe(1);
+  });
+
+  it('explains recall hits in the chosen language, keeping JSON in English', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'remember', 'Use', 'atomic', 'writes', '--kind', 'decision', '--body', 'Temp file then rename.']);
+    const id = /Remembered (\S+)/.exec(out(c))![1]!;
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'recall', 'atomic', '--json']);
+    const why: string = JSON.parse(out(c))[0].why;
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'recall', 'atomic']);
+    expect(out(c)).toContain(`        ${why}`);
+    expect(why).toMatch(/^Matched atomic; learned weight \d\.\d\d\. Passage: "/);
+    c.stdout.length = 0;
+
+    await runCli(c, ['--lang', 'es', 'brain', 'recall', 'atomic']);
+    expect(out(c)).toMatch(/^ {8}Coincide con atomic; peso aprendido \d\.\d\d\. Pasaje: "/m);
+    c.stdout.length = 0;
+    await runCli(c, ['--lang', 'es', 'brain', 'recall', id]);
+    expect(out(c)).toMatch(new RegExp(`^ {8}Nombrada por id o alias "${id}"; peso aprendido \\d\\.\\d\\d\\.`, 'm'));
+    expect(out(c)).not.toMatch(/Matched|learned weight|Named by|Passage:/);
   });
 
   it('tidy plans, saves the plan, applies it with a backup and validates --only', async () => {
@@ -161,7 +182,14 @@ describe('edu context / proposals / doctor', () => {
     expect(JSON.parse(out(c)).map((p: { id: string }) => p.id)).toEqual(['K-retail-margin', 'K-weekly-cadence', 'K-wrong-guess']);
     c.stdout.length = 0;
 
-    await runCli(c, ['brain', 'approve', 'K-retail-margin', '--reject', 'K-wrong-guess', '--reason', 'made up']);
+    // Not a terminal and no --yes: nothing is decided.
+    await runCli(c, ['brain', 'approve', 'K-retail-margin']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('pass --yes');
+    expect((await brain.read('K-retail-margin'))?.meta.status).toBe('proposed');
+    c.exitCode = undefined; c.stderr.length = 0;
+
+    await runCli(c, ['brain', 'approve', 'K-retail-margin', '--reject', 'K-wrong-guess', '--reason', 'made up', '--yes']);
     expect(c.exitCode).toBeUndefined();
     expect(out(c)).toContain('Accepted K-retail-margin');
     expect(out(c)).toContain('Rejected K-wrong-guess');
@@ -172,6 +200,8 @@ describe('edu context / proposals / doctor', () => {
     expect(record?.body).toContain('Reason: made up');
     c.stdout.length = 0;
 
+    // A terminal counts as a person deciding.
+    c.ctx.stdinIsTTY = true;
     await runCli(c, ['brain', 'approve', '--all', '--json']);
     expect(JSON.parse(out(c))).toEqual({ accepted: ['K-weekly-cadence'], rejected: [], errors: [] });
     c.stdout.length = 0;
@@ -182,14 +212,26 @@ describe('edu context / proposals / doctor', () => {
 
   it('reports unknown ids and refuses an empty approve', async () => {
     const c = await initialized();
-    await runCli(c, ['brain', 'approve']);
+    await runCli(c, ['brain', 'approve', '--yes']);
     expect(c.exitCode).toBe(1);
     expect(c.stderr.join('\n')).toContain('edu brain approve <id...>');
 
     const d = await initialized();
-    await runCli(d, ['brain', 'approve', 'K-missing']);
+    await runCli(d, ['brain', 'approve', 'K-missing', '--yes']);
     expect(d.exitCode).toBe(1);
     expect(d.stderr.join('\n')).toContain('Canonical note not found: K-missing');
+  });
+
+  it('never lets a crew worker approve or reject canonical notes, even with --yes or a terminal', async () => {
+    const c = await initialized();
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    await brain.proposeCanonical({ tier: 'canonical', kind: 'domain', title: 'Retail margin', body: 'Margin is 30%.', band: 'inferred', source: 'manual.md' });
+    c.ctx.env = { ...c.ctx.env, EDU_CREW_JOB: 'job-1' };
+    c.ctx.stdinIsTTY = true;
+    await runCli(c, ['brain', 'approve', '--all', '--yes']);
+    expect(c.exitCode).toBe(1);
+    expect(c.stderr.join('\n')).toContain('crew worker cannot approve');
+    expect((await brain.read('K-retail-margin'))?.meta.status).toBe('proposed');
   });
 
   it('registers the workspace brain from its current brainDir after init', async () => {
@@ -290,5 +332,19 @@ describe('edu context / proposals / doctor', () => {
     await runCli(c, ['brain', 'share', 'L-prefer-small-diffs', '--to', 'project']);
     expect(c.exitCode).toBeUndefined();
     expect(out(c)).toMatch(/Shared L-prefer-small-diffs: global → project/);
+  });
+});
+
+describe('edu brain remember claim band', () => {
+  it('defaults to hypothesis and says so; an explicit band is kept silently', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'remember', 'Queues', 'smooth', 'spikes']);
+    expect(out(c)).toMatch(/Remembered L-queues-smooth-spikes\n\s+band: hypothesis \(default/);
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'remember', 'Retries', 'need', 'jitter', '--band', 'verified']);
+    expect(out(c)).not.toContain('band:');
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    expect((await brain.read('L-queues-smooth-spikes'))?.meta.band).toBe('hypothesis');
+    expect((await brain.read('L-retries-need-jitter'))?.meta.band).toBe('verified');
   });
 });

@@ -3,8 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { access, copyFile, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
 import { openBrain } from '../brain/index.js';
-import { createVaultLink, linkState } from '../cli/link.js';
-import { readProjects, type ProjectEntry } from './registry.js';
+import { createVaultLink, linkState } from './link.js';
+import { readProjects, type ProjectEntry } from '../brain/registry.js';
 
 const START = '<!-- edu:projects -->';
 const END = '<!-- /edu:projects -->';

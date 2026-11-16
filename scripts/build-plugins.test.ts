@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -40,7 +40,8 @@ describe('buildPlugins', () => {
     expect(claude.version).toBe('2.3.4');
     expect(codex.version).toBe('2.3.4');
     expect(claudeMcp.edu).toEqual({ command: 'edu', args: ['mcp'] });
-    expect(codexMcp.mcpServers.edu).toEqual({ command: 'edu', args: ['mcp'] });
+    // Codex filters an MCP server's environment: a worker's server must still see EDU_CREW_JOB (worker mode).
+    expect(codexMcp.mcpServers.edu).toEqual({ command: 'edu', args: ['mcp'], env_vars: expect.arrayContaining(['EDU_CREW_JOB', 'EDU_HOME']) });
     expect(claudeHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start');
     expect(codexHooks.hooks.SessionStart[0].hooks[0].command).toBe('edu hook session-start --host codex');
     // Large imported brains on slow Windows disks need headroom: the hook timeout is in seconds.
@@ -74,6 +75,45 @@ describe('buildPlugins', () => {
     expect(JSON.parse(await readFile(join(root, 'plugins/pi/themes/edu.json'), 'utf8')).name).toBe('edu');
     expect(await readFile(join(root, 'plugins/opencode/tui/edu.tsx'), 'utf8')).toContain('@jsxImportSource @opentui/solid');
     expect(JSON.parse(await readFile(join(root, 'plugins/opencode/themes/edu.json'), 'utf8'))).toEqual({ theme: {} });
+  });
+
+  it('ships every Claude Edu Deck module, its contract, options and third-party notice, without its tests', async () => {
+    const root = await fixture();
+    const mod = join(root, 'templates/claude-mod');
+    await mkdir(join(mod, 'tests'), { recursive: true });
+    await writeFile(join(mod, 'deck.tsx'), "import { x } from './deck-model.ts'\nexport const register = () => x\n");
+    await writeFile(join(mod, 'deck-model.ts'), 'export const x = 1\n');
+    await writeFile(join(mod, 'deck-view.tsx'), 'export const y = 2\n');
+    await writeFile(join(mod, 'deck-state.d.ts'), 'export type DeckState = {}\n');
+    await writeFile(join(mod, 'deck-model.test.ts'), 'test\n');
+    await writeFile(join(mod, 'tests/deck.test.tsx'), 'test\n');
+    await writeFile(join(mod, 'notes.md'), 'not a module\n');
+    await writeFile(join(root, 'THIRD_PARTY_NOTICES.md'), '# Third-party notices\nMIT\n');
+    await buildPlugins(root);
+
+    const hooks = join(root, 'plugins/claude-code/hooks');
+    expect(JSON.parse(await readFile(join(hooks, 'hooks.json'), 'utf8')).modules).toEqual(['./deck.tsx']);
+    expect((await readdir(hooks)).sort()).toEqual(['deck-model.ts', 'deck-view.tsx', 'deck.tsx', 'hooks.json']);
+    expect(await readFile(join(hooks, 'deck-model.ts'), 'utf8')).toBe('export const x = 1\n');
+    expect(await readFile(join(root, 'plugins/claude-code/types/index.d.ts'), 'utf8')).toBe('export type DeckState = {}\n');
+    expect(await readFile(join(root, 'plugins/claude-code/THIRD_PARTY_NOTICES.md'), 'utf8')).toContain('MIT');
+    const manifest = JSON.parse(await readFile(join(root, 'plugins/claude-code/.claude-plugin/plugin.json'), 'utf8'));
+    expect(manifest.types).toBe('./types/index.d.ts');
+    expect(Object.keys(manifest.userConfig)).toEqual(['columns', 'maxAgents', 'openOnStart', 'animate']);
+    expect(manifest.userConfig.openOnStart).toMatchObject({ type: 'boolean', default: true });
+    expect((await buildPlugins(root, { check: true })).changed).toBe(false);
+  });
+
+  it('ships no Claude pane without both the entry module and its contract', async () => {
+    const root = await fixture();
+    await mkdir(join(root, 'templates/claude-mod'), { recursive: true });
+    await writeFile(join(root, 'templates/claude-mod/deck-model.ts'), 'export const x = 1\n');
+    await buildPlugins(root);
+    const hooks = JSON.parse(await readFile(join(root, 'plugins/claude-code/hooks/hooks.json'), 'utf8'));
+    expect(hooks.modules).toBeUndefined();
+    expect(await readdir(join(root, 'plugins/claude-code/hooks'))).toEqual(['hooks.json']);
+    const manifest = JSON.parse(await readFile(join(root, 'plugins/claude-code/.claude-plugin/plugin.json'), 'utf8'));
+    expect(manifest.userConfig).toBeUndefined();
   });
 
   it('generates an OpenCode server plugin that satisfies both the OpenCode 2 and OpenCode 1 module contracts', async () => {

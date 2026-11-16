@@ -7,6 +7,7 @@ import type { EduEvent } from '../core/contracts.js';
 import { UNICODE_GLYPHS, createTheme } from '../identity/index.js';
 import { App } from './App.js';
 import { fsCrewSource, watchCrew, type CrewJobInfo } from './crew.js';
+import { until } from '../test-support/ink.js';
 
 const JOB_A = '11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const JOB_B = '22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -83,6 +84,41 @@ describe('watchCrew', () => {
     expect(events[4]).toMatchObject({ agentId: JOB_A, ok: true, summary: 'tests added' });
   });
 
+  it('shows a job paused for approval instead of dropping it, then resumes it', async () => {
+    await writeJob({ id: JOB_A, cli: 'claude', task: 'orchestrate', status: 'awaiting-approval', createdAt: at(0) });
+    const source = fsCrewSource(root);
+    expect((await source.list()).map(job => job.status)).toEqual(['awaiting-approval']);
+    let status = 'awaiting-approval';
+    const switching = { ...source, list: async () => (await source.list()).map(job => ({ ...job, status: status as CrewJobInfo['status'] })) };
+    const abort = new AbortController();
+    const seen: EduEvent[] = [];
+    let polls = 0;
+    const ticking = { ...switching, list: async () => { if (++polls === 2) status = 'running'; if (polls === 3) abort.abort(); return switching.list(); } };
+    for await (const event of watchCrew(ticking, { pollMs: 1, signal: abort.signal })) seen.push(event);
+    expect(seen.filter(e => e.type === 'agent.status').map(e => (e as { status: string }).status)).toEqual(['awaiting-approval', 'running']);
+  });
+
+  it('lets the job\'s final status override the end its own stream reported', async () => {
+    await writeJob({ id: JOB_A, cli: 'codex', task: 'a', status: 'failed', createdAt: at(0), summary: 'brain write failed' }, [
+      { type: 'agent.end', agentId: 'engine', ok: true, summary: 'all done', at: at(1) },
+    ]);
+    await writeJob({ id: JOB_B, cli: 'pi', task: 'b', status: 'cancelled', createdAt: at(2) }, [
+      { type: 'agent.end', agentId: 'engine', ok: true, summary: 'all done', at: at(3) },
+    ]);
+    const events = await collect(watchCrew(fsCrewSource(root), { follow: false, now: () => new Date(at(9)) }));
+    const forA = events.filter(e => 'agentId' in e && e.agentId === JOB_A).map(e => e.type === 'agent.end' ? `end:${e.ok}:${e.summary}` : e.type);
+    expect(forA).toEqual(['agent.spawn', 'agent.status', 'end:true:all done', 'end:false:brain write failed']);
+    expect(events.at(-1)).toMatchObject({ type: 'agent.status', agentId: JOB_B, status: 'cancelled' });
+  });
+
+  it('does not repeat an end its stream already reported with the same outcome', async () => {
+    await writeJob({ id: JOB_A, cli: 'codex', task: 'a', status: 'done', createdAt: at(0), summary: 'ok' }, [
+      { type: 'agent.end', agentId: 'engine', ok: true, summary: 'ok', at: at(1) },
+    ]);
+    const events = await collect(watchCrew(fsCrewSource(root), { follow: false }));
+    expect(events.filter(e => e.type === 'agent.end')).toHaveLength(1);
+  });
+
   it('filters by job id prefix and reports an unknown id', async () => {
     await writeJob({ id: JOB_A, cli: 'codex', task: 'a', status: 'running', createdAt: at(0) });
     await writeJob({ id: JOB_B, cli: 'claude', task: 'b', status: 'running', createdAt: at(1) });
@@ -99,16 +135,16 @@ describe('watchCrew', () => {
     const done = (async () => {
       for await (const e of watchCrew(fsCrewSource(root), { pollMs: 10, signal: abort.signal })) seen.push(e);
     })();
-    await new Promise((r) => setTimeout(r, 40));
+    // Append only once the watcher has seen the job, so the event really arrives late.
+    await until(() => expect(seen.some((e) => e.type === 'agent.spawn' && e.agentId === JOB_A)).toBe(true));
     await appendFile(join(root, 'crew', `${JOB_A}.jsonl`), `${JSON.stringify({ type: 'agent.text', agentId: 'e', text: 'late', at: at(3) })}\n`);
     await writeJob({ id: JOB_B, cli: 'pi', task: 'b', status: 'queued', createdAt: at(4) });
-    const until = Date.now() + 5000;
-    const ready = () => seen.some((e) => e.type === 'agent.text' && e.text === 'late') && seen.some((e) => e.type === 'agent.spawn' && e.agentId === JOB_B);
-    while (Date.now() < until && !ready()) await new Promise((r) => setTimeout(r, 25));
+    await until(() => {
+      expect(seen.some((e) => e.type === 'agent.text' && e.text === 'late')).toBe(true);
+      expect(seen.some((e) => e.type === 'agent.spawn' && e.agentId === JOB_B)).toBe(true);
+    });
     abort.abort();
     await done;
-    expect(seen.some((e) => e.type === 'agent.text' && e.text === 'late')).toBe(true);
-    expect(seen.some((e) => e.type === 'agent.spawn' && e.agentId === JOB_B)).toBe(true);
   });
 
   it('renders several jobs as several agents in the live view', async () => {
@@ -121,8 +157,7 @@ describe('watchCrew', () => {
       <App events={watchCrew(fsCrewSource(root), { pollMs: 10, signal: abort.signal })} crew theme={createTheme(0)} glyphs={UNICODE_GLYPHS} columns={100} rows={30} view="list" />,
     );
     // Poll instead of a fixed sleep: slower runners (Windows CI) need more than one poll cycle.
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && !view.lastFrame()?.includes('claude 222222')) await new Promise((r) => setTimeout(r, 25));
+    await until(() => expect(view.lastFrame()).toContain('claude 222222'));
     const frame = view.lastFrame()!;
     expect(frame).toContain('codex 111111');
     expect(frame).toContain('claude 222222');

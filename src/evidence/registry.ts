@@ -1,9 +1,54 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { DeterministicCheck } from '../core/contracts.js';
+import { ensureLocalIgnored, folderKey, LOCAL_DIR } from '../brain/local-dir.js';
 import { atomicWrite } from '../brain/store.js';
+import { killTree, trackChild } from '../platform/process-tree.js';
+
+/** Check output kept per stream: enough for a failing test report, bounded for memory and prompts. */
+export const CHECK_OUTPUT_HEAD_CHARS = 4 * 1024;
+export const CHECK_OUTPUT_TAIL_CHARS = 12 * 1024;
+
+/** Keeps the start and the end of a stream (where a failing test prints its summary) and counts the rest. */
+class CappedText {
+  private head = '';
+  private tail = '';
+  private omitted = 0;
+  push(text: string): void {
+    if (this.head.length < CHECK_OUTPUT_HEAD_CHARS) {
+      const room = CHECK_OUTPUT_HEAD_CHARS - this.head.length;
+      this.head += text.slice(0, room);
+      text = text.slice(room);
+    }
+    if (!text) return;
+    this.tail += text;
+    if (this.tail.length > CHECK_OUTPUT_TAIL_CHARS) {
+      this.omitted += this.tail.length - CHECK_OUTPUT_TAIL_CHARS;
+      this.tail = this.tail.slice(-CHECK_OUTPUT_TAIL_CHARS);
+    }
+  }
+  toString(): string {
+    return this.omitted ? `${this.head}\n[… ${this.omitted} characters omitted …]\n${this.tail}` : this.head + this.tail;
+  }
+}
+
+/** Finds `needle` across chunk boundaries without keeping the whole stream. */
+function streamMatcher(needle: string | undefined) {
+  let carry = '';
+  let found = needle === undefined || needle === '';
+  return {
+    push(text: string) {
+      if (found) return;
+      const window = carry + text;
+      found = window.includes(needle!);
+      carry = window.slice(-(needle!.length - 1) || window.length);
+    },
+    get found() { return found; },
+  };
+}
 
 export const ToolSchema = z.object({
   id: z.string().min(1),
@@ -38,16 +83,47 @@ export async function loadTools(root: string): Promise<HarnessTool[]> {
   return readRegistry(registryPath(root, 'tools.json'), ToolRegistrySchema, []);
 }
 
-export async function saveTools(root: string, tools: HarnessTool[]): Promise<void> {
-  await writeRegistry(registryPath(root, 'tools.json'), ToolRegistrySchema, tools);
-}
-
 export async function loadChecks(root: string): Promise<DeterministicCheck[]> {
   return readRegistry(registryPath(root, 'checks.json'), CheckRegistrySchema, []);
 }
 
 export async function saveChecks(root: string, checks: DeterministicCheck[]): Promise<void> {
   await writeRegistry(registryPath(root, 'checks.json'), CheckRegistrySchema, checks);
+}
+
+/**
+ * The identity of a check set: every field that decides what runs and what passes, in file order. Any change
+ * (a command, an expectation, a check added, removed or reordered) gives a new hash.
+ */
+export function checkSetHash(checks: DeterministicCheck[]): string {
+  const canonical = checks.map(check => [check.id, check.requirementIds, check.command, check.expect.exitCode ?? null, check.expect.stdoutIncludes ?? null, check.timeoutMs]);
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+/**
+ * Where a person's acceptance of a workspace's checks is pinned: in their global home, outside the workspace, so a
+ * cloned repository or an agent cannot accept its own checks.
+ */
+const acceptancePath = (globalRoot: string, workspace: string) => join(globalRoot, LOCAL_DIR, 'checks', `${folderKey(workspace)}.json`);
+
+/**
+ * True when a person accepted exactly this check set for this workspace (`edu checks accept`). `.edu/harness/checks.json`
+ * ships with repositories, so until then its checks count as unregistered: they run only after a person approves a spec
+ * that lists their exact commands. A changed set needs accepting again.
+ */
+export async function checksAccepted(globalRoot: string, workspace: string, checks: DeterministicCheck[]): Promise<boolean> {
+  if (!checks.length) return true;
+  try {
+    const pinned = JSON.parse(await readFile(acceptancePath(globalRoot, workspace), 'utf8')) as { hash?: unknown };
+    return pinned?.hash === checkSetHash(checks);
+  } catch { return false; }
+}
+
+/** Pins `checks` as accepted for `workspace` in the global home. */
+export async function acceptChecks(globalRoot: string, workspace: string, checks: DeterministicCheck[]): Promise<void> {
+  await mkdir(join(globalRoot, LOCAL_DIR, 'checks'), { recursive: true });
+  await ensureLocalIgnored(globalRoot);
+  await atomicWrite(acceptancePath(globalRoot, workspace), `${JSON.stringify({ workspace: resolve(workspace), hash: checkSetHash(checks), acceptedAt: new Date().toISOString() }, null, 2)}\n`);
 }
 
 async function readRegistry<T>(path: string, schema: z.ZodType<T>, fallback: T): Promise<T> {
@@ -64,7 +140,13 @@ async function writeRegistry<T>(path: string, schema: z.ZodType<T>, value: T): P
   await atomicWrite(path, `${JSON.stringify(validated, null, 2)}\n`);
 }
 
-/** Executes a trusted, project-configured check through the platform shell. */
+/**
+ * Executes a trusted check through the platform shell: one from `.edu/harness/checks.json` a person accepted on this
+ * machine (`checksAccepted`), or any other a person approved in a spec that listed its exact command (the orchestrator
+ * never passes any other; see run/approve.ts).
+ * It keeps the full environment on purpose, unlike agent CLIs (platform/child-env.ts): a person wrote or
+ * approved the exact command, it is not an agent, and project test suites often need their credentials.
+ */
 export async function runCheck(check: DeterministicCheck, cwd: string, signal?: AbortSignal): Promise<CheckResult> {
   const started = Date.now();
   return new Promise((resolve, reject) => {
@@ -73,59 +155,49 @@ export async function runCheck(check: DeterministicCheck, cwd: string, signal?: 
       return;
     }
     const child = spawn(check.command, { cwd, ...checkSpawnOptions(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-    let output = '';
-    let stdout = '';
-    let stderr = '';
+    const untrack = trackChild(child);
+    // Output is capped at the source: it is kept in memory, written to events and fed back into prompts.
+    const output = new CappedText();
+    const stdout = new CappedText();
+    const stderr = new CappedText();
+    const expected = streamMatcher(check.expect?.stdoutIncludes);
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killProcessGroup(child.pid, 'SIGTERM');
-      const forceKill = setTimeout(() => killProcessGroup(child.pid, 'SIGKILL'), 250);
-      forceKill.unref();
-    }, check.timeoutMs);
-    timer.unref();
-    const onAbort = () => {
-      killProcessGroup(child.pid, 'SIGTERM');
-      const forceKill = setTimeout(() => killProcessGroup(child.pid, 'SIGKILL'), 250);
+    // The shell is the child; killTree ends it with the command it runs (Windows: the whole tree via taskkill).
+    const stop = () => {
+      void killTree(child, 'SIGTERM');
+      const forceKill = setTimeout(() => void killTree(child, 'SIGKILL'), 250);
       forceKill.unref();
     };
-    signal?.addEventListener('abort', onAbort, { once: true });
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); output += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); output += chunk.toString(); });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stop();
+    }, check.timeoutMs);
+    timer.unref();
+    signal?.addEventListener('abort', stop, { once: true });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => { stdout.push(chunk); output.push(chunk); expected.push(chunk); });
+    child.stderr.on('data', (chunk: string) => { stderr.push(chunk); output.push(chunk); });
     child.once('error', (error) => {
       clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
+      untrack();
+      signal?.removeEventListener('abort', stop);
       if (signal?.aborted) {
-        resolve({ checkId: check.id, ok: false, exitCode: null, durationMs: Date.now() - started, timedOut: false, output: `${output}${error.message}`, stdout, stderr });
+        resolve({ checkId: check.id, ok: false, exitCode: null, durationMs: Date.now() - started, timedOut: false, output: `${output.toString()}${error.message}`, stdout: stdout.toString(), stderr: stderr.toString() });
       } else reject(error);
     });
     child.once('close', (code) => {
       clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
+      untrack();
+      signal?.removeEventListener('abort', stop);
       const exitCode = code;
       const expectedExit = check.expect?.exitCode ?? 0;
-      const ok = !timedOut && !signal?.aborted && exitCode === expectedExit &&
-        (check.expect?.stdoutIncludes === undefined || stdout.includes(check.expect.stdoutIncludes));
-      resolve({ checkId: check.id, ok, exitCode, durationMs: Date.now() - started, timedOut, output, stdout, stderr });
+      const ok = !timedOut && !signal?.aborted && exitCode === expectedExit && expected.found;
+      resolve({ checkId: check.id, ok, exitCode, durationMs: Date.now() - started, timedOut, output: output.toString(), stdout: stdout.toString(), stderr: stderr.toString() });
     });
   });
 }
 
 export function checkSpawnOptions(platform: NodeJS.Platform = process.platform) {
   return { shell: true, detached: platform !== 'win32' } as const;
-}
-
-function killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): void {
-  if (pid === undefined) return;
-  if (process.platform === 'win32') {
-    if (signal === 'SIGKILL') {
-      const killer = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
-      killer.unref();
-    } else {
-      try { process.kill(pid, signal); } catch { /* The process may have already exited. */ }
-    }
-    return;
-  }
-  try { process.kill(-pid, signal); }
-  catch { /* The process may have already exited or the platform may not support groups. */ }
 }

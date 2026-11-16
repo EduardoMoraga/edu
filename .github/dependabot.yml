@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # Workflow actions are pinned to commit SHAs; Dependabot bumps the SHA and its `# vX.Y.Z` comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: fix(deps)
+      prefix-development: build(deps-dev)
+    open-pull-requests-limit: 10
+    groups:
+      # @vitest/coverage-v8 must match vitest exactly, so they move together.
+      vitest:
+        patterns: ['vitest', '@vitest/*']
+      dev-dependencies:
+        dependency-type: development
+        exclude-patterns: ['vitest', '@vitest/*']
+        update-types: [minor, patch]

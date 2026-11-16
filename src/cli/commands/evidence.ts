@@ -7,8 +7,9 @@ import type { Command } from 'commander';
 import type { HarnessLevel } from '../../core/contracts.js';
 import { aggregateMetrics, type ResourceMetrics, type EpisodeSummary } from '../../evidence/metrics.js';
 import { classifyPackage } from '../../evidence/classify.js';
-import { loadChecks, runCheck, saveChecks } from '../../evidence/registry.js';
-import type { CliContext } from '../context.js';
+import { acceptChecks, checksAccepted, checkSetHash, loadChecks, runCheck, saveChecks } from '../../evidence/registry.js';
+import { isCrewWorker } from '../../crew/store.js';
+import { globalHome, type CliContext } from '../context.js';
 import { action, printJson } from '../kit.js';
 import { openWorkspace } from '../workspace.js';
 
@@ -48,6 +49,29 @@ export function registerEvidence(program: Command, ctx: CliContext): void {
       if (opts.json || g.json) return printJson(ctx, items);
       if (!items.length) return ctx.out('No deterministic checks registered.');
       for (const item of items) ctx.out(`${item.id}  [${item.requirementIds.join(', ')}]  ${item.command}`);
+      ctx.out(await checksAccepted(globalHome(ctx), g.cwd, items)
+        ? 'Accepted on this machine: runs use them as registered checks.'
+        : 'Not accepted on this machine (new, or changed since): runs treat them as unregistered. Review them, then run edu checks accept.');
+    }));
+
+  checks.command('accept')
+    .description('trust this workspace\'s checks.json on this machine, so runs use it as registered checks (pinned until it changes)')
+    .option('--yes', 'confirm a person is deciding when stdin is not a terminal (scripts)')
+    .option('--json', 'machine-readable output')
+    .action(action<{ yes?: boolean; json?: boolean }>(ctx, async ({ g, opts }) => {
+      // The checks run through the shell with the full environment: a person decides, never a crew worker or a pipe.
+      if (isCrewWorker(ctx.env)) throw new Error('A crew worker cannot accept checks');
+      if (!ctx.stdinIsTTY && !opts.yes) throw new Error('Accepting checks is a person\'s decision: run it in a terminal, or pass --yes to confirm you are that person.');
+      const items = await loadChecks(g.cwd);
+      if (!items.length) throw new Error('No deterministic checks registered here (.edu/harness/checks.json)');
+      if (!opts.json && !g.json) {
+        ctx.out('These commands will run through the shell, with your environment, in runs of this workspace:');
+        for (const item of items) ctx.out(`  ${item.id}: ${item.command}`);
+      }
+      if (!opts.yes && !await ctx.confirm('Accept them?')) throw new Error('Not accepted.');
+      await acceptChecks(globalHome(ctx), g.cwd, items);
+      if (opts.json || g.json) return printJson(ctx, { accepted: items.map(item => item.id), hash: checkSetHash(items) });
+      ctx.out(`Accepted ${items.length} check(s). Editing checks.json makes them unregistered again until you accept the new set.`);
     }));
 
   checks.command('add').description('register a deterministic shell check')
@@ -70,7 +94,7 @@ export function registerEvidence(program: Command, ctx: CliContext): void {
       const item = { id, requirementIds, command, expect: { exitCode, ...(opts.expectStdout !== undefined ? { stdoutIncludes: opts.expectStdout } : {}) }, timeoutMs };
       await saveChecks(g.cwd, [...current, item]);
       if (opts.json || g.json) return printJson(ctx, item);
-      ctx.out(`Added check ${id}.`);
+      ctx.out(`Added check ${id}. Runs use the changed set once you accept it: edu checks accept`);
     }));
 
   checks.command('run').description('run every registered deterministic check').option('--json', 'machine-readable output')
@@ -110,7 +134,7 @@ async function readEpisodes(root: string): Promise<EpisodeSummary[]> {
     summaries.push({
       runId: typeof task.runId === 'string' ? task.runId : entry,
       ...(typeof metrics.cli === 'string' ? { cli: metrics.cli } : {}), ...(typeof metrics.role === 'string' ? { role: metrics.role } : {}),
-      ...(level ? { level } : {}), startedAt: String(start.at ?? ''), outcome: label,
+      ...(level ? { level } : {}), startedAt: typeof start.at === 'string' ? start.at : '', outcome: label,
       interventions: interventions.filter(event => event.type === 'intervention') as EpisodeSummary['interventions'],
       verifications: verifications as EpisodeSummary['verifications'], toolCalls: toolCalls.length, recoveredTools,
       attributions: attributions as EpisodeSummary['attributions'],

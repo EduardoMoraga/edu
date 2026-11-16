@@ -19,8 +19,12 @@ description: "Save something durable to the Edu second brain: a decision, hypoth
    - `commitment` (C-): what, `owner`, and `due` (YYYY-MM-DD).
    - `lesson` (L-): "next time, do X because Y".
 2. Call `edu_remember` with `tier: "transitive"`, the `kind`, a short `title`, a
-   one-paragraph `body`, the claim `band` (`verified`, `inferred` or `hypothesis`) and
-   optional `tags`.
+   one-paragraph `body`, the claim `band` and optional `tags`. The `band` is required
+   for transitive notes:
+   - `verified`: backed by evidence you checked (a passing test, a source you read).
+   - `inferred`: reasoned from evidence, not checked directly.
+   - `hypothesis`: unproven. When unsure, use `hypothesis`.
+   Pass `session` only with the Edu session id you were given; any other id is ignored.
 3. Stable truth (a standard, a preference, a domain fact) goes to
    `edu_propose_canonical` instead; it stays a proposal until the human accepts it.
 
@@ -37,4 +41,4 @@ description: "Save something durable to the Edu second brain: a decision, hypoth
 ## Failure handling
 
 - The `edu_*` tools are missing: tell the user to run `edu setup`, then restart this CLI.
-- Invalid-arguments errors list the bad field; fix it and retry once.
+- Invalid-arguments errors list the bad field (for example a missing `band`); fix it and retry once.

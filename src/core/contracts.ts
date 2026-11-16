@@ -1,10 +1,10 @@
 /**
  * Edu shared contracts.
  *
- * Every module (brain, context, engine, orchestrator, mcp, adapters, tui, cli)
- * depends on these types and on nothing else from its siblings unless the
- * dependency is listed in docs/ARCHITECTURE.md. Changing a type here is a
- * cross-team decision owned by the lead.
+ * The core layer: every module may depend on these types and constants, and
+ * this file depends on nothing. Which modules may import each other is the
+ * layer table in docs/ARCHITECTURE.md §3 (enforced by a test). Changing a type
+ * here is a cross-team decision owned by the lead.
  */
 
 // ─── Second brain ────────────────────────────────────────────────────────────
@@ -146,7 +146,11 @@ export interface RecallHit {
   note: Note;
   score: number;         // final rank score (relevance × learned weight)
   why: string;           // one line: matched terms / learned weight, for transparency
+  reason?: RecallReason; // the parts of `why`, so a person's view can say it in their language
 }
+
+/** Why a note was recalled: named by id or alias, or the terms it matched; its learned weight; the passage shown. */
+export interface RecallReason { named?: string; matched?: string[]; weight: number; passage?: string }
 
 /** Where a brain lives. Project brains overlay the global brain. */
 export interface BrainLocation {
@@ -199,11 +203,33 @@ export interface DeterministicCheck {
 // ─── Engines (the CLIs Edu drives) ───────────────────────────────────────────
 
 export type CliId = 'claude' | 'codex' | 'pi' | 'opencode' | 'agy';
+/** Every supported agent CLI, in Edu's preference order. */
+export const CLI_IDS: readonly CliId[] = ['claude', 'codex', 'pi', 'opencode', 'agy'];
 
 export type Autonomy = 'readonly' | 'ask' | 'auto' | 'full';
 
 export type CrewJobStatus = 'queued' | 'running' | 'awaiting-approval' | 'done' | 'failed' | 'cancelled';
 export type CrewJobMode = 'headless' | 'pane';
+
+/**
+ * Who answered an approval gate. `policy`: an upstream `--yes`; `user`: a person at the in-process prompt
+ * (terminal or TUI); `cli` / `deck`: a person through `edu crew approve` or the Edu Deck; `host-llm`: the host
+ * agent through MCP. Only `user`, `cli` and `deck` are human decisions.
+ */
+export type ApprovalBy = 'policy' | 'user' | 'cli' | 'deck' | 'host-llm';
+/** The channels a crew decision file may name (`policy` and `user` never write decision files). */
+export type CrewDecisionBy = Extract<ApprovalBy, 'cli' | 'deck' | 'host-llm'>;
+export const HUMAN_APPROVERS: readonly ApprovalBy[] = ['user', 'cli', 'deck'];
+
+/** The approval gate a crew job is waiting on. A decision applies only when it names this `requestId`. */
+export interface CrewApproval {
+  /** Fresh random nonce per gate. */
+  requestId: string;
+  openedAt: string;
+  title: string;
+  /** Exact shell commands of unregistered checks this gate would authorize (human decisions only). */
+  unregisteredChecks?: string[];
+}
 
 /** A durable unit of work dispatched to one external coding CLI. */
 export interface CrewJob {
@@ -218,7 +244,12 @@ export interface CrewJob {
   playbook?: string;
   orchestrationMode?: OrchestrationMode;
   harnessLevel?: HarnessLevel;
+  /** Set only by a human CLI (`edu run --detach --yes`); never from MCP. */
   autoApprove?: boolean;
+  /** Set only by a human CLI (`--allow-unregistered-checks`): run planner-proposed checks without a human gate. */
+  allowUnregisteredChecks?: boolean;
+  /** Present while `status` is `awaiting-approval`. */
+  approval?: CrewApproval;
   outcome?: OutcomeLabel;
   specPath?: string;
   verificationSummary?: string;
@@ -240,6 +271,8 @@ export interface CrewJob {
   /** Hash of the pane text right after the prompt; changed text plus idle means the agent answered. */
   promptPaneHash?: string;
   promptedAt?: string;
+  /** Headless task jobs stop after this many minutes (default 60, or `crew.timeoutMinutes` in config.json). */
+  timeoutMinutes?: number;
 }
 
 export interface EngineRunRequest {
@@ -308,8 +341,8 @@ export type EduEvent =
   | { type: 'usage'; agentId: string; usage: Usage; at: string }
   /** Context-window occupancy snapshot (not a delta), when the engine or Edu can measure it. */
   | { type: 'context.usage'; agentId?: string; usedTokens: number; windowTokens: number; at: string }
-  | { type: 'approval.request'; agentId: string; approvalId: string; title: string; detail: string; at: string }
-  | { type: 'approval.resolve'; approvalId: string; approved: boolean; by: 'user' | 'policy'; at: string }
+  | { type: 'approval.request'; agentId: string; approvalId: string; title: string; detail: string; unregisteredChecks?: string[]; at: string }
+  | { type: 'approval.resolve'; approvalId: string; approved: boolean; by: ApprovalBy; at: string }
   | { type: 'brain.recall'; agentId?: string; noteIds: string[]; at: string }
   | { type: 'brain.learn'; noteId: string; kind: TransitiveKind | 'canonical-proposal' | 'episode'; title: string; at: string }
   | { type: 'agent.end'; agentId: string; ok: boolean; summary: string; sessionId?: string; at: string }
@@ -366,6 +399,9 @@ export interface RoleSpec {
 
 export type ApprovalPolicy = 'always-ask' | 'ask-on-write' | 'auto';
 
+/** Language of messages, generated pages and the TUI. */
+export type Lang = 'en' | 'es';
+
 export interface EduConfig {
   version: 1;
   mode: OrchestrationMode;
@@ -378,13 +414,33 @@ export interface EduConfig {
   routing?: Partial<Record<'executor' | 'advisor' | 'reviewer', { cli: CliId; model?: string }>>;
   execution?: { maxSpawns: number; maxConcurrency: number; timeoutMs: number; maxAdvisorCalls: number };
   brain: { obsidianVault?: string };
-  lang: 'en' | 'es';
+  lang: Lang;
   /** Brain folder relative to the workspace root (the folder holding `.edu/`). Default `.edu/brain`. */
   brainDir?: string;
   /** Where `edu create` keeps copies of the original documents, relative to the workspace root. */
   sourcesDir?: string;
   /** The workspace agent's identity (e.g. "Albert"), used by briefs and identity injection. */
   identity?: WorkspaceIdentity;
+  /**
+   * Crew settings. The safety settings (`maxAutonomy`, `env`) are read only from the global config
+   * (`EDU_HOME/config.json`), never from a project `.edu/config.json`, which an agent or a cloned repository
+   * can write. `timeoutMinutes` is a dispatch default and may come from either.
+   */
+  crew?: CrewSettings;
+}
+
+export interface CrewSettings {
+  /**
+   * The crew autonomy ceiling. Default `auto`; only a person raises it (to `full`) in the global config.
+   * - An MCP caller cannot request a crew job above it.
+   * - An orchestration in a project brain runs any role from the project config or a playbook that asks for
+   *   more with the ceiling instead, and records that as a limitation of the run.
+   */
+  maxAutonomy?: Autonomy;
+  /** Extra environment variable names passed to agent CLIs on top of the built-in allowlist. */
+  env?: { passthrough?: string[] };
+  /** Default crew job timeout in minutes (1–1440; built-in default 60). */
+  timeoutMinutes?: number;
 }
 
 export interface WorkspaceIdentity { name: string; role?: string; tone?: string; summary?: string }

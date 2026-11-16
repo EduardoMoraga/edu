@@ -1,20 +1,27 @@
 import { measuredEngine } from '../engine/measurement.js';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { homedir } from 'node:os';
-import { realpath } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { Autonomy, BrainLocation, CliId, CrewJob, CrewJobMode, Engine, HarnessLevel, OrchestrationMode } from '../core/contracts.js';
+import type { Autonomy, BrainLocation, CliId, CrewDecisionBy, CrewJob, CrewJobMode, Engine, HarnessLevel, OrchestrationMode } from '../core/contracts.js';
 import { detectEngines, createEngine } from '../engine/index.js';
+import { enforcesReadonly } from '../engine/autonomy.js';
 import { truncateToTokens } from '../context/index.js';
-import { dispatchHeadless, runWorker } from './headless.js';
-import { dispatchPane, herdrTarget, refreshPane, type HerdrOptions } from './herdr.js';
+import { processAlive, describeProcess, killTree } from '../platform/process-tree.js';
+import { loadCrewPolicy, withinAutonomy, type CrewPolicy } from '../workspace/config.js';
+import { DEFAULT_CREW_TIMEOUT_MINUTES, dispatchHeadless, envGlobalRoot, runWorker } from './headless.js';
+import { closePane, dispatchPane, herdrTarget, refreshPane, type HerdrOptions } from './herdr.js';
+import { isTerminalCrewJobStatus } from './status.js';
 import { createCrewStore, type CrewStore } from './store.js';
 
 const execFile = promisify(execFileCallback);
-const defaultRoot = () => resolve(process.env.EDU_HOME || join(homedir(), '.edu'));
 export interface CrewOptions {
   brainRoot?: string;
+  /**
+   * The person's global Edu home: where the safety policy is read and approval decisions are kept, outside every
+   * workspace. Default: the `global` location, else EDU_HOME, else `~/.edu`.
+   */
+  globalRoot?: string;
   workspaceRoot?: string;
   callerEnv?: NodeJS.ProcessEnv;
   locations?: BrainLocation[];
@@ -25,19 +32,108 @@ export interface CrewOptions {
   sleep?: (ms: number) => Promise<void>;
   clock?: () => number;
   diff?: (base: string, cwd: string) => Promise<string>;
-  startHeadless?: (job: CrewJob, options: { brainRoot: string }) => Promise<CrewJob>;
+  startHeadless?: (job: CrewJob, options: { brainRoot: string; globalRoot: string; policy: CrewPolicy }) => Promise<CrewJob>;
+  /** Default minutes before a headless task job is stopped; else `crew.timeoutMinutes` in config.json, else 60. */
+  timeoutMinutes?: number;
+  /** Process probes (tests inject fakes). */
+  isAlive?: (pid: number) => boolean;
+  describeProcess?: (pid: number) => Promise<string | undefined>;
+  stopProcess?: (pid: number, signal: NodeJS.Signals) => Promise<void>;
+  /** How long a cancelled worker gets to stop its CLI before it is force-killed. */
+  cancelGraceMs?: number;
 }
-export interface DispatchInput { cli: CliId; task: string; mode?: CrewJobMode; cwd?: string; autonomy?: Autonomy }
-export interface OrchestrationInput { goal: string; cwd?: string; cli?: CliId; mode?: OrchestrationMode; playbook?: string; harnessLevel?: HarnessLevel; autoApprove?: boolean }
+export interface DispatchInput { cli: CliId; task: string; mode?: CrewJobMode; cwd?: string; autonomy?: Autonomy; timeoutMinutes?: number }
+/** `autoApprove` and `allowUnregisteredChecks` are human CLI flags; the MCP tools never pass them. */
+export interface OrchestrationInput { goal: string; cwd?: string; cli?: CliId; mode?: OrchestrationMode; playbook?: string; harnessLevel?: HarnessLevel; autoApprove?: boolean; allowUnregisteredChecks?: boolean; timeoutMinutes?: number }
 export interface ReviewInput { cli?: CliId; base?: string; callerCli?: CliId }
 
+/** A worker past its timeout by this much has stopped reporting: its job is marked failed. */
+const OVERDUE_GRACE_MS = 5 * 60_000;
+
+/** `crew.timeoutMinutes` of the config in `root`; undefined when absent, unreadable or not 1–1440 whole minutes. */
+async function configuredTimeout(root: string): Promise<number | undefined> {
+  try {
+    const raw = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')) as { crew?: { timeoutMinutes?: unknown } } | null;
+    const minutes = raw?.crew?.timeoutMinutes;
+    return typeof minutes === 'number' && Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440 ? minutes : undefined;
+  } catch { return undefined; } // no or unreadable config: the next source applies
+}
+
+function validTimeout(minutes: number | undefined): number | undefined {
+  if (minutes === undefined) return undefined;
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) throw new Error('Crew timeout must be a whole number of minutes from 1 to 1440');
+  return minutes;
+}
+
+/** True when the process at `pid` is the Edu worker for `jobId`, so a reused pid is never signalled. */
+export function isWorkerOf(description: string | undefined, jobId: string, _platform: NodeJS.Platform = process.platform): boolean {
+  // The worker's command line is `<node> <edu cli> crew worker <jobId>` on every platform (describeProcess reads the
+  // full command line on Windows too), so a reused pid running any other program, even another Node, never matches.
+  return Boolean(description) && description!.includes('crew') && description!.includes(jobId);
+}
+
 export function createCrew(options: CrewOptions = {}) {
-  const root = options.brainRoot ?? options.locations?.[0]?.root ?? defaultRoot();
-  const store = options.store ?? createCrewStore(root);
+  const globalRoot = resolve(options.globalRoot ?? options.locations?.find(location => location.scope === 'global')?.root ?? envGlobalRoot());
+  const root = options.brainRoot ?? options.locations?.[0]?.root ?? globalRoot;
+  const store = options.store ?? createCrewStore(root, { globalRoot });
+  /** The person's safety policy, read from the global config at each dispatch (never from the workspace). */
+  const policy = () => loadCrewPolicy(globalRoot);
+  const start = (job: CrewJob, current: CrewPolicy) => (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root, globalRoot, policy: current });
   const engineFactory = options.engineFactory ?? createEngine;
   const detect = options.detectClis ?? detectEngines;
   const sleep = options.sleep ?? (ms => new Promise(resolveSleep => setTimeout(resolveSleep, ms)));
   const clock = options.clock ?? Date.now;
+  const isAlive = options.isAlive ?? processAlive;
+  const describe = options.describeProcess ?? describeProcess;
+  const stop = options.stopProcess ?? ((pid: number, signal: NodeJS.Signals) => killTree({ pid }, signal));
+  const readonlyEnforced = (cli: CliId) => measuredEngine(engineFactory(cli)).capabilities?.readonly === 'enforced';
+  /** A job's limit: the request, the crew option, the workspace's config, the global config, then 60 minutes. */
+  const timeoutFor = async (requested: number | undefined) => validTimeout(requested) ?? validTimeout(options.timeoutMinutes)
+    ?? await configuredTimeout(root) ?? (resolve(root) === globalRoot ? undefined : await configuredTimeout(globalRoot)) ?? DEFAULT_CREW_TIMEOUT_MINUTES;
+
+  /** Marks a headless job whose worker died, or stopped reporting past its timeout, as failed. */
+  async function sweep(job: CrewJob): Promise<CrewJob> {
+    if (isTerminalCrewJobStatus(job.status) || job.pid === undefined) return job;
+    const dead = !isAlive(job.pid);
+    const limit = (job.timeoutMinutes ?? DEFAULT_CREW_TIMEOUT_MINUTES) * 60_000;
+    const overdue = job.kind !== 'orchestration' && job.status === 'running' && clock() > Date.parse(job.createdAt) + limit + OVERDUE_GRACE_MS;
+    if (!dead && !overdue) return job;
+    return store.mutate(job.id, current => isTerminalCrewJobStatus(current.status) || current.pid !== job.pid ? undefined : {
+      status: 'failed', endedAt: new Date(clock()).toISOString(),
+      summary: dead ? `Worker process ${job.pid} stopped without finishing the job.` : `Worker exceeded its ${limit / 60_000}-minute timeout and stopped reporting.`,
+    });
+  }
+  /**
+   * A pane job past its `timeoutMinutes` is marked failed first (so the closing pane cannot report it done), then its
+   * pane is closed. Undefined while it is within its limit.
+   */
+  async function expirePane(job: CrewJob): Promise<CrewJob | undefined> {
+    const minutes = job.timeoutMinutes ?? DEFAULT_CREW_TIMEOUT_MINUTES;
+    if (isTerminalCrewJobStatus(job.status) || clock() <= Date.parse(job.createdAt) + minutes * 60_000) return undefined;
+    let expired = false;
+    const failed = await store.mutate(job.id, current => {
+      if (isTerminalCrewJobStatus(current.status)) return undefined;
+      expired = true;
+      return { status: 'failed', endedAt: new Date(clock()).toISOString(), summary: `Timed out after ${minutes} minute(s); the pane agent was stopped.` };
+    });
+    if (!expired) return failed;
+    try { await closePane(failed, { ...options.herdr, store, brainRoot: root }); }
+    catch (error) { return store.update(job.id, { note: `Could not close pane ${failed.paneId ?? ''}: ${error instanceof Error ? error.message : String(error)}` }); }
+    return failed;
+  }
+  const refresh = async (job: CrewJob) => job.mode === 'pane' ? await expirePane(job) ?? refreshPane(job, { ...options.herdr, store, brainRoot: root }) : sweep(job);
+
+  /** Stops a headless worker: SIGTERM lets it end its CLI's tree; whatever is left after the grace is force-killed. */
+  async function stopWorker(job: CrewJob): Promise<string | undefined> {
+    const pid = job.pid;
+    if (pid === undefined || !isAlive(pid)) return undefined;
+    if (!isWorkerOf(await describe(pid), job.id)) return `Process ${pid} is no longer this job's worker; nothing was signalled.`;
+    await stop(pid, 'SIGTERM');
+    const deadline = clock() + (options.cancelGraceMs ?? 3000);
+    while (isAlive(pid) && clock() < deadline) await sleep(50);
+    if (isAlive(pid)) await stop(pid, 'SIGKILL');
+    return undefined;
+  }
   const workspaceRoot = options.workspaceRoot ?? (options.locations?.find(loc => loc.scope === 'project')?.root
     ? dirname(options.locations.find(loc => loc.scope === 'project')!.root)
     : options.brainRoot ? (basename(options.brainRoot) === '.edu' ? dirname(options.brainRoot) : options.brainRoot) : process.cwd());
@@ -52,17 +148,25 @@ export function createCrew(options: CrewOptions = {}) {
       const available = await detect();
       const cli = input.cli ?? available[0];
       if (!cli || !available.includes(cli)) throw new Error('No available CLI for orchestration');
-      const job = await store.create({ cli, task: input.goal.trim(), goal: input.goal.trim(), kind: 'orchestration', mode: 'headless', cwd, autonomy: 'auto', orchestrationMode: input.mode, playbook: input.playbook, harnessLevel: input.harnessLevel, autoApprove: input.autoApprove });
+      const current = await policy();
+      // Its working time and each gate's wait for a person (see runOrchestration).
+      const timeoutMinutes = await timeoutFor(input.timeoutMinutes);
+      const job = await store.create({ cli, task: input.goal.trim(), goal: input.goal.trim(), kind: 'orchestration', mode: 'headless', cwd, autonomy: 'auto', orchestrationMode: input.mode, playbook: input.playbook, harnessLevel: input.harnessLevel, autoApprove: input.autoApprove, allowUnregisteredChecks: input.allowUnregisteredChecks, timeoutMinutes });
       await store.update(job.id, { status: 'running' });
-      try { return await (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root }); }
+      try { return await start(job, current); }
       catch (error) {
         await store.update(job.id, { status: 'failed', endedAt: new Date().toISOString(), summary: error instanceof Error ? error.message : String(error) });
         throw error;
       }
     },
-    async approve(jobId: string, approved: boolean): Promise<CrewJob> {
-      await store.decide(jobId, approved);
-      return (await store.get(jobId))!;
+    /** Decides the open gate. Without a `requestId` it decides the gate open right now (a person at the CLI). */
+    async approve(jobId: string, approved: boolean, decision: { by: CrewDecisionBy; requestId?: string; env?: NodeJS.ProcessEnv }): Promise<CrewJob> {
+      const job = await store.get(jobId);
+      if (!job) throw new Error(`Crew job not found: ${jobId}`);
+      const requestId = decision.requestId ?? job.approval?.requestId;
+      if (!requestId) throw new Error(`Crew job is not awaiting approval: ${jobId}`);
+      await store.decide(job.id, approved, { requestId, by: decision.by, env: decision.env });
+      return (await store.get(job.id))!;
     },
     async dispatch(input: DispatchInput): Promise<CrewJob> {
       if (!input.task.trim()) throw new Error('Crew task must not be empty');
@@ -72,45 +176,77 @@ export function createCrew(options: CrewOptions = {}) {
       if (fromBoundary === '..' || fromBoundary.startsWith(`..${sep}`) || isAbsolute(fromBoundary)) {
         throw new Error(`Crew dispatch cwd is outside the workspace: ${input.cwd ?? cwd}`);
       }
+      const autonomy = input.autonomy ?? 'ask';
+      if (autonomy === 'readonly' && !enforcesReadonly(input.cli)) {
+        throw new Error(`${input.cli} cannot enforce read-only work; dispatch it to claude, codex or pi, or choose another autonomy level`);
+      }
+      // The ceiling comes from the global config only: a person raises it, never a workspace, an MCP caller or a flag.
+      const current = await policy();
+      if (!withinAutonomy(autonomy, current.maxAutonomy)) {
+        throw new Error(`Autonomy "${autonomy}" is above the crew ceiling "${current.maxAutonomy}". A person can raise crew.maxAutonomy in the global Edu config (${join(globalRoot, 'config.json')}).`);
+      }
+      const timeoutMinutes = await timeoutFor(input.timeoutMinutes);
       const requestedMode = input.mode ?? 'headless';
       // Inside herdr: a pane beside the caller. Outside (Hermes, launchd) with a reachable server: a tab
       // in the "Edu" herdr workspace. Otherwise headless, and the job says why.
       const target = requestedMode === 'pane' ? await herdrTarget(options.herdr) : undefined;
       const pane = target !== undefined && target.kind !== 'none';
-      const job = await store.create({ cli: input.cli, task: input.task.trim(), mode: pane ? 'pane' : 'headless', cwd, autonomy: input.autonomy ?? 'ask' });
+      const job = await store.create({ cli: input.cli, task: input.task.trim(), mode: pane ? 'pane' : 'headless', cwd, autonomy, timeoutMinutes });
       if (target?.kind === 'none') await store.update(job.id, { note: `Herdr unavailable (${target.reason}); dispatched as headless.` });
       if (pane) return dispatchPane(job, { ...options.herdr, store, brainRoot: root, target });
-      return (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root });
+      return start(job, current);
     },
     async status(jobId?: string): Promise<CrewJob | CrewJob[]> {
       if (jobId) {
         const job = await store.get(jobId);
         if (!job) throw new Error(`Crew job not found: ${jobId}`);
-        return job.mode === 'pane' ? refreshPane(job, { ...options.herdr, store, brainRoot: root }) : job;
+        return refresh(job);
       }
       const jobs = await store.list();
-      return Promise.all(jobs.map(job => job.mode === 'pane' ? refreshPane(job, { ...options.herdr, store, brainRoot: root }) : job));
+      return Promise.all(jobs.map(refresh));
     },
     async result(jobId: string, waitSeconds = 0): Promise<CrewJob> {
       if (!Number.isFinite(waitSeconds) || waitSeconds < 0) throw new Error('waitSeconds must be a non-negative number');
       const deadline = clock() + Math.floor(waitSeconds * 1000);
       while (true) {
         const current = await this.status(jobId) as CrewJob;
-        if (['done', 'failed', 'cancelled'].includes(current.status) || clock() >= deadline) return current;
+        if (isTerminalCrewJobStatus(current.status) || clock() >= deadline) return current;
         await sleep(Math.min(250, Math.max(1, deadline - clock())));
       }
+    },
+    /**
+     * Cancels a job: marks it `cancelled` first (so the dying worker's own write cannot win), then stops
+     * its worker process tree, or closes its herdr pane. A finished job is returned unchanged.
+     */
+    async cancel(jobId: string): Promise<CrewJob> {
+      const job = await store.get(jobId);
+      if (!job) throw new Error(`Crew job not found: ${jobId}`);
+      const cancelled = await store.mutate(job.id, current => isTerminalCrewJobStatus(current.status) ? undefined : {
+        status: 'cancelled', endedAt: new Date(clock()).toISOString(), summary: 'Cancelled on request.',
+      });
+      if (cancelled.status !== 'cancelled' || isTerminalCrewJobStatus(job.status)) return cancelled;
+      let note: string | undefined;
+      try {
+        if (cancelled.mode === 'pane') await closePane(cancelled, { ...options.herdr, store, brainRoot: root });
+        else note = await stopWorker(cancelled);
+      } catch (error) {
+        note = `Could not stop the job's process: ${error instanceof Error ? error.message : String(error)}`;
+      }
+      return note ? store.update(job.id, { note }) : cancelled;
     },
     async review(input: ReviewInput = {}): Promise<{ cli: CliId; summary: string }> {
       const available = await detect();
       const callerEnv = options.callerEnv ?? process.env;
       const caller = input.callerCli ?? (callerEnv.ANTIGRAVITY || callerEnv.ANTIGRAVITY_AGENT || callerEnv.GEMINI_CLI ? 'agy' : undefined);
-      const reviewer = input.cli ?? available.find(cli => cli !== caller);
-      if (!reviewer || !available.includes(reviewer)) throw new Error('No available reviewer CLI different from the caller; specify an installed --cli');
+      // The diff under review is untrusted input: only a CLI that enforces read-only may see it.
+      const reviewer = input.cli ?? available.find(cli => cli !== caller && readonlyEnforced(cli));
+      if (!reviewer || !available.includes(reviewer)) throw new Error('No available read-only reviewer CLI different from the caller (claude, codex or pi); specify an installed --cli');
+      if (!readonlyEnforced(reviewer)) throw new Error(`${reviewer} cannot enforce a read-only review; use claude, codex or pi`);
       const base = input.base ?? 'HEAD';
       const rawDiff = await (options.diff ?? defaultDiff)(base, workspaceRoot);
       const prompt = `Review the following changes. Do not modify files. Return concrete findings first, then residual risks.\n\n\`\`\`diff\n${truncateToTokens(rawDiff, 6000)}\n\`\`\``;
       let summary = '';
-      for await (const event of measuredEngine(engineFactory(reviewer)).run({ invocation: { id: crypto.randomUUID(), purpose: 'review' }, cli: reviewer, prompt, cwd: workspaceRoot, autonomy: 'readonly', systemPrompt: 'You are an independent, read-only code reviewer. Never request write access.' }, `review-${Date.now()}`)) {
+      for await (const event of measuredEngine(engineFactory(reviewer)).run({ invocation: { id: crypto.randomUUID(), purpose: 'review' }, cli: reviewer, prompt, cwd: workspaceRoot, autonomy: 'readonly', requireReadonly: true, systemPrompt: 'You are an independent, read-only code reviewer. Never request write access.' }, `review-${Date.now()}`)) {
         if (event.type === 'agent.text') summary += event.text;
         else if (event.type === 'agent.end' || event.type === 'run.end') {
           if (!event.ok) throw new Error('reviewer ended unsuccessfully');
@@ -120,7 +256,7 @@ export function createCrew(options: CrewOptions = {}) {
       }
       return { cli: reviewer, summary: summary.trim() || 'Reviewer returned no findings.' };
     },
-    runWorker: (jobId: string) => runWorker(jobId, { brainRoot: root, locations: options.locations, store, engineFactory, detectClis: detect, sleep }),
+    runWorker: (jobId: string) => runWorker(jobId, { brainRoot: root, globalRoot, locations: options.locations, store, engineFactory, detectClis: detect, sleep }),
     store,
   };
 }
@@ -142,5 +278,7 @@ export const dispatch = (input: DispatchInput) => defaultCrew.dispatch(input);
 export const status = (jobId?: string) => defaultCrew.status(jobId);
 export const result = (jobId: string, waitSeconds?: number) => defaultCrew.result(jobId, waitSeconds);
 export const review = (input?: ReviewInput) => defaultCrew.review(input);
-export { runWorker } from './headless.js';
+export const cancel = (jobId: string) => defaultCrew.cancel(jobId);
+export { DEFAULT_CREW_TIMEOUT_MINUTES, runWorker } from './headless.js';
 export { createCrewStore } from './store.js';
+export { CREW_JOB_STATUSES, TERMINAL_CREW_JOB_STATUSES, isCrewJobStatus, isTerminalCrewJobStatus } from './status.js';

@@ -31,11 +31,11 @@ import { registerUpdate } from './commands/update.js';
 import { registerVault } from './commands/vault.js';
 import { processContext, resolveGlobals, type CliContext } from './context.js';
 import { t } from './i18n.js';
-import { packageVersion } from './package.js';
+import { packageVersion } from '../platform/package.js';
 
 const GROUPS: Array<[string, string[]]> = [
-  ['Get started:', ['create', 'init', 'vault', 'sync', 'join', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities']],
-  ['Work:', ['run', 'ui', 'demo', 'deck', 'experiment']],
+  ['Get started:', ['setup', 'create', 'init', 'vault', 'sync', 'join', 'install', 'uninstall', 'update', 'doctor', 'detach', 'capabilities', 'help']],
+  ['Work:', ['run', 'ui', 'demo', 'deck', 'crew', 'watch', 'experiment']],
   ['Brain:', ['brief', 'brain', 'context', 'reflect', 'dream', 'proposals', 'metrics', 'checks', 'eval', 'bench']],
   ['Integrations:', ['mcp', 'connect', 'statusline', 'hook']],
 ];
@@ -106,8 +106,11 @@ export function createProgram(overrides: Partial<CliContext> = {}, options: Prog
   registerWatch(program, ctx);
   registerUpdate(program, ctx);
 
+  // The root has an action (home/help), so commander adds no implicit `help` command; add it explicitly.
+  const help = program.createCommand('help').argument('[command]').description('show help for a command').helpOption(false);
+  program.addHelpCommand(help);
   for (const [heading, names] of GROUPS) {
-    for (const name of names) program.commands.find((c) => c.name() === name)?.helpGroup(heading);
+    for (const name of names) [...program.commands, help].find((c) => c.name() === name)?.helpGroup(heading);
   }
   // The root has an action (home/help), so commander would report a typo as
   // "too many arguments"; the action routes it to the unknown-command error.

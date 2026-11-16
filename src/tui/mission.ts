@@ -156,7 +156,7 @@ export function reduceMission(m: MissionState, event: EduEvent, ctx: MissionCont
       const gate = event.approved ? { ...m.gate, allowed: m.gate.allowed + 1 } : { ...m.gate, denied: m.gate.denied + 1 };
       const to = ctx.approvalAgent ?? lead;
       const verdict = `${event.approved ? 'approved' : 'rejected'} by ${event.by}`;
-      const next = bus({ ...m, gate }, { at, from: event.by === 'user' ? 'you' : 'policy', to, kind: 'approval', text: verdict, ok: event.approved });
+      const next = bus({ ...m, gate }, { at, from: event.by === 'policy' || event.by === 'host-llm' ? event.by : 'you', to, kind: 'approval', text: verdict, ok: event.approved });
       return ctx.approvalAgent ? pulse(next, ctx, ctx.approvalAgent, 'out', 'approval') : next;
     }
     case 'brain.recall': {

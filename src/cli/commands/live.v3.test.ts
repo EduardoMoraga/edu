@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CliId, EduEvent, Engine } from '../../core/contracts.js';
-import { captureContext, out, runCli } from '../testkit.js';
+import { captureContext, out, runCli } from '../../test-support/cli.js';
+import { engineCapabilities } from '../../engine/autonomy.js';
 
 const at = '2026-01-01T00:00:00.000Z';
 const plan = {
@@ -13,7 +14,7 @@ const plan = {
 
 function engine(): Engine {
   return {
-    cli: 'claude', available: async () => true,
+    cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true,
     async *run(request, agentId) {
       const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan)
         : request.prompt.includes('Review the completed') ? '{"verdict":"pass","issues":[]}' : 'Completed.';
@@ -30,7 +31,14 @@ describe('edu run v0.3', () => {
     captured.ctx.availableClis = ['claude'];
     await mkdir(join(captured.dirs.eduHome, 'playbooks'), { recursive: true });
     await writeFile(join(captured.dirs.eduHome, 'playbooks', 'custom.md'), '---\nname: custom\ndescription: Custom test method\nharness: H3\nrequireSpecApproval: true\nmaxFixRounds: 1\n---\n\nVerify every requirement.\n');
-    await runCli(captured, ['run', 'Complete task', '--playbook', 'custom', '--yes']);
+    // --yes alone never runs a check the planner invented: the run ends unverified.
+    await runCli(captured, ['run', 'Unverified task', '--playbook', 'custom', '--yes']);
+    expect(captured.exitCode).toBeUndefined();
+    expect(out(captured)).toContain('outcome unverified_success');
+    expect(out(captured)).not.toContain('verify deterministic');
+    captured.stdout.length = 0;
+    await rm(join(captured.dirs.eduHome, 'specs'), { recursive: true, force: true });
+    await runCli(captured, ['run', 'Complete task', '--playbook', 'custom', '--yes', '--allow-unregistered-checks']);
     expect(captured.exitCode).toBeUndefined();
     expect(out(captured)).toContain('autonomous_verified_success');
     expect(out(captured)).toContain('approved (policy)');

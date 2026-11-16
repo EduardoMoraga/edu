@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { nodeCommand, printCommand } from '../test-support/shell.js';
-import { checkSpawnOptions, loadChecks, saveChecks, runCheck } from './registry.js';
+import { CHECK_OUTPUT_HEAD_CHARS, CHECK_OUTPUT_TAIL_CHARS, checkSpawnOptions, loadChecks, saveChecks, runCheck } from './registry.js';
 
 const roots: string[] = [];
 async function tempRoot() {
@@ -41,6 +41,17 @@ describe('evidence registry', () => {
     expect(result.output).toContain('green');
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('green');
+  });
+
+  it('caps the output it keeps and feeds back, while still matching stdoutIncludes at the very end', async () => {
+    const script = "let s='';for(let i=0;i<4000;i++)s+='line '+i+' '+'x'.repeat(40)+'\\n';process.stdout.write('FIRST\\n'+s);process.stdout.write('NEEDLE-AT-END');process.stderr.write('E'.repeat(50000))";
+    const result = await runCheck({ id: 'loud', requirementIds: [], command: nodeCommand(script), expect: { stdoutIncludes: 'NEEDLE-AT-END' }, timeoutMs: 10000 }, process.cwd());
+    expect(result.ok).toBe(true);
+    const bound = CHECK_OUTPUT_HEAD_CHARS + CHECK_OUTPUT_TAIL_CHARS + 100;
+    for (const text of [result.stdout, result.stderr, result.output]) expect(text.length).toBeLessThan(bound);
+    expect(result.stdout.startsWith('FIRST')).toBe(true);
+    expect(result.stdout.endsWith('NEEDLE-AT-END')).toBe(true);
+    expect(result.stdout).toMatch(/\[… \d+ characters omitted …\]/);
   });
 
   it('marks a timed-out command', async () => {

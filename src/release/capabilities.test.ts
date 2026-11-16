@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 import { getCapabilities } from './capabilities.js';
 describe('binary capabilities', () => {
   it('reports the actual package version and a serializable honest contract', () => {

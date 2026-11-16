@@ -9,7 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { autoMaintain } from '../brain/auto-maintain.js';
+import { autoMaintain } from '../reflect/auto-maintain.js';
 import type { Brain } from '../brain/index.js';
 import type { Note } from '../core/contracts.js';
 import { withHostLock } from '../platform/file-lock.js';

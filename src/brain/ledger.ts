@@ -8,14 +8,14 @@
  * Migration: exposure counters already present in frontmatter (`usage.uses`, `usage.lastUsed`) stay
  * readable and act as the initial ledger value. Notes are never rewritten just to move them.
  */
-import { appendFile, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { readFile, rename, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { UsageStats } from '../core/contracts.js';
-import { assertInsideBrain, isUnsafeBrainPath } from './safe-path.js';
+import { isUnsafeBrainPath } from './safe-path.js';
 import { atomicWrite } from './store.js';
+import { LOCAL_DIR, ensureLocalIgnored, safeLocalTarget } from './local-dir.js';
 
-/** Machine-local folder inside a brain root; git-ignored through `<root>/.gitignore`. */
-export const LOCAL_DIR = '.edu-local';
+export { LOCAL_DIR, ensureLocalIgnored };
 const LEDGER_FILE = 'usage.json';
 
 export interface Exposure {
@@ -81,7 +81,7 @@ export async function readLedger(root: string): Promise<UsageLedger> {
  */
 export async function updateLedger(root: string, mutate: (ledger: UsageLedger) => boolean): Promise<void> {
   const path = ledgerPath(root);
-  if (!await safeTarget(root, path)) return;
+  if (!await safeLocalTarget(root, path)) return;
   const raw = await readFile(path, 'utf8').catch(() => undefined);
   let ledger = empty();
   if (raw !== undefined) {
@@ -93,37 +93,6 @@ export async function updateLedger(root: string, mutate: (ledger: UsageLedger) =
   cache.delete(resolve(path));
   try { await atomicWrite(path, `${JSON.stringify(ledger)}\n`, { root }); }
   catch (error) { if (!isUnsafeBrainPath(error)) throw error; process.emitWarning(`${error.message}; skipped`, 'EduWarning'); }
-}
-
-async function safeTarget(root: string, path: string): Promise<boolean> {
-  try { await assertInsideBrain(root, path); return true; }
-  catch (error) {
-    if (!isUnsafeBrainPath(error)) throw error;
-    process.emitWarning(`${error.message}; skipped`, 'EduWarning');
-    return false;
-  }
-}
-
-const ignored = new Set<string>();
-/**
- * Makes sure `<root>/.gitignore` ignores the machine-local folder, so a brain root inside a git repository
- * (a project `.edu`, or a synced `~/.edu`) never commits it. Appends to an existing file; never rewrites it.
- */
-export async function ensureLocalIgnored(root: string): Promise<void> {
-  const key = resolve(root);
-  if (ignored.has(key)) return;
-  const path = join(root, '.gitignore');
-  if (!await safeTarget(root, path)) return;
-  const current = await readFile(path, 'utf8').catch(() => undefined);
-  const rules = (current ?? '').split(/\r?\n/).map(line => line.trim());
-  if (!rules.some(rule => [LOCAL_DIR, `${LOCAL_DIR}/`, `/${LOCAL_DIR}`, `/${LOCAL_DIR}/`].includes(rule))) {
-    if (current === undefined) await writeFile(path, `${LOCAL_DIR}/\n`, { flag: 'wx' }).catch(error => {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return appendFile(path, `${LOCAL_DIR}/\n`);
-      throw error;
-    });
-    else await appendFile(path, `${current && !current.endsWith('\n') ? '\n' : ''}${LOCAL_DIR}/\n`);
-  }
-  ignored.add(key);
 }
 
 const later = (a?: string, b?: string) => !a ? b : !b ? a : Date.parse(b) > Date.parse(a) ? b : a;

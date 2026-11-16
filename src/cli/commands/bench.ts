@@ -1,16 +1,16 @@
 /**
  * `edu bench`: deterministic baseline of memory efficiency (retrieval quality, context cost) and the
  * live-agent activation harness. Runs in temporary brains; never touches the user's brain or calls a model.
+ * The suites (with their corpus and an MCP client) load only when `edu bench` runs, not on every `edu` call.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { Command } from 'commander';
-import { ACTIVATION_PROMPT, gradeActivation, seedActivation } from '../../bench/activation.js';
-import { runContextBench, type ContextReport } from '../../bench/context.js';
-import { loadCorpus, runRetrievalBench, type RankMetrics, type RetrievalOptions, type RetrievalReport } from '../../bench/retrieval.js';
+import type { ContextReport } from '../bench-context.js';
+import type { RankMetrics, RetrievalOptions, RetrievalReport } from '../../bench/retrieval.js';
 import type { CliContext } from '../context.js';
 import { action, printJson } from '../kit.js';
-import { packageVersion } from '../package.js';
+import { packageVersion } from '../../platform/package.js';
 
 interface BenchOpts { json?: boolean; out?: string; seed?: string; grade?: string; corpus?: string; misses?: boolean; alt?: boolean }
 
@@ -95,6 +95,7 @@ export function registerBench(program: Command, ctx: CliContext): void {
       };
 
       if (suite === 'activation') {
+        const { ACTIVATION_PROMPT, gradeActivation, seedActivation } = await import('../../bench/activation.js');
         if (opts.grade) {
           const grade = gradeActivation(await readFile(resolve(g.cwd, opts.grade), 'utf8'));
           return emit(grade, [`activation score ${grade.score}/${grade.max}`, ...grade.checks.map(check => `${check.passed ? '✓' : '✗'} ${check.id.padEnd(16)} ${check.detail}`)]);
@@ -108,6 +109,7 @@ export function registerBench(program: Command, ctx: CliContext): void {
 
       const report: BenchReport = { schema: BENCH_SCHEMA, edu: packageVersion(), node: process.version, generatedAt: new Date().toISOString() };
       if (!suite || suite === 'retrieval') {
+        const { loadCorpus, runRetrievalBench } = await import('../../bench/retrieval.js');
         let options: RetrievalOptions = {};
         if (opts.corpus) {
           const path = resolve(g.cwd, opts.corpus);
@@ -117,7 +119,10 @@ export function registerBench(program: Command, ctx: CliContext): void {
         if (opts.alt === false) options.useAlt = false;
         report.retrieval = await runRetrievalBench(options);
       }
-      if (!suite || suite === 'context') report.context = await runContextBench();
+      if (!suite || suite === 'context') {
+        const { runContextBench } = await import('../bench-context.js');
+        report.context = await runContextBench();
+      }
       await emit(report, [
         ...(report.retrieval ? retrievalTable(report.retrieval, opts.misses) : []),
         ...(report.retrieval && report.context ? [''] : []),

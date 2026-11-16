@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { assertContained, canonicalAnchor } from '../skills/bundle.js';
 import { ISOLATION_LIMITS, parseManifest, protectedPath, sha256, type ArmResult, type ExperimentCommand } from './contract.js';
 import { materialize, snapshot, snapshotDigests, snapshotHash, overlaySnapshot } from './workspace.js';
+import { killTree, trackChild } from '../platform/process-tree.js';
 
 export async function inspectExperiment(manifest: string) {
   const spec = parseManifest(manifest);
@@ -112,23 +113,21 @@ async function execute(command: ExperimentCommand, cwd: string, limits: ReturnTy
   if (signal?.aborted) return { status: 'cancelled', durationMs: 0, exitCode: null, stdout: '', stderr: '' };
   return new Promise(done => {
     let status: ArmResult['status'] = 'ok', stdout = '', stderr = '', used = 0, error: string | undefined;
-    let exited = false, settled = false, closing = false, exitCode: number | null = null;
+    let settled = false, closing = false, exitCode: number | null = null;
     let scanning: Promise<void> | undefined, drain: ReturnType<typeof setTimeout> | undefined;
     const child = spawn(command.executable, command.args, { cwd, shell: false, detached: process.platform !== 'win32', windowsHide: true,
       env: Object.fromEntries(['PATH', 'SystemRoot', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR'].flatMap(key => process.env[key] ? [[key, process.env[key]!]] : [])), stdio: ['ignore', 'pipe', 'pipe'] });
+    const untrack = trackChild(child);
     const kill = () => {
       if (!child.pid || settled) return;
-      if (process.platform === 'win32') {
-        if (exited) return; // An exited parent's PID no longer identifies our process.
-        const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
-        killer.on('error', () => {}); killer.unref();
-      } else { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Group already exited. */ } }
+      // killTree skips an exited Windows root, whose pid no longer identifies our process.
+      void killTree(child, 'SIGKILL');
     };
     const finish = () => {
       if (settled || closing) return;
       closing = true; clearTimeout(timer); clearTimeout(drain); clearInterval(monitor);
       signal?.removeEventListener('abort', abort);
-      kill(); child.stdout.destroy(); child.stderr.destroy(); child.unref();
+      kill(); untrack(); child.stdout.destroy(); child.stderr.destroy(); child.unref();
       settled = true;
       // An in-flight scan can finish reading its disposable copy but cannot change
       // settled state or kill anything. Drain it before the caller removes the copy.
@@ -164,7 +163,7 @@ async function execute(command: ExperimentCommand, cwd: string, limits: ReturnTy
     };
     child.stdout.on('data', chunk => collect(chunk, 'stdout')); child.stderr.on('data', chunk => collect(chunk, 'stderr'));
     child.once('error', e => { if (!settled && !closing) { error = e.message; status = 'invalid'; finish(); } });
-    child.once('exit', code => { exited = true; if (!settled && !closing) exitCode = code; });
+    child.once('exit', code => { if (!settled && !closing) exitCode = code; });
     child.once('close', code => { if (!settled && !closing) { exitCode = code; finish(); } });
   });
 }

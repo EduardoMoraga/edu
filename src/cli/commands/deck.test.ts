@@ -1,8 +1,9 @@
 import { mkdir, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { captureContext, out, runCli } from '../testkit.js';
+import { captureContext, out, runCli } from '../../test-support/cli.js';
 import { deckSnapshot } from './deck.js';
+import { createCrewStore } from '../../crew/store.js';
 
 async function fixture(root: string, path: string, content: string, at: number): Promise<void> {
   const target = join(root, '.edu', path);
@@ -81,6 +82,20 @@ describe('edu deck', () => {
     expect((await deckSnapshot(nested)).project.root).toBe(root);
   });
 
+  it('exposes the open gate requestId (and the commands it would run) so the Deck can decide exactly that gate', async () => {
+    const c = await captureContext();
+    await mkdir(join(c.dirs.cwd, '.edu', 'brain'), { recursive: true });
+    const store = createCrewStore(join(c.dirs.cwd, '.edu'), { globalRoot: c.dirs.eduHome });
+    const job = await store.create({ cli: 'claude', task: 'Goal', goal: 'Goal', kind: 'orchestration', mode: 'headless', cwd: c.dirs.cwd, autonomy: 'auto' });
+    const gated = await store.openApproval(job.id, { title: 'Approve spec', unregisteredChecks: ['npm test'] });
+    await runCli(c, ['deck', '--json']);
+    const [row] = JSON.parse(out(c)).jobs;
+    expect(row).toMatchObject({ id: job.id.slice(0, 8), status: 'awaiting-approval', requestId: gated.approval!.requestId, unregisteredChecks: ['npm test'] });
+    // Once the gate is decided the nonce is no longer published.
+    await store.update(job.id, { status: 'running', approval: undefined });
+    expect((await deckSnapshot(c.dirs.cwd, c.ctx.env)).jobs[0]).not.toHaveProperty('requestId');
+  });
+
   it('skips malformed job JSON and unreadable note metadata', async () => {
     const c = await captureContext();
     const root = c.dirs.cwd;
@@ -120,5 +135,58 @@ describe('edu deck', () => {
     await runCli(c, ['deck']);
     expect(out(c)).not.toContain('to approve');
     expect(out(c)).not.toContain('overdue');
+  });
+
+  it('reports the Edu session a host session opened only when asked', async () => {
+    const c = await captureContext();
+    const root = c.dirs.cwd;
+    const note = (id: string, tag: string, status: string) =>
+      `---\nid: ${id}\ntier: episodic\ntitle: Claude Code session ${id.slice(-4)}\nkind: session\nstatus: ${status}\ntags:\n  - ${tag}\n  - session\n---\n`;
+    await fixture(root, 'brain/2-episodic/a.md', note('2026-11-15-claude-code-session-aaaa', 'host:claude:host-a', 'open-session'), 1000);
+    await fixture(root, 'brain/2-episodic/b.md', note('2026-11-15-codex-session-bbbb', 'host:codex:host-b', 'closed'), 2000);
+
+    expect(await deckSnapshot(root)).not.toHaveProperty('session');
+    expect((await deckSnapshot(root, c.ctx.env, { hostSession: 'host-a' })).session).toEqual({
+      id: '2026-11-15-claude-code-session-aaaa', status: 'open-session', title: 'Claude Code session aaaa',
+    });
+    expect((await deckSnapshot(root, c.ctx.env, { hostSession: 'host-b', host: 'codex' })).session).toMatchObject({ status: 'closed' });
+    expect((await deckSnapshot(root, c.ctx.env, { hostSession: 'host-b' })).session).toBeNull();
+
+    await runCli(c, ['deck', '--json', '--session', 'host-a']);
+    expect(JSON.parse(out(c)).session).toMatchObject({ id: '2026-11-15-claude-code-session-aaaa', status: 'open-session' });
+  });
+
+  it('reads the global brain from a folder with no project brain, as edu crew and the hook do', async () => {
+    const c = await captureContext();
+    const home = c.ctx.env.EDU_HOME!;
+    await mkdir(join(home, 'brain', '2-episodic'), { recursive: true });
+    await writeFile(join(home, 'brain', '2-episodic', 's.md'), '# Session\n');
+    await mkdir(join(home, 'crew'), { recursive: true });
+    await writeFile(join(home, 'crew', 'job.json'), JSON.stringify({ id: 'abcdef123456', cli: 'codex', task: 'Global job', status: 'running' }));
+
+    const snapshot = await deckSnapshot(c.dirs.cwd, c.ctx.env);
+    expect(snapshot).toMatchObject({ scope: 'global', project: { name: 'project', root: c.dirs.cwd }, brain: { present: true, episodic: 1 } });
+    expect(snapshot.jobs.map(job => job.task)).toEqual(['Global job']);
+    await runCli(c, ['deck']);
+    expect(out(c)).toContain('global brain');
+  });
+
+  it('prefers the nearest project brain over the global one', async () => {
+    const c = await captureContext();
+    const home = c.ctx.env.EDU_HOME!;
+    await mkdir(join(home, 'brain', '2-episodic'), { recursive: true });
+    await writeFile(join(home, 'brain', '2-episodic', 'g.md'), '# Global\n');
+    await fixture(c.dirs.cwd, 'brain/2-episodic/p.md', '# Project\n', 1000);
+    await fixture(c.dirs.cwd, 'brain/2-episodic/q.md', '# Project two\n', 2000);
+    const nested = join(c.dirs.cwd, 'src', 'deep');
+    await mkdir(nested, { recursive: true });
+
+    const snapshot = await deckSnapshot(nested, c.ctx.env);
+    expect(snapshot).toMatchObject({ scope: 'project', project: { root: c.dirs.cwd }, brain: { present: true, episodic: 2 } });
+  });
+
+  it('answers session null without a brain when a session is asked', async () => {
+    const c = await captureContext();
+    expect((await deckSnapshot(c.dirs.cwd, c.ctx.env, { hostSession: 'nobody' })).session).toBeNull();
   });
 });

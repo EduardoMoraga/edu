@@ -1,26 +1,11 @@
 import { assertContained, readSkillBundle, UnsupportedSkillPathError, UnsupportedSkillEncodingError, canonicalAnchor } from '../skills/bundle.js';
-import { access, readdir, readFile, stat, lstat } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { readdir, readFile, lstat } from 'node:fs/promises';
+import { join } from 'node:path';
+import { parseFrontmatter, type MarkdownDocument } from '../brain/frontmatter.js';
+import { binaryOnPath } from '../platform/index.js';
 import type { CliId, InstallScope } from '../core/contracts.js';
 import type { IntegrationOptions, PlannedAction } from './types.js';
 import { pathsFor, baseFor, pinConfiguredBases } from './paths.js';
-
-export async function binaryOnPath(binary: string): Promise<boolean> {
-  const extensions = process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';') : [''];
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    if (!dir) continue;
-    for (const extension of extensions) {
-      const target = join(dir, `${binary}${extension}`);
-      try {
-        if (!(await stat(target)).isFile()) continue;
-        await access(target, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
-        return true;
-      } catch { /* Try next PATH entry. */ }
-    }
-  }
-  return false;
-}
 
 function protocol(scope: InstallScope, home: string, brainRoot?: string): string {
   const pointer = scope === 'project' ? '@.edu/EDU.md' : `@${join(brainRoot ?? join(home, '.edu'), 'EDU.md')}`;
@@ -28,7 +13,7 @@ function protocol(scope: InstallScope, home: string, brainRoot?: string): string
 }
 
 export function instructionActions(cli: CliId, scope: InstallScope, root: string, options: IntegrationOptions & { brainRoot?: string }): PlannedAction[] {
-  return pathsFor(cli, scope, root, options.home).instructions.map(path => ({
+  return pathsFor(cli, scope, root, options.home, options.dirs).instructions.map(path => ({
     cli, kind: 'managed-block', path, description: 'Install Edu protocol block', content: protocol(scope, options.home, options.brainRoot),
   }));
 }
@@ -89,15 +74,13 @@ export async function agentTemplates(templatesDir: string): Promise<AgentTemplat
   const result: AgentTemplate[] = [];
   for (const filename of (await readdir(dir)).filter(name => name.endsWith('.md')).sort()) {
     const text = await readFile(join(dir, filename), 'utf8');
-    const parts = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text);
-    if (!parts) throw new Error(`Malformed agent template: ${filename}`);
-    const fields = Object.fromEntries(parts[1]!.split('\n').map(line => {
-      const index = line.indexOf(':');
-      return [line.slice(0, index).trim(), line.slice(index + 1).trim()];
-    }));
-    const name = fields.id;
+    let template: MarkdownDocument | undefined;
+    try { template = parseFrontmatter(text); } catch { template = undefined; }
+    if (!template) throw new Error(`Malformed agent template: ${filename}`);
+    const field = (key: string) => typeof template.meta[key] === 'string' ? template.meta[key] : undefined;
+    const name = field('id');
     if (!name || !/^[\w-]+$/.test(name)) throw new Error(`Invalid agent template: ${filename}`);
-    result.push({ name, description: fields.mission ?? fields.title ?? name, tools: fields.autonomy === 'readonly' ? 'Read, Grep, Glob' : 'Read, Write, Edit, Bash, Grep, Glob', prompt: parts[2]!.trim() });
+    result.push({ name, description: field('mission') ?? field('title') ?? name, tools: field('autonomy') === 'readonly' ? 'Read, Grep, Glob' : 'Read, Write, Edit, Bash, Grep, Glob', prompt: template.body });
   }
   return result;
 }

@@ -8,6 +8,7 @@ import { brainPath } from './location.js';
 import { atomicFs, atomicWrite, encodeNote, notePath, resetNoteCache } from './store.js';
 import { parseMarkdown } from './frontmatter.js';
 import { buildContext } from '../context/pack.js';
+import { expectWithinBudget } from '../test-support/perf.js';
 
 const dirs: string[] = [];
 async function temp() { const path = await mkdtemp(join(tmpdir(), 'edu-credit-')); dirs.push(path); return path; }
@@ -358,7 +359,7 @@ describe('core atomicity: aliased roots', () => {
     const started = Date.now();
     // One batch touches files whose roots are spelled differently but are the same directory.
     await Promise.all([both.recordUse([first.meta.id, second.meta.id]), both.feedback(second.meta.id, true, ev('x1')), openBrain([{ scope: 'project', root: real, brainDir: join(real, 'other-brain') }]).feedback(second.meta.id, true, ev('x2'))]);
-    expect(Date.now() - started).toBeLessThan(5000);
+    expectWithinBudget(Date.now() - started, 5000);
     // x2 went to the global file; x1 to the primary's shadow copy (isolation), neither lost.
     expect((await viaB.read(second.meta.id))!.meta.usage!.events).toContain('v:x2');
     expect((await both.read(second.meta.id))!.meta.usage!.events).toContain('v:x1');
@@ -390,7 +391,8 @@ describe('core atomicity: compound supersedes', () => {
     const old = await brain.write({ title: 'Old d', body: 'old', tier: 'transitive', kind: 'decision' });
     const rename = vi.spyOn(atomicFs, 'rename');
     let calls = 0;
-    rename.mockImplementation(async (...args) => { if (++calls === 2) throw Object.assign(new Error('disk failure'), { code: 'EIO' }); return (await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')).rename(...args); });
+    // The revert of the old decision is the write that fails (the new note itself is created by an exclusive link).
+    rename.mockImplementation(async (...args) => { if (String(args[1]) === old.path && ++calls === 1) throw Object.assign(new Error('disk failure'), { code: 'EIO' }); return (await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')).rename(...args); });
     try { await expect(brain.write({ title: 'New d', body: 'new', tier: 'transitive', kind: 'decision', supersedes: old.meta.id })).rejects.toThrow(/disk failure/); }
     finally { rename.mockRestore(); }
     expect((await brain.list({ kind: 'decision' })).map(d => d.meta.id)).toEqual([old.meta.id]);

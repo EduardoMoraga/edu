@@ -3,10 +3,10 @@ import { Command } from 'commander';
 /**
  * Edu shared contracts.
  *
- * Every module (brain, context, engine, orchestrator, mcp, adapters, tui, cli)
- * depends on these types and on nothing else from its siblings unless the
- * dependency is listed in docs/ARCHITECTURE.md. Changing a type here is a
- * cross-team decision owned by the lead.
+ * The core layer: every module may depend on these types and constants, and
+ * this file depends on nothing. Which modules may import each other is the
+ * layer table in docs/ARCHITECTURE.md §3 (enforced by a test). Changing a type
+ * here is a cross-team decision owned by the lead.
  */
 /** The three memory layers plus the generated index. */
 type Tier = 'canonical' | 'episodic' | 'transitive';
@@ -116,6 +116,14 @@ interface RecallHit {
     note: Note;
     score: number;
     why: string;
+    reason?: RecallReason;
+}
+/** Why a note was recalled: named by id or alias, or the terms it matched; its learned weight; the passage shown. */
+interface RecallReason {
+    named?: string;
+    matched?: string[];
+    weight: number;
+    passage?: string;
 }
 /** Where a brain lives. Project brains overlay the global brain. */
 interface BrainLocation {
@@ -162,9 +170,29 @@ interface DeterministicCheck {
     timeoutMs: number;
 }
 type CliId = 'claude' | 'codex' | 'pi' | 'opencode' | 'agy';
+/** Every supported agent CLI, in Edu's preference order. */
+declare const CLI_IDS: readonly CliId[];
 type Autonomy = 'readonly' | 'ask' | 'auto' | 'full';
 type CrewJobStatus = 'queued' | 'running' | 'awaiting-approval' | 'done' | 'failed' | 'cancelled';
 type CrewJobMode = 'headless' | 'pane';
+/**
+ * Who answered an approval gate. `policy`: an upstream `--yes`; `user`: a person at the in-process prompt
+ * (terminal or TUI); `cli` / `deck`: a person through `edu crew approve` or the Edu Deck; `host-llm`: the host
+ * agent through MCP. Only `user`, `cli` and `deck` are human decisions.
+ */
+type ApprovalBy = 'policy' | 'user' | 'cli' | 'deck' | 'host-llm';
+/** The channels a crew decision file may name (`policy` and `user` never write decision files). */
+type CrewDecisionBy = Extract<ApprovalBy, 'cli' | 'deck' | 'host-llm'>;
+declare const HUMAN_APPROVERS: readonly ApprovalBy[];
+/** The approval gate a crew job is waiting on. A decision applies only when it names this `requestId`. */
+interface CrewApproval {
+    /** Fresh random nonce per gate. */
+    requestId: string;
+    openedAt: string;
+    title: string;
+    /** Exact shell commands of unregistered checks this gate would authorize (human decisions only). */
+    unregisteredChecks?: string[];
+}
 /** A durable unit of work dispatched to one external coding CLI. */
 interface CrewJob {
     id: string;
@@ -178,7 +206,12 @@ interface CrewJob {
     playbook?: string;
     orchestrationMode?: OrchestrationMode;
     harnessLevel?: HarnessLevel;
+    /** Set only by a human CLI (`edu run --detach --yes`); never from MCP. */
     autoApprove?: boolean;
+    /** Set only by a human CLI (`--allow-unregistered-checks`): run planner-proposed checks without a human gate. */
+    allowUnregisteredChecks?: boolean;
+    /** Present while `status` is `awaiting-approval`. */
+    approval?: CrewApproval;
     outcome?: OutcomeLabel;
     specPath?: string;
     verificationSummary?: string;
@@ -200,6 +233,8 @@ interface CrewJob {
     /** Hash of the pane text right after the prompt; changed text plus idle means the agent answered. */
     promptPaneHash?: string;
     promptedAt?: string;
+    /** Headless task jobs stop after this many minutes (default 60, or `crew.timeoutMinutes` in config.json). */
+    timeoutMinutes?: number;
 }
 interface EngineRunRequest {
     cli: CliId;
@@ -329,12 +364,13 @@ type EduEvent = {
     approvalId: string;
     title: string;
     detail: string;
+    unregisteredChecks?: string[];
     at: string;
 } | {
     type: 'approval.resolve';
     approvalId: string;
     approved: boolean;
-    by: 'user' | 'policy';
+    by: ApprovalBy;
     at: string;
 } | {
     type: 'brain.recall';
@@ -458,6 +494,8 @@ interface RoleSpec {
     model?: string;
 }
 type ApprovalPolicy = 'always-ask' | 'ask-on-write' | 'auto';
+/** Language of messages, generated pages and the TUI. */
+type Lang = 'en' | 'es';
 interface EduConfig {
     version: 1;
     mode: OrchestrationMode;
@@ -482,13 +520,34 @@ interface EduConfig {
     brain: {
         obsidianVault?: string;
     };
-    lang: 'en' | 'es';
+    lang: Lang;
     /** Brain folder relative to the workspace root (the folder holding `.edu/`). Default `.edu/brain`. */
     brainDir?: string;
     /** Where `edu create` keeps copies of the original documents, relative to the workspace root. */
     sourcesDir?: string;
     /** The workspace agent's identity (e.g. "Albert"), used by briefs and identity injection. */
     identity?: WorkspaceIdentity;
+    /**
+     * Crew settings. The safety settings (`maxAutonomy`, `env`) are read only from the global config
+     * (`EDU_HOME/config.json`), never from a project `.edu/config.json`, which an agent or a cloned repository
+     * can write. `timeoutMinutes` is a dispatch default and may come from either.
+     */
+    crew?: CrewSettings;
+}
+interface CrewSettings {
+    /**
+     * The crew autonomy ceiling. Default `auto`; only a person raises it (to `full`) in the global config.
+     * - An MCP caller cannot request a crew job above it.
+     * - An orchestration in a project brain runs any role from the project config or a playbook that asks for
+     *   more with the ceiling instead, and records that as a limitation of the run.
+     */
+    maxAutonomy?: Autonomy;
+    /** Extra environment variable names passed to agent CLIs on top of the built-in allowlist. */
+    env?: {
+        passthrough?: string[];
+    };
+    /** Default crew job timeout in minutes (1–1440; built-in default 60). */
+    timeoutMinutes?: number;
 }
 interface WorkspaceIdentity {
     name: string;
@@ -561,4 +620,4 @@ interface ProgramOptions {
 }
 declare function createProgram(overrides?: Partial<CliContext>, options?: ProgramOptions): Command;
 
-export { type AgentStatus, type ApprovalPolicy, type Autonomy, type BrainLocation, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewJob, type CrewJobMode, type CrewJobStatus, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineCapabilities, type EngineRunRequest, type FailureType, type FeedbackContext, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type InvocationPurpose, type Note, type NoteMeta, type NoteOrigin, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageField, type UsageStats, type WorkspaceIdentity, createProgram };
+export { type AgentStatus, type ApprovalBy, type ApprovalPolicy, type Autonomy, type BrainLocation, CLI_IDS, type CanonicalKind, type CanonicalStatus, type ClaimBand, type CliContext, type CliId, type CliIntegration, type ContextPack, type ContextRequest, type ContextSection, type CrewApproval, type CrewDecisionBy, type CrewJob, type CrewJobMode, type CrewJobStatus, type CrewSettings, type DeterministicCheck, type EduConfig, type EduEvent, type Engine, type EngineCapabilities, type EngineRunRequest, type FailureType, type FeedbackContext, HUMAN_APPROVERS, type HarnessLevel, INDEX_DIR, type InstallAction, type InstallManifest, type InstallScope, type InvocationPurpose, type Lang, type Note, type NoteMeta, type NoteOrigin, type OrchestrationMode, type OutcomeLabel, type ProgramOptions, type RecallHit, type RecallReason, type Requirement, type RoleId, type RoleSpec, TIER_DIRS, TRANSITIVE_PREFIX, type Tier, type TransitiveKind, type TransitiveStatus, type Usage, type UsageField, type UsageStats, type WorkspaceIdentity, createProgram };

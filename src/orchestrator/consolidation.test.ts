@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { openBrain } from '../brain/brain.js';
 import type { Engine, EngineRunRequest } from '../core/contracts.js';
-import { defaultConfig } from './config.js';
+import { defaultConfig } from '../workspace/config.js';
 import { orchestrate } from './run.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 it('normal run end consolidates observed structured corrections without another engine invocation', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'edu-run-consolidate-'));
@@ -17,7 +18,7 @@ it('normal run end consolidates observed structured corrections without another 
     await writeFile(join(root, 'playbooks', 'local.md'), '---\nname: local\ndescription: Local consolidation fixture\nharness: H3\nrequireSpecApproval: false\nmaxFixRounds: 0\n---\nPlan observable outcomes.\n');
     const requests: EngineRunRequest[] = [];
     const engine: Engine = {
-      cli: 'claude', available: async () => true,
+      cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true,
       async *run(request, agentId) {
         requests.push(request);
         const text = request.prompt.includes('Create a safe, concise execution plan')

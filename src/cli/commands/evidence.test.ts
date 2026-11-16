@@ -2,9 +2,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FakeEngine } from '../../engine/fake.js';
-import { defaultConfig } from '../../orchestrator/config.js';
-import { printCommand } from '../../test-support/shell.js';
-import { captureContext, out, runCli } from '../testkit.js';
+import { defaultConfig } from '../../workspace/config.js';
+import { nodeCommand, printCommand } from '../../test-support/shell.js';
+import { captureContext, err, out, runCli, type Captured } from '../../test-support/cli.js';
+import { engineCapabilities } from '../../engine/autonomy.js';
 
 describe('evidence CLI', () => {
   it('adds, lists, runs, and summarizes deterministic checks', async () => {
@@ -38,12 +39,14 @@ describe('evidence CLI', () => {
     let invocation = 0;
     c.ctx.availableClis = ['claude'];
     c.ctx.engineFactory = () => ({
-      cli: 'claude', available: async () => true,
+      cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true,
       async *run(request, agentId) {
         yield* new FakeEngine([{ type: 'agent.text', agentId, text: texts[invocation++] ?? 'done', at: new Date().toISOString() }]).run(request, agentId);
       },
     });
 
+    // The repository's checks run as registered ones once a person accepted them on this machine.
+    await runCli(c, ['checks', 'accept', '--yes']);
     await runCli(c, ['run', 'verify evidence path', '--harness', 'H3', '--yes']);
     expect(c.exitCode).toBeUndefined();
     expect(invocation).toBe(3);
@@ -59,5 +62,44 @@ describe('evidence CLI', () => {
     c.stdout.length = 0;
     await runCli(c, ['metrics', '--since', '3650d', '--by', 'level', '--json']);
     expect(JSON.parse(out(c))).toEqual([expect.objectContaining({ group: 'H3', n: 1, avsr: 1 })]);
+  });
+
+  it('never runs a repository\'s checks.json under --yes until a person accepts it, and again after it changes', async () => {
+    const c = await captureContext({ isTTY: false });
+    const brainRoot = join(c.dirs.cwd, '.edu');
+    await mkdir(join(brainRoot, 'harness'), { recursive: true });
+    await writeFile(join(brainRoot, 'config.json'), JSON.stringify({ ...defaultConfig('claude'), approvals: 'auto' }));
+    // A cloned repository ships a check with a side effect.
+    const shipped = (marker: string) => ({ id: 'repo', requirementIds: ['R1'], command: nodeCommand(`require('fs').writeFileSync('${marker}','x')`), expect: { exitCode: 0 }, timeoutMs: 10000 });
+    const ran = (marker: string) => readFile(join(c.dirs.cwd, marker), 'utf8').then(() => true, () => false);
+    const run = async (captured: Captured, check: ReturnType<typeof shipped>) => {
+      await writeFile(join(brainRoot, 'harness', 'checks.json'), JSON.stringify([check]));
+      const plan = { requirements: [{ id: 'R1', text: 'works' }], checks: [check], steps: [] };
+      captured.ctx.availableClis = ['claude'];
+      captured.ctx.engineFactory = () => ({ cli: 'claude', capabilities: engineCapabilities('claude'), available: async () => true,
+        async *run(request, agentId) {
+          const text = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}';
+          yield* new FakeEngine([{ type: 'agent.text', agentId, text, at: new Date().toISOString() }]).run(request, agentId);
+        } });
+      await runCli(captured, ['run', 'check the repo', '--harness', 'H3', '--yes']);
+    };
+    await run(c, shipped('first.txt'));
+    expect(await ran('first.txt')).toBe(false);
+    // Accepting is a person's decision: not from a pipe without --yes, never from a crew worker.
+    await runCli(c, ['checks', 'accept']);
+    expect(err(c)).toContain('person');
+    const worker = await captureContext({ env: { EDU_CREW_JOB: 'job-1' } });
+    worker.ctx.cwd = c.dirs.cwd; worker.ctx.env = { ...c.ctx.env, EDU_CREW_JOB: 'job-1' };
+    await runCli(worker, ['checks', 'accept', '--yes']);
+    expect(err(worker)).toContain('crew worker cannot accept');
+    c.stdout.length = 0;
+    await runCli(c, ['checks', 'list']);
+    expect(out(c)).toContain('Not accepted');
+    await runCli(c, ['checks', 'accept', '--yes']);
+    await run(c, shipped('first.txt'));
+    expect(await ran('first.txt')).toBe(true);
+    // A changed set is unregistered again until a person accepts it.
+    await run(c, shipped('second.txt'));
+    expect(await ran('second.txt')).toBe(false);
   });
 });

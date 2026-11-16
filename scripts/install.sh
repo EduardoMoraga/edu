@@ -4,14 +4,21 @@
 #
 # 1. Node.js >= 22: kept if present; on macOS with Homebrew, `brew install node`; otherwise it offers
 #    fnm (user-level, no sudo) or explains how to install Node. It never runs sudo.
-# 2. npm install -g <release asset>, then `edu setup --yes`.
+# 2. Downloads the release package and its SHA256SUMS from the release download URL on GitHub, checks the
+#    checksum, then npm install -g <the verified local file> and `edu setup --yes`.
 # 3. Next steps, in Spanish or English (EDU_LANG, else LC_ALL / LC_MESSAGES / LANG).
 #
 # Environment (or the matching flags, e.g. `curl ... | sh -s -- --yes --hosts claude,codex --join <url>`):
-#   EDU_ASSET        package to install (default: the latest GitHub release asset; a local .tgz works)
+#   EDU_ASSET        package to install: a release asset URL under
+#                    https://github.com/EduardoMoraga/edu/releases/download/<tag>/ (verified against that
+#                    release's SHA256SUMS), or a local .tgz you built yourself (installed as given).
+#                    Default: edu-agent.tgz of the latest release, verified.
+#   EDU_ALLOW_UNVERIFIED=1  --allow-unverified: also install a release older than 6.0, which has no
+#                    SHA256SUMS (not recommended). A 6.0+ release without SHA256SUMS is always refused.
 #   EDU_LANG         es | en
 #   EDU_DRY_RUN=1    print what would run instead of running it (used by scripts/smoke-install.sh)
 #   EDU_YES=1        --yes: never ask (accepts the fnm offer); any failed step makes the exit status 1
+#   EDU_ASSUME_NO=1  never ask and answer no (declines the fnm offer); EDU_YES=1 wins if both are set
 #   EDU_HOSTS=a,b    --hosts: only set up these CLIs (claude, codex, pi, opencode, agy); default: detected
 #   EDU_JOIN=<url>   --join: after setup, run `edu join <url> --cloud` (shared brain for cloud sandboxes).
 #                    Credentials come from GH_TOKEN or a credential helper; never put them in the URL.
@@ -25,12 +32,14 @@ while [ $# -gt 0 ]; do
     --join) shift; EDU_JOIN="${1:-}" ;;
     --join=*) EDU_JOIN="${1#--join=}" ;;
     --dry-run) EDU_DRY_RUN=1 ;;
+    --allow-unverified) EDU_ALLOW_UNVERIFIED=1 ;;
     *) printf '  Unknown option: %s\n' "$1" >&2; exit 2 ;;
   esac
   [ $# -gt 0 ] && shift
 done
 
-ASSET="${EDU_ASSET:-https://github.com/EduardoMoraga/edu/releases/latest/download/edu-agent.tgz}"
+ASSET="${EDU_ASSET:-}"
+RELEASES=https://github.com/EduardoMoraga/edu/releases
 NODE_MAJOR=22
 DRY_RUN="${EDU_DRY_RUN:-0}"
 
@@ -56,6 +65,53 @@ run() {
 
 FAILED=0
 
+# Downloads a release package and its SHA256SUMS only from $RELEASES/download/<tag>/, checks the checksum
+# and prints the path of the verified local file (exit 3 and a message otherwise). Node >= 22 is already
+# there, so this needs no curl, sha256sum or shasum. EDU_DL_DIR, EDU_DL_ASSET, EDU_ALLOW_UNVERIFIED.
+VERIFY_JS='
+const { createHash } = require("node:crypto");
+const { writeFileSync } = require("node:fs");
+const { join } = require("node:path");
+const PREFIX = "https://github.com/EduardoMoraga/edu/releases/download/";
+const fail = (message) => { console.error("  " + message); process.exit(3); };
+(async () => {
+  const asset = process.env.EDU_DL_ASSET || "";
+  let tag; let name;
+  if (asset) {
+    const parts = asset.startsWith(PREFIX) ? asset.slice(PREFIX.length).split("/") : [];
+    if (parts.length !== 2) fail(`Refusing ${asset}: Edu installs only release packages from ${PREFIX}<tag>/ (or a local .tgz file).`);
+    [tag, name] = parts;
+  } else {
+    const latest = await fetch("https://github.com/EduardoMoraga/edu/releases/latest", { method: "HEAD", redirect: "follow" });
+    const match = /\/releases\/tag\/([^/?#]+)$/.exec(latest.url || "");
+    if (!match) fail("Could not find the latest Edu release on GitHub.");
+    tag = decodeURIComponent(match[1]); name = "edu-agent.tgz";
+  }
+  if (!/^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(tag) || !/^edu-agent[\w.-]*\.tgz$/.test(name)) fail(`Refusing ${asset || tag}: not an Edu release package.`);
+  const get = async (file) => {
+    const response = await fetch(PREFIX + tag + "/" + file, { redirect: "follow" });
+    if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status} for ${PREFIX}${tag}/${file}`), { status: response.status });
+    return Buffer.from(await response.arrayBuffer());
+  };
+  const data = await get(name);
+  const actual = createHash("sha256").update(data).digest("hex");
+  let sums;
+  try { sums = (await get("SHA256SUMS")).toString("utf8"); } catch (error) { if (error.status !== 404) throw error; }
+  if (sums === undefined) {
+    if (Number(tag.replace(/^v/, "").split(".")[0]) >= 6) fail(`Release ${tag} publishes no SHA256SUMS, so its package cannot be verified. Nothing was installed.`);
+    if (process.env.EDU_ALLOW_UNVERIFIED !== "1") fail(`Release ${tag} predates verified releases (no SHA256SUMS). Run again with --allow-unverified to install it anyway (not recommended).`);
+    console.error(`  WARNING: installing ${tag} WITHOUT a checksum check (--allow-unverified).`);
+  } else {
+    const line = sums.split(/\r?\n/).map((text) => /^([0-9a-fA-F]{64}) [ *](\S.*)$/.exec(text.trimEnd())).find((found) => found && found[2] === name);
+    if (!line) fail(`SHA256SUMS of ${tag} lists no ${name}. Nothing was installed.`);
+    if (line[1].toLowerCase() !== actual) fail(`Checksum mismatch for ${name}: SHA256SUMS says ${line[1].toLowerCase()}, the download is ${actual}. Nothing was installed.`);
+  }
+  const file = join(process.env.EDU_DL_DIR, name);
+  writeFileSync(file, data);
+  process.stdout.write(file);
+})().catch((error) => fail(`Could not download Edu: ${error.message}`));
+'
+
 node_major() {
   command -v node >/dev/null 2>&1 || { echo 0; return; }
   node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0
@@ -65,6 +121,7 @@ node_ok() { [ "$(node_major)" -ge "$NODE_MAJOR" ]; }
 
 ask_yes() {
   [ "${EDU_YES:-0}" = 1 ] && return 0
+  [ "${EDU_ASSUME_NO:-0}" = 1 ] && return 1
   # A terminal must be openable (curl | sh keeps stdin busy; CI and Docker have no tty).
   (: </dev/tty) 2>/dev/null || return 1
   printf '  %s [y/N] ' "$1"
@@ -120,7 +177,23 @@ echo
 ensure_node
 
 msg 'Installing Edu...' 'Instalando Edu...'
-run npm install -g "$ASSET" --no-fund --no-audit
+if [ -n "$ASSET" ] && [ -f "$ASSET" ]; then
+  # A local package you built or downloaded yourself: installed as given.
+  msg "Using the local package $ASSET (not checksum-verified)." "Usando el paquete local $ASSET (sin verificar checksum)."
+  run npm install -g "$ASSET" --no-fund --no-audit
+elif [ "$DRY_RUN" = 1 ]; then
+  printf '  [dry-run] download %s and SHA256SUMS from %s/download/<tag>/ and verify the checksum\n' "$(redact "${ASSET:-edu-agent.tgz}")" "$RELEASES"
+  run npm install -g '<verified edu-agent.tgz>' --no-fund --no-audit
+else
+  DL_DIR="$(mktemp -d)"
+  trap 'rm -rf "$DL_DIR"' EXIT
+  PACKAGE="$(EDU_DL_DIR="$DL_DIR" EDU_DL_ASSET="$ASSET" EDU_ALLOW_UNVERIFIED="${EDU_ALLOW_UNVERIFIED:-0}" node -e "$VERIFY_JS")" || {
+    msg 'Edu was not installed: the release package could not be downloaded and verified (see above).' \
+        'Edu no se instaló: no se pudo descargar y verificar el paquete de la versión (ver arriba).'
+    exit 1
+  }
+  run npm install -g "$PACKAGE" --no-fund --no-audit
+fi
 
 EDU=edu
 if [ "$DRY_RUN" != 1 ] && ! command -v edu >/dev/null 2>&1; then

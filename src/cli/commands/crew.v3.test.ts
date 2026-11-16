@@ -1,40 +1,77 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createCrewStore } from '../../crew/store.js';
-import { captureContext, out, runCli } from '../testkit.js';
+import { approvalDir, createCrewStore } from '../../crew/store.js';
+import { captureContext, err, out, runCli, type Captured } from '../../test-support/cli.js';
+
+/** A paused orchestration in `root` with an open approval gate; its decisions live in the global home. */
+async function paused(captured: Captured, root: string) {
+  const store = createCrewStore(root, { globalRoot: captured.dirs.eduHome });
+  const job = await store.create({ cli: 'claude', task: 'Goal', goal: 'Goal', kind: 'orchestration', mode: 'headless', cwd: captured.dirs.cwd, autonomy: 'auto' });
+  const gated = await store.openApproval(job.id, { title: 'Approve spec' });
+  const decisionPath = join(approvalDir(captured.dirs.eduHome, root), `${job.id}.decision`);
+  return { store, job, requestId: gated.approval!.requestId, decisionPath, decision: async () => JSON.parse(await readFile(decisionPath, 'utf8')) };
+}
 
 describe('edu crew approval commands', () => {
-  it('writes a one-shot decision for a paused orchestration', async () => {
+  it('writes a one-shot decision for the open gate in the global home, attributed to the CLI', async () => {
     const captured = await captureContext();
     const root = join(captured.dirs.cwd, '.edu');
     await mkdir(root);
-    const store = createCrewStore(root);
-    const job = await store.create({ cli: 'claude', task: 'Goal', goal: 'Goal', kind: 'orchestration', mode: 'headless', cwd: captured.dirs.cwd, autonomy: 'auto' });
-    await store.update(job.id, { status: 'awaiting-approval' });
-    await runCli(captured, ['crew', 'approve', job.id]);
-    expect(out(captured)).toContain(job.id);
-    expect(await readFile(join(root, 'crew', `${job.id}.decision`), 'utf8')).toBe('approve');
+    const gate = await paused(captured, root);
+    await runCli(captured, ['crew', 'approve', gate.job.id]);
+    expect(out(captured)).toContain(gate.job.id);
+    expect(gate.decisionPath.startsWith(captured.dirs.eduHome)).toBe(true);
+    expect(await gate.decision()).toMatchObject({ requestId: gate.requestId, approve: true, by: 'cli' });
+    expect(await gate.store.takeDecision(gate.job.id)).toEqual({ approve: true, by: 'cli' });
+    // The machine-local folder of a synced global home stays out of git.
+    expect(await readFile(join(captured.dirs.eduHome, '.gitignore'), 'utf8')).toContain('.edu-local/');
   });
 
-  it('writes rejection for a paused orchestration', async () => {
+  it('answers a second decision for the same gate without a raw file error', async () => {
     const captured = await captureContext();
     const root = join(captured.dirs.cwd, '.edu');
     await mkdir(root);
-    const store = createCrewStore(root);
-    const job = await store.create({ cli: 'claude', task: 'Goal', goal: 'Goal', kind: 'orchestration', mode: 'headless', cwd: captured.dirs.cwd, autonomy: 'auto' });
-    await store.update(job.id, { status: 'awaiting-approval' });
-    await runCli(captured, ['crew', 'reject', job.id]);
-    expect(await readFile(join(root, 'crew', `${job.id}.decision`), 'utf8')).toBe('reject');
+    const gate = await paused(captured, root);
+    await runCli(captured, ['crew', 'approve', gate.job.id]);
+    await runCli(captured, ['crew', 'reject', gate.job.id]);
+    expect(captured.exitCode).toBe(1);
+    expect(err(captured)).toContain('already pending');
+    expect(err(captured)).not.toMatch(/EEXIST|link '/);
+  });
+
+  it('writes a rejection naming the reviewed request, attributed to the Deck', async () => {
+    const captured = await captureContext();
+    const root = join(captured.dirs.cwd, '.edu');
+    await mkdir(root);
+    const gate = await paused(captured, root);
+    await runCli(captured, ['crew', 'reject', gate.job.id.slice(0, 8), '--request', gate.requestId, '--via', 'deck']);
+    expect(await gate.decision()).toMatchObject({ requestId: gate.requestId, approve: false, by: 'deck' });
+  });
+
+  it('refuses a request that is not the open gate, a forged channel, and any crew worker', async () => {
+    const captured = await captureContext();
+    const root = join(captured.dirs.cwd, '.edu');
+    await mkdir(root);
+    const gate = await paused(captured, root);
+    await runCli(captured, ['crew', 'approve', gate.job.id, '--request', 'an-older-request']);
+    expect(captured.exitCode).toBe(1);
+    expect(err(captured)).toContain('is not the one');
+    await runCli(captured, ['crew', 'approve', gate.job.id, '--via', 'host-llm']);
+    expect(err(captured)).toContain('--via must be cli or deck');
+    captured.ctx.env = { ...captured.ctx.env, EDU_CREW_JOB: 'worker-1' };
+    await runCli(captured, ['crew', 'approve', gate.job.id, '--request', gate.requestId]);
+    expect(err(captured)).toContain('crew worker cannot approve');
+    await expect(readFile(gate.decisionPath, 'utf8')).rejects.toThrow();
+    // Nothing lands in the workspace either: a decision never lives there.
+    await expect(readFile(join(root, 'crew', `${gate.job.id}.decision`), 'utf8')).rejects.toThrow();
   });
 
   it('finds detached jobs in the global brain when the project has no local brain', async () => {
     const captured = await captureContext();
     const root = captured.dirs.eduHome;
-    const store = createCrewStore(root);
-    const job = await store.create({ cli: 'claude', task: 'Goal', goal: 'Goal', kind: 'orchestration', mode: 'headless', cwd: captured.dirs.cwd, autonomy: 'auto' });
-    await store.update(job.id, { status: 'awaiting-approval' });
-    await runCli(captured, ['crew', 'approve', job.id]);
-    expect(await readFile(join(root, 'crew', `${job.id}.decision`), 'utf8')).toBe('approve');
+    const gate = await paused(captured, root);
+    await runCli(captured, ['crew', 'approve', gate.job.id]);
+    expect(await gate.decision()).toMatchObject({ requestId: gate.requestId, approve: true });
   });
 });

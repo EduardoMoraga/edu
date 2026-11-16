@@ -5,21 +5,23 @@
  * the job store directly from disk. Assumed format (written by `src/crew/`):
  *
  *   <brainRoot>/crew/<jobId>.json   job meta: { id, cli, task, status, createdAt,
- *                                    endedAt?, summary?, mode?, ... } where status is
- *                                    queued | running | done | failed | cancelled
+ *                                    endedAt?, summary?, mode?, ... } where status is one
+ *                                    of CREW_JOB_STATUSES (src/crew/status.ts)
  *   <jobId>.jsonl                   EduEvents, one JSON object per line, append-only
  *
  * Each job becomes one agent in the tree (id = jobId, role = "<cli> <id6>").
  * Agent events inside a job's stream are re-homed onto that agent, or onto a
  * namespaced child (`<jobId>/<agentId>`) when the stream spawned it. Job-level
  * run events and approvals are dropped: the watcher has its own run and
- * cannot answer a worker's approvals.
+ * cannot answer a worker's approvals. A job waiting for approval shows as
+ * `awaiting-approval`, and the job's final status always has the last word.
  */
 import { open, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AgentStatus, CliId, EduEvent } from '../core/contracts.js';
+import type { AgentStatus, CliId, CrewJobStatus, EduEvent } from '../core/contracts.js';
+import { isCrewJobStatus, isTerminalCrewJobStatus } from '../crew/status.js';
 
-export type CrewJobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+export type { CrewJobStatus } from '../core/contracts.js';
 
 /** The job fields the watcher reads (a structural subset of the store's CrewJob). */
 export interface CrewJobInfo {
@@ -45,9 +47,6 @@ export interface CrewSource {
   /** Events appended to a job's log after `offset` (0 = from the start). */
   read(jobId: string, offset: number): Promise<CrewChunk>;
 }
-
-const STATUSES: ReadonlySet<string> = new Set(['queued', 'running', 'done', 'failed', 'cancelled']);
-const TERMINAL: ReadonlySet<CrewJobStatus> = new Set(['done', 'failed', 'cancelled']);
 
 /** Reads `<brainRoot>/crew/*.json` and tails `<jobId>.jsonl` by byte offset. */
 export function fsCrewSource(brainRoot: string, refresh?: (jobId: string) => Promise<unknown>): CrewSource {
@@ -81,12 +80,12 @@ async function readJob(path: string): Promise<CrewJobInfo | undefined> {
     const raw: unknown = JSON.parse(await readFile(path, 'utf8'));
     if (!raw || typeof raw !== 'object') return undefined;
     const job = raw as Record<string, unknown>;
-    if (typeof job.id !== 'string' || typeof job.status !== 'string' || !STATUSES.has(job.status)) return undefined;
+    if (typeof job.id !== 'string' || !isCrewJobStatus(job.status)) return undefined;
     return {
       id: job.id,
-      cli: String(job.cli ?? 'claude') as CliId,
+      cli: (typeof job.cli === 'string' ? job.cli : 'claude') as CliId,
       task: typeof job.task === 'string' ? job.task : '',
-      status: job.status as CrewJobStatus,
+      status: job.status,
       createdAt: typeof job.createdAt === 'string' ? job.createdAt : undefined,
       endedAt: typeof job.endedAt === 'string' ? job.endedAt : undefined,
       summary: typeof job.summary === 'string' ? job.summary : undefined,
@@ -148,7 +147,13 @@ interface Tracked {
   job: CrewJobInfo;
   offset: number;
   spawned: Set<string>;
+  /** The job's own stream ended its agent, with this outcome. */
   ended: boolean;
+  endedOk?: boolean;
+  /** The job's final status was rendered. */
+  final: boolean;
+  /** The last status the watcher showed for the job agent. */
+  shown?: AgentStatus;
 }
 
 /** Merges every matching job into one live stream for the App. */
@@ -167,27 +172,33 @@ export async function* watchCrew(source: CrewSource, opts: WatchOptions = {}): A
     }
     for (const job of jobs) {
       let t = tracked.get(job.id);
+      const fresh = !t;
       if (!t) {
-        t = { job, offset: 0, spawned: new Set(), ended: false };
+        t = { job, offset: 0, spawned: new Set(), ended: false, final: false };
         tracked.set(job.id, t);
-        const at = job.createdAt ?? now();
-        yield { type: 'agent.spawn', agentId: job.id, role: `${job.cli} ${job.id.slice(0, 6)}`, cli: job.cli, task: job.task, at };
-        if (job.status !== 'queued') yield { type: 'agent.status', agentId: job.id, status: 'running', at };
-      } else if (t.job.status === 'queued' && job.status !== 'queued') {
-        yield { type: 'agent.status', agentId: job.id, status: 'running', at: now() };
+        yield { type: 'agent.spawn', agentId: job.id, role: `${job.cli} ${job.id.slice(0, 6)}`, cli: job.cli, task: job.task, at: job.createdAt ?? now() };
       }
       t.job = job;
+      // Live statuses come from the job record: running, or paused for an approval.
+      const live: AgentStatus | undefined = job.status === 'awaiting-approval' ? 'awaiting-approval' : job.status === 'running' || (isTerminalCrewJobStatus(job.status) && fresh) ? 'running' : undefined;
+      if (live && live !== t.shown) {
+        t.shown = live;
+        yield { type: 'agent.status', agentId: job.id, status: live, at: fresh ? job.createdAt ?? now() : now() };
+      }
       const chunk = await source.read(job.id, t.offset);
       t.offset = chunk.offset;
       for (const event of chunk.events) {
         const mapped = rehome(t, event);
         if (mapped) yield mapped;
       }
-      if (TERMINAL.has(job.status) && !t.ended) {
-        t.ended = true;
+      if (isTerminalCrewJobStatus(job.status) && !t.final) {
+        t.final = true;
         const at = job.endedAt ?? now();
+        // The job's final status overrides what its stream said: a run can end ok and still fail afterwards.
+        const agrees = t.ended && job.status !== 'cancelled' && t.endedOk === (job.status === 'done');
         if (job.status === 'cancelled') yield { type: 'agent.status', agentId: job.id, status: 'cancelled' satisfies AgentStatus, at };
-        else yield { type: 'agent.end', agentId: job.id, ok: job.status === 'done', summary: job.summary ?? '', at };
+        else if (!agrees) yield { type: 'agent.end', agentId: job.id, ok: job.status === 'done', summary: job.summary ?? '', at };
+        t.ended = true;
       }
     }
     if (opts.follow === false) return;
@@ -211,7 +222,7 @@ function rehome(t: Tracked, event: EduEvent): EduEvent | undefined {
       t.spawned.add(event.agentId);
       return { ...event, agentId: id(event.agentId), parentId: event.parentId && t.spawned.has(event.parentId) ? id(event.parentId) : jobId };
     case 'agent.end':
-      if (id(event.agentId) === jobId) t.ended = true;
+      if (id(event.agentId) === jobId) { t.ended = true; t.endedOk = event.ok; }
       return { ...event, agentId: id(event.agentId) };
     case 'agent.status':
     case 'agent.text':

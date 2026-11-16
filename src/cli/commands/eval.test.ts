@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Command } from 'commander';
 import { describe, expect, it } from 'vitest';
-import { captureContext, err, out } from '../testkit.js';
+import { captureContext, err, out } from '../../test-support/cli.js';
 import { registerEvaluation } from './eval.js';
 
 const costs = { inputTokens: 1, outputTokens: 1, acquisitionTokens: 1, reflectionTokens: 1, wallMs: 1, humanInterventions: 0 };

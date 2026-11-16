@@ -1,7 +1,7 @@
 import { access, readFile, readdir } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { captureContext, out, runCli } from './testkit.js';
+import { captureContext, out, runCli } from '../test-support/cli.js';
 
 const missing = (path: string) => access(path).then(() => false, () => true);
 
@@ -24,7 +24,19 @@ describe('edu init', () => {
     for (const dir of ['brain/1-canonical', 'brain/2-episodic', 'brain/3-transitive', 'runs', 'proposals']) {
       expect(await missing(join(root, dir))).toBe(false);
     }
-    expect(out(c)).toContain('edu install --cli codex');
+    // `edu setup` is the main command; a bare `edu install` would only integrate this project.
+    expect(out(c)).toMatch(/^ {2}edu setup +connect Edu to your coding CLIs$/m);
+    expect(out(c)).not.toContain('edu install');
+    expect(out(c)).toContain('edu demo');
+    expect(out(c)).toContain('edu run "<goal>"');
+  });
+
+  it('suggests edu setup in Spanish too', async () => {
+    const c = await captureContext({ detected: ['claude'] });
+    await runCli(c, ['--lang', 'es', 'init']);
+    expect(out(c)).toContain('Siguientes pasos:');
+    expect(out(c)).toMatch(/^ {2}edu setup +conecta Edu con tus CLI de código$/m);
+    expect(out(c)).not.toContain('edu install');
   });
 
   it('is idempotent and keeps an existing config', async () => {
@@ -88,6 +100,17 @@ describe('edu install', () => {
     await runCli(c, ['install', '--dry-run']);
     expect(c.exitCode).toBe(1);
     expect(c.stderr.join('\n')).toContain('--cli all');
+  });
+
+  it('names a user value it kept instead of overwriting it', async () => {
+    const c = await captureContext();
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    await mkdir(join(c.dirs.cwd, '.claude'), { recursive: true });
+    await writeFile(join(c.dirs.cwd, '.claude/settings.json'), '{"statusLine":{"type":"command","command":"mine"}}\n');
+    await runCli(c, ['install', '--cli', 'claude', '--yes']);
+    expect(c.exitCode).toBeUndefined();
+    expect(out(c)).toContain(`! Kept your own statusLine in ${join(c.dirs.cwd, '.claude/settings.json')}`);
+    expect(JSON.parse(await readFile(join(c.dirs.cwd, '.claude/settings.json'), 'utf8')).statusLine.command).toBe('mine');
   });
 
   it('installs and uninstalls round-trip with --yes', async () => {

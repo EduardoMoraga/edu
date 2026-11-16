@@ -6,11 +6,11 @@ import { pathsFor } from './paths.js';
 import { createIntegration } from './integration.js';
 
 async function plan(scope: InstallScope, root: string, options: IntegrationOptions): Promise<PlannedAction[]> {
-  const paths = pathsFor('pi', scope, root, options.home);
+  const paths = pathsFor('pi', scope, root, options.home, options.dirs);
   return [
     ...instructionActions('pi', scope, root, options),
     ...await skillActions('pi', scope, root, options),
-    { cli: 'pi', kind: 'json-merge', path: paths.mcp!, description: 'Register Edu MCP server', jsonPatch: { mcpServers: { edu: { ...eduMcpLaunch() } } } },
+    { cli: 'pi', kind: 'json-merge', path: paths.mcp!, description: 'Register Edu MCP server', jsonPatch: { mcpServers: { edu: { ...eduMcpLaunch(options.platform) } } } },
   ];
 }
 

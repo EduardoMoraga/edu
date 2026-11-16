@@ -8,10 +8,10 @@ import { createChannel } from '../cli/run/channel.js';
 import type { EduEvent } from '../core/contracts.js';
 import { UNICODE_GLYPHS, createTheme } from '../identity/index.js';
 import { App, type AppProps } from './App.js';
-import { fixtureAt, oauthRun } from './fixtures.js';
+import { fixtureAt, oauthRun } from '../test-support/tui-events.js';
+import { press as pressKey, type as typeKeys, until } from '../test-support/ink.js';
 
 const plain = createTheme(0);
-const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 const mount = (props: Partial<AppProps> = {}) =>
   render(<App events={oauthRun()} theme={plain} glyphs={UNICODE_GLYPHS} columns={100} rows={30} view="list" {...props} />);
 
@@ -24,17 +24,8 @@ afterEach(() => {
 const frame = () => instance!.lastFrame()!;
 /** Frame text without the box drawing, so wrapped words can be searched. */
 const flat = () => frame().replace(/[│╭╮╰╯─┌┐└┘├┤┬┴┼]/g, ' ').replace(/\s+/g, ' ');
-async function type(text: string) {
-  for (const ch of text) {
-    instance!.stdin.write(ch);
-    await tick(4);
-  }
-  await tick();
-}
-async function press(seq: string) {
-  instance!.stdin.write(seq);
-  await tick();
-}
+const type = (text: string) => typeKeys(instance!, text);
+const press = (seq: string) => pressKey(instance!, seq);
 
 const KEYS = { up: '\u001B[A', down: '\u001B[B', left: '\u001B[D', right: '\u001B[C', home: '\u001B[H', end: '\u001B[F', pgUp: '\u001B[5~', esc: '\u001B', tab: '\t', enter: '\r', altEnter: '\u001B\r' };
 
@@ -84,16 +75,17 @@ describe('focus pane scrolling', () => {
     const channel = createChannel<EduEvent>();
     for (const e of single(many(1, 40))) channel.push(e);
     instance = mount({ events: channel });
-    await tick(40);
-    expect(frame()).toContain('line-40');
+    await until(() => expect(frame()).toContain('line-40'));
 
     await press(KEYS.tab); // agents → focus
     await press(KEYS.pgUp);
     expect(frame()).not.toContain('line-40');
     const pinned = frame().match(/line-\d+/g)!;
+    const newer = () => Number(/(\d+) newer lines below/.exec(frame())?.[1] ?? 0);
+    const before = newer();
 
     for (const e of many(41, 5)) channel.push(e);
-    await tick(40);
+    await until(() => expect(newer()).toBe(before + 5));
     expect(frame().match(/line-\d+/g)).toEqual(pinned);
     expect(frame()).toMatch(/\d+ newer lines below/);
 
@@ -105,7 +97,6 @@ describe('focus pane scrolling', () => {
 
   it('scrolls line by line with arrows in the focus pane', async () => {
     instance = mount({ events: single(many(1, 40)) });
-    await tick();
     await press(KEYS.tab);
     await press(KEYS.up);
     expect(frame()).not.toContain('line-40');
@@ -119,7 +110,6 @@ describe('multi-line composer', () => {
   it('edits with cursor keys, inserts newlines with alt+enter and submits the whole text', async () => {
     const onSubmit = vi.fn();
     instance = mount({ events: [], onSubmit });
-    await tick();
     await type('ab');
     await press(KEYS.altEnter);
     await type('cd');
@@ -137,7 +127,6 @@ describe('multi-line composer', () => {
   it('accepts pasted chunks (plain and bracketed) and clears with esc', async () => {
     const onSubmit = vi.fn();
     instance = mount({ events: [], onSubmit });
-    await tick();
     await press('pasted words here');
     expect(frame()).toContain('pasted words here');
     await press('\u001B[200~one\ntwo\u001B[201~');
@@ -150,7 +139,6 @@ describe('multi-line composer', () => {
 
   it('grows up to five rows and then scrolls', async () => {
     instance = mount({ events: [], onSubmit: () => {} });
-    await tick();
     for (let i = 1; i <= 7; i++) {
       await type(`row${i}`);
       if (i < 7) await press(KEYS.altEnter);
@@ -165,7 +153,6 @@ describe('command palette and help', () => {
   it('opens on / in an empty composer, filters, and runs the selection', async () => {
     const onApprove = vi.fn();
     instance = mount({ onApprove, onSubmit: () => {} });
-    await tick();
     await type('/');
     expect(frame()).toContain('COMMANDS');
     expect(frame()).toContain('/help');
@@ -181,7 +168,6 @@ describe('command palette and help', () => {
   it('moves the selection with arrows and completes commands that take arguments', async () => {
     const onCommand = vi.fn(() => 'found 2 notes');
     instance = mount({ events: [], onSubmit: () => {}, onCommand });
-    await tick();
     await type('/re');
     await press(KEYS.down); // reject → recall
     await press(KEYS.enter);
@@ -189,13 +175,11 @@ describe('command palette and help', () => {
     await type('oauth');
     await press(KEYS.enter);
     expect(onCommand).toHaveBeenCalledWith('recall', 'oauth');
-    await tick();
-    expect(frame()).toContain('found 2 notes');
+    await until(() => expect(frame()).toContain('found 2 notes'));
   });
 
   it('switches the interface to Spanish with /lang es', async () => {
     instance = mount({ events: [], onSubmit: () => {} });
-    await tick();
     await type('/lang es');
     await press(KEYS.enter);
     expect(frame()).toContain('AGENTES');
@@ -203,7 +187,6 @@ describe('command palette and help', () => {
 
   it('offers crew actions only in watch mode', async () => {
     instance = mount({ events: [], onSubmit: () => {}, crew: true });
-    await tick();
     await type('/');
     expect(frame()).toContain('/dispatch');
     expect(frame()).toContain('/status');
@@ -211,14 +194,12 @@ describe('command palette and help', () => {
 
   it('opens the palette from the agents pane too, and ? shows help from an empty composer', async () => {
     instance = mount();
-    await tick();
     await type('/');
     expect(frame()).toContain('COMMANDS');
     await press(KEYS.esc);
     expect(frame()).not.toContain('COMMANDS');
     instance.unmount();
     instance = mount({ events: [], onSubmit: () => {} });
-    await tick();
     await type('?');
     expect(frame()).toContain('KEYS');
     expect(frame()).toContain('alt+enter');
@@ -228,7 +209,6 @@ describe('command palette and help', () => {
 describe('Spanish locale', () => {
   it('renders TUI labels, placeholders and help in Spanish', async () => {
     instance = mount({ events: [], onSubmit: () => {}, lang: 'es' });
-    await tick();
     expect(frame()).toContain('esperando una ejecución');
     expect(frame()).toContain('AGENTES');
     expect(frame()).toContain('aún no hay agentes');

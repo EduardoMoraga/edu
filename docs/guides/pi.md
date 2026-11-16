@@ -32,7 +32,8 @@ Ask: **"what do you remember?"** Pi should call `edu_brief`. `pi list` shows the
   the editor that appears only while jobs run or wait for approval. `/edu-deck` opens the
   full deck (context, brain, spec, last 8 jobs, recent notes); `esc` closes it. It reads
   `edu deck --json` every 3 seconds without blocking Pi; with an older `edu` it shows the
-  identity only.
+  identity only. While `edu deck` fails, the pause between reads doubles, up to one minute;
+  `/edu-deck` still reads at once.
 - **`edu` theme** (warm accent on dark): pick it in `/settings`, or set `"theme": "edu"` in
   `~/.pi/agent/settings.json`. Edu never changes your theme for you.
 - Prompts: `/edu-brief`, `/edu-recall <topic>`, `/edu-remember <note>`, `/edu-reflect`,

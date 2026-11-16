@@ -3,10 +3,10 @@ import { realpathSync } from 'node:fs';
 import type { Command } from 'commander';
 import { globalHome, type CliContext } from '../context.js';
 import { action, printJson } from '../kit.js';
-import { conflictBranches, findVault, readSyncState, remoteUrl, syncBrain, writeSyncState, type SyncResult } from '../../vault/sync.js';
-import { installSchedule, notify, scheduleStatus, uninstallSchedule, type ScheduleResult, type ScheduleStatus } from '../../vault/sync-service.js';
+import { conflictBranches, findVault, readSyncState, remoteUrl, syncBrain, trackedConflictCopies, writeSyncState, type SyncResult } from '../../vault/sync.js';
+import { installSchedule, legacySchedules, notify, replaceLegacySchedules, scheduleStatus, uninstallSchedule, type ScheduleResult, type ScheduleStatus } from '../../vault/sync-service.js';
 
-interface SyncOpts { status?: boolean; install?: boolean; uninstall?: boolean; minutes?: string; cloud?: boolean; host?: string; vault?: string; reason?: string; json?: boolean }
+interface SyncOpts { status?: boolean; install?: boolean; uninstall?: boolean; replaceLegacy?: boolean; yes?: boolean; minutes?: string; cloud?: boolean; host?: string; vault?: string; reason?: string; json?: boolean }
 
 const ALERT = new Set(['conflict', 'error']);
 
@@ -21,11 +21,12 @@ export function describeSync(result: SyncResult | undefined, now = Date.now()): 
 const userHome = (ctx: CliContext) => process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home;
 
 /** Schedules `edu sync` with this node and CLI; keeps a non-default EDU_HOME and cloud mode. */
-export async function scheduleSync(ctx: CliContext, options: { minutes: number; cloud?: boolean }): Promise<ScheduleResult> {
+export async function scheduleSync(ctx: CliContext, options: { minutes: number; cloud?: boolean; vault?: string }): Promise<ScheduleResult> {
   const eduHome = globalHome(ctx);
+  const vault = options.vault ?? await findVault(eduHome, ctx.env).catch(() => undefined);
   return installSchedule({
     home: userHome(ctx), eduHome, node: process.execPath, cli: realpathSync(process.argv[1] ?? ''), minutes: options.minutes, path: ctx.env.PATH,
-    args: options.cloud ? ['--cloud'] : [], env: ctx.env.EDU_HOME ? { EDU_HOME: eduHome } : {},
+    args: options.cloud ? ['--cloud'] : [], env: ctx.env.EDU_HOME ? { EDU_HOME: eduHome } : {}, vault,
   });
 }
 
@@ -43,6 +44,8 @@ export interface SyncStatus {
   scheduler: ScheduleStatus;
   /** `sync-conflict/*` branches known on this machine (local or fetched). */
   conflictBranches: string[];
+  /** Conflict copies still tracked in the vault, including earlier syncs. */
+  conflictCopies: { path: string; local: string }[];
 }
 
 export async function syncStatus(ctx: CliContext, vaultOption?: string): Promise<SyncStatus> {
@@ -52,8 +55,9 @@ export async function syncStatus(ctx: CliContext, vaultOption?: string): Promise
   return {
     last, vault: vault ?? null,
     remote: vault ? await remoteUrl(vault, ctx.env) ?? null : null,
-    scheduler: await scheduleStatus({ home: userHome(ctx), eduHome }),
+    scheduler: await scheduleStatus({ home: userHome(ctx), eduHome, vault }),
     conflictBranches: vault ? await conflictBranches(vault, ctx.env) : [],
+    conflictCopies: vault ? await trackedConflictCopies(vault, ctx.env) : [],
   };
 }
 
@@ -61,15 +65,18 @@ export function printSync(ctx: CliContext, result: SyncResult): void {
   ctx.out(`Sync: ${describeSync(result)}`);
   for (const file of result.resolved) ctx.out(`  kept upstream: ${file}`);
   for (const file of result.merged ?? []) ctx.out(`  merged both sides: ${file}`);
+  for (const copy of result.conflictCopies ?? []) ctx.out(`  conflict copy: ${copy.path} → ${copy.local}`);
   if (result.branch) ctx.out(`  conflict branch: ${result.branch}`);
 }
 
 export function registerSync(program: Command, ctx: CliContext): void {
   program.command('sync')
-    .description('sync the shared brain with GitHub: generated files never block, conflicts go to a branch')
+    .description('sync the shared brain with GitHub: conflicting notes keep both versions')
     .option('--status', 'show the last sync, remote, scheduler and open conflict branches')
     .option('--install', 'run the sync on a schedule (systemd user timer, macOS LaunchAgent or Windows Task Scheduler)')
     .option('--uninstall', 'remove the scheduled sync')
+    .option('--replace-legacy', 'with --install, remove detected older sync agents after confirmation')
+    .option('-y, --yes', 'confirm --replace-legacy without prompting')
     .option('--minutes <n>', 'schedule interval with --install', '5')
     .option('--cloud', 'cloud sandbox: keep usage counters and Obsidian bases local')
     .option('--host <name>', 'machine label in commit messages and conflict branches')
@@ -80,16 +87,19 @@ export function registerSync(program: Command, ctx: CliContext): void {
       const eduHome = globalHome(ctx);
       const json = g.json || opts.json;
       const cloud = Boolean(opts.cloud) || ctx.env.EDU_SYNC_CLOUD === '1';
+      if (opts.replaceLegacy && !opts.install) throw new Error('--replace-legacy requires --install');
       if (opts.status) {
         const status = await syncStatus(ctx, opts.vault);
         if (json) return printJson(ctx, status);
         const last = status.last ?? undefined;
         ctx.out(`Sync: ${describeSync(last)}`);
+        for (const copy of status.conflictCopies) ctx.out(`Conflict copy: ${copy.path} → ${copy.local}`);
         if (last?.branch) ctx.out(`Conflict branch: ${last.branch}`);
         ctx.out(`Remote: ${status.remote ?? 'none'}`);
         ctx.out(`Scheduler: ${status.scheduler.installed ? `${status.scheduler.kind} (installed)` : 'not installed'}`);
+        for (const file of status.scheduler.legacy) ctx.out(`Legacy sync agent: ${file}`);
         ctx.out(`Open sync-conflict branches: ${status.conflictBranches.length}${status.conflictBranches.length ? ` (${status.conflictBranches.join(', ')})` : ''}`);
-        if (!last || ALERT.has(last.state)) ctx.setExitCode(1);
+        if (!last || ALERT.has(last.state) || status.conflictCopies.length) ctx.setExitCode(1);
         return;
       }
       if (opts.uninstall) {
@@ -100,11 +110,25 @@ export function registerSync(program: Command, ctx: CliContext): void {
       }
       if (opts.install) {
         const minutes = parseMinutes(opts.minutes);
-        const result = await scheduleSync(ctx, { minutes, cloud });
-        if (json) return printJson(ctx, result);
+        const vault = opts.vault ?? await findVault(eduHome, ctx.env).catch(() => undefined);
+        const legacy = await legacySchedules({ home: userHome(ctx), vault });
+        let removedLegacy: string[] = [];
+        if (opts.replaceLegacy && legacy.length) {
+          if (!opts.yes) {
+            if (!ctx.stdinIsTTY) throw new Error('Use --yes to replace legacy agents non-interactively.');
+            if (!(await ctx.confirm(`Unload and remove ${legacy.length} legacy sync ${legacy.length === 1 ? 'agent' : 'agents'}?`))) { ctx.out('Cancelled. Nothing was changed.'); return; }
+          }
+        }
+        const result = await scheduleSync(ctx, { minutes, cloud, vault });
+        if (opts.replaceLegacy && result.started) {
+          removedLegacy = await replaceLegacySchedules({ home: userHome(ctx), vault });
+          result.legacy = [];
+        }
+        if (json) return printJson(ctx, { ...result, removedLegacy });
+        for (const file of removedLegacy) ctx.out(`Removed legacy sync agent: ${file}`);
         ctx.out(`Scheduled sync (${result.kind}, every ${minutes} min): ${result.files.join(', ')}`);
         if (!result.started) ctx.err('The schedule files are written but could not be started; start them by hand.');
-        ctx.out('Remove any older hand-made sync job (for example edu-vault-sync.timer) so only this one runs.');
+        for (const file of result.legacy) ctx.out(`Legacy sync agent also runs: ${file} (use --replace-legacy to remove it)`);
         return;
       }
       const result = await syncBrain({ eduHome, vault: opts.vault, host: opts.host, cloud, reason: opts.reason, env: ctx.env });

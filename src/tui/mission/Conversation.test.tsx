@@ -4,10 +4,10 @@ import { createChannel } from '../../cli/run/channel.js';
 import type { EduEvent } from '../../core/contracts.js';
 import { ASCII_GLYPHS, UNICODE_GLYPHS, createTheme, displayWidth } from '../../identity/index.js';
 import { App, type AppProps } from '../App.js';
-import { chatEvents, fixtureAt } from '../fixtures.js';
+import { chatEvents, fixtureAt } from '../../test-support/tui-events.js';
+import { press, type, until } from '../../test-support/ink.js';
 
 const plain = createTheme(0);
-const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 const noop = () => {};
 
 let instance: ReturnType<typeof render> | undefined;
@@ -96,9 +96,7 @@ describe('conversation view', () => {
     }
     instance = mount({ columns: 160, rows: 40, events: many });
     expect(frame()).toContain('answer 29');
-    await tick();
-    instance.stdin.write('\u001B[5~');
-    await tick();
+    await press(instance, '\u001B[5~');
     expect(frame()).toMatch(/─ conversation ─+ \d+ newer ↓ end ─╮/);
     expect(frame()).not.toContain('› you  question 29');
   });
@@ -109,40 +107,26 @@ describe('conversation ⇄ constellation', () => {
     const channel = createChannel<EduEvent>();
     instance = render(<App events={channel} theme={plain} glyphs={UNICODE_GLYPHS} onSubmit={noop} columns={160} rows={40} />);
     for (const e of chatEvents()) channel.push(e);
-    await tick();
-    expect(frame()).toContain('─ conversation ─');
+    await until(() => expect(frame()).toContain('─ conversation ─'));
     for (const e of crewStart()) channel.push(e);
-    await tick();
+    await until(() => expect(frame()).toContain('╭─ agents ─'));
     expect(frame()).toContain('─ constellation ─');
-    expect(frame()).toContain('╭─ agents ─');
-    instance.stdin.write('\t');
-    await tick();
+    await press(instance, '\t');
     expect(frame()).toContain('─ conversation ─');
     expect(frame()).toContain('Edu will run this as a task: add a README');
-    instance.stdin.write('\t');
-    await tick();
+    await press(instance, '\t');
     expect(frame()).toContain('─ constellation ─');
     channel.close();
   });
   it('/view toggles too, and is unavailable without a conversation', async () => {
     instance = mount({ columns: 160, rows: 40, events: [...chatEvents(), ...crewStart()] });
-    await tick();
-    for (const ch of '/view') {
-      instance.stdin.write(ch);
-      await tick(4);
-    }
-    instance.stdin.write('\r');
-    await tick();
+    await type(instance, '/view');
+    await press(instance, '\r');
     expect(frame()).toContain('─ conversation ─');
     instance.unmount();
     instance = mount({ columns: 160, rows: 40, events: crewStart().slice(2) });
-    await tick();
-    for (const ch of '/view') {
-      instance.stdin.write(ch);
-      await tick(4);
-    }
-    instance.stdin.write('\r');
-    await tick();
+    await type(instance, '/view');
+    await press(instance, '\r');
     expect(frame()).toContain('/view is not available in this view');
   });
 });

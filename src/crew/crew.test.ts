@@ -9,6 +9,7 @@ import type { CliId, EduEvent, Engine } from '../core/contracts.js';
 import { createCrew } from './index.js';
 import { dispatchPane, type HerdrRunner } from './herdr.js';
 import { createCrewStore } from './store.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 const roots: string[] = [];
 const execFile = promisify(execFileCallback);
@@ -18,6 +19,8 @@ async function fixture() {
   const location = { scope: 'project' as const, root };
   const brain = openBrain([location]);
   await brain.init(location);
+  // The person's global home (policy, approvals) is a temp folder too: never the real ~/.edu.
+  vi.stubEnv('EDU_HOME', join(root, '.global-home'));
   return { root, location, store: createCrewStore(root) };
 }
 afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -25,6 +28,7 @@ afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).ma
 function engine(cli: CliId, events: EduEvent[], onRequest?: (request: Parameters<Engine['run']>[0]) => void): Engine {
   return {
     cli,
+    capabilities: engineCapabilities(cli),
     available: async () => true,
     async *run(request) { onRequest?.(request); yield* events; },
   };
@@ -292,21 +296,26 @@ describe('crew jobs', () => {
     const f = await fixture();
     const job = await f.store.create({ cli: 'claude', task: 'Check this', mode: 'pane', cwd: f.root, autonomy: 'readonly' });
     const calls: string[][] = [];
+    let seq = 3;
     const runner: HerdrRunner = async args => {
       calls.push(args);
       if (args[0] === 'pane') return { stdout: JSON.stringify({ result: { pane: { pane_id: 'pane-3' } } }), stderr: '' };
-      if (args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { agent_status: 'done' } } }), stderr: '' };
+      if (args[1] === 'get') return { stdout: JSON.stringify({ result: { agent: { agent_status: 'done', state_change_seq: seq } } }), stderr: '' };
       if (args[1] === 'read') return { stdout: 'Review complete', stderr: '' };
       return { stdout: '{}', stderr: '' };
     };
     const options = { env: { HERDR_ENV: '1' }, hasBinary: async () => true, runner, store: f.store };
     const started = await dispatchPane(job, options);
     expect(started.status).toBe('running');
+    // Autonomy travels as Claude's own permission flag; the prompt is the task alone, after `--`.
     expect(calls.slice(0, 3)).toEqual([
-      ['pane', 'split', '--current', '--direction', 'right', '--cwd', f.root, '--no-focus'],
-      ['agent', 'start', `edu-${job.id.slice(0, 8)}`, '--kind', 'claude', '--pane', 'pane-3'],
-      ['agent', 'prompt', `edu-${job.id.slice(0, 8)}`, 'Autonomy policy: readonly. Do not modify files or take other write actions.\n\nMission: Check this'],
+      ['pane', 'split', '--current', '--direction', 'right', '--cwd', f.root, '--env', `EDU_CREW_JOB=${job.id}`, '--no-focus'],
+      ['agent', 'start', `edu-${job.id.slice(0, 8)}`, '--kind', 'claude', '--pane', 'pane-3', '--', '--permission-mode', 'plan'],
+      ['agent', 'prompt', `edu-${job.id.slice(0, 8)}`, '--', 'Check this'],
     ]);
+    // `done` still describes the turn before the prompt: not finished yet.
+    expect((await (await import('./herdr.js')).refreshPane(started, options)).status).toBe('running');
+    seq = 5;
     const completed = await (await import('./herdr.js')).refreshPane(started, options);
     expect(completed.status).toBe('done');
     expect(completed.summary).toBe('Review complete');
@@ -390,8 +399,8 @@ describe('herdr target from inside and outside herdr', () => {
     expect(job).toMatchObject({ mode: 'pane', status: 'running', paneId: 'wR:p40' });
     expect(job.note).toContain('herdr workspace "Edu"');
     const agentName = `edu-${job.id.slice(0, 8)}`;
-    expect(calls).toContainEqual(['tab', 'create', '--workspace', 'wR', '--cwd', job.cwd, '--label', agentName, '--no-focus']);
-    expect(calls).toContainEqual(['agent', 'start', agentName, '--kind', 'claude', '--pane', 'wR:p40']);
+    expect(calls).toContainEqual(['tab', 'create', '--workspace', 'wR', '--cwd', job.cwd, '--label', agentName, '--env', `EDU_CREW_JOB=${job.id}`, '--no-focus']);
+    expect(calls).toContainEqual(['agent', 'start', agentName, '--kind', 'claude', '--pane', 'wR:p40', '--', '--permission-mode', 'default']);
     expect(calls.some(args => args[0] === 'pane' && args[1] === 'split')).toBe(false);
   });
 
@@ -407,7 +416,7 @@ describe('herdr target from inside and outside herdr', () => {
     };
     const crew = createCrew({ brainRoot: f.root, store: f.store, herdr: { env: {}, hasBinary: async () => true, runner } });
     const job = await crew.dispatch({ cli: 'pi', task: 'Run', mode: 'pane', cwd: f.root });
-    expect(calls).toContainEqual(['workspace', 'create', '--cwd', job.cwd, '--label', 'Edu', '--no-focus']);
+    expect(calls).toContainEqual(['workspace', 'create', '--cwd', job.cwd, '--label', 'Edu', '--env', `EDU_CREW_JOB=${job.id}`, '--no-focus']);
     expect(calls).toContainEqual(['pane', 'close', 'w9:p1']);
     expect(job.status).toBe('failed');
   });

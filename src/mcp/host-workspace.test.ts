@@ -7,7 +7,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { expect, it } from 'vitest';
 import { openBrain } from '../brain/brain.js';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 import { createStdioServer } from './stdio.js';
 
 it('host-owned workspace keeps brief, MCP and capabilities aligned despite overrides or a project-use request', async () => {

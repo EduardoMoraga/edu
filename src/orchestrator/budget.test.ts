@@ -1,15 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import type { Engine, EduEvent } from '../core/contracts.js';
 import { RunBudget } from './budget.js';
-import { defaultConfig, EduConfigSchema } from './config.js';
+import { defaultConfig, EduConfigSchema } from '../workspace/config.js';
 import { assignCli } from './assign.js';
 import { orchestrate } from './run.js';
+import { budgetClock } from './run/state.js';
+import { engineCapabilities } from '../engine/autonomy.js';
 
 const collect = async (events: AsyncIterable<EduEvent>) => { for await (const _ of events) { /* drain */ } };
-const engine: Engine = { cli: 'pi', available: async () => true, async *run() {} };
+const engine: Engine = { cli: 'pi', capabilities: engineCapabilities('pi'), available: async () => true, async *run() {} };
 const request = { cli: 'pi' as const, prompt: 'test', cwd: '.', autonomy: 'readonly' as const };
 
 describe('Edu 3 execution budgets and routes', () => {
@@ -79,6 +81,44 @@ describe('Edu 3 execution budgets and routes', () => {
       expect(status.status).toBe('budget_exhausted');
       expect(status.sessionId).toBe('exact-session-id');
       expect(status.budget.spawns).toBe(1);
+      // The snapshot names its process, so resume can tell a crashed run from a live one.
+      expect(status.owner).toEqual({ pid: process.pid, host: hostname() });
     } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('budgetClock', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('counts only running time: a gate waiting for a person does not spend the budget', () => {
+    vi.useFakeTimers();
+    let expired = 0;
+    const clock = budgetClock(1000, () => { expired++; });
+    vi.advanceTimersByTime(600);
+    clock.pause();
+    clock.pause(); // nested waits
+    vi.advanceTimersByTime(60 * 60_000);
+    clock.resume();
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(expired).toBe(0);
+    clock.resume();
+    vi.advanceTimersByTime(399);
+    expect(expired).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(expired).toBe(1);
+    clock.pause(); clock.resume(); // after expiry: nothing restarts
+    vi.advanceTimersByTime(10_000);
+    expect(expired).toBe(1);
+  });
+
+  it('never fires once cleared', () => {
+    vi.useFakeTimers();
+    let expired = 0;
+    const clock = budgetClock(100, () => { expired++; });
+    clock.pause();
+    clock.clear();
+    clock.resume();
+    vi.advanceTimersByTime(1000);
+    expect(expired).toBe(0);
   });
 });

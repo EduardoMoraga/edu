@@ -4,9 +4,10 @@
  * (`--json`), identifiers and file content are never translated. The live
  * view (TUI) additionally follows the POSIX locale (`LC_ALL`/`LANG` = es*).
  */
+import type { Lang } from '../core/contracts.js';
 import { langFromEnv } from '../tui/strings.js';
 
-export type Lang = 'en' | 'es';
+export type { Lang };
 
 /**
  * Language for the live view: an explicit Spanish choice wins, otherwise the
@@ -24,7 +25,7 @@ const en = {
   'init.config.kept': 'config.json kept (already present)',
   'init.copied': 'Copied {agents} agent(s) and {skills} skill(s)',
   'init.next': 'Next steps:',
-  'init.next.install': 'edu install --cli {cli}    connect your coding CLI',
+  'init.next.setup': 'edu setup                connect Edu to your coding CLIs',
   'init.next.demo': 'edu demo                 see the live view without any LLM',
   'init.next.run': 'edu run "<goal>"         run a goal in solo mode',
   'install.noCli': 'No supported CLI detected. Pass --cli claude,codex,pi,opencode,agy or --cli all.',
@@ -39,7 +40,7 @@ const en = {
   'doctor.nodeOld': 'Node {version} — Edu needs Node >= 22',
   'doctor.cliMissing': '{cli}: not installed',
   'doctor.cliReady': '{cli}: installed · integrated ({scopes})',
-  'doctor.cliNotIntegrated': '{cli}: installed · not integrated — run: edu install --cli {cli}',
+  'doctor.cliNotIntegrated': '{cli}: installed · not integrated — run: edu setup --cli {cli}',
   'doctor.cliDrift': '{cli}: integration drift — files changed since install',
   'doctor.auth': '  sign in: {hint}',
   'doctor.brain': '{scope} brain {root}: {total} notes',
@@ -63,7 +64,13 @@ const en = {
   'home.commandUsage': 'Usage: {command}',
   'demo.plain': 'Edu demo (non-interactive output). Run in a terminal for the live view.',
   'brain.empty': 'No matching notes.',
+  'brain.recallNamed': 'Named by id or alias "{name}"; learned weight {weight}.',
+  'brain.recallMatched': 'Matched {terms}; learned weight {weight}.',
+  'brain.recallPassage': 'Passage: {passage}',
+  'brain.lintNone': 'No findings in {notes} notes.',
+  'brain.lintSummary': '{total} finding(s) in {notes} notes: {error} error · {warning} warning · {info} info — {kinds}',
   'brain.remembered': 'Remembered {id}',
+  'brain.defaultBand': 'band: hypothesis (default; pass --band verified or --band inferred when it is more than that)',
   'brain.maintained': 'Maintenance: {changed} changed · {promoted} promoted · {retired} retired · {overdue} overdue',
   'brain.tidyPlan': 'Tidy plan: {sessions} empty session(s) · {hypotheses} hypothesis(es) open over {days} days → no-evidence · {aliases} note(s) gain aliases for broken links · {manual} link(s) to fix by hand · {unresolved} broken link(s) left as notes to write',
   'brain.tidySaved': 'Plan saved to {path}. Review it (delete what you do not want), then run: edu brain tidy --apply',
@@ -105,7 +112,7 @@ const es: Record<MessageKey, string> = {
   'init.config.kept': 'config.json conservado (ya existía)',
   'init.copied': 'Copiados {agents} agente(s) y {skills} skill(s)',
   'init.next': 'Siguientes pasos:',
-  'init.next.install': 'edu install --cli {cli}    conecta tu CLI de código',
+  'init.next.setup': 'edu setup                conecta Edu con tus CLI de código',
   'init.next.demo': 'edu demo                 mira la vista en vivo sin ningún LLM',
   'init.next.run': 'edu run "<objetivo>"     ejecuta un objetivo en modo solo',
   'install.noCli': 'No se detectó ningún CLI compatible. Usa --cli claude,codex,pi,opencode,agy o --cli all.',
@@ -120,7 +127,7 @@ const es: Record<MessageKey, string> = {
   'doctor.nodeOld': 'Node {version} — Edu requiere Node >= 22',
   'doctor.cliMissing': '{cli}: no instalado',
   'doctor.cliReady': '{cli}: instalado · integrado ({scopes})',
-  'doctor.cliNotIntegrated': '{cli}: instalado · sin integrar — ejecuta: edu install --cli {cli}',
+  'doctor.cliNotIntegrated': '{cli}: instalado · sin integrar — ejecuta: edu setup --cli {cli}',
   'doctor.cliDrift': '{cli}: la integración cambió — hay archivos modificados desde la instalación',
   'doctor.auth': '  inicia sesión: {hint}',
   'doctor.brain': 'cerebro {scope} {root}: {total} notas',
@@ -144,7 +151,13 @@ const es: Record<MessageKey, string> = {
   'home.commandUsage': 'Uso: {command}',
   'demo.plain': 'Demo de Edu (salida no interactiva). Ejecútalo en una terminal para la vista en vivo.',
   'brain.empty': 'No hay notas que coincidan.',
+  'brain.recallNamed': 'Nombrada por id o alias "{name}"; peso aprendido {weight}.',
+  'brain.recallMatched': 'Coincide con {terms}; peso aprendido {weight}.',
+  'brain.recallPassage': 'Pasaje: {passage}',
+  'brain.lintNone': 'Sin hallazgos en {notes} notas.',
+  'brain.lintSummary': '{total} hallazgo(s) en {notes} notas: {error} error(es) · {warning} advertencia(s) · {info} informativo(s) — {kinds}',
   'brain.remembered': 'Guardado {id}',
+  'brain.defaultBand': 'banda: hypothesis (por defecto; usa --band verified o --band inferred si es más que eso)',
   'brain.maintained': 'Mantenimiento: {changed} cambiadas · {promoted} promovidas · {retired} retiradas · {overdue} vencidas',
   'brain.tidyPlan': 'Plan de limpieza: {sessions} sesión(es) vacía(s) · {hypotheses} hipótesis abierta(s) hace más de {days} días → sin evidencia · {aliases} nota(s) ganan alias para enlaces rotos · {manual} enlace(s) a corregir a mano · {unresolved} enlace(s) rotos quedan como notas por escribir',
   'brain.tidySaved': 'Plan guardado en {path}. Revísalo (borra lo que no quieras) y luego ejecuta: edu brain tidy --apply',

@@ -4,28 +4,44 @@ import type { Usage } from '../../core/contracts.js';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
-import { readMaintainState } from '../../brain/auto-maintain.js';
-import { brainPath, stopsAtCeiling, withBrainDir } from '../../brain/location.js';
+import { readMaintainState } from '../../reflect/auto-maintain.js';
+import { brainPath } from '../../brain/location.js';
 import { parseMarkdownLenient } from '../../brain/frontmatter.js';
-import { TIER_DIRS, type Tier } from '../../core/contracts.js';
+import { TIER_DIRS, type BrainLocation, type Tier } from '../../core/contracts.js';
+import { resolveBrainLocations } from '../../brain/locations.js';
 import { getGlyphs } from '../../identity/index.js';
 import { resolveGlobals, type CliContext } from '../context.js';
 import { identityName, lessonCount } from '../workspace.js';
 
 export interface DeckSnapshot {
   version: 1;
+  /** The session's project: the folder holding the project `.edu/`, else the folder asked about. */
   project: { name: string; root: string };
+  /** Which brain this is, as every other command resolves it: the nearest project `.edu/`, else the global one. */
+  scope: 'project' | 'global';
   identity: string;
   /** `toApprove`: canonical notes with status proposed, waiting for a human. */
   brain: { present: boolean; canonical: number; proposed: number; toApprove: number; episodic: number; transitive: number; lessons: number };
   /** Last auto-maintenance stamp (promoted/retired from that run) and commitments currently overdue. */
   maintenance: { lastRun: number | null; promoted: number; retired: number; overdue: number };
   spec: { name: string; requirements: number; checks: number } | null;
-  jobs: Array<{ id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number; tokensKnown?: boolean }>;
+  /**
+   * `requestId`: only while the job is awaiting approval, the gate's nonce; `edu crew approve <id> --request
+   * <requestId>` decides exactly that gate. `unregisteredChecks`: the shell commands approving it would run.
+   */
+  jobs: Array<{ id: string; cli: string; task: string; status: string; mode: string; startedAt: number; endedAt: number | null; tokens: number; tokensKnown?: boolean; requestId?: string; unregisteredChecks?: string[] }>;
   approvals: number;
   recent: Array<{ title: string; tier: Tier; at: number }>;
+  /**
+   * Only when asked with `--session`: the Edu session note the host session opened (SessionStart tags it
+   * `host:<host>:<session id>`), or null when none is recorded. Absent otherwise, so older readers see no change.
+   */
+  session?: { id: string; status: string; title: string } | null;
   updatedAt: number;
 }
+
+/** Which host session to look up (`edu deck --session <id> --host <name>`). */
+export interface DeckOptions { host?: string; hostSession?: string }
 
 type DatedFile = { path: string; name: string; at: number };
 type NoteFile = DatedFile & { tier: Tier };
@@ -46,7 +62,9 @@ async function files(dir: string, recursive = false): Promise<DatedFile[]> {
   } catch { return []; }
 }
 
-function noteText(source: string): { title: string; status: string; kind: string } {
+type NoteText = { title: string; status: string; kind: string; id: string; tags: string[] };
+
+function noteText(source: string): NoteText {
   try {
     const { meta, body } = parseMarkdownLenient(source);
     const heading = /^#\s+(.+)$/m.exec(body)?.[1]?.trim();
@@ -54,8 +72,10 @@ function noteText(source: string): { title: string; status: string; kind: string
       title: heading || (typeof meta.title === 'string' ? meta.title : ''),
       status: typeof meta.status === 'string' ? meta.status : '',
       kind: typeof meta.kind === 'string' ? meta.kind : '',
+      id: typeof meta.id === 'string' ? meta.id : '',
+      tags: Array.isArray(meta.tags) ? meta.tags.filter((tag): tag is string => typeof tag === 'string') : [],
     };
-  } catch { return { title: /^#\s+(.+)$/m.exec(source)?.[1]?.trim() ?? '', status: '', kind: '' }; }
+  } catch { return { title: /^#\s+(.+)$/m.exec(source)?.[1]?.trim() ?? '', status: '', kind: '', id: '', tags: [] }; }
 }
 
 async function latestSpec(root: string): Promise<DeckSnapshot['spec']> {
@@ -87,6 +107,9 @@ async function crewJobs(root: string): Promise<DeckSnapshot['jobs']> {
       const usage = object(job.usage) ? job.usage : {};
       const started = Date.parse(string(job.createdAt));
       const ended = Date.parse(string(job.endedAt));
+      const gate = job.status === 'awaiting-approval' && object(job.approval) ? job.approval : undefined;
+      const requestId = gate ? string(gate.requestId) : '';
+      const checks = gate && Array.isArray(gate.unregisteredChecks) ? gate.unregisteredChecks.filter((item): item is string => typeof item === 'string') : [];
       return {
         id: string(job.id, file.name).slice(0, 8),
         cli: string(job.cli, '?'),
@@ -97,27 +120,31 @@ async function crewJobs(root: string): Promise<DeckSnapshot['jobs']> {
         endedAt: Number.isFinite(ended) ? ended : null,
         tokens: tokenMeasurement(usage as unknown as Usage).value,
         tokensKnown: tokenMeasurement(usage as unknown as Usage).known,
+        ...(requestId ? { requestId } : {}),
+        ...(checks.length ? { unregisteredChecks: checks } : {}),
       };
     } catch { return null; }
   }));
   return parsed.filter((job): job is NonNullable<typeof job> => job !== null);
 }
 
-/** Reads only the project's `.edu` directory; absent or unreadable data degrades to empty fields. */
-export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = process.env): Promise<DeckSnapshot> {
-  let projectRoot = resolve(root);
-  while (true) {
-    try {
-      if ((await stat(join(projectRoot, '.edu'))).isDirectory()) break;
-    } catch { /* Keep looking for the nearest project brain. */ }
-    const parent = dirname(projectRoot);
-    if (parent === projectRoot || stopsAtCeiling(parent, env)) { projectRoot = resolve(root); break; }
-    projectRoot = parent;
-  }
-  const eduRoot = join(projectRoot, '.edu');
+/**
+ * Reads the brain the other commands use (the nearest project `.edu/` above `root`, else the global
+ * `EDU_HOME` or `~/.edu`), so crew jobs and session notes match `edu crew` and the SessionStart hook.
+ * Absent or unreadable data degrades to empty fields.
+ */
+export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = process.env, options: DeckOptions = {}): Promise<DeckSnapshot> {
+  const cwd = resolve(root);
+  let primary: BrainLocation | undefined;
+  try { primary = (await resolveBrainLocations(cwd, env))[0]; }
+  catch { /* An unreadable folder on the way up: no brain. */ }
+  const scope = primary?.scope === 'project' ? 'project' : 'global';
+  const projectRoot = primary?.scope === 'project' ? dirname(primary.root) : cwd;
+  const eduRoot = primary?.root ?? join(cwd, '.edu');
   const empty: DeckSnapshot = {
     version: 1,
     project: { name: basename(projectRoot), root: projectRoot },
+    scope,
     identity: 'Edu',
     brain: { present: false, canonical: 0, proposed: 0, toApprove: 0, episodic: 0, transitive: 0, lessons: 0 },
     maintenance: { lastRun: null, promoted: 0, retired: 0, overdue: 0 },
@@ -127,8 +154,11 @@ export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = proces
     recent: [],
     updatedAt: Date.now(),
   };
+  const hostTag = options.hostSession ? `host:${options.host || 'claude'}:${options.hostSession}` : undefined;
+  if (hostTag) empty.session = null;
   try {
-    const brainDir = brainPath(await withBrainDir({ scope: 'project', root: eduRoot }));
+    if (!primary) return empty;
+    const brainDir = brainPath(primary);
     if (!(await stat(brainDir)).isDirectory()) return empty;
     const tiers = Object.entries(TIER_DIRS) as Array<[Tier, string]>;
     const noteFiles: NoteFile[] = (await Promise.all(tiers.map(async ([tier, dir]) =>
@@ -138,7 +168,7 @@ export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = proces
     ))).flat();
     const notes = await Promise.all(noteFiles.map(async file => {
       try { return { ...file, ...noteText(await readFile(file.path, 'utf8')) }; }
-      catch { return { ...file, title: '', status: '', kind: '' }; }
+      catch { return { ...file, title: '', status: '', kind: '', id: '', tags: [] as string[] }; }
     }));
     const byStatus: Record<string, number> = {};
     for (const note of notes) {
@@ -151,6 +181,10 @@ export async function deckSnapshot(root: string, env: NodeJS.ProcessEnv = proces
         if (note.kind === 'lesson' || note.name.startsWith('L-')) byStatus[note.status] = (byStatus[note.status] ?? 0) + 1;
         if ((note.kind === 'commitment' || note.name.startsWith('C-')) && note.status === 'overdue') empty.maintenance.overdue++;
       }
+    }
+    if (hostTag) {
+      const session = notes.find(note => note.tier === 'episodic' && note.kind === 'session' && note.tags.includes(hostTag));
+      if (session) empty.session = { id: session.id || session.name.replace(/\.md$/, ''), status: session.status, title: session.title };
     }
     empty.brain.toApprove = empty.brain.proposed;
     empty.brain.present = true;
@@ -174,17 +208,20 @@ export function registerDeck(program: Command, ctx: CliContext): void {
   program.command('deck')
     .description('show the Edu brain, latest spec and crew jobs')
     .option('--json', 'print the versioned snapshot for host renderers')
-    .action(async (_opts: unknown, cmd: Command) => {
+    .option('--session <id>', "also report the Edu session this host session opened (the host's own session id)")
+    .option('--host <name>', 'the host that opened that session', 'claude')
+    .action(async (opts: { session?: string; host?: string }, cmd: Command) => {
       const g = resolveGlobals(ctx, cmd.optsWithGlobals());
-      const deck = await deckSnapshot(g.cwd, ctx.env);
+      const deck = await deckSnapshot(g.cwd, ctx.env, { hostSession: opts.session, host: opts.host });
       if (g.json) { ctx.out(JSON.stringify(deck)); return; }
       const glyphs = getGlyphs(ctx.env);
-      ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}`);
+      ctx.out(`${glyphs.brain} EDU ${glyphs.sep} ${deck.identity} ${glyphs.sep} ${deck.project.name}${deck.scope === 'global' ? ` ${glyphs.sep} global brain` : ''}`);
       const brain = deck.brain;
       const attention = [brain.toApprove ? `${brain.toApprove} to approve` : '', deck.maintenance.overdue ? `${deck.maintenance.overdue} overdue` : ''].filter(Boolean).join(' · ');
       ctx.out(`Brain  ${brain.present ? `${brain.canonical} canonical · ${brain.proposed} proposed · ${brain.episodic} episodic · ${brain.transitive} transitive · ${brain.lessons} lessons${attention ? ` · ${attention}` : ''}` : 'not found'}`);
       ctx.out(`Spec   ${deck.spec ? `${deck.spec.name} · ${deck.spec.requirements} requirements · ${deck.spec.checks} ${deck.spec.checks === 1 ? 'check' : 'checks'}` : 'none'}`);
       ctx.out(`Crew   ${deck.jobs.length} ${deck.jobs.length === 1 ? 'job' : 'jobs'} · ${deck.approvals} ${deck.approvals === 1 ? 'approval' : 'approvals'}`);
       for (const job of deck.jobs) ctx.out(`  ${job.status} ${job.cli} ${job.id} ${glyphs.sep} ${job.task}`);
+      if (deck.session !== undefined) ctx.out(`Session ${deck.session ? `${deck.session.id} · ${deck.session.status}` : 'not recorded'}`);
     });
 }

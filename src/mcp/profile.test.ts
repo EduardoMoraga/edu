@@ -19,8 +19,9 @@ it('offers an explicit smaller memory surface while keeping full as the compatib
     };
     const full = await connect(); const memory = await connect('memory');
     const a = (await full.listTools()).tools, b = (await memory.listTools()).tools;
-    expect(a).toHaveLength(19); expect(b).toHaveLength(12);
+    expect(a).toHaveLength(20); expect(b).toHaveLength(12);
     expect(a.map(tool => tool.name)).toContain('edu_crew_artifact');
+    expect(a.map(tool => tool.name)).toContain('edu_crew_cancel');
     expect(b.map(tool => tool.name)).not.toContain('edu_crew_artifact');
     expect(b.map(tool => tool.name)).toContain('edu_session_close');
     expect(b.map(tool => tool.name)).toContain('edu_capabilities');

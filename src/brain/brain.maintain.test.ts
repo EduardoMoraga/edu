@@ -6,6 +6,7 @@ import type { Note, NoteMeta } from '../core/contracts.js';
 import { brainPath } from './location.js';
 import * as store from './store.js';
 import { openBrain } from './brain.js';
+import { expectWithinBudget } from '../test-support/perf.js';
 
 vi.mock('./store.js', async importOriginal => {
   const actual = await importOriginal<typeof import('./store.js')>();
@@ -69,7 +70,7 @@ describe('brain.maintain canonical proposals', () => {
     await seed(root, 250, i => ({ title: `Decision ${i}`, kind: 'decision', status: 'active' }));
     const started = performance.now();
     const report = await openBrain([{ scope: 'project', root }]).maintain();
-    expect(performance.now() - started).toBeLessThan(2000);
+    expectWithinBudget(performance.now() - started, 2000);
     expect(report.indexRebuilt).toBe(true);
     expect(await proposals(root)).toHaveLength(0);
   }, 30_000);

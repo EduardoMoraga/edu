@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { docxToMarkdown, readDocument, unzipEntry } from './readers.js';
-import { sampleDocx, zip } from './testing.js';
+import { sampleDocx, zip } from '../test-support/docx.js';
 
 async function file(name: string, content: string | Buffer) {
   const dir = await mkdtemp(join(tmpdir(), 'edu-read-'));
@@ -29,12 +29,12 @@ describe('document readers', () => {
   });
 
   it('reads .md and .txt without modifying them, and rejects other types', async () => {
-    const path = await file('notes.md', '﻿# Title\r\n\r\nBody\r\n');
+    const path = await file('notes.md', '\uFEFF# Title\r\n\r\nBody\r\n');
     const before = await stat(path);
     const doc = await readDocument(path);
     expect(doc).toMatchObject({ name: 'notes.md', format: 'md', text: '# Title\n\nBody' });
     expect((await stat(path)).mtimeMs).toBe(before.mtimeMs);
-    expect(await readFile(path, 'utf8')).toBe('﻿# Title\r\n\r\nBody\r\n');
+    expect(await readFile(path, 'utf8')).toBe('\uFEFF# Title\r\n\r\nBody\r\n');
     await expect(readDocument(await file('sheet.xlsx', 'x'))).rejects.toThrow(/Unsupported document type/);
     await expect(readDocument(await file('broken.docx', 'not a zip'))).rejects.toThrow(/Not a readable \.docx/);
   });

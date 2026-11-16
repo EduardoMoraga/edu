@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { applySetup, planSetup, type SetupRunner } from './index.js';
+import { codexMcpEntry } from '../platform/child-env.js';
 const candidateVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version as string;
 const versions = ['0.10.2', '2.0.0-rc.1'] as const;
 const platforms = ['linux', 'win32'] as const;
@@ -68,7 +69,8 @@ async function nativeFixture(platform: NodeJS.Platform = 'linux', baseline: stri
       }
     }
     expect(found).toBe(true);
-    const launch = platform === 'win32' ? { command: 'cmd', args: ['/c', 'edu', 'mcp'] } : { command: 'edu', args: ['mcp'] };
+    // Windows localizes the candidate to the current shape (with env_vars); elsewhere the fixture's bytes stay.
+    const launch = platform === 'win32' ? codexMcpEntry({ command: 'cmd', args: ['/c', 'edu', 'mcp'] }) : { command: 'edu', args: ['mcp'] };
     expect(JSON.parse(await readFile(join(source, '.mcp.json'), 'utf8'))).toEqual({ mcpServers: { edu: launch } });
 
     if (mode === 'failure') return { exitCode: 1, stderr: 'simulated host failure' };
@@ -102,7 +104,7 @@ it('refreshes a pristine public cache with backup and candidate validation; repe
   const f = await fixture(); await f.run();
   expect(await readFile(join(f.nextRoot, 'skills/edu-brief/SKILL.md'), 'utf8')).toBe('NEW PROTOCOL');
   expect(await readFile(f.other, 'utf8')).toBe('OTHER CUSTOM');
-  const launch = platform === 'win32' ? { command: 'cmd', args: ['/c', 'edu', 'mcp'] } : { command: 'edu', args: ['mcp'] };
+  const launch = platform === 'win32' ? codexMcpEntry({ command: 'cmd', args: ['/c', 'edu', 'mcp'] }) : { command: 'edu', args: ['mcp'] };
   expect(JSON.parse(await readFile(join(f.nextRoot, '.mcp.json'), 'utf8'))).toEqual({ mcpServers: { edu: launch } });
   await f.run(); expect(f.calls.filter(c => c === 'plugin add edu@edu --json')).toHaveLength(1);
 });
@@ -361,11 +363,12 @@ describe('relocation rollback', () => {
   });
 });
 describe('Codex extended Windows paths', () => {
-  it('reduces only the drive-letter extended form', async () => {
+  it('reduces the drive-letter and UNC extended forms only', async () => {
     const { nativePath } = await import('./native-files.js');
     expect(nativePath(String.raw`\\?\C:\Users\me\npm\node_modules\edu-agent`)).toBe(String.raw`C:\Users\me\npm\node_modules\edu-agent`);
     expect(nativePath(String.raw`C:\plain`)).toBe(String.raw`C:\plain`);
-    expect(nativePath(String.raw`\\?\UNC\server\share`)).toBe(String.raw`\\?\UNC\server\share`);
+    expect(nativePath(String.raw`\\?\UNC\server\share\edu-agent`)).toBe(String.raw`\\server\share\edu-agent`);
+    expect(nativePath(String.raw`\\.\pipe\x`)).toBe(String.raw`\\.\pipe\x`);
     expect(nativePath('/tmp/edu')).toBe('/tmp/edu');
     expect(nativePath(undefined)).toBeUndefined();
   });

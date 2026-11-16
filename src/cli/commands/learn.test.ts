@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openBrain } from '../../brain/index.js';
-import { captureContext, runCli } from '../testkit.js';
+import { captureContext, runCli } from '../../test-support/cli.js';
 
 describe('edu context', () => {
   it('previews context without recording usage', async () => {

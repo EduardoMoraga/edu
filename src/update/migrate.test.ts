@@ -1,10 +1,10 @@
-import { chmod, mkdtemp, mkdir, readFile, realpath, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, realpath, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/brain.js';
-import { registerProject } from '../vault/registry.js';
-import { migrateWorkspaces } from './migrate.js';
+import { registerProject } from '../brain/registry.js';
+import { backupUpgradeFiles, migrateWorkspaces } from './migrate.js';
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 async function fixture() {
@@ -131,4 +131,48 @@ it('keeps the imported capabilities block bounded and full capabilities only in 
   expect(caps.features.length).toBeGreaterThan(0);
   expect(caps.commands.length).toBeGreaterThan(0);
   expect(text.startsWith('# Custom identity\nPRIVATE CUSTOM TEXT\n')).toBe(true);
+});
+
+describe('backupUpgradeFiles through a symlinked ancestor (macOS /var → /private/var)', () => {
+  async function aliased() {
+    const real = await realpath(await mkdtemp(join(tmpdir(), '09-real-'))); roots.push(real);
+    const holder = await realpath(await mkdtemp(join(tmpdir(), '09-alias-'))); roots.push(holder);
+    const alias = join(holder, 'home'); await symlink(real, alias, 'junction');
+    const eduRoot = join(real, '.edu'); await mkdir(join(eduRoot, 'state'), { recursive: true });
+    await writeFile(join(eduRoot, 'EDU.md'), 'contract');
+    await mkdir(join(real, '.claude'), { recursive: true }); await writeFile(join(real, '.claude', 'settings.json'), '{"host":true}');
+    return { real, alias, eduRoot };
+  }
+  const manifest = async (backup: string) => JSON.parse(await readFile(join(backup, 'manifest.json'), 'utf8')).files;
+
+  it('backs up a brain file spelled through the link while the root is canonical', async () => {
+    const { alias, eduRoot } = await aliased();
+    const backup = await backupUpgradeFiles(eduRoot, [join(alias, '.edu', 'EDU.md')]);
+    expect(await readFile(join(backup, '0.bak'), 'utf8')).toBe('contract');
+  });
+
+  it('backs up host files outside a root spelled through the link', async () => {
+    const { alias } = await aliased();
+    const host = join(alias, '.claude', 'settings.json');
+    const backup = await backupUpgradeFiles(join(alias, '.edu'), [host, join(alias, '.claude', 'missing.json')]);
+    expect(await readFile(join(backup, '0.bak'), 'utf8')).toBe('{"host":true}');
+    expect(await manifest(backup)).toEqual([{ path: host, file: '0.bak' }, { path: join(alias, '.claude', 'missing.json'), absent: true }]);
+  });
+
+  it('still refuses a real symlink inside the brain, however the root is spelled', async () => {
+    const { real, alias, eduRoot } = await aliased();
+    const outside = join(real, 'outside'); await mkdir(outside);
+    await rm(join(eduRoot, 'state'), { recursive: true }); await symlink(outside, join(eduRoot, 'state'), 'junction');
+    for (const root of [eduRoot, join(alias, '.edu')]) {
+      for (const path of [join(eduRoot, 'state', 'upgrade.json'), join(alias, '.edu', 'state', 'upgrade.json')]) {
+        await expect(backupUpgradeFiles(root, [path])).rejects.toThrow(/Refusing migration through symlink: .*state$/);
+      }
+    }
+  });
+
+  it('still refuses a brain root that is itself a symlink', async () => {
+    const { real, eduRoot } = await aliased();
+    const linked = join(real, 'linked-edu'); await symlink(eduRoot, linked, 'junction');
+    await expect(backupUpgradeFiles(linked, [join(linked, 'EDU.md')])).rejects.toThrow(/Refusing migration through symlink/);
+  });
 });

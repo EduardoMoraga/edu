@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { captureContext, out, runCli, type Captured } from '../testkit.js';
+import { captureContext, out, runCli, type Captured } from '../../test-support/cli.js';
 
 const captures: Captured[] = [];
 afterEach(async () => { for (const c of captures.splice(0)) await rm(join(c.dirs.cwd, '..'), { recursive: true, force: true }); });

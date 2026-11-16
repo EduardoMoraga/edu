@@ -1,8 +1,11 @@
-/** `edu eval`: reproducible, honest evaluation reports. Never launches a model, CLI or agent. */
+/**
+ * `edu eval`: reproducible, honest evaluation reports. Never launches a model, CLI or agent.
+ * The evaluation code loads only when an `edu eval` subcommand runs, not on every `edu` call.
+ */
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
-import { DEFAULT_MIN_TRIALS, aggregateTrials, parseTrials, runMemorySuite } from '../../eval/index.js';
+import { DEFAULT_MIN_TRIALS } from '../../eval/aggregate.js';
 import type { CliContext } from '../context.js';
 import { action, parseIntOption, printJson } from '../kit.js';
 
@@ -15,6 +18,7 @@ export function registerEvaluation(program: Command, ctx: CliContext): void {
     .option('--min-trials <n>', 'minimum trials per arm before a comparison is reported', String(DEFAULT_MIN_TRIALS))
     .option('--json', 'machine-readable output')
     .action(action<{ minTrials?: string; json?: boolean }>(ctx, async ({ g, opts }, file) => {
+      const { aggregateTrials, parseTrials } = await import('../../eval/index.js');
       const trials = parseTrials(JSON.parse(await readFile(resolve(g.cwd, file ?? ''), 'utf8')));
       const report = aggregateTrials(trials, { minTrialsPerArm: parseIntOption(opts.minTrials ?? String(DEFAULT_MIN_TRIALS), '--min-trials') });
       if (opts.json || g.json) return printJson(ctx, report);
@@ -29,6 +33,7 @@ export function registerEvaluation(program: Command, ctx: CliContext): void {
     .description('run the deterministic transfer -> distractor -> correction memory suite in temporary brains')
     .option('--json', 'machine-readable output')
     .action(action<{ json?: boolean }>(ctx, async ({ g, opts }) => {
+      const { aggregateTrials, runMemorySuite } = await import('../../eval/index.js');
       const result = await runMemorySuite();
       const report = aggregateTrials(result.trials);
       if (opts.json || g.json) return printJson(ctx, { ...result, aggregate: report });

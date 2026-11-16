@@ -4,6 +4,7 @@ import { sumUsage, usageValue } from '../core/usage.js';
  * No React, no I/O — the whole live view is a fold of events.
  */
 import type {
+  ApprovalBy,
   AgentStatus,
   CliId,
   EduEvent,
@@ -21,7 +22,7 @@ export type LogEntry =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
   | { kind: 'tool'; callId: string; tool: string; input: string; state: 'pending' | 'ok' | 'failed'; output?: string }
-  | { kind: 'approval'; title: string; approved?: boolean; by?: 'user' | 'policy' }
+  | { kind: 'approval'; title: string; approved?: boolean; by?: ApprovalBy }
   | { kind: 'error'; message: string }
   | { kind: 'verify'; ok: boolean; kindName: string; checkId?: string; output: string }
   | { kind: 'attribution'; observed: string; failureType: string; next: string }

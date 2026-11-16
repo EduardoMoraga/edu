@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { atomicFs } from '../brain/store.js';
-import { createCrewStore } from './store.js';
+import { approvalDir, createCrewStore } from './store.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -24,7 +24,7 @@ describe('crew store', () => {
   it('retries a job update while Windows holds the job file open', async () => {
     const root = await mkdtemp(join(tmpdir(), 'edu-crew-store-'));
     roots.push(root);
-    const store = createCrewStore(root);
+    const store = createCrewStore(root, { globalRoot: join(root, 'global-home') });
     const job = await store.create({ cli: 'codex', task: 'Build it', mode: 'headless', cwd: root, autonomy: 'ask' });
     const realRename = atomicFs.rename;
     vi.spyOn(atomicFs, 'sleep').mockResolvedValue(undefined);
@@ -97,5 +97,15 @@ describe('crew job id prefixes', () => {
     const job = await store.create({ cli: 'codex', task: 't', mode: 'headless', cwd: '/', autonomy: 'readonly' });
     expect((await store.get(job.id.slice(0, 8)))?.id).toBe(job.id);
     expect(await store.get('ffffffff')).toBeUndefined();
+  });
+
+  it('keeps approvals in the global home, one folder per workspace brain, matched case-insensitively on Windows', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'edu-crew-store-')); roots.push(base);
+    const globalRoot = join(base, 'home', '.edu');
+    const a = approvalDir(globalRoot, join(base, 'a', '.edu'));
+    expect(a.startsWith(join(globalRoot, '.edu-local', 'approvals'))).toBe(true);
+    expect(approvalDir(globalRoot, join(base, 'b', '.edu'))).not.toBe(a);
+    expect(approvalDir(globalRoot, 'C:\\Work\\.edu', 'win32')).toBe(approvalDir(globalRoot, 'c:\\work\\.EDU', 'win32'));
+    expect(approvalDir(globalRoot, '/Work/.edu', 'linux')).not.toBe(approvalDir(globalRoot, '/work/.edu', 'linux'));
   });
 });

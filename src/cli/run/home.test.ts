@@ -6,7 +6,7 @@ import { openBrain } from '../../brain/index.js';
 import { respond, type ChatHistory } from '../../chat/respond.js';
 import type { EduEvent } from '../../core/contracts.js';
 import { FakeEngine } from '../../engine/fake.js';
-import { defaultConfig } from '../../orchestrator/config.js';
+import { defaultConfig } from '../../workspace/config.js';
 import { createHomeSession } from './home.js';
 
 const dirs: string[] = [];

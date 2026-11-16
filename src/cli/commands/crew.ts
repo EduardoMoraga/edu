@@ -1,12 +1,15 @@
 /** `edu crew` commands for dispatch, job inspection, and the detached worker. */
 import type { Command } from 'commander';
-import type { CliId } from '../../core/contracts.js';
+import { CLI_IDS, type CliId } from '../../core/contracts.js';
 import { createCrew, runWorker } from '../../crew/index.js';
+import { CREW_BRAIN_ENV } from '../../crew/headless.js';
+import { isCrewWorker } from '../../crew/store.js';
+import { CREW_POLICY_ENV, decodeWorkerPolicy } from '../../workspace/config.js';
 import { globalHome, type CliContext } from '../context.js';
 import { action } from '../kit.js';
+import { cancelledView, dispatchedView, jobsView, jobView } from './crew-view.js';
 import { openWorkspace } from '../workspace.js';
 
-const CLI_IDS = ['claude', 'codex', 'pi', 'opencode', 'agy'] as const;
 function parseCli(value: string): CliId {
   if (!(CLI_IDS as readonly string[]).includes(value)) throw new Error(`Unknown CLI "${value}" (expected ${CLI_IDS.join(', ')})`);
   return value as CliId;
@@ -17,22 +20,40 @@ export function registerCrew(program: Command, ctx: CliContext): void {
     const ws = await openWorkspace(ctx, cwd);
     return createCrew({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: cwd });
   };
+  /** People get a short view; `--json` keeps the job record for scripts (compact, one line, as before 6.0). */
+  const print = (json: boolean | undefined, value: unknown, view: () => string[]) => { ctx.out(json ? JSON.stringify(value) : view().join('\n')); };
   const root = program.command('crew').description('dispatch and inspect crew jobs');
   root.command('dispatch <cli> <task>')
     .description('dispatch a crew job')
     .option('--pane', 'dispatch into a visible Herdr pane when available')
     .option('--autonomy <level>', 'readonly, ask, auto, or full', 'ask')
-    .action(action<{ pane?: boolean; autonomy?: string }>(ctx, async ({ g, opts }, cliArg, task) => {
+    .option('--timeout <minutes>', 'stop the job after this many minutes (default: crew.timeoutMinutes of the workspace, else of the global config, else 60)')
+    .option('--json', 'print the job record (for scripts)')
+    .action(action<{ pane?: boolean; autonomy?: string; timeout?: string; json?: boolean }>(ctx, async ({ g, opts }, cliArg, task) => {
+      // Like its MCP tools, a crew worker never starts more agents.
+      if (isCrewWorker(ctx.env)) throw new Error('A crew worker cannot dispatch crew jobs');
       const cli = parseCli(cliArg!);
       const autonomy = opts.autonomy;
       if (!['readonly', 'ask', 'auto', 'full'].includes(autonomy ?? '')) throw new Error('Autonomy must be readonly, ask, auto, or full');
-      const job = await (await crew(g.cwd)).dispatch({ cli, task: task!, mode: opts.pane ? 'pane' : 'headless', cwd: g.cwd, autonomy: autonomy as 'readonly' | 'ask' | 'auto' | 'full' });
-      ctx.out(JSON.stringify(job));
+      const timeoutMinutes = opts.timeout === undefined ? undefined : Number(opts.timeout);
+      const job = await (await crew(g.cwd)).dispatch({ cli, task: task!, mode: opts.pane ? 'pane' : 'headless', cwd: g.cwd, autonomy: autonomy as 'readonly' | 'ask' | 'auto' | 'full', timeoutMinutes });
+      print(opts.json || g.json, job, () => dispatchedView(job));
+    }));
+  root.command('cancel <id>')
+    .description('cancel a crew job: stop its worker (or close its pane) and mark it cancelled')
+    .option('--json', 'print the job record (for scripts)')
+    .action(action<{ json?: boolean }>(ctx, async ({ g, opts }, id) => {
+      // Like its MCP tools, a crew worker never stops other jobs.
+      if (isCrewWorker(ctx.env)) throw new Error('A crew worker cannot cancel crew jobs');
+      const job = await (await crew(g.cwd)).cancel(id!);
+      print(opts.json || g.json, job, () => cancelledView(job));
     }));
   root.command('status [id]')
-    .description('show crew jobs or one job')
-    .action(action<Record<string, never>>(ctx, async ({ g }, id) => {
-      ctx.out(JSON.stringify(await (await crew(g.cwd)).status(id)));
+    .description('show crew jobs, or one job with its open approval gate')
+    .option('--json', 'print the job records (for scripts)')
+    .action(action<{ json?: boolean }>(ctx, async ({ g, opts }, id) => {
+      const found = await (await crew(g.cwd)).status(id);
+      print(opts.json || g.json, found, () => Array.isArray(found) ? jobsView(found, Date.now()) : jobView(found, Date.now()));
     }));
   root.command('result <id>')
     .description('wait for a crew result')
@@ -45,14 +66,28 @@ export function registerCrew(program: Command, ctx: CliContext): void {
   for (const [name, approved] of [['approve', true], ['reject', false]] as const) {
     root.command(`${name} <id>`)
       .description(`${name} the pending orchestration approval`)
-      .action(action<Record<string, never>>(ctx, async ({ g }, id) => {
-        ctx.out(JSON.stringify(await (await crew(g.cwd)).approve(id!, approved)));
+      .option('--request <requestId>', 'the approval request you reviewed (see `edu crew status <id>`); refused if another gate is open now')
+      .option('--via <channel>', 'who is deciding: cli (default) or deck', 'cli')
+      .action(action<{ request?: string; via?: string }>(ctx, async ({ g, opts }, id) => {
+        // A crew worker carries EDU_CREW_JOB; it may never approve, whatever flags it passes.
+        if (isCrewWorker(ctx.env)) throw new Error(`A crew worker cannot ${name} crew jobs`);
+        if (opts.via !== 'cli' && opts.via !== 'deck') throw new Error('--via must be cli or deck');
+        ctx.out(JSON.stringify(await (await crew(g.cwd)).approve(id!, approved, { by: opts.via, requestId: opts.request, env: ctx.env })));
       }));
   }
   root.command('worker <id>')
     .description('run a queued crew job (internal detached entry point)')
     .action(async (id: string) => {
-      try { await runWorker(id, { brainRoot: ctx.env.EDU_HOME || globalHome(ctx) }); }
+      // The dispatcher names the job's brain and hands down the safety policy it resolved; EDU_HOME stays the
+      // person's global home. Without a policy (not started by a dispatcher) the defaults apply.
+      const globalRoot = globalHome(ctx);
+      const refuse = (why: string) => { ctx.err(`Crew worker refused: ${why}`); ctx.setExitCode(1); };
+      // Only a dispatcher starts workers: never an agent inside a crew job, and never without the policy and job
+      // digest the dispatcher resolved (a self-made EDU_CREW_POLICY without a digest could raise its own ceiling).
+      if (isCrewWorker(ctx.env)) return refuse('a crew worker cannot start crew workers');
+      const policy = decodeWorkerPolicy(ctx.env[CREW_POLICY_ENV]);
+      if (!ctx.env[CREW_POLICY_ENV] || policy.job === undefined) return refuse('this internal entry point runs only jobs started by `edu crew dispatch` or `edu run --detach`');
+      try { await runWorker(id, { brainRoot: ctx.env[CREW_BRAIN_ENV] || globalRoot, globalRoot, policy }); }
       catch (error) { ctx.err(`Crew worker failed: ${error instanceof Error ? error.message : String(error)}`); ctx.setExitCode(1); }
     });
 }

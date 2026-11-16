@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { diagnose } from '../adapters/doctor.js';
+import { diagnose } from './diagnose.js';
 import { nativeIntegrations } from './native.js';
 
 const roots: string[] = [];
@@ -35,6 +35,15 @@ describe('native plugin integrations', () => {
     expect((await nativeIntegrations(h)).codex.found).toEqual(['Codex plugin edu@edu']);
     const off = await home({ '.codex/config.toml': '[plugins."edu@edu"]\nenabled = false\n' });
     expect((await nativeIntegrations(off)).codex.found).toEqual([]);
+  });
+
+  it('reads the Codex plugin table in any TOML spelling, and not one inside a string', async () => {
+    const quoted = await home({ '.codex/config.toml': "[ plugins . 'edu@edu' ] # mine\r\nenabled = true\r\n" });
+    expect((await nativeIntegrations(quoted)).codex.found).toEqual(['Codex plugin edu@edu']);
+    const inline = await home({ '.codex/config.toml': '[plugins]\n"edu@edu" = { enabled = false }\n"edu@dev" = { enabled = true }\n' });
+    expect((await nativeIntegrations(inline)).codex.found).toEqual(['Codex plugin edu@dev']);
+    const text = await home({ '.codex/config.toml': 'doc = \'\'\'\n[plugins."edu@edu"]\n\'\'\'\n' });
+    expect((await nativeIntegrations(text)).codex.found).toEqual([]);
   });
 
   it('recognizes the Pi package entry (relative path, npm) and flags a path that no longer exists', async () => {

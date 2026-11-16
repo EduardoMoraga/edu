@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ACTIVATION_NOTES, ACTIVATION_PROMPT } from '../../bench/activation.js';
-import { captureContext, out, runCli } from '../testkit.js';
+import { captureContext, out, runCli } from '../../test-support/cli.js';
 
 describe('edu bench', () => {
   it('prints machine-readable retrieval and context results and writes --out', async () => {

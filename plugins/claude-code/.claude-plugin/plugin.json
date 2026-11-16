@@ -1,9 +1,35 @@
 {
   "name": "edu",
-  "version": "5.0.1",
+  "version": "6.0.0",
   "description": "Edu — an installable, LLM-agnostic agentic harness with a learning second brain and CLI-native workflows.",
   "author": {
     "name": "Eduardo Moraga"
   },
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "columns": {
+      "type": "number",
+      "title": "Edu Deck width",
+      "description": "Columns of the docked Edu Deck; a width dragged by hand wins",
+      "default": 90
+    },
+    "maxAgents": {
+      "type": "number",
+      "title": "Agents kept",
+      "description": "How many sub-agents the Edu Deck keeps; the oldest finished ones go first",
+      "default": 30
+    },
+    "openOnStart": {
+      "type": "boolean",
+      "title": "Open Edu Deck on start",
+      "description": "Open the Edu Deck when an interactive session starts (Claude Code seats it where the terminal is wide enough)",
+      "default": true
+    },
+    "animate": {
+      "type": "boolean",
+      "title": "Edu Deck motion",
+      "description": "Draw the spinner and the flow while agents work",
+      "default": true
+    }
+  }
 }

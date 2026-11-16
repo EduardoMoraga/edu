@@ -80,6 +80,8 @@ function text(value: string, path: string, limit = BUNDLE_LIMITS.fileBytes): str
 function metadata(name: string, content: string, strict = false): { bundle: SkillBundle['metadata']; declared: boolean } {
   portablePath(name);
   if (name.includes('/')) throw new Error('Skill name must be a single portable segment.');
+  // The only frontmatter fence outside brain/frontmatter.ts: scripts/build-plugins.ts loads this file through
+  // Node's type stripping, which cannot resolve a runtime import of another src file (see the architecture test).
   const match = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$/.exec(content);
   const header = /^---\s*\r?\n/.test(content) ? (match?.[1] ?? content) : '';
   // The YAML tree identifies actual top-level keys, including recoverable malformed headers.

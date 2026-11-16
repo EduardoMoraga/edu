@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { RecallHit } from '../../core/contracts.js';
 import { uiLang } from '../i18n.js';
-import { captureContext, runCli } from '../testkit.js';
+import { captureContext, runCli } from '../../test-support/cli.js';
 import { cliDispatch, createCommandHandler } from './commands.js';
 
 const JOB = '33333333-cccc-4ccc-8ccc-cccccccccccc';

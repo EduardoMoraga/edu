@@ -9,9 +9,38 @@
  * - `fuzzyCandidates` is a fallback for typos and odd inflections of terms the corpus never saw.
  */
 
-/** Accent-free lowercase alphanumeric words; the tokenizer recall has always used. */
+/** Han, kana and Hangul: scripts written without spaces between words, indexed as character bigrams. */
+const CJK = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Hangul}]/u;
+const WORD = /[\p{L}\p{M}\p{N}]+/gu;
+
+/**
+ * Lowercase, accent-free words of any script. Text is compatibility-normalized (NFKD, so ligatures and full-width
+ * forms fold too), Latin/Greek/Cyrillic accents are dropped, recomposed (NFKC) and lowercased; words are runs of
+ * letters, marks and digits. A run in a script written without spaces (Chinese, Japanese, Korean) becomes its
+ * overlapping character bigrams (a lone character stays a unigram), so a query matches inside longer text.
+ * ASCII text tokenizes exactly as before (`[a-z0-9]+` after dropping accents).
+ */
 export function tokenize(text: string): string[] {
-  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLocaleLowerCase('en').match(/[a-z0-9]+/g) ?? [];
+  const folded = text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').normalize('NFKC').toLowerCase();
+  const words = folded.match(WORD) ?? [];
+  if (!CJK.test(folded)) return words;
+  const tokens: string[] = [];
+  for (const word of words) {
+    if (!CJK.test(word)) { tokens.push(word); continue; }
+    let run: string[] = [], other = '';
+    const flushRun = () => {
+      if (run.length === 1) tokens.push(run[0]!);
+      for (let i = 0; i + 1 < run.length; i++) tokens.push(run[i]! + run[i + 1]!);
+      run = [];
+    };
+    for (const char of word) {
+      if (CJK.test(char)) { if (other) { tokens.push(other); other = ''; } run.push(char); }
+      else { flushRun(); other += char; }
+    }
+    flushRun();
+    if (other) tokens.push(other);
+  }
+  return tokens;
 }
 
 // Kept identical to the pre-5.0 list: stopwords change document lengths, hence every BM25 score.
@@ -576,7 +605,7 @@ emit: emit emitted emitir emision emite
 worker: worker workers trabajador trabajadores
 `;
 
-/** Concept key prefix: index terms are [a-z0-9]+, so a prefixed key can never collide with a stem. */
+/** Concept key prefix: index terms are letters and digits only, so a prefixed key can never collide with a stem. */
 export const CONCEPT_PREFIX = '~';
 
 const conceptsByStem = new Map<string, string[]>();

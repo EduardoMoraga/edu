@@ -39,7 +39,10 @@ interface Section {
 
 /** Deck panels stacked to exactly `height` rows (sections drop by priority). */
 export function deckLines(input: DeckInput): DisplayLine[] {
-  const { width, height, glyphs } = input;
+  const { width, glyphs } = input;
+  // No room (or a nonsense height) draws nothing; a negative slice end would keep rows instead.
+  const height = Number.isFinite(input.height) ? Math.max(0, Math.floor(input.height)) : 0;
+  if (height === 0) return [];
   const inner = width - 4;
   let sections = buildSections(input, inner).filter((s) => s.lines.length > 0 || s.grow);
   const cost = (s: Section) => (s.grow ? (s.min ?? 1) : s.lines.length) + 2;

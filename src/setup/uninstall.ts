@@ -2,10 +2,11 @@
  * `edu uninstall`: undo exactly what `edu setup` / `edu install` recorded, for the global scope and the
  * current project. The brain is never touched unless the caller asks to purge it (the CLI confirms first).
  */
-import { lstat, readFile, realpath, rm, rmdir } from 'node:fs/promises';
+import { lstat, readFile, readdir, realpath, rm, rmdir } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import type { InstallScope } from '../core/contracts.js';
 import { getManifestPath, uninstall } from '../adapters/installer.js';
+import { withInstallLock } from '../adapters/install-lock.js';
 import { setupManifestPath, uninstallSetup, type SetupRunner } from './index.js';
 import { uninstallDreamSchedules } from '../reflect/dream-schedule.js';
 import { scheduleFiles, uninstallSchedule } from '../vault/sync-service.js';
@@ -28,7 +29,8 @@ export interface UninstallEduOptions {
 
 export interface UninstallEduReport {
   removed: Array<{ scope: InstallScope; via: 'setup' | 'manifest'; path: string }>;
-  brain: { path: string; action: 'kept' | 'purged' | 'absent' };
+  /** `not-a-brain`: the folder exists but holds no Edu brain (no EDU.md), so it was left as it is. */
+  brain: { path: string; action: 'kept' | 'purged' | 'absent' | 'not-a-brain' };
   /** Nightly dream and `edu sync` schedules stopped and deleted. */
   schedules: Array<{ kind: 'systemd' | 'launchd' | 'schtasks'; name: string; removed: string[]; stopped: boolean }>;
 }
@@ -39,8 +41,16 @@ async function present(path: string): Promise<boolean> {
 }
 
 async function manifestScope(path: string): Promise<InstallScope | undefined> {
-  try { return (JSON.parse(await readFile(path, 'utf8')) as { scope?: InstallScope }).scope; }
+  let text: string;
+  try { text = await readFile(path, 'utf8'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+  try { return (JSON.parse(text) as { scope?: InstallScope }).scope; }
+  catch (error) { throw new Error(`Edu manifest ${path} is not valid JSON (${error instanceof Error ? error.message : String(error)}). Restore it or remove it, then run again.`); }
+}
+
+async function emptyDirectory(path: string): Promise<boolean> {
+  try { return (await lstat(path)).isDirectory() && !(await readdir(path)).length; }
+  catch { return false; }
 }
 
 /** Case-insensitive file systems (Windows, default macOS) compare paths without case. */
@@ -108,6 +118,10 @@ export async function assertPurgeableBrain(brainRoot: string, home: string): Pro
 
 /** Idempotent: a second run finds no manifests and removes nothing. */
 export async function uninstallEdu(options: UninstallEduOptions): Promise<UninstallEduReport> {
+  return withInstallLock(resolve(options.home), () => uninstallEduLocked(options));
+}
+
+async function uninstallEduLocked(options: UninstallEduOptions): Promise<UninstallEduReport> {
   const home = resolve(options.home);
   const cwd = resolve(options.cwd);
   const removed: UninstallEduReport['removed'] = [];
@@ -134,8 +148,11 @@ export async function uninstallEdu(options: UninstallEduOptions): Promise<Uninst
   }
   const brainRoot = resolve(options.brainRoot);
   const schedules = await removeSchedules(options, home, cwd, brainRoot);
+  // An empty brain folder (an earlier Edu left it, or install created it) holds nothing to keep or purge.
+  if (await emptyDirectory(brainRoot)) await rmdir(brainRoot).catch(() => undefined);
   const exists = await present(brainRoot);
-  if (!options.purgeBrain || !exists) return { removed, schedules, brain: { path: brainRoot, action: exists ? 'kept' : 'absent' } };
+  const brain = exists && await present(join(brainRoot, 'EDU.md'));
+  if (!options.purgeBrain || !exists) return { removed, schedules, brain: { path: brainRoot, action: !exists ? 'absent' : brain ? 'kept' : 'not-a-brain' } };
   const target = await assertPurgeableBrain(brainRoot, home);
   // Integration removal ran in between: validate again right before deleting, on the same canonical path.
   if (await assertPurgeableBrain(target, home) !== target) throw new Error(`Refusing to purge ${brainRoot}: it moved during uninstall`);

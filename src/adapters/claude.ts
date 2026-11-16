@@ -8,13 +8,13 @@ import { pathsFor } from './paths.js';
 import { createIntegration } from './integration.js';
 
 async function plan(scope: InstallScope, root: string, options: IntegrationOptions): Promise<PlannedAction[]> {
-  const paths = pathsFor('claude', scope, root, options.home);
+  const paths = pathsFor('claude', scope, root, options.home, options.dirs);
   const actions = [...instructionActions('claude', scope, root, options), ...await skillActions('claude', scope, root, options)];
   for (const agent of await agentTemplates(options.templatesDir)) {
     const header = `---\nname: ${agent.name}\ndescription: ${JSON.stringify(agent.description)}\ntools: ${agent.tools}\n---\n`;
     actions.push({ cli: 'claude', kind: 'file', path: join(paths.agents!, `${agent.name}.md`), description: `Install ${agent.name} subagent`, content: `${header}\n${agent.prompt}\n` });
   }
-  actions.push({ cli: 'claude', kind: 'json-merge', path: paths.mcp!, description: 'Register Edu MCP server', jsonPatch: { mcpServers: { edu: { ...eduMcpLaunch() } } } });
+  actions.push({ cli: 'claude', kind: 'json-merge', path: paths.mcp!, description: 'Register Edu MCP server', jsonPatch: { mcpServers: { edu: { ...eduMcpLaunch(options.platform) } } } });
   const identityPath = join(scope === 'project' ? root : options.home, '.edu/EDU.md');
   const identity = await readFile(identityPath, 'utf8').catch(() => readFile(join(options.templatesDir, 'EDU.md'), 'utf8'));
   const voice = identity.match(/\*\*Voice\.\*\*[\s\S]*?(?=\n\n|$)/)?.[0] ?? 'Direct, warm, evidence-first.';

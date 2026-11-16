@@ -21,7 +21,7 @@ const entropySchema = z.object({ findings: z.array(z.object({ category: z.string
 const interventionSchema = z.object({
   type: z.enum(['intervention', 'approval.resolve']).optional(), avoidable: z.boolean().optional(),
   approved: z.boolean().optional(),
-  by: z.enum(['user', 'policy']).optional(),
+  by: z.enum(['user', 'policy', 'cli', 'deck', 'host-llm']).optional(),
 }).refine(value => value.avoidable !== undefined || value.approved !== undefined);
 
 export interface PackageClassification { label: OutcomeLabel; reasons: string[] }
@@ -53,7 +53,8 @@ export async function diagnosePackage(directory: string): Promise<PackageClassif
     if (deterministicFailures.size || [...latest.values()].includes(false) || final.some(event => !event.requirementIds.length && !event.ok)) return result('failed', 'unresolved verification failure');
     const verified = task.requirements.length > 0 && task.requirements.every(req => latest.get(req.id) === true);
     if (!verified) return result('unverified_success', 'terminal success without complete requirement coverage');
-    const assisted = interventions.some(event => event.type !== 'approval.resolve' || event.by !== 'policy');
+    // A person's decision assists the run; the --yes policy and the host LLM do not.
+    const assisted = interventions.some(event => event.type !== 'approval.resolve' || (event.by !== 'policy' && event.by !== 'host-llm'));
     return result(assisted ? 'assisted_verified_success' : 'autonomous_verified_success', 'terminal success with requirement coverage');
   } catch (error) {
     if (error instanceof SyntaxError || error instanceof z.ZodError || (error as NodeJS.ErrnoException).code === 'ENOENT') return { label: 'failed', reasons: ['incomplete or malformed package evidence'] };

@@ -10,7 +10,7 @@ const fault = vi.hoisted(() => ({ path: '', remaining: 0 }));
 vi.mock('node:fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
   return { ...actual, writeFile: async (path: Parameters<typeof actual.writeFile>[0], ...args: [Parameters<typeof actual.writeFile>[1], Parameters<typeof actual.writeFile>[2]?]) => {
-    if (String(path) === fault.path && fault.remaining > 0) { fault.remaining--; throw new Error('injected status write'); }
+    if (path === fault.path && fault.remaining > 0) { fault.remaining--; throw new Error('injected status write'); }
     return actual.writeFile(path, ...args);
   } };
 });

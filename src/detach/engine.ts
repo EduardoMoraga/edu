@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
+import { withFsRetry } from '../platform/fs-retry.js';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { hostFiles, type HostId } from '../doctor/hosts.js';
+import { hostFiles, type HostId } from '../adapters/host-files.js';
 import { editContent } from './edit.js';
 import { assertDetachable, type ToolId } from './signatures.js';
 
@@ -78,7 +79,8 @@ async function atomicWrite(path: string, bytes: Buffer): Promise<void> {
   const mode = (await stat(path)).mode;
   try {
     await writeFile(temp, bytes, { mode });
-    await rename(temp, path);
+    // Retries while Windows reports the host config as held open by another process.
+    await withFsRetry(() => rename(temp, path));
   } catch (error) {
     await import('node:fs/promises').then((fs) => fs.rm(temp, { force: true }));
     throw error;

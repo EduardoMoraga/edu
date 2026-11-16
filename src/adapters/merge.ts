@@ -1,4 +1,6 @@
-import { applyEdits, modify, parse, type ParseError } from 'jsonc-parser';
+import { applyEdits, modify, parse, printParseErrorCode, type ParseError } from 'jsonc-parser';
+import { eolOf, sectionDigest } from './blocks.js';
+import { tomlDefines, tomlKeys } from './toml.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -23,7 +25,23 @@ function parseJson(text: string): JsonRecord {
   return parsed;
 }
 
-function serialize(value: JsonRecord): string { return `${JSON.stringify(value, null, 2)}\n`; }
+/** The layout a JSON file already has, so Edu's edits keep the user's indentation and line endings. */
+interface JsonStyle { indent: string; eol: '\r\n' | '\n'; finalNewline: boolean }
+function jsonStyle(text: string): JsonStyle {
+  if (!text.trim()) return { indent: '  ', eol: '\n', finalNewline: true };
+  const indented = /\n([ \t]+)\S/.exec(text);
+  const indent = indented ? (indented[1]!.startsWith('\t') ? '\t' : ' '.repeat(indented[1]!.length)) : text.trim().includes('\n') ? '  ' : '';
+  return { indent, eol: eolOf(text), finalNewline: /\n$/.test(text) };
+}
+
+/** `value` serialized in the layout `original` already has (indentation, line endings, final newline). */
+export function serializeLike(original: string, value: JsonRecord): string { return serialize(value, jsonStyle(original)); }
+/** jsonc-parser formatting options that match the layout `text` already has. */
+export function jsoncFormatFor(text: string) { return formatFor(text); }
+
+function serialize(value: JsonRecord, style: JsonStyle): string {
+  return `${JSON.stringify(value, null, style.indent).replace(/\n/g, style.eol)}${style.finalNewline ? style.eol : ''}`;
+}
 
 function isEduHook(value: unknown): boolean {
   return record(value) && (value.command === 'edu hook session-start' || value.command === 'edu hook session-end');
@@ -34,6 +52,8 @@ function isEduEntry(value: unknown): boolean {
     Array.isArray(value.hooks) && value.hooks.some(isEduHook)
   ));
 }
+
+const isEduEntryArray = (value: unknown) => Array.isArray(value) && value.length > 0 && value.every(isEduEntry);
 
 function withoutEduEntry(value: unknown): unknown | undefined {
   if (!record(value)) return value;
@@ -96,14 +116,14 @@ function removePatch(target: JsonRecord, patch: JsonRecord): void {
 export function mergeJson(text: string, patch: JsonRecord): string {
   const target = parseJson(text);
   applyPatch(target, patch);
-  const result = serialize(target);
+  const result = serialize(target, jsonStyle(text));
   return JSON.stringify(parseJson(text)) === JSON.stringify(target) ? text : result;
 }
 
 export function unmergeJson(text: string, patch: JsonRecord): string {
   const target = parseJson(text);
   removePatch(target, patch);
-  const result = serialize(target);
+  const result = serialize(target, jsonStyle(text));
   return JSON.stringify(parseJson(text)) === JSON.stringify(target) ? text : result;
 }
 
@@ -121,17 +141,72 @@ export function containsPatch(target: unknown, patch: unknown): boolean {
   return same(target, patch);
 }
 
+// ---- Values the user owns: Edu never overwrites them. ----------------------------------------
+
+/**
+ * The objects a patch owns as a whole inside a file it shares with the user: `statusLine`,
+ * `mcpServers.edu`, `agent.<name>`. Arrays of Edu entries (hooks) and `$union` lists already keep
+ * the user's items, so they are not units.
+ */
+export function patchUnits(patch: JsonRecord, prefix: string[] = []): string[][] {
+  const units: string[][] = [];
+  const leaves = Object.entries(patch).filter(([, value]) => !record(value) && !isEduEntryArray(value));
+  if (leaves.length) units.push(...(prefix.length ? [prefix] : leaves.map(([key]) => [key])));
+  for (const [key, value] of Object.entries(patch)) if (record(value) && !unionItems(value)) units.push(...patchUnits(value, [...prefix, key]));
+  return units;
+}
+
+function without(patch: JsonRecord, path: string[]): JsonRecord {
+  const [key, ...rest] = path;
+  if (key === undefined || !(key in patch)) return patch;
+  const copy = { ...patch };
+  if (!rest.length || !record(copy[key])) delete copy[key];
+  else {
+    const inner = without(copy[key] as JsonRecord, rest);
+    if (Object.keys(inner).length) copy[key] = inner; else delete copy[key];
+  }
+  return copy;
+}
+
+export interface ResolvedPatch { patch: JsonRecord; kept: string[] }
+
+/**
+ * The part of `patch` Edu may write into `text`. A unit that already holds a value Edu did not write
+ * (`owned` is what an earlier Edu install recorded there) stays the user's: it is dropped from the
+ * patch, so install never changes it and uninstall never removes it. Units holding a different value
+ * are reported in `kept`.
+ */
+export function resolveJsonPatch(path: string, text: string, patch: JsonRecord, owned?: JsonRecord): ResolvedPatch {
+  const target = parseJsonFile(path, text);
+  let result = patch;
+  const kept: string[] = [];
+  for (const unit of patchUnits(patch)) {
+    const current = at(target, unit);
+    if (current === undefined) continue;
+    const mine = owned ? at(owned, unit) : undefined;
+    if (mine !== undefined && containsPatch(current, mine)) continue;
+    result = without(result, unit);
+    if (!containsPatch(current, at(patch, unit))) kept.push(unit.join('.'));
+  }
+  return { patch: result, kept };
+}
+
 // ---- JSONC: edit in place with jsonc-parser so comments and layout survive. -------------------
 
 /** `.jsonc`, plus OpenCode's `opencode.json`, which OpenCode itself parses as JSONC (comments, trailing commas). */
 const isJsonc = (path: string) => { const lower = path.toLowerCase().replace(/\\/g, '/'); return lower.endsWith('.jsonc') || lower.endsWith('/opencode.json'); };
-const FORMAT = { formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' } };
+
+function formatFor(text: string) {
+  const style = jsonStyle(text);
+  return { formattingOptions: { insertSpaces: style.indent !== '\t', tabSize: style.indent === '\t' ? 1 : style.indent.length || 2, eol: style.eol } };
+}
 
 function parseJsonc(text: string): JsonRecord {
   if (!text.trim()) return {};
   const errors: ParseError[] = [];
   const value: unknown = parse(text, errors, { allowTrailingComma: true });
-  if (errors.length || !record(value)) throw new Error('Expected a JSONC object');
+  if (errors.length) throw new Error(`${printParseErrorCode(errors[0]!.error)} at offset ${errors[0]!.offset}`);
+  if (!record(value)) throw new Error('Expected a JSON object');
   return value;
 }
 
@@ -153,14 +228,15 @@ function mergeJsonc(text: string, patch: JsonRecord): string {
   applyPatch(after, patch);
   if (same(before, after)) return text;
   let out = text.trim() ? text : '{}\n';
+  const format = formatFor(text);
   for (const { path, union } of leaves(patch)) {
     const current = at(before, path);
     if (union && Array.isArray(current)) {
       // Insert at the front: a trailing `// comment` stays on the user's own last entry.
       for (const item of union.filter(item => !current.some(existing => same(existing, item))).reverse()) {
-        out = applyEdits(out, modify(out, [...path, 0], item, { ...FORMAT, isArrayInsertion: true }));
+        out = applyEdits(out, modify(out, [...path, 0], item, { ...format, isArrayInsertion: true }));
       }
-    } else out = applyEdits(out, modify(out, path, at(after, path), FORMAT));
+    } else out = applyEdits(out, modify(out, path, at(after, path), format));
   }
   return out;
 }
@@ -171,31 +247,44 @@ function unmergeJsonc(text: string, patch: JsonRecord): string {
   removePatch(after, patch);
   if (same(before, after)) return text;
   let out = text;
+  const format = formatFor(text);
   for (const { path, union } of leaves(patch)) {
     const current = at(before, path);
     if (union && Array.isArray(current) && Array.isArray(at(after, path))) {
       const owned = current.map((item, index) => union.some(mine => same(mine, item)) ? index : -1).filter(index => index >= 0);
-      for (const index of owned.reverse()) out = applyEdits(out, modify(out, [...path, index], undefined, FORMAT));
+      for (const index of owned.reverse()) out = applyEdits(out, modify(out, [...path, index], undefined, format));
       continue;
     }
     // Remove the outermost ancestor that the unmerge deleted, or rewrite the surviving leaf.
     const cut = path.findIndex((_, i) => at(after, path.slice(0, i + 1)) === undefined);
-    if (cut >= 0) { if (at(before, path.slice(0, cut + 1)) !== undefined) out = applyEdits(out, modify(out, path.slice(0, cut + 1), undefined, FORMAT)); }
-    else out = applyEdits(out, modify(out, path, at(after, path), FORMAT));
+    if (cut >= 0) { if (at(before, path.slice(0, cut + 1)) !== undefined) out = applyEdits(out, modify(out, path.slice(0, cut + 1), undefined, format)); }
+    else out = applyEdits(out, modify(out, path, at(after, path), format));
   }
   return out;
 }
 
+/** Every parse failure names the file and what it must contain. */
+function named<T>(path: string, run: () => T): T {
+  try { return run(); }
+  catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    const expected = isJsonc(path) ? 'a JSON object (comments allowed)' : 'a plain JSON object, without comments or trailing commas';
+    throw new Error(`Cannot parse ${path}: ${reason}. It must hold ${expected}; fix it and run again.`);
+  }
+}
+
 /** JSON or JSONC by file extension. */
 export function mergeJsonFile(path: string, text: string, patch: JsonRecord): string {
-  return isJsonc(path) ? mergeJsonc(text, patch) : mergeJson(text, patch);
+  return named(path, () => isJsonc(path) ? mergeJsonc(text, patch) : mergeJson(text, patch));
 }
 export function unmergeJsonFile(path: string, text: string, patch: JsonRecord): string {
-  return isJsonc(path) ? unmergeJsonc(text, patch) : unmergeJson(text, patch);
+  return named(path, () => isJsonc(path) ? unmergeJsonc(text, patch) : unmergeJson(text, patch));
 }
 export function parseJsonFile(path: string, text: string): unknown {
-  return isJsonc(path) ? parseJsonc(text) : JSON.parse(text);
+  return named(path, () => isJsonc(path) ? parseJsonc(text) : parseJson(text));
 }
+
+// ---- TOML (Codex config.toml): Edu's own delimited sections. ---------------------------------
 
 const TOML_START = '# edu:start';
 const TOML_END = '# edu:end';
@@ -217,51 +306,57 @@ const tomlBounds = (text: string) => markerBounds(text, TOML_START, TOML_END);
 const tomlTopBounds = (text: string) => markerBounds(text, TOML_TOP_START, TOML_TOP_END);
 
 /** Splits a TOML body into the keys before the first table header and the rest. */
-function splitTopLevel(body: string): { top: string; tables: string } {
+function splitTopLevel(body: string, eol: string): { top: string; tables: string } {
   const lines = body.trim().split(/\r?\n/);
   const firstTable = lines.findIndex(line => /^\s*\[/.test(line));
   const cut = firstTable < 0 ? lines.length : firstTable;
-  return { top: lines.slice(0, cut).join('\n').trim(), tables: lines.slice(cut).join('\n').trim() };
+  return { top: lines.slice(0, cut).join(eol).trim(), tables: lines.slice(cut).join(eol).trim() };
 }
+
+/** The line ending that follows `end`, if any. */
+const eolAt = (text: string, end: number) => text.startsWith('\r\n', end) ? '\r\n' : text.startsWith('\n', end) ? '\n' : '';
 
 function removeTopSection(text: string): string {
   const span = tomlTopBounds(text);
   if (!span) return text;
   const [start, end] = span;
-  return text.slice(0, start) + text.slice(text[end] === '\n' ? end + 1 : end);
+  return text.slice(0, start) + text.slice(end + eolAt(text, end).length);
 }
 
+/** Edu's own TOML text (both sections, markers included), for the drift check. */
+export function tomlSectionsDigest(text: string): string | undefined {
+  const top = tomlTopBounds(text);
+  const main = tomlBounds(text);
+  if (!top && !main) return undefined;
+  return sectionDigest([top ? text.slice(...top) : '', main ? text.slice(...main) : ''].join('\n'));
+}
+
+export const EDU_MCP_TOML_PATH = ['mcp_servers', 'edu'];
+
 export function mergeToml(text: string, body: string): string {
-  const prior = unmergeToml(text);
-  let { top, tables } = splitTopLevel(body);
-  if (hasTopLevelTomlKey(prior, 'notify')) {
-    top = top.split(/\r?\n/).filter(line => !/^\s*notify\s*=/.test(line)).join('\n').trim();
+  const eol = eolOf(text);
+  const user = unmergeToml(text);
+  let { top, tables } = splitTopLevel(body, eol);
+  if (hasTopLevelTomlKey(user, 'notify')) {
+    top = top.split(/\r?\n/).filter(line => !/^\s*notify\s*=/.test(line)).join(eol).trim();
   }
   let result = removeTopSection(text);
+  const span = tomlBounds(result);
   if (tables) {
-    const section = `${TOML_START}\n${tables}\n${TOML_END}`;
-    const span = tomlBounds(result);
+    const section = `${TOML_START}${eol}${tables}${eol}${TOML_END}`;
     if (span) result = result.slice(0, span[0]) + section + result.slice(span[1]);
     else {
-      if (/^\s*\[mcp_servers\.edu\]\s*$/m.test(result)) throw new Error('Unmanaged Edu MCP TOML section already exists');
-      result = `${result}${result ? '\n' : ''}${section}\n`;
+      if (tomlDefines(result, EDU_MCP_TOML_PATH) && tomlDefines(tables, EDU_MCP_TOML_PATH)) throw new Error('Unmanaged Edu MCP TOML section already exists');
+      result = `${result}${result ? eol : ''}${section}${eol}`;
     }
-  }
-  if (top) result = `${TOML_TOP_START}\n${top}\n${TOML_TOP_END}\n${result}`;
+  } else if (span) result = unmergeToml(result);
+  if (top) result = `${TOML_TOP_START}${eol}${top}${eol}${TOML_TOP_END}${eol}${result}`;
   return result;
 }
 
 /** Checks only TOML keys before the first table header (the true top-level scope). */
 export function hasTopLevelTomlKey(text: string, key: string): boolean {
-  const unmanaged = unmergeToml(text);
-  let topLevel = true;
-  for (const line of unmanaged.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    if (/^\[\[?.*\]\]?$/.test(trimmed)) { topLevel = false; continue; }
-    if (topLevel && new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=`).test(trimmed)) return true;
-  }
-  return false;
+  return tomlKeys(unmergeToml(text)).some(entry => !entry.header && !entry.table.length && entry.path.length === 1 && entry.path[0] === key);
 }
 
 export function unmergeToml(input: string): string {
@@ -269,9 +364,10 @@ export function unmergeToml(input: string): string {
   const span = tomlBounds(text);
   if (!span) return text;
   const [start, end] = span;
-  if (end === text.length - 1 && text[end] === '\n') {
+  const eol = eolAt(text, end);
+  if (eol && end + eol.length === text.length) {
     const prefix = text.slice(0, start);
-    return prefix.endsWith('\n') ? prefix.slice(0, -1) : prefix;
+    return prefix.endsWith(eol) ? prefix.slice(0, -eol.length) : prefix;
   }
   return text.slice(0, start) + text.slice(end);
 }

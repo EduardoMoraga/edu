@@ -1,5 +1,5 @@
 export { openBrain } from './brain.js';
-export type { Brain, BrainStats, MaintenanceReport, NewNote, RememberResult, UpdateOptions } from './brain.js';
+export type { Brain, BrainStats, MaintenanceReport, NewNote, RecallOptions, RememberResult, UpdateOptions } from './brain.js';
 export { listCanonicalProposals, proposalWhy, reviewCanonicalProposals } from './proposals.js';
 export type { CanonicalProposal, ReviewResult } from './proposals.js';
 export { parseMarkdown, serializeMarkdown } from './frontmatter.js';
@@ -9,9 +9,8 @@ export { learnedWeight, lessonStatus, overdueStatus, feedbackUsage, recordUsage 
 export { rankNotes, rankQueries, tokenize } from './search.js';
 export { resolveReference } from './resolve.js';
 export type { ResolveResult, ResolveVia } from './resolve.js';
-export { AUTO_MAINTAIN_INTERVAL_MS, autoMaintain, maintainStatePath, readMaintainState } from './auto-maintain.js';
-export type { AutoMaintainResult, MaintainState } from './auto-maintain.js';
-export { NoteConflictError, atomicWrite, contentHash, createId, notePath, slugify } from './store.js';
+export { NoteConflictError, atomicWrite, contentHash, createId, exclusiveWrite, notePath, slugify } from './store.js';
+export type { NoteProblem } from './store.js';
 export { LOCAL_DIR, ledgerPath, readLedger } from './ledger.js';
 export type { Exposure, UsageLedger } from './ledger.js';
 export { REDACTED_TAG, redactSecrets } from './redact.js';

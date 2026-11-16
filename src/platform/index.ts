@@ -8,7 +8,8 @@
  * Anything else falls back to cross-spawn, which resolves PATHEXT and escapes arguments.
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { constants, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { access, stat } from 'node:fs/promises';
 import { delimiter, dirname, extname, join, resolve } from 'node:path';
 import crossSpawn from 'cross-spawn';
 
@@ -26,6 +27,23 @@ export function whichSync(name: string, env: NodeJS.ProcessEnv = process.env, pl
     }
   }
   return undefined;
+}
+
+/** Whether an executable `binary` is on PATH (PATHEXT on Windows). */
+export async function binaryOnPath(binary: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  const extensions = process.platform === 'win32' ? (env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';') : [''];
+  for (const dir of (env.PATH ?? env.Path ?? '').split(delimiter)) {
+    if (!dir) continue;
+    for (const extension of extensions) {
+      const target = join(dir, `${binary}${extension}`);
+      try {
+        if (!(await stat(target)).isFile()) continue;
+        await access(target, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
+        return true;
+      } catch { /* Try next PATH entry. */ }
+    }
+  }
+  return false;
 }
 
 /** Extracts the Node script an npm `.cmd` shim runs, e.g. `"%dp0%\node_modules\pkg\cli.js" %*`. */

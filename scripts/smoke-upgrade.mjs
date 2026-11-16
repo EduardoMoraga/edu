@@ -51,7 +51,8 @@ try {
     await symlink(process.execPath, join(tools, 'node'));
     await writeFile(join(tools, 'npm'), `#!/bin/sh\nexec "${process.execPath}" "${npmCli}" "$@"\n`, { mode: 0o755 });
   }
-  // A single native host fixture never runs an agent. It reports an existing plugin.
+  // A single native host fixture never runs an agent. It reports an existing plugin. A cache without a recorded
+  // baseline (any release but 0.10.2 and 2.0.0-rc.1) is refreshed through the public remove + add path.
   for (const cli of ['codex']) {
     const js = join(tools, `${cli}.cjs`);
     const body = `const fs=require('node:fs'),p=require('node:path');
@@ -65,7 +66,8 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
  fs.rmSync(base,{recursive:true,force:true});fs.mkdirSync(base,{recursive:true});fs.cpSync(src,p.join(base,version),{recursive:true});
  fs.writeFileSync(stateFile,JSON.stringify({version,refreshes:state().refreshes+1}));
  console.log(JSON.stringify({pluginId:'edu@edu',version,installedPath:p.join(base,version)}));
-}else process.exit(1);`;
+}else if(args.join(' ')==='plugin remove edu@edu')fs.rmSync(base,{recursive:true,force:true});
+else process.exit(1);`;
     await writeFile(js, body);
     if (windows) await writeFile(join(tools, `${cli}.cmd`), `@echo off\r\n"${process.execPath}" "${js}" %*\r\n`);
     else await writeFile(join(tools, cli), `#!${process.execPath}\n${body}\n`, { mode: 0o755 });
@@ -99,8 +101,9 @@ else if(args.join(' ')==='plugin add edu@edu --json'){
   // Only GitHub's release metadata is substituted. The actual OLD updater installs and verifies the new package,
   // runs its own published setup/migration order (0.10.2: setup first; RC: migration first).
   const fixture = join(temp, 'release-fixture.mjs');
+  // The release under test is whatever package.json declares; the candidate must report it after the update below.
   const nextVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
-  assert.equal(nextVersion, '5.0.1', 'This release gate must test the 5.0.1 release');
+  assert.match(nextVersion, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, 'package.json must declare a semver release version');
   await writeFile(fixture, `const original=globalThis.fetch; globalThis.fetch=async(url,opts)=>String(url).startsWith('https://api.github.com/repos/EduardoMoraga/edu/releases') ? new Response(JSON.stringify({tag_name:${JSON.stringify(`v${nextVersion}`)},name:'Local candidate fixture',body:'Local smoke only; not a published release.',assets:[{name:${JSON.stringify(`edu-agent-${nextVersion}.tgz`)},browser_download_url:${JSON.stringify(nextPackage)}}]}),{status:200,headers:{'content-type':'application/json'}}) : original(url,opts);`);
   const updateOutput = run(process.execPath, ['--import', pathToFileURL(fixture).href, entry, 'update', `v${nextVersion}`]);
   assert.equal(run(process.execPath, [entry, '--version']), nextVersion);

@@ -1,12 +1,12 @@
 /** Versioned, local-only upgrades. Never run lifecycle maintenance while migrating old memory. */
-import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveBrainDir } from '../brain/location.js';
 import { compareVersions } from './release.js';
-import { packageVersion } from '../cli/package.js';
+import { packageVersion } from '../platform/package.js';
 import { getCapabilities } from '../release/capabilities.js';
-import { readProjects } from '../vault/registry.js';
+import { readProjects } from '../brain/registry.js';
 
 export type MigrationStatus = 'migrated' | 'missing' | 'no-brain' | 'failed';
 export interface WorkspaceMigration { name: string; root: string; status: MigrationStatus; detail?: string }
@@ -18,12 +18,32 @@ async function optional(path: string): Promise<string | undefined> {
   try { return await readFile(path, 'utf8'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
 }
+/** lstat that reports a missing path (or one below a file) as undefined. */
+async function entry(path: string) {
+  try { return await lstat(path); }
+  catch (error) { if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return undefined; throw error; }
+}
+/**
+ * Refuse a link at the root or anywhere below it on the way to `path`. Links above the root (macOS
+ * /var → /private/var, a symlinked HOME) are the user's layout: the root is met by real path, however
+ * either side is spelled. A path that never meets the root is a host file outside the brain, vetted by
+ * its own adapter; only its bytes are read here.
+ */
 async function plainPath(path: string, root: string): Promise<void> {
-  for (let current = resolve(path); ; current = dirname(current)) {
-    try { if ((await lstat(current)).isSymbolicLink()) throw new Error(`Refusing migration through symlink: ${current}`); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    if (current === resolve(root) || dirname(current) === current) break;
+  const top = resolve(root);
+  const refuse = (link: string) => new Error(`Refusing migration through symlink: ${link}`);
+  const rootEntry = await entry(top);
+  if (rootEntry?.isSymbolicLink()) throw refuse(top);
+  if (!rootEntry) return; // Nothing exists below a missing root, so nothing can redirect into it.
+  const realTop = await realpath(top);
+  let link: string | undefined;
+  for (let current = resolve(path); current !== top; current = dirname(current)) {
+    if (dirname(current) === current) return;
+    const stat = await entry(current);
+    if (stat?.isSymbolicLink()) link = current;
+    else if (stat && await realpath(current) === realTop) break;
   }
+  if (link) throw refuse(link);
 }
 const legacyProtocol = "**Protocol.** Start with `edu_brief` (shell: `edu brief`). Pull on demand: `edu_recall`, then `edu_read`;\ncite ids like `[[D-…]]`. `edu_remember` decisions, hypotheses, commitments and lessons\nas they happen; `edu_feedback` when a note helped or misled. End with\n`edu_session_close` and an honest summary.";
 const currentProtocol = "**Protocol.** Reuse an injected Edu brief; otherwise call `edu_brief` once. Retain an injected session id; otherwise call `edu_session_open(title, source)` and keep its exact returned id per workspace. Recall with `edu_recall`, then `edu_read`; cite ids, scope, claim bands and evidence. Use `edu_remember` for durable decisions and lessons. Memory is stored notes, not model training; `edu_feedback` is advisory, never proof. Close with `edu_session_close(id, summary)` using that exact id, and report failures honestly. Check `edu_capabilities`; unavailable means unknown.";

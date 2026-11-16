@@ -1,7 +1,9 @@
-import type { EduEvent, Engine, EngineRunRequest } from '../core/contracts.js';
+import type { EduEvent, Engine, EngineCapabilities, EngineRunRequest } from '../core/contracts.js';
 
 export class FakeEngine implements Engine {
   readonly cli = 'claude' as const;
+  /** A scripted replay runs no tools, so it can never write: readonly holds by construction. */
+  readonly capabilities: EngineCapabilities = { readonly: 'enforced', mechanism: 'scripted replay runs no tools', isolation: 'host', limitations: [] };
   constructor(private readonly script: readonly EduEvent[], private readonly delayMs = 0) {}
 
   async available(): Promise<boolean> { return true; }

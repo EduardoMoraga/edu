@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import type { RunResult } from '../../orchestrator/index.js';
 import type { CliContext } from '../context.js';
 import { uiLang, type Lang } from '../i18n.js';
-import { packageTemplatesDir } from '../package.js';
-import { initBrain } from '../setup.js';
+import { packageTemplatesDir } from '../../platform/package.js';
+import { initBrain } from '../../workspace/init.js';
 import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
 import { ApprovalBridge } from './bridge.js';
 import { createChannel } from './channel.js';
@@ -27,6 +27,8 @@ export interface LiveRunOptions {
   playbook?: string;
   cli?: CliId;
   autoApprove: boolean;
+  /** `--allow-unregistered-checks`: run planner-proposed checks without a person approving them. */
+  allowUnregisteredChecks?: boolean;
   name: string;
 }
 

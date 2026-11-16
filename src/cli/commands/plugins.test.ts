@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import type { SetupOptions } from '../../setup/index.js';
-import { captureContext, runCli } from '../testkit.js';
+import { captureContext, runCli } from '../../test-support/cli.js';
 
 // Real setup and installer; replace host probing so this test invokes no host CLI.
 vi.mock('../../setup/index.js', async importOriginal => {

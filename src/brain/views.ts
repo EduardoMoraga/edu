@@ -7,7 +7,7 @@ import { readFile, rm, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { BrainLocation } from '../core/contracts.js';
-import { readProjects, type ProjectEntry } from '../vault/registry.js';
+import { readProjects, type ProjectEntry } from './registry.js';
 import { DASHBOARD_PATHS, buildBases, buildDashboard, isEduOwned, staleBaseFiles, type BaseLang, type BaseScope, type DashboardWorkspace } from './bases.js';
 import { brainPath, readWorkspaceSettings, vaultFolder, vaultPlacement } from './location.js';
 import { warnUnsafe } from './catalog.js';
