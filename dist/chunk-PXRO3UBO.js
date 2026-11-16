@@ -5,7 +5,7 @@ import {
   applySetup,
   needsFirstRunSetup,
   planSetup
-} from "./chunk-UFJRKS6C.js";
+} from "./chunk-AJIDT4OC.js";
 import {
   detectTheme,
   getGlyphs
@@ -245,4 +245,4 @@ export {
   registerPluginSetup,
   shouldRunFirstSetup
 };
-//# sourceMappingURL=chunk-LKB5YJQA.js.map
+//# sourceMappingURL=chunk-PXRO3UBO.js.map

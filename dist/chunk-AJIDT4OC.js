@@ -117,7 +117,7 @@ import { join as join4 } from "path";
 
 // src/setup/native-files.ts
 import { lstat, readFile as readFile2, readdir, realpath as realpath2 } from "fs/promises";
-import { dirname as dirname2, join as join2, posix, relative, win32 } from "path";
+import { dirname as dirname2, isAbsolute, join as join2, posix, relative, win32 } from "path";
 function equal(a, b) {
   return Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([p, hash]) => b[p] === hash);
 }
@@ -156,7 +156,7 @@ async function treeOrEmpty(root, anchor) {
   return tree(root, anchor);
 }
 function eduOwnedRoot(registered, previousPackageRoot, platform = process.platform) {
-  return typeof registered === "string" && (platform === "win32" ? win32 : posix).isAbsolute(registered) && (samePath(registered, previousPackageRoot, platform) || /[\\/]node_modules[\\/]edu-agent$/i.test(registered));
+  return typeof registered === "string" && ((platform === "win32" ? win32 : posix).isAbsolute(registered) || isAbsolute(registered)) && (samePath(registered, previousPackageRoot, platform) || /[\\/]node_modules[\\/]edu-agent$/i.test(registered));
 }
 
 // src/setup/claude-baseline.ts
@@ -1582,4 +1582,4 @@ export {
   uninstallSetup,
   needsFirstRunSetup
 };
-//# sourceMappingURL=chunk-UFJRKS6C.js.map
+//# sourceMappingURL=chunk-AJIDT4OC.js.map

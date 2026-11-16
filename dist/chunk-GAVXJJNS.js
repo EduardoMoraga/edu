@@ -15,7 +15,7 @@ import {
   registerPluginSetup,
   resolveGlobals,
   statusLine
-} from "./chunk-LKB5YJQA.js";
+} from "./chunk-PXRO3UBO.js";
 import {
   fsCrewSource
 } from "./chunk-NGZ663P7.js";
@@ -38,7 +38,7 @@ import {
   editContent,
   editInstructions,
   ownerOf
-} from "./chunk-UFJRKS6C.js";
+} from "./chunk-AJIDT4OC.js";
 import {
   CHECKSUMS_ASSET,
   UpdateError,
@@ -106,10 +106,10 @@ import {
   CREW_BRAIN_ENV,
   createCrew,
   runWorker
-} from "./chunk-KQPRJ5HL.js";
+} from "./chunk-CMOEIR57.js";
 import {
   isCrewWorker
-} from "./chunk-PSPSPPGI.js";
+} from "./chunk-QKYNQ2TE.js";
 import {
   initBrain
 } from "./chunk-FMFRO2B7.js";
@@ -258,7 +258,7 @@ function registerBench(program, ctx) {
       report.retrieval = await runRetrievalBench(options);
     }
     if (!suite || suite === "context") {
-      const { runContextBench } = await import("./bench-context-3O2C74SW.js");
+      const { runContextBench } = await import("./bench-context-PCSEUHZ5.js");
       report.context = await runContextBench();
     }
     await emit(report, [
@@ -733,7 +733,7 @@ function registerSetup(program, ctx) {
       const brainRoot = globalHome(ctx);
       let purgeBrain = false;
       if (opts.purgeBrain) {
-        const { assertPurgeableBrain } = await import("./uninstall-VTSLJPGY.js");
+        const { assertPurgeableBrain } = await import("./uninstall-DLQE2OOJ.js");
         if (await exists(join5(brainRoot, "EDU.md"))) {
           await assertPurgeableBrain(brainRoot, ctx.home);
           const question = es ? `\xBFBorrar el cerebro ${brainRoot} con todas sus notas? Esto no se puede deshacer.` : `Delete the brain ${brainRoot} and all its notes? This cannot be undone.`;
@@ -743,7 +743,7 @@ function registerSetup(program, ctx) {
           if (!purgeBrain) ctx.out(es ? "El cerebro se conserva." : "Keeping the brain.");
         }
       }
-      const { uninstallEdu } = await import("./uninstall-VTSLJPGY.js");
+      const { uninstallEdu } = await import("./uninstall-DLQE2OOJ.js");
       const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain });
       if (g.json) {
         printJson(ctx, report);
@@ -3103,7 +3103,7 @@ function registerIntegrations(program, ctx) {
   );
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-CLHER763.js");
+      const { runStdioServer } = await import("./stdio-OQ2CJFQC.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3228,7 +3228,7 @@ function registerMcpProject(program, ctx) {
   mcp.option("--project <name|path>", 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)').option("--profile <full|memory>", "tool surface: full (default) or memory only (env EDU_MCP_PROFILE)").action(
     action(ctx, async ({ g, opts }) => {
       if (opts.profile && opts.profile !== "full" && opts.profile !== "memory") throw new Error("Unknown MCP tool profile; use full or memory");
-      const { runStdioServer } = await import("./stdio-CLHER763.js");
+      const { runStdioServer } = await import("./stdio-OQ2CJFQC.js");
       await runStdioServer({ cwd: g.cwd, project: opts.project, toolProfile: opts.profile, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3328,7 +3328,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-JJCYV6O3.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-AGS22TTM.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -3368,7 +3368,7 @@ function registerLive(program, ctx) {
       }
       if (!text) throw new Error("a goal is required");
       if (opts.detach) {
-        const [{ createCrew: createCrew2 }, { isCrewWorker: isCrewWorker2 }] = await Promise.all([import("./crew-NVS7JMGS.js"), import("./store-IVGMVCTH.js")]);
+        const [{ createCrew: createCrew2 }, { isCrewWorker: isCrewWorker2 }] = await Promise.all([import("./crew-YQJVULS3.js"), import("./store-3FUBRRTZ.js")]);
         if (isCrewWorker2(ctx.env)) throw new Error("A crew worker cannot start detached runs");
         const ws = await openWorkspace(ctx, g.cwd);
         const job = await createCrew2({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
@@ -4418,4 +4418,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-GFMFRCAM.js.map
+//# sourceMappingURL=chunk-GAVXJJNS.js.map

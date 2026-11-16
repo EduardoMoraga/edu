@@ -147,6 +147,7 @@ var envGlobalRoot = () => resolve(process.env.EDU_HOME || join2(process.env.HOME
 var DECISION_BY = /* @__PURE__ */ new Set(["cli", "deck", "host-llm"]);
 var LOCK_WAIT_MS = 1e4;
 var LOCK_STALE_MS = 3e4;
+var STALE_DECISION_LOCK_MS = 3e4;
 var pause = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
 async function withJobLock(dir, body) {
   const deadline = Date.now() + LOCK_WAIT_MS;
@@ -375,18 +376,33 @@ function createCrewStore(brainRoot, options = {}) {
       if (!job) throw new Error(`Crew job not found: ${id}`);
       const gate = await readGate(job.id);
       const path = decisionPath(job.id);
-      const claimed = `${path}.${randomUUID()}.taking`;
+      const lock = `${path}.lock`;
       try {
-        await retryFs.rename(path, claimed);
+        await mkdir2(lock);
       } catch (error) {
-        if (error.code === "ENOENT") return void 0;
-        throw error;
+        const code = error.code;
+        if (code === "ENOENT") return void 0;
+        if (code !== "EEXIST") throw error;
+        const age = await stat(lock).then((info) => Date.now() - info.mtimeMs, () => 0);
+        if (age > STALE_DECISION_LOCK_MS) await rm(lock, { recursive: true, force: true }).catch(() => void 0);
+        return void 0;
       }
       let text;
       try {
-        text = await readFile(claimed, "utf8");
+        const claimed = `${path}.${randomUUID()}.taking`;
+        try {
+          await retryFs.rename(path, claimed);
+        } catch (error) {
+          if (error.code === "ENOENT") return void 0;
+          throw error;
+        }
+        try {
+          text = await readFile(claimed, "utf8");
+        } finally {
+          await unlink(claimed).catch(() => void 0);
+        }
       } finally {
-        await unlink(claimed).catch(() => void 0);
+        await rm(lock, { recursive: true, force: true }).catch(() => void 0);
       }
       let value;
       try {
@@ -415,4 +431,4 @@ export {
   approvalDir,
   createCrewStore
 };
-//# sourceMappingURL=chunk-PSPSPPGI.js.map
+//# sourceMappingURL=chunk-QKYNQ2TE.js.map
