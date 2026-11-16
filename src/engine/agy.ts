@@ -1,12 +1,13 @@
 import type { EngineRunRequest } from '../core/contracts.js';
 import { makeEngine } from './adapter.js';
 import { autonomyFlags } from './autonomy.js';
-import { SYSTEM_PROMPT_SEPARATOR } from './codex.js';
-import { endEvent, makeUsage, parseJson, str, textEvent, toolCall, toolResult, type ParseContext } from './parse.js';
+import { combinePrompt, endEvent, makeUsage, parseJson, str, textEvent, toolCall, toolResult, type ParseContext } from './parse.js';
 import type { CommandSpec } from './process.js';
 
 export function buildAgyArgv(req: EngineRunRequest): CommandSpec {
-  const prompt = req.systemPrompt ? `${req.systemPrompt}${SYSTEM_PROMPT_SEPARATOR}${req.prompt}` : req.prompt;
+  // agy reads the prompt only as the value of `-p`. The prompt is always labelled, so it starts with `#`
+  // and a task such as `--model x` stays prompt text.
+  const prompt = combinePrompt(req.systemPrompt, req.prompt, true);
   const args = ['-p', prompt, '--output-format', 'stream-json', ...autonomyFlags('agy', req.autonomy)];
   if (req.model) args.push('--model', req.model);
   if (req.resumeSessionId) args.push('--conversation', req.resumeSessionId);
