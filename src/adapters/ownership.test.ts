@@ -79,7 +79,7 @@ describe('Codex [mcp_servers.edu] defined by the user (M5)', () => {
     expect(text).toContain(original);
     expect(text).not.toContain('[mcp_servers.edu]');
     expect(tomlKeys(text).filter(key => key.header && key.path.join('.') === 'mcp_servers.edu').length).toBeLessThanOrEqual(1);
-    expect(text).toContain('notify = ["edu", "hook", "codex-notify"]');
+    expect(text).toContain(`notify = [${codexNotifyArgv(opts.templatesDir).map(arg => JSON.stringify(arg)).join(', ')}]`);
     expect(plan.notes.some(note => note.includes('[mcp_servers.edu]'))).toBe(true);
     await uninstall({ manifestPath: getManifestPath('global', opts.root, opts.home) });
     expect(await readFile(config, 'utf8')).toBe(original);

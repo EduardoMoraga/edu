@@ -8,6 +8,10 @@ import { packageTemplatesDir } from '../platform/package.js';
 import { diagnose } from '../doctor/diagnose.js';
 import { pathsFor } from './paths.js';
 import { createClaudeIntegration } from './claude.js';
+import { codexNotifyArgv } from './codex.js';
+
+/** The notify line setup writes on this platform (Windows runs Node with Edu's script, never through cmd.exe). */
+const notifyLine = (templatesDir: string) => `notify = [${codexNotifyArgv(templatesDir).map(arg => JSON.stringify(arg)).join(', ')}]`;
 
 const dirs: string[] = [];
 async function fixture() {
@@ -247,7 +251,7 @@ describe('installer', () => {
     await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['codex'] }));
     const installed = await readFile(path, 'utf8');
     const top = /# edu:top:start\n([\s\S]*?)\n# edu:top:end/.exec(installed)?.[1] ?? '';
-    expect(top).toBe('notify = ["edu", "hook", "codex-notify"]');
+    expect(top).toBe(notifyLine(opts.templatesDir));
     expect(installed.indexOf('notify =')).toBeLessThan(installed.indexOf('[mcp_servers.other]'));
     expect(installed).toContain('[mcp_servers.edu]');
     await uninstall({ manifestPath: join(opts.root, '.edu/manifest.json') });
@@ -263,7 +267,7 @@ describe('installer', () => {
     await applyInstall(await planInstall({ ...opts, scope: 'project', clis: ['codex'] }));
     const installed = await readFile(path, 'utf8');
     expect(installed).toContain('notify = ["my-hook"]');
-    expect(installed).not.toContain('notify = ["edu", "hook", "codex-notify"]');
+    expect(installed).not.toContain(notifyLine(opts.templatesDir));
     expect((await diagnose({ ...opts, detectBinary: async () => false })).find(item => item.cli === 'codex')?.notes)
       .toContain('A user-owned top-level Codex notify command is preserved; Edu did not add its notify hook.');
   });
