@@ -83,7 +83,7 @@ async function readJob(path: string): Promise<CrewJobInfo | undefined> {
     if (typeof job.id !== 'string' || !isCrewJobStatus(job.status)) return undefined;
     return {
       id: job.id,
-      cli: String(job.cli ?? 'claude') as CliId,
+      cli: (typeof job.cli === 'string' ? job.cli : 'claude') as CliId,
       task: typeof job.task === 'string' ? job.task : '',
       status: job.status,
       createdAt: typeof job.createdAt === 'string' ? job.createdAt : undefined,

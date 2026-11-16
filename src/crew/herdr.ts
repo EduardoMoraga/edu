@@ -282,7 +282,8 @@ async function agentState(name: string, options: HerdrOptions): Promise<{ status
   const raw = parse((await (options.runner ?? defaultRunner)(['agent', 'get', name])).stdout);
   const result = raw.result as Record<string, unknown> | undefined;
   const agent = result?.agent as Record<string, unknown> | undefined;
-  const status = String(agent?.agent_status ?? agent?.status ?? agent?.state ?? result?.agent_status ?? result?.status ?? raw.status ?? '').toLowerCase();
+  const reported = [agent?.agent_status, agent?.status, agent?.state, result?.agent_status, result?.status, raw.status].find(value => value !== undefined && value !== null);
+  const status = (typeof reported === 'string' ? reported : '').toLowerCase();
   const seq = typeof agent?.state_change_seq === 'number' ? agent.state_change_seq : undefined;
   return { status, seq };
 }

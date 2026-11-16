@@ -28,7 +28,7 @@ export function parseLine(line: string, ctx: ParseContext) {
     if (step.step_type === 'tool' && step.tool_info && typeof step.tool_info === 'object') {
       const info = step.tool_info as Record<string, unknown>;
       const name = str(info.name) ?? 'tool';
-      const callId = `${ctx.sessionId ?? ctx.agentId}-tool-${String(step.step_index ?? 'unknown')}`;
+      const callId = `${ctx.sessionId ?? ctx.agentId}-tool-${typeof step.step_index === 'number' || typeof step.step_index === 'string' ? step.step_index : 'unknown'}`;
       const events = [toolCall(ctx, name, info.parameters ?? {}, callId)];
       events.push(toolResult(ctx, info.output ?? info.error, callId, info.error === undefined));
       return events;

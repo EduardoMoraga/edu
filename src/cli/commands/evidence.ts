@@ -110,7 +110,7 @@ async function readEpisodes(root: string): Promise<EpisodeSummary[]> {
     summaries.push({
       runId: typeof task.runId === 'string' ? task.runId : entry,
       ...(typeof metrics.cli === 'string' ? { cli: metrics.cli } : {}), ...(typeof metrics.role === 'string' ? { role: metrics.role } : {}),
-      ...(level ? { level } : {}), startedAt: String(start.at ?? ''), outcome: label,
+      ...(level ? { level } : {}), startedAt: typeof start.at === 'string' ? start.at : '', outcome: label,
       interventions: interventions.filter(event => event.type === 'intervention') as EpisodeSummary['interventions'],
       verifications: verifications as EpisodeSummary['verifications'], toolCalls: toolCalls.length, recoveredTools,
       attributions: attributions as EpisodeSummary['attributions'],

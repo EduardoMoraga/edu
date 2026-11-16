@@ -423,7 +423,8 @@ async function settle(vault: string, env: NodeJS.ProcessEnv, host: string, sha: 
         const stem = ext ? file.slice(0, -ext.length) : file;
         const parsed = file.endsWith('.md') ? parseMarkdownLenient(local.out) : undefined;
         const original = parsed ? parseMarkdownLenient(upstream.code === 0 ? upstream.out : local.out).meta.id : undefined;
-        const originalId = String(original || parsed?.meta.id || stem);
+        const idText = (value: unknown) => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+        const originalId = idText(original) || idText(parsed?.meta.id) || stem;
         const copy = await keepBothCopy(vault, file, `${host.replace(/[^\w.-]+/g, '-')}-${sha}`,
           (path, suffix) => `${ext ? path.slice(0, -ext.length) : path}.conflict-${suffix}${ext}`,
           suffix => Buffer.from(parsed

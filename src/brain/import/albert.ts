@@ -80,9 +80,12 @@ function classify(segments: string[]): Pick<NewNote, 'tier' | 'kind' | 'status'>
   return { tier: 'transitive', kind: asTransitiveKind(prefix) };
 }
 
+/** A YAML scalar as text; maps and lists are not text. */
+const scalar = (value: unknown): string | undefined => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : undefined;
+
 function normalize(meta: Record<string, unknown>, body: string, segments: string[]): ImportMetadata & { stakeholder?: string } {
-  const rawType = String(meta.tipo ?? '').toLowerCase();
-  const status = String(meta.estado ?? '').toLowerCase();
+  const rawType = (scalar(meta.tipo) ?? '').toLowerCase();
+  const status = (scalar(meta.estado) ?? '').toLowerCase();
   const confidence: Record<string, ClaimBand> = { alta: 'verified', media: 'inferred', baja: 'hypothesis' };
   const canonical = segments[0] === '1-CANONICO';
   const episodic = segments[0] === '2-EPISODICO';
@@ -95,7 +98,7 @@ function normalize(meta: Record<string, unknown>, body: string, segments: string
   // Hypotheses record when they were opened in `abierta_en`; it is the creation date unless `fecha` is set.
   const created = [meta.fecha, meta.abierta_en].find((value): value is string => typeof value === 'string' && !Number.isNaN(Date.parse(value)));
   const owner = [meta.dueno, meta.dueño, meta.owner].find((value): value is string => typeof value === 'string' && value.trim() !== '')?.trim();
-  const band = typeof meta.banda === 'string' && ['verified', 'inferred', 'hypothesis'].includes(meta.banda) ? meta.banda as ClaimBand : confidence[String(meta.confianza ?? '').toLowerCase()];
+  const band = typeof meta.banda === 'string' && ['verified', 'inferred', 'hypothesis'].includes(meta.banda) ? meta.banda as ClaimBand : confidence[(scalar(meta.confianza) ?? '').toLowerCase()];
   return {
     ...(typeof meta.titulo === 'string' ? { title: meta.titulo } : {}), ...(noteBody ? { body: noteBody } : {}), source: sourceDetail,
     ...(band ? { band } : {}), ...(created ? { created } : {}), ...(typeof meta.actualizado === 'string' ? { updated: meta.actualizado } : {}),
@@ -162,7 +165,7 @@ async function importAlbertUnbatched(sourceRoot: string, brain: Brain): Promise<
       const segments = albertPathSegments(root, path);
       const mapping = classify(segments);
       const extra = normalize(meta, parsed.body, segments);
-      const title = String(extra.title ?? meta.title ?? basename(path, '.md').replace(/^[DHCAL]-(\d+[_-])?/i, '').replace(/[-_]/g, ' ')).trim() || basename(path, '.md');
+      const title = (extra.title ?? scalar(meta.title) ?? basename(path, '.md').replace(/^[DHCAL]-(\d+[_-])?/i, '').replace(/[-_]/g, ' ')).trim() || basename(path, '.md');
       const legacyId = albertCorrelative(path);
       const rel = segments.join('/');
       const existing = findExisting(existingNotes, `albert:${rel}`, mapping, title);
