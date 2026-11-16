@@ -38,6 +38,27 @@ describe('edu brain', () => {
     expect(status.byTier.transitive).toBe(1);
   });
 
+  it('explains recall hits in the chosen language, keeping JSON in English', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'remember', 'Use', 'atomic', 'writes', '--kind', 'decision', '--body', 'Temp file then rename.']);
+    const id = /Remembered (\S+)/.exec(out(c))![1]!;
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'recall', 'atomic', '--json']);
+    const why: string = JSON.parse(out(c))[0].why;
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'recall', 'atomic']);
+    expect(out(c)).toContain(`        ${why}`);
+    expect(why).toMatch(/^Matched atomic; learned weight \d\.\d\d\. Passage: "/);
+    c.stdout.length = 0;
+
+    await runCli(c, ['--lang', 'es', 'brain', 'recall', 'atomic']);
+    expect(out(c)).toMatch(/^ {8}Coincide con atomic; peso aprendido \d\.\d\d\. Pasaje: "/m);
+    c.stdout.length = 0;
+    await runCli(c, ['--lang', 'es', 'brain', 'recall', id]);
+    expect(out(c)).toMatch(new RegExp(`^ {8}Nombrada por id o alias "${id}"; peso aprendido \\d\\.\\d\\d\\.`, 'm'));
+    expect(out(c)).not.toMatch(/Matched|learned weight|Named by|Passage:/);
+  });
+
   it('tidy plans, saves the plan, applies it with a backup and validates --only', async () => {
     const c = await initialized();
     await runCli(c, ['brain', 'tidy', '--apply']);

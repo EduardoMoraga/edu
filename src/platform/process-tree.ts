@@ -12,7 +12,8 @@
  * The child registry kills tracked trees when Edu itself is told to stop (SIGINT, SIGTERM, SIGHUP) or
  * exits, so closing the terminal does not orphan agents that run in their own process group.
  */
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { constants } from 'node:os';
 import type { Readable } from 'node:stream';
 
@@ -42,17 +43,75 @@ export function processAlive(pid: number | undefined): boolean {
   catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
 }
 
+/** The command that stops `pid`'s tree by hand, as `killTree` would. */
+function manualKill(pid: number, platform: NodeJS.Platform): string {
+  return platform === 'win32' ? `taskkill /pid ${pid} /t /f` : `kill -TERM -- -${pid}`;
+}
+
+/**
+ * A live pid whose process could not be inspected (`ps`/`tasklist` missing, blocked or failing). Not the same
+ * as a reused pid: nothing is known, so nothing may be signalled, and the person is told how to stop it.
+ */
+export class ProcessCheckError extends Error {
+  readonly code = 'process-unverified' as const;
+  constructor(readonly pid: number, reason: string, platform: NodeJS.Platform = process.platform) {
+    super(`process ${pid} could not be verified as the job's worker (${reason}), so nothing was signalled and it may still be running. Confirm what it is, then stop its tree with: ${manualKill(pid, platform)}`);
+    this.name = 'ProcessCheckError';
+  }
+}
+
+export interface DescribeProcessOptions {
+  platform?: NodeJS.Platform;
+  /** Runs the probe and resolves its stdout; rejects when it cannot start or exits non-zero (tests inject failures). */
+  run?: (command: string, args: string[]) => Promise<string>;
+  alive?: (pid: number) => boolean;
+  /** Linux fallback when `ps` fails: the NUL-separated `/proc/<pid>/cmdline`. */
+  readCmdline?: (pid: number) => Promise<string>;
+}
+
+function runProbe(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { encoding: 'utf8', windowsHide: true, timeout: 5000 }, (error, stdout) => error ? reject(error) : resolve(stdout));
+  });
+}
+
+function probeFailure(command: string, error: unknown): string {
+  const failure = error as NodeJS.ErrnoException & { killed?: boolean; code?: string | number };
+  if (failure.killed) return `${command} timed out`;
+  if (typeof failure.code === 'number') return `${command} exited with code ${failure.code}`;
+  return `${command} could not run (${failure.code ?? failure.message})`;
+}
+
 /**
  * What runs at `pid`, to check a recorded pid still names the expected process before signalling it.
- * POSIX: its command line (`ps`). Windows: its image name (`tasklist`), since command lines need WMI.
+ * POSIX: its command line (`ps`, then `/proc` on Linux). Windows: its image name (`tasklist`), since command
+ * lines need WMI. Undefined only when the pid names no process; a live pid the probe cannot inspect throws
+ * `ProcessCheckError`, so a failing `ps` is never mistaken for a reused pid.
  */
-export async function describeProcess(pid: number, platform: NodeJS.Platform = process.platform): Promise<string | undefined> {
-  const { execFile } = await import('node:child_process');
-  const run = (command: string, args: string[]) => new Promise<string>(resolve => {
-    execFile(command, args, { encoding: 'utf8', windowsHide: true, timeout: 5000 }, (error, stdout) => resolve(error ? '' : stdout));
-  });
-  if (platform === 'win32') return imageFromTasklist(await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']), pid);
-  return (await run('ps', ['-o', 'args=', '-p', String(pid)])).trim() || undefined;
+export async function describeProcess(pid: number, options: DescribeProcessOptions = {}): Promise<string | undefined> {
+  const platform = options.platform ?? process.platform;
+  const alive = options.alive ?? processAlive;
+  const [command, args] = platform === 'win32'
+    ? ['tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']] as const
+    : ['ps', ['-o', 'args=', '-p', String(pid)]] as const;
+  let reason: string;
+  try {
+    const stdout = await (options.run ?? runProbe)(command, [...args]);
+    const found = platform === 'win32' ? imageFromTasklist(stdout, pid) : stdout.trim() || undefined;
+    if (found || !alive(pid)) return found;
+    reason = `${command} did not list it`;
+  } catch (error) {
+    // `ps -p` exits 1 for a pid that names nothing.
+    if (!alive(pid)) return undefined;
+    reason = probeFailure(command, error);
+  }
+  if (platform === 'linux') {
+    try {
+      const cmdline = (await (options.readCmdline ?? (p => readFile(`/proc/${p}/cmdline`, 'utf8')))(pid)).split('\0').join(' ').trim();
+      if (cmdline) return cmdline;
+    } catch { /* hidepid, no procfs: still unverified */ }
+  }
+  throw new ProcessCheckError(pid, reason, platform);
 }
 
 /** The image name in `tasklist /FO CSV /NH` output for exactly `pid` ("INFO: No tasks…" means none). */

@@ -60,9 +60,7 @@ export function registerSetup(program: Command, ctx: CliContext): void {
         ctx.out(t(g.lang, 'init.copied', { agents: report.agents.length, skills: report.skills.length }));
         ctx.out('');
         ctx.out(t(g.lang, 'init.next'));
-        for (const key of ['init.next.install', 'init.next.demo', 'init.next.run'] as const) {
-          ctx.out(`  ${t(g.lang, key, { cli: report.defaultCli })}`);
-        }
+        for (const key of ['init.next.setup', 'init.next.demo', 'init.next.run'] as const) ctx.out(`  ${t(g.lang, key)}`);
       }),
     );
 

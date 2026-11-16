@@ -5,7 +5,7 @@ import { LINT_KINDS, lintBrain, type LintReport } from '../../../brain/lint.js';
 import { brainPath } from '../../../brain/location.js';
 import { TIDY_KINDS, applyTidy, loadTidyPlan, planTidy, saveTidyPlan } from '../../../brain/tidy.js';
 import type { CliContext } from '../../context.js';
-import { t } from '../../i18n.js';
+import { t, type Lang } from '../../i18n.js';
 import { action, parseIntOption, printJson } from '../../kit.js';
 import { openWorkspace } from '../../workspace.js';
 import { oneOf, writableWorkspace } from './shared.js';
@@ -72,13 +72,13 @@ export function registerBrainUpkeep(brain: Command, ctx: CliContext): void {
         const report = await lintBrain(ws.brain, { staleDays, root: brainPath(ws.primary) });
         if (opts.strict && report.summary.error) ctx.setExitCode(1);
         if (g.json || opts.json) return printJson(ctx, report);
-        for (const line of lintTable(report)) ctx.out(line);
+        for (const line of lintTable(report, g.lang)) ctx.out(line);
       }),
     );
 }
 
-/** Findings grouped by kind (most actionable first), then the summary counts. */
-export function lintTable(report: LintReport): string[] {
+/** Findings grouped by kind (most actionable first), then the summary counts in `lang`. */
+export function lintTable(report: LintReport, lang: Lang = 'en'): string[] {
   const lines: string[] = [];
   for (const kind of LINT_KINDS) {
     const group = report.findings.filter(finding => finding.kind === kind);
@@ -92,7 +92,7 @@ export function lintTable(report: LintReport): string[] {
     lines.push('');
   }
   const { summary } = report;
-  if (!summary.total) lines.push(`No findings in ${report.notes} notes.`);
-  else lines.push(`${summary.total} finding(s) in ${report.notes} notes: ${summary.error} error · ${summary.warning} warning · ${summary.info} info — ${LINT_KINDS.filter(kind => summary[kind]).map(kind => `${kind} ${summary[kind]}`).join(', ')}`);
+  if (!summary.total) lines.push(t(lang, 'brain.lintNone', { notes: report.notes }));
+  else lines.push(t(lang, 'brain.lintSummary', { total: summary.total, notes: report.notes, error: summary.error, warning: summary.warning, info: summary.info, kinds: LINT_KINDS.filter(kind => summary[kind]).map(kind => `${kind} ${summary[kind]}`).join(', ') }));
   return lines;
 }

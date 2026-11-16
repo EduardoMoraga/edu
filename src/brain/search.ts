@@ -284,16 +284,20 @@ export function rankNotes(query: string, notes: Note[], now = new Date(), limit 
   const kinds = askedKinds(reference);
   const ranked = hitsOf(scored).map(({ doc: { note, named: isNamed }, bm25, coverage, titleCoverage, matched }) => {
     const w = learnedWeight(note.meta.usage, now, undefined, note.meta.created);
-    if (isNamed) return { note, score: NAMED_SCORE, why: `Named by id or alias "${query.trim()}"; learned weight ${w.toFixed(2)}.` };
+    if (isNamed) return { note, score: NAMED_SCORE, why: `Named by id or alias "${query.trim()}"; learned weight ${w.toFixed(2)}.`, reason: { named: query.trim(), weight: w } };
     const shape = options.similarity ? 1 : Math.pow(coverage, COVERAGE_EXPONENT) * (1 + TITLE_COVERAGE_BOOST * titleCoverage) * (kinds.has(note.meta.kind ?? '') ? 1 + KIND_BOOST : 1)
       * (note.meta.tier === 'episodic' ? EPISODE_WEIGHT : 1);
-    return { note, score: bm25 * shape * (0.5 + w), why: `Matched ${matched.join(', ')}; learned weight ${w.toFixed(2)}.` };
+    return { note, score: bm25 * shape * (0.5 + w), why: `Matched ${matched.join(', ')}; learned weight ${w.toFixed(2)}.`, reason: { matched, weight: w } };
   });
   return ranked.sort((a, b) => b.score - a.score || a.note.meta.id.localeCompare(b.note.meta.id)).slice(0, Math.max(0, options.depth ?? limit)).map(hit => {
     if (options.includePassages === false) return hit;
-    const passage = passageFor(hit.note.body, units, 480);
-    return { ...hit, why: `${hit.why}${passage ? ` Passage: ${JSON.stringify(passage)}` : ''}` };
+    return withPassage(hit, passageFor(hit.note.body, units, 480));
   });
+}
+
+function withPassage<T extends RecallHit>(hit: T, passage: string | undefined): T {
+  if (!passage) return hit;
+  return { ...hit, why: `${hit.why} Passage: ${JSON.stringify(passage)}`, ...(hit.reason ? { reason: { ...hit.reason, passage } } : {}) };
 }
 
 /** Reciprocal Rank Fusion constant (Cormack et al.): a hit at 1-based rank r adds 1 / (RRF_K + r). */
@@ -354,7 +358,6 @@ export function rankQueries(queries: readonly string[], notes: Note[], now = new
   return fuseRankings(rankings).slice(0, Math.max(0, limit)).map(({ hit, rrf, named, variant }) => {
     const score = named ? NAMED_SCORE : rrf;
     if (options.includePassages === false) return { ...hit, score };
-    const passage = relevantPassage(hit.note.body, variants[variant]!);
-    return { ...hit, score, why: `${hit.why}${passage ? ` Passage: ${JSON.stringify(passage)}` : ''}` };
+    return withPassage({ ...hit, score }, relevantPassage(hit.note.body, variants[variant]!));
   });
 }
