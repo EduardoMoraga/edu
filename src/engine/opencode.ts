@@ -6,7 +6,8 @@ import { combinePrompt, endEvent, errorText, makeUsage, num, parseJson, str, tex
 import { binaryAvailable, runJsonlProcess, type CommandSpec } from './process.js';
 
 export function buildOpencodeArgv(req: EngineRunRequest): CommandSpec {
-  const args = ['run', '--format', 'json', '--thinking', '--dir', req.cwd, ...autonomyFlags('opencode', req.autonomy)];
+  // No `--dir`: OpenCode 2.x dropped it. The process starts in `req.cwd`, which every version works in.
+  const args = ['run', '--format', 'json', '--thinking', ...autonomyFlags('opencode', req.autonomy)];
   if (req.model) args.push('--model', req.model);
   if (req.resumeSessionId) args.push('--session', req.resumeSessionId);
   // OpenCode has no system-prompt option, so Edu's instructions travel labelled with the task. `--` ends
