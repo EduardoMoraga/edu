@@ -6,7 +6,7 @@
 import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { upsertManagedBlock } from '../adapters/blocks.js';
-import type { Lang } from '../cli/i18n.js';
+import type { Lang } from '../core/contracts.js';
 import { layoutFolders, type WorkspaceLayout } from './layout.js';
 
 async function exists(path: string): Promise<boolean> {

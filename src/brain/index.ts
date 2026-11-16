@@ -9,8 +9,6 @@ export { learnedWeight, lessonStatus, overdueStatus, feedbackUsage, recordUsage 
 export { rankNotes, rankQueries, tokenize } from './search.js';
 export { resolveReference } from './resolve.js';
 export type { ResolveResult, ResolveVia } from './resolve.js';
-export { AUTO_MAINTAIN_INTERVAL_MS, autoMaintain, maintainStatePath, readMaintainState } from './auto-maintain.js';
-export type { AutoMaintainResult, MaintainState } from './auto-maintain.js';
 export { NoteConflictError, atomicWrite, contentHash, createId, exclusiveWrite, notePath, slugify } from './store.js';
 export type { NoteProblem } from './store.js';
 export { LOCAL_DIR, ledgerPath, readLedger } from './ledger.js';

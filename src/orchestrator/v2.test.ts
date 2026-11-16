@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Engine, EngineRunRequest, FeedbackContext, HarnessLevel } from '../core/contracts.js';
 import { nodeCommand } from '../test-support/shell.js';
 import { classifyPackage } from '../evidence/classify.js';
-import { defaultConfig } from './config.js';
+import { defaultConfig } from '../workspace/config.js';
 import { orchestrate } from './run.js';
 import { engineCapabilities } from '../engine/autonomy.js';
 

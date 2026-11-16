@@ -172,7 +172,7 @@ describe('host paths and launches', () => {
     const root = await realpath(home);
     await applyInstall(await planInstall({ ...opts, home, root, scope: 'global', clis: ['claude'] }));
     await expect(applyInstall(await planInstall({ ...opts, home, root, scope: 'global', clis: ['claude'] }))).resolves.toBeDefined();
-    const { diagnose } = await import('./doctor.js');
+    const { diagnose } = await import('../doctor/diagnose.js');
     expect((await diagnose({ root, home, detectBinary: async () => false })).find(item => item.cli === 'claude')?.scopes).toEqual(['global']);
   });
 

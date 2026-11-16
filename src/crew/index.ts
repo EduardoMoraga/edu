@@ -48,7 +48,7 @@ const OVERDUE_GRACE_MS = 5 * 60_000;
 
 async function configuredTimeout(root: string): Promise<number | undefined> {
   try {
-    const { loadConfig } = await import('../orchestrator/config.js');
+    const { loadConfig } = await import('../workspace/config.js');
     return (await loadConfig(join(root, 'config.json'))).crew?.timeoutMinutes;
   } catch { return undefined; } // no or unreadable config: the built-in default applies
 }

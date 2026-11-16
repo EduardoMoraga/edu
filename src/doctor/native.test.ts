@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { diagnose } from '../adapters/doctor.js';
+import { diagnose } from './diagnose.js';
 import { nativeIntegrations } from './native.js';
 
 const roots: string[] = [];

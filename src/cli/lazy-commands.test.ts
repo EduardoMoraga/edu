@@ -10,7 +10,7 @@ const { loaded, track } = vi.hoisted(() => {
   return { loaded, track };
 });
 vi.mock('../bench/activation.js', track('bench/activation') as never);
-vi.mock('../bench/context.js', track('bench/context') as never);
+vi.mock('./bench-context.js', track('bench/context') as never);
 vi.mock('../bench/retrieval.js', track('bench/retrieval') as never);
 vi.mock('../bench/fixtures/corpus.js', track('bench/corpus') as never);
 vi.mock('../eval/index.js', track('eval') as never);

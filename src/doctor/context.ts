@@ -3,7 +3,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { parse } from 'jsonc-parser';
 import { editInstructions } from '../detach/edit.js';
 import { ownerOf, SIGNATURES, TOOL_IDS, type ToolId } from '../detach/signatures.js';
-import { hostFiles, SKILL_DIRS, type HostId } from './hosts.js';
+import { hostFiles, SKILL_DIRS, type HostId } from '../adapters/host-files.js';
 
 export interface HostContext {
   host: HostId;

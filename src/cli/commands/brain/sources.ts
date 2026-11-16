@@ -4,7 +4,7 @@ import type { Command } from 'commander';
 import type { CliContext } from '../../context.js';
 import { t } from '../../i18n.js';
 import { action, printJson } from '../../kit.js';
-import { brainDir, createVaultLink, linkPath } from '../../link.js';
+import { brainDir, createVaultLink, linkPath } from '../../../vault/link.js';
 import { exists } from '../../workspace.js';
 import { oneOf, writableWorkspace } from './shared.js';
 
@@ -47,7 +47,7 @@ export function registerBrainSources(brain: Command, ctx: CliContext): void {
         }
         const configPath = join(ws.primary.root, 'config.json');
         if (await exists(configPath)) {
-          const { loadConfig, saveConfig } = await import('../../../orchestrator/config.js');
+          const { loadConfig, saveConfig } = await import('../../../workspace/config.js');
           const config = await loadConfig(configPath);
           await saveConfig(configPath, { ...config, brain: { ...config.brain, obsidianVault: vaultPath } });
         }

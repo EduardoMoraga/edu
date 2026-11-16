@@ -7,6 +7,4 @@ export { createPiIntegration } from './pi.js';
 export { createOpenCodeIntegration } from './opencode.js';
 export { createAgyIntegration } from './agy.js';
 export { planInstall, applyInstall, uninstall, describePlan, getManifestPath } from './installer.js';
-export { diagnose } from './doctor.js';
 export type { InstallPlan, PlannedAction, IntegrationOptions } from './types.js';
-export type { CliDiagnosis, DiagnoseOptions } from './doctor.js';

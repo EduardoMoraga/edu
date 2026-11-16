@@ -7,7 +7,7 @@ import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openBrain } from '../brain/index.js';
 import type { CliId, EduConfig, EduEvent, Engine, HarnessLevel, OrchestrationMode } from '../core/contracts.js';
-import { resolveBrainLocations } from '../mcp/locations.js';
+import { resolveBrainLocations } from '../brain/locations.js';
 import { packageTemplatesDir } from '../platform/package.js';
 import { initBrain } from '../workspace/init.js';
 import type { ApprovalAnswer, ApprovalRequest, RunResult } from './run.js';
@@ -56,7 +56,7 @@ export async function runSession(host: RunHost, request: RunRequest): Promise<Ru
     await initBrain({ location: primary, templatesDir: packageTemplatesDir(), detected: available, lang: request.lang });
   }
   const [{ defaultConfig, loadConfig, loadCrewPolicy }, { orchestrate }, { buildContext }, { createEngine }] = await Promise.all([
-    import('./config.js'),
+    import('../workspace/config.js'),
     import('./run.js'),
     import('../context/index.js'),
     import('../engine/index.js'),

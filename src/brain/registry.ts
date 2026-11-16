@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import { brainPath, withBrainDir } from '../brain/location.js';
+import { brainPath, withBrainDir } from './location.js';
 
 export interface ProjectEntry { name: string; root: string; brain: string; addedAt: string }
 export interface ProjectRegistry { projects: ProjectEntry[] }

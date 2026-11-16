@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, readdir, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import type { CliId, InstallAction, InstallManifest, InstallScope } from '../core/contracts.js';
+import { CLI_IDS, type CliId, type InstallAction, type InstallManifest, type InstallScope } from '../core/contracts.js';
 import { packageTemplatesDir, packageVersion } from '../platform/package.js';
 import { createClaudeIntegration } from './claude.js';
 import { createCodexIntegration } from './codex.js';
@@ -15,7 +15,7 @@ import { ensureParents, materialize, readTarget, sha256, FileTransaction, valida
 import { managedBlock, managedBlockBody, removeManagedBlock, sectionDigest, upsertManagedBlock } from './blocks.js';
 import { containsPatch, EDU_MCP_TOML_PATH, mergeToml, parseJsonFile, resolveJsonPatch, tomlDefines, tomlSectionsDigest, unmergeJsonFile, unmergeToml, withoutTomlTable } from './merge.js';
 import { withInstallLock } from './install-lock.js';
-import { CLI_IDS, type InstallPlan, type PlannedAction, type RetiredAction } from './types.js';
+import type { InstallPlan, PlannedAction, RetiredAction } from './types.js';
 
 interface StoredAction extends InstallAction {
   bundle?: Omit<NonNullable<PlannedAction['bundle']>, 'source'>; clis?: CliId[]; shared?: boolean; jsonPatch?: Record<string, unknown>; tomlBody?: string;
@@ -129,7 +129,7 @@ export async function planInstall(options: PlanInstallOptions): Promise<InstallP
   const root = resolve(options.root);
   const home = resolve(options.home ?? homedir());
   const templatesDir = resolve(options.templatesDir ?? packageTemplatesDir());
-  const clis = options.clis === 'all' ? CLI_IDS : [...new Set(options.clis)];
+  const clis = options.clis === 'all' ? [...CLI_IDS] : [...new Set(options.clis)];
   for (const cli of clis) if (!CLI_IDS.includes(cli)) throw new Error(`Unknown CLI: ${cli}`);
   const notes = clis.includes('agy') ? ['agy MCP: manual step'] : [];
   const dirs = installDirs(home, options.env ?? {});

@@ -4,7 +4,7 @@ import type { Command } from 'commander';
 import type { CliId } from '../../core/contracts.js';
 import { applySetup, needsFirstRunSetup, planSetup } from '../../setup/index.js';
 import { formatHostTable, hostRows } from '../../setup/report.js';
-import { binaryOnPath } from '../../adapters/common.js';
+import { binaryOnPath } from '../../platform/index.js';
 import type { CliContext } from '../context.js';
 import { globalHome, type Resolved } from '../context.js';
 import { action } from '../kit.js';

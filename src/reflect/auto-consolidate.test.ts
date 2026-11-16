@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { openBrain } from './brain.js';
+import { openBrain } from '../brain/brain.js';
 import { autoMaintain } from './auto-maintain.js';
 
 const roots: string[] = [];

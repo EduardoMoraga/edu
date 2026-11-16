@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/brain.js';
-import { registerProject } from '../vault/registry.js';
+import { registerProject } from '../brain/registry.js';
 import { migrateWorkspaces } from './migrate.js';
 import { compareVersions, fetchRelease, parseChecksums, pickAsset, sha256Hex, UpdateError, whatsNew, type Release } from './release.js';
 import { checkForUpdate, installPrefix, performUpdate, resolveNpm, type RunResult, type UpdateDeps } from './update.js';

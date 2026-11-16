@@ -8,8 +8,7 @@ import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Brain } from '../brain/brain.js';
 import { atomicWrite, slugify } from '../brain/store.js';
-import type { CanonicalKind } from '../core/contracts.js';
-import type { Lang } from '../cli/i18n.js';
+import type { CanonicalKind, Lang } from '../core/contracts.js';
 import type { ExtractedNote, KnowledgeExtraction } from './extract.js';
 
 export interface IngestReport { proposed: number; glossaryTerms: number; playbooks: string[]; skipped: number }

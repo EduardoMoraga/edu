@@ -2,8 +2,8 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { diagnose, installProblems, quarantineProblem } from './doctor.js';
-import { applyInstall, getManifestPath, planInstall } from './installer.js';
+import { diagnose, installProblems, quarantineProblem } from './diagnose.js';
+import { applyInstall, getManifestPath, planInstall } from '../adapters/installer.js';
 import { packageTemplatesDir } from '../platform/package.js';
 import { captureContext, out, runCli } from '../cli/testkit.js';
 

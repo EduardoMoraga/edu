@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { EduEvent, Engine } from '../core/contracts.js';
 import { engineCapabilities } from '../engine/autonomy.js';
-import { capRoleAutonomy, defaultConfig } from './config.js';
+import { capRoleAutonomy, defaultConfig } from '../workspace/config.js';
 import { NO_CLI_MESSAGE, runSession, type RunRequest } from './session.js';
 
 const roots: string[] = [];

@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { loadChecks, loadTools } from '../../evidence/registry.js';
 import type { EduConfig } from '../../core/contracts.js';
 import { assignCli } from '../assign.js';
-import { capRoleAutonomy } from '../config.js';
+import { capRoleAutonomy } from '../../workspace/config.js';
 import { applyPlaybookRoles, loadPlaybook, workerMethod, type Playbook } from '../playbook.js';
 import { at, emitEvidence, saveTaskState, taskStateMarkdown, writeStatus, type RunState } from './state.js';
 

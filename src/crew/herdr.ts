@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { binaryOnPath } from '../adapters/common.js';
+import { binaryOnPath } from '../platform/index.js';
 import type { CrewJob } from '../core/contracts.js';
 import { interactiveAutonomyFlags } from '../engine/autonomy.js';
 import { isTerminalCrewJobStatus } from './status.js';

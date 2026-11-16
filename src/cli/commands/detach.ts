@@ -1,7 +1,7 @@
 /** Reversible removal of competing global coding-CLI integrations. */
 import type { Command } from 'commander';
 import { createDetachPlan, applyDetach, listDetachBackups, undoDetach } from '../../detach/engine.js';
-import { parseHosts } from '../../doctor/hosts.js';
+import { parseHosts } from '../../adapters/host-files.js';
 import type { CliContext } from '../context.js';
 import { action } from '../kit.js';
 

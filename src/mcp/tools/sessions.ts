@@ -1,6 +1,6 @@
 /** Session tools: open (or reuse) a work session and close it with a summary and optional lessons. */
 import { z } from 'zod';
-import { autoMaintain } from '../../brain/index.js';
+import { autoMaintain } from '../../reflect/auto-maintain.js';
 import { withHostLock } from '../../platform/file-lock.js';
 import { closeWithLessons, lessonsInput } from '../session-learning.js';
 import { noteLine as line, type ToolContext } from './context.js';

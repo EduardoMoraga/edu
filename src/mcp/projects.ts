@@ -11,8 +11,8 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { openBrain } from '../brain/index.js';
 import { readWorkspaceSettings, withBrainDir } from '../brain/location.js';
 import type { BrainLocation } from '../core/contracts.js';
-import { readProjects } from '../vault/registry.js';
-import { resolveBrainLocations } from './locations.js';
+import { readProjects } from '../brain/registry.js';
+import { resolveBrainLocations } from '../brain/locations.js';
 
 export interface WorkspaceInfo { name: string; agent: string; root: string; present: boolean }
 

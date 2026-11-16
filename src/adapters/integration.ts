@@ -1,6 +1,6 @@
 import type { CliId, CliIntegration, InstallAction, InstallScope } from '../core/contracts.js';
 import type { IntegrationOptions, PlannedAction } from './types.js';
-import { binaryOnPath } from './common.js';
+import { binaryOnPath } from '../platform/index.js';
 import { applyStandaloneActions } from './operations.js';
 
 export function createIntegration(

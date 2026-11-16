@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planInstall, applyInstall, uninstall, getManifestPath } from './installer.js';
 import { packageTemplatesDir } from '../platform/package.js';
-import { diagnose } from './doctor.js';
+import { diagnose } from '../doctor/diagnose.js';
 import { pathsFor } from './paths.js';
 import { createClaudeIntegration } from './claude.js';
 

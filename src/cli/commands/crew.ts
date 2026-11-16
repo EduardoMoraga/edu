@@ -1,13 +1,12 @@
 /** `edu crew` commands for dispatch, job inspection, and the detached worker. */
 import type { Command } from 'commander';
-import type { CliId } from '../../core/contracts.js';
+import { CLI_IDS, type CliId } from '../../core/contracts.js';
 import { createCrew, runWorker } from '../../crew/index.js';
 import { isCrewWorker } from '../../crew/store.js';
 import { globalHome, type CliContext } from '../context.js';
 import { action } from '../kit.js';
 import { openWorkspace } from '../workspace.js';
 
-const CLI_IDS = ['claude', 'codex', 'pi', 'opencode', 'agy'] as const;
 function parseCli(value: string): CliId {
   if (!(CLI_IDS as readonly string[]).includes(value)) throw new Error(`Unknown CLI "${value}" (expected ${CLI_IDS.join(', ')})`);
   return value as CliId;

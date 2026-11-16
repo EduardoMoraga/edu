@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { hostname, tmpdir } from 'node:os';
 import type { Engine, EduEvent } from '../core/contracts.js';
 import { RunBudget } from './budget.js';
-import { defaultConfig, EduConfigSchema } from './config.js';
+import { defaultConfig, EduConfigSchema } from '../workspace/config.js';
 import { assignCli } from './assign.js';
 import { orchestrate } from './run.js';
 import { engineCapabilities } from '../engine/autonomy.js';

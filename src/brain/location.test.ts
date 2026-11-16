@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { resolveBrainLocations } from '../mcp/locations.js';
+import { resolveBrainLocations } from './locations.js';
 import { openBrain } from './brain.js';
 import { brainPath, readWorkspaceSettings, resolveBrainDir } from './location.js';
 

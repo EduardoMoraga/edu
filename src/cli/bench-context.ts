@@ -1,7 +1,7 @@
 /**
  * `edu bench context`: what Edu costs in the context window before the agent does any work.
  *
- * - Brief tokens: the text the SessionStart hook injects (`sessionStart` in src/cli/hooks.ts), measured on the
+ * - Brief tokens: the text the SessionStart hook injects (`sessionStart` in ./hooks.ts), measured on the
  *   fixture brain with the same estimator Edu uses for its budgets (src/context/tokens.ts).
  * - Brief stability: two session starts with different host session ids. Identical bytes (or a long common
  *   prefix) keep the host's prompt cache warm; every byte after the first difference is re-billed each session.
@@ -14,13 +14,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { CliContext } from '../cli/context.js';
-import { SESSION_BRIEF_TOKENS, sessionStart, workspaceBrief } from '../cli/hooks.js';
 import { openBrain } from '../brain/index.js';
 import { estimateTokens } from '../context/tokens.js';
 import type { BrainLocation } from '../core/contracts.js';
 import { createEduMcpServer } from '../mcp/server.js';
-import { seedCorpus } from './retrieval.js';
+import { seedCorpus } from '../bench/retrieval.js';
+import type { CliContext } from './context.js';
+import { SESSION_BRIEF_TOKENS, sessionStart, workspaceBrief } from './hooks.js';
 
 export interface ToolCost { name: string; tokens: number }
 export interface ToolProfileCost { tools: number; tokens: number; bytes: number; perTool: ToolCost[] }

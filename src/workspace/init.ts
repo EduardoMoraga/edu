@@ -7,9 +7,7 @@
 import { access, cp, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openBrain } from '../brain/index.js';
-import type { BrainLocation, CliId, EduConfig } from '../core/contracts.js';
-
-type Lang = EduConfig['lang'];
+import type { BrainLocation, CliId, Lang } from '../core/contracts.js';
 const exists = (path: string) => access(path).then(() => true, () => false);
 
 export interface InitOptions {
@@ -36,7 +34,7 @@ export async function initBrain(opts: InitOptions): Promise<InitReport> {
 
   await openBrain([location]).init(location, { identityName: name });
 
-  const { defaultConfig, saveConfig } = await import('../orchestrator/config.js');
+  const { defaultConfig, saveConfig } = await import('./config.js');
   const configPath = join(location.root, 'config.json');
   const defaultCli = opts.cli ?? opts.detected[0] ?? 'claude';
   let configCreated = false;

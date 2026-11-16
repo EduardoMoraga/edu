@@ -18,7 +18,7 @@
 import { copyFile, lstat, mkdir, readdir, readFile, readlink, realpath, rename, symlink, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { createVaultLink } from '../cli/link.js';
+import { createVaultLink } from './link.js';
 import { git, gitLines, redact, sameRemote, withoutCredentials } from './git.js';
 import { keepBothCopy, localCopyName } from './keep-both.js';
 import { assertSafeTarget } from './safe-path.js';

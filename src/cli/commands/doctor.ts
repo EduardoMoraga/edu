@@ -6,16 +6,16 @@ import type { BrainLocation, CliId } from '../../core/contracts.js';
 import { globalHome, type CliContext } from '../context.js';
 import { t } from '../i18n.js';
 import { action, look, printJson, statusLine, type Level } from '../kit.js';
-import { brainDir, linkPath, linkState } from '../link.js';
+import { brainDir, linkPath, linkState } from '../../vault/link.js';
 import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
-import { readProjects } from '../../vault/registry.js';
+import { readProjects } from '../../brain/registry.js';
 import { scanContext } from '../../doctor/context.js';
 import { integrationPreflight } from '../../doctor/integrations.js';
 import { readSyncState } from '../../vault/sync.js';
 import { describeSync } from './sync.js';
 import { dirname } from 'node:path';
 import { packageRoot } from '../../platform/package.js';
-import { binaryOnPath } from '../../adapters/common.js';
+import { binaryOnPath } from '../../platform/index.js';
 
 export const AUTH_HINTS: Record<CliId, string> = {
   claude: 'run `claude` once and sign in, or set ANTHROPIC_API_KEY',
@@ -77,8 +77,7 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         lines.push(await binaryOnPath('edu', ctx.env)
           ? { level: 'ok', text: lang === 'es' ? '`edu` está en el PATH' : '`edu` is on PATH' }
           : { level: 'fail', text: lang === 'es' ? '`edu` no está en el PATH: los hosts no pueden iniciar `edu mcp` ni los hooks. Agregue el bin global de npm (npm prefix -g) al PATH.' : '`edu` is not on PATH: hosts cannot start `edu mcp` or its hooks. Add the npm global bin directory (npm prefix -g) to PATH.' });
-        const { diagnose } = await import('../../adapters/index.js');
-        const { installProblems, quarantineProblem } = await import('../../adapters/doctor.js');
+        const { diagnose, installProblems, quarantineProblem } = await import('../../doctor/diagnose.js');
         const diagnoseOptions = { root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env, packageRoot: packageRoot() };
         const clis = await diagnose(diagnoseOptions);
         const problems = await installProblems(diagnoseOptions);

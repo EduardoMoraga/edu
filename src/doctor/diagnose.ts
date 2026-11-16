@@ -1,14 +1,13 @@
 import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { CliId, InstallManifest, InstallScope } from '../core/contracts.js';
-import { binaryOnPath } from './common.js';
-import { getManifestPath, isActionIntact } from './installer.js';
-import { hasTopLevelTomlKey } from './merge.js';
-import { readTarget } from './operations.js';
-import { hostConfigDirs, samePath } from './paths.js';
-import { CLI_IDS } from './types.js';
-import { nativeIntegrations } from '../doctor/native.js';
+import { CLI_IDS, type CliId, type InstallManifest, type InstallScope } from '../core/contracts.js';
+import { binaryOnPath } from '../platform/index.js';
+import { getManifestPath, isActionIntact } from '../adapters/installer.js';
+import { hasTopLevelTomlKey } from '../adapters/merge.js';
+import { readTarget } from '../adapters/operations.js';
+import { hostConfigDirs, samePath } from '../adapters/paths.js';
+import { nativeIntegrations } from './native.js';
 
 export interface CliDiagnosis {
   cli: CliId;

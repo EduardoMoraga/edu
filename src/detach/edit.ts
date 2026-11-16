@@ -1,5 +1,5 @@
 import { applyEdits, findNodeAtLocation, modify, parse, parseTree, type ParseError } from 'jsonc-parser';
-import type { FileKind, HostId } from '../doctor/hosts.js';
+import type { FileKind, HostId } from '../adapters/host-files.js';
 import { ownerOf, SIGNATURES, type ToolId } from './signatures.js';
 import { jsoncFormatFor, serializeLike } from '../adapters/merge.js';
 

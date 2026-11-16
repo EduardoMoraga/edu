@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { estimateTokens } from '../../context/index.js';
 import type { Autonomy } from '../../core/contracts.js';
-import { loadCrewPolicy, withinAutonomy } from '../../orchestrator/config.js';
+import { loadCrewPolicy, withinAutonomy } from '../../workspace/config.js';
 import { eduHomeOf } from '../projects.js';
 import type { ToolContext } from './context.js';
 import { autonomyLevels, cliIds, optionalInt, optionalNumber, tokenLimit } from './schema.js';

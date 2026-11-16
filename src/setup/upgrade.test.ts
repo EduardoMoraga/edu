@@ -5,7 +5,7 @@ import { afterEach, expect, it } from 'vitest';
 import { applySetup, planSetup, type SetupRunner } from './index.js';
 import type { Runner } from '../update/update.js';
 import { migrateWorkspaces } from '../update/migrate.js';
-import { registerProject } from '../vault/registry.js';
+import { registerProject } from '../brain/registry.js';
 import { packageTemplatesDir } from '../platform/package.js';
 import { captureContext, runCli } from '../cli/testkit.js';
 const dirs: string[] = [];

@@ -1,26 +1,10 @@
 import { assertContained, readSkillBundle, UnsupportedSkillPathError, UnsupportedSkillEncodingError, canonicalAnchor } from '../skills/bundle.js';
-import { access, readdir, readFile, stat, lstat } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { readdir, readFile, lstat } from 'node:fs/promises';
+import { join } from 'node:path';
+import { binaryOnPath } from '../platform/index.js';
 import type { CliId, InstallScope } from '../core/contracts.js';
 import type { IntegrationOptions, PlannedAction } from './types.js';
 import { pathsFor, baseFor, pinConfiguredBases } from './paths.js';
-
-export async function binaryOnPath(binary: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
-  const extensions = process.platform === 'win32' ? (env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';') : [''];
-  for (const dir of (env.PATH ?? env.Path ?? '').split(delimiter)) {
-    if (!dir) continue;
-    for (const extension of extensions) {
-      const target = join(dir, `${binary}${extension}`);
-      try {
-        if (!(await stat(target)).isFile()) continue;
-        await access(target, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
-        return true;
-      } catch { /* Try next PATH entry. */ }
-    }
-  }
-  return false;
-}
 
 function protocol(scope: InstallScope, home: string, brainRoot?: string): string {
   const pointer = scope === 'project' ? '@.edu/EDU.md' : `@${join(brainRoot ?? join(home, '.edu'), 'EDU.md')}`;

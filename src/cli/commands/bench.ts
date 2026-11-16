@@ -6,7 +6,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { Command } from 'commander';
-import type { ContextReport } from '../../bench/context.js';
+import type { ContextReport } from '../bench-context.js';
 import type { RankMetrics, RetrievalOptions, RetrievalReport } from '../../bench/retrieval.js';
 import type { CliContext } from '../context.js';
 import { action, printJson } from '../kit.js';
@@ -120,7 +120,7 @@ export function registerBench(program: Command, ctx: CliContext): void {
         report.retrieval = await runRetrievalBench(options);
       }
       if (!suite || suite === 'context') {
-        const { runContextBench } = await import('../../bench/context.js');
+        const { runContextBench } = await import('../bench-context.js');
         report.context = await runContextBench();
       }
       await emit(report, [

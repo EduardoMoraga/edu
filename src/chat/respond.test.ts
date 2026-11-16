@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/index.js';
 import type { EduEvent, EngineRunRequest } from '../core/contracts.js';
 import { FakeEngine } from '../engine/fake.js';
-import { defaultConfig } from '../orchestrator/config.js';
+import { defaultConfig } from '../workspace/config.js';
 import { respond, type ChatHistory } from './respond.js';
 
 const at = '2026-10-08T12:00:00.000Z';

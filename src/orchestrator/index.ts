@@ -1,4 +1,3 @@
-export { defaultConfig, loadConfig, saveConfig, EduConfigSchema } from './config.js';
 export { assignCli } from './assign.js';
 export { PlanSchema, extractPlan, extractJson, planningPrompt } from './plan.js';
 export { orchestrate } from './run.js';

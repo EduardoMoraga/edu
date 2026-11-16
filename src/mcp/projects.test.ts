@@ -5,7 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openBrain } from '../brain/index.js';
-import { registerProject } from '../vault/registry.js';
+import { registerProject } from '../brain/registry.js';
 import { listWorkspaces, selectWorkspace } from './projects.js';
 import { TOOL_ANNOTATIONS } from './server.js';
 import { createStdioServer } from './stdio.js';

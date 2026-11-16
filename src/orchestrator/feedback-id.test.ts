@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest';
 import { openBrain } from '../brain/brain.js';
 import type { Engine } from '../core/contracts.js';
 import { printCommand } from '../test-support/shell.js';
-import { defaultConfig } from './config.js';
+import { defaultConfig } from '../workspace/config.js';
 import { orchestrate } from './run.js';
 import { engineCapabilities } from '../engine/autonomy.js';
 

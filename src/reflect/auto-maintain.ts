@@ -5,8 +5,8 @@
  */
 import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Brain, MaintenanceReport } from './brain.js';
-import { atomicWrite } from './store.js';
+import type { Brain, MaintenanceReport } from '../brain/brain.js';
+import { atomicWrite } from '../brain/store.js';
 
 export const AUTO_MAINTAIN_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -23,7 +23,7 @@ async function consolidate(brain: Pick<Brain, 'maintain'> & Partial<Brain>, root
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
   let result: LocalConsolidation;
   try {
-    const { consolidatePending } = await import('../reflect/consolidate.js');
+    const { consolidatePending } = await import('./consolidate.js');
     const report = await consolidatePending(brain as Brain, root, { now, maxEntries: 20, maxInterventions: 50 });
     result = { lessons: report.lessons.length, acknowledged: report.acknowledged.length, skipped: report.skipped.length, busy: report.busy };
   } catch (error) {

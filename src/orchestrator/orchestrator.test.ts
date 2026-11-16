@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { CliId, ContextPack, EduEvent, Engine, EngineRunRequest } from '../core/contracts.js';
 import { FakeEngine } from '../engine/fake.js';
 import { nodeCommand, printCommand } from '../test-support/shell.js';
-import { defaultConfig, loadConfig, saveConfig } from './config.js';
+import { defaultConfig, loadConfig, saveConfig } from '../workspace/config.js';
 import { assignCli } from './assign.js';
 import { extractPlan, PlanSchema } from './plan.js';
 import { orchestrate } from './run.js';
