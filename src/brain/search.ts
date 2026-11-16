@@ -270,8 +270,11 @@ export function rankNotes(query: string, notes: Note[], now = new Date(), limit 
     .some(name => typeof name === 'string' && name.toLocaleLowerCase('en') === key);
   const docs: Doc[] = [];
   for (const note of notes) {
-    const isNamed = named(note);
-    if (options.includeHistory || isOperationalNote(note) || isNamed) docs.push({ note, vector: docVector(note), named: isNamed });
+    // A malformed note (a caller's hand-built one; files are validated on read) is skipped, never fatal to recall.
+    try {
+      const isNamed = named(note);
+      if (options.includeHistory || isOperationalNote(note) || isNamed) docs.push({ note, vector: docVector(note), named: isNamed });
+    } catch { /* skipped */ }
   }
   let scored = bm25Scores(units, docs);
   const hitsOf = (rows: typeof scored) => rows.filter(row => row.matched.length || row.doc.named);
@@ -280,7 +283,7 @@ export function rankNotes(query: string, notes: Note[], now = new Date(), limit 
   if ((lexical.length < limit || top < WEAK_SCORE) && addFuzzyFeatures(units, docs)) scored = bm25Scores(units, docs);
   const kinds = askedKinds(reference);
   const ranked = hitsOf(scored).map(({ doc: { note, named: isNamed }, bm25, coverage, titleCoverage, matched }) => {
-    const w = learnedWeight(note.meta.usage, now);
+    const w = learnedWeight(note.meta.usage, now, undefined, note.meta.created);
     if (isNamed) return { note, score: NAMED_SCORE, why: `Named by id or alias "${query.trim()}"; learned weight ${w.toFixed(2)}.` };
     const shape = options.similarity ? 1 : Math.pow(coverage, COVERAGE_EXPONENT) * (1 + TITLE_COVERAGE_BOOST * titleCoverage) * (kinds.has(note.meta.kind ?? '') ? 1 + KIND_BOOST : 1)
       * (note.meta.tier === 'episodic' ? EPISODE_WEIGHT : 1);

@@ -292,3 +292,17 @@ describe('edu context / proposals / doctor', () => {
     expect(out(c)).toMatch(/Shared L-prefer-small-diffs: global → project/);
   });
 });
+
+describe('edu brain remember claim band', () => {
+  it('defaults to hypothesis and says so; an explicit band is kept silently', async () => {
+    const c = await initialized();
+    await runCli(c, ['brain', 'remember', 'Queues', 'smooth', 'spikes']);
+    expect(out(c)).toMatch(/Remembered L-queues-smooth-spikes\n\s+band: hypothesis \(default/);
+    c.stdout.length = 0;
+    await runCli(c, ['brain', 'remember', 'Retries', 'need', 'jitter', '--band', 'verified']);
+    expect(out(c)).not.toContain('band:');
+    const brain = openBrain([{ scope: 'project', root: join(c.dirs.cwd, '.edu') }]);
+    expect((await brain.read('L-queues-smooth-spikes'))?.meta.band).toBe('hypothesis');
+    expect((await brain.read('L-retries-need-jitter'))?.meta.band).toBe('verified');
+  });
+});

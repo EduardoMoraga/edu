@@ -1,9 +1,11 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { NoteConflictError, autoMaintain, contentHash, openBrain } from '../brain/index.js';
 import { compileReportLines } from '../brain/compile.js';
+import { cleanTitle } from '../brain/clean-text.js';
 import { brief, estimateTokens, truncateToTokens } from '../context/index.js';
 import type { BrainLocation, ClaimBand, Note, NoteOrigin, Tier } from '../core/contracts.js';
 import { createCrew, type CrewOptions } from '../crew/index.js';
@@ -64,9 +66,13 @@ const tiers = z.enum(['canonical', 'episodic', 'transitive']);
 const transitiveKinds = z.enum(['decision', 'hypothesis', 'commitment', 'lesson']);
 const canonicalKinds = z.enum(['identity', 'standard', 'lexicon', 'domain', 'person', 'preference']);
 
+/** One note as one line: id · claim band (`unbanded` for legacy notes without one) · status · title. */
 function line(note: Note): string {
-  return `${note.meta.id} · ${note.meta.band ?? 'inferred'} · ${note.meta.status ?? 'unspecified'} · ${note.meta.title}`;
+  return `${note.meta.id} · ${note.meta.band ?? 'unbanded'} · ${note.meta.status ?? 'unspecified'} · ${cleanTitle(note.meta.title)}`;
 }
+
+/** The trailer edu_recall prints for hits that did not fit its token budget. */
+const moreHits = (count: number) => `… ${count} more hit${count === 1 ? '' : 's'} not shown (raise maxTokens, lower limit or narrow the query)`;
 
 /** Provenance `agent` for an MCP client name (from initialize); undefined when the client is not a known host. */
 export function agentOfClient(clientName: string | undefined): string | undefined {
@@ -182,6 +188,18 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
 
   /** The session this server opened (edu_session_open) and has not closed: provenance for notes written meanwhile. */
   let currentSession: string | undefined;
+  /** Stands in for a session in feedback dedupe while none is open: one per server process. */
+  const serverSession = `mcp-${randomUUID()}`;
+  /**
+   * A caller-supplied session is provenance only when it is real: this server's current session, or a session that
+   * is open in this brain (a host hook opens one and injects its id). Anything else (made up, closed, another
+   * brain's) is ignored, so a note cannot claim a session it was not written in.
+   */
+  const sessionOf = async (claimed: string | undefined): Promise<string | undefined> => {
+    if (!claimed || claimed === currentSession) return claimed;
+    const note = await brain.read(claimed);
+    return note?.meta.tier === 'episodic' && note.meta.kind === 'session' && note.meta.status === 'open-session' ? claimed : undefined;
+  };
   const clientAgent = () => agentOfClient(server.server.getClientVersion()?.name);
   const by = (): NoteOrigin => ({ agent: clientAgent(), session: currentSession });
 
@@ -192,9 +210,23 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
     query: z.string().min(1),
     alt: altQueries,
     limit: optionalInt(1), tiers: z.array(tiers).optional(), maxTokens: tokenLimit,
-  }, async ({ query, alt, limit, tiers: selectedTiers }) => {
-    const hits = await brain.recall(alt?.length ? [query, ...alt] : query, { limit: limit ?? 10, tiers: selectedTiers as Tier[] | undefined });
-    return hits.length ? hits.map(hit => `${line(hit.note)} · ${hit.why}`).join('\n') : 'No matching notes.';
+  }, async ({ query, alt, limit, tiers: selectedTiers, maxTokens }) => {
+    const hits = await brain.recall(alt?.length ? [query, ...alt] : query, { limit: limit ?? 10, tiers: selectedTiers as Tier[] | undefined, recordUse: false });
+    if (!hits.length) return 'No matching notes.';
+    // Whole hits that fit the budget with room for the "N more" line; only the hits shown count as used.
+    const budget = maxTokens ?? 800;
+    const lines = hits.map(hit => `${line(hit.note)} · ${hit.why}`);
+    let shown = 0, spent = 0;
+    for (const text of lines) {
+      const rest = lines.length - shown - 1;
+      const cost = estimateTokens(text) + 1;
+      if (spent + cost + (rest ? estimateTokens(moreHits(rest)) + 1 : 0) > budget) break;
+      spent += cost; shown++;
+    }
+    // Not even the first hit fits whole: show it cut to the room left beside the trailer.
+    if (!shown) { lines[0] = truncateToTokens(lines[0]!, Math.max(1, budget - (lines.length > 1 ? estimateTokens(moreHits(lines.length - 1)) + 1 : 0))); shown = 1; }
+    await brain.recordUse(hits.slice(0, shown).map(hit => hit.note));
+    return [...lines.slice(0, shown), ...(shown < lines.length ? [moreHits(lines.length - shown)] : [])].join('\n');
   });
 
   register('edu_read', 'Read a note by id, alias, id prefix, filename or title (ambiguous: lists candidates); shows its hash. Paged: pass offset from the hint; limit = chars per page', {
@@ -217,23 +249,28 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
 
   register('edu_remember', 'Write an episodic or transitive note; reports new links, possible conflicts, redactions', {
     tier: z.enum(['episodic', 'transitive']), kind: transitiveKinds.optional(), title: z.string().min(1), body: z.string(),
-    band: bands.optional(), tags: z.array(z.string()).optional(), owner: z.string().optional(), due: z.string().optional(),
+    band: bands.optional().describe('Claim band; required for transitive notes'), tags: z.array(z.string()).optional(), owner: z.string().optional(), due: z.string().optional(),
     links: z.array(z.string().min(1)).optional().describe('Related note ids'), supersedes: z.string().min(1).optional().describe('Id of the note this replaces'),
     session: z.string().min(1).optional().describe('Your Edu session id, if one was injected'),
     maxTokens: tokenLimit,
   }, async ({ tier, kind, title, body, band, tags, owner, due, links, supersedes, session }) => {
     if (tier === 'episodic' && kind) throw new Error('Episodic notes cannot use a transitive kind');
+    // 6.0: a transitive note states how strongly it may be asserted; Edu never invents a band for it.
+    if (tier === 'transitive' && !band) throw new Error('Invalid arguments: band is required for transitive notes: verified (backed by checked evidence), inferred (reasoned from evidence) or hypothesis (unproven)');
+    const provenSession = await sessionOf(session);
     const { note, report } = await brain.remember({
       tier, kind: tier === 'transitive' ? kind ?? 'lesson' : undefined, title, body, band: band as ClaimBand | undefined, tags, owner, due,
-      ...(links?.length ? { links: [...new Set(links)] } : {}), ...(supersedes ? { supersedes } : {}), source: 'mcp', by: { ...by(), ...(session ? { session } : {}) },
+      ...(links?.length ? { links: [...new Set(links)] } : {}), ...(supersedes ? { supersedes } : {}), source: 'mcp', by: { ...by(), ...(provenSession ? { session: provenSession } : {}) },
     });
-    return [`Created ${line(note)}`, ...compileReportText(report)].join('\n');
+    return [`Created ${line(note)}`, ...compileReportText(report), ...(session && !provenSession ? [`Session ${session} ignored: not an open session of this brain`] : [])].join('\n');
   });
 
   register('edu_feedback', 'Record whether a note helped (advisory; never marks anything externally verified)', {
     id: z.string().min(1), helpful: z.boolean(), maxTokens: tokenLimit,
   }, async ({ id, helpful }) => {
-    const note = await brain.feedback(id, helpful);
+    // Advisory, and counted once per session, note and verdict: repeating the same opinion changes nothing.
+    const eventId = `mcp:${createHash('sha256').update(`${currentSession ?? serverSession}\n${id}\n${helpful}`).digest('hex').slice(0, 32)}`;
+    const note = await brain.feedback(id, helpful, { eventId, verified: false });
     return `Feedback recorded: ${line(note)}`;
   });
 

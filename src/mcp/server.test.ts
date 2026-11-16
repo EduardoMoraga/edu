@@ -35,7 +35,7 @@ describe('Edu MCP tools', () => {
     try {
       const names = (await client.listTools()).tools.map(tool => tool.name);
       expect(names).toEqual(expect.arrayContaining(['edu_brief', 'edu_recall', 'edu_read', 'edu_remember', 'edu_feedback', 'edu_propose_canonical', 'edu_commitments', 'edu_session_open', 'edu_session_close']));
-      const remembered = await call('edu_remember', { tier: 'transitive', kind: 'commitment', title: 'Ship release', body: 'Prepare the release.', due: '2026-10-09' });
+      const remembered = await call('edu_remember', { tier: 'transitive', band: 'inferred', kind: 'commitment', title: 'Ship release', body: 'Prepare the release.', due: '2026-10-09' });
       expect(remembered.result.isError).not.toBe(true);
       const note = (await brain.list({ kind: 'commitment' }))[0]!;
       expect((await call('edu_commitments')).text).toContain('Ship release');

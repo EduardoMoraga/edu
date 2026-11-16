@@ -38,3 +38,11 @@ it('preserves Unicode graphemes at truncation boundaries', () => {
     expect(boundaries.has(result.replace(/…$/, '').length)).toBe(true);
   }
 });
+
+it('errs high for non-Latin scripts', () => {
+  const russian = 'Перед миграцией базы данных делайте резервную копию.';
+  expect(estimateTokens(russian)).toBeGreaterThanOrEqual(Math.ceil(russian.length * 0.5));
+  expect(estimateTokens(russian)).toBeGreaterThan(estimateTokens('x'.repeat(russian.length)) * 1.5);
+  expect(estimateTokens('数据库迁移')).toBeGreaterThanOrEqual(5);
+  expect(estimateTokens('👩🏽‍💻')).toBeGreaterThanOrEqual(3);
+});

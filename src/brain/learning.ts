@@ -1,9 +1,14 @@
 import type { FeedbackContext, Note, NoteMeta, UsageStats } from '../core/contracts.js';
 
-export function learnedWeight(usage: UsageStats | undefined, now = new Date(), halfLifeDays = 45): number {
-  const stats = usage ?? { uses: 0, wins: 0, losses: 0 };
+/**
+ * Laplace-smoothed feedback times a recency half-life, floored at 0.25. Recency counts from the last exposure;
+ * a note never used counts from `since` (its creation) when given, so an old unused note does not rank as fresh.
+ */
+export function learnedWeight(usage: UsageStats | undefined, now = new Date(), halfLifeDays = 45, since?: string): number {
+  const stats = sanitizeUsage(usage);
   const laplace = (stats.wins + 1) / (stats.wins + stats.losses + 2);
-  const days = stats.lastUsed ? Math.max(0, (now.getTime() - Date.parse(stats.lastUsed)) / 86_400_000) : 0;
+  const from = Date.parse(typeof stats.lastUsed === 'string' ? stats.lastUsed : since ?? '');
+  const days = Number.isFinite(from) ? Math.max(0, (now.getTime() - from) / 86_400_000) : 0;
   return Math.max(0.25, laplace * Math.pow(0.5, days / halfLifeDays));
 }
 
@@ -70,14 +75,18 @@ export function lessonStatus(meta: NoteMeta, now = new Date()): NoteMeta['status
   if (meta.kind !== 'lesson') return meta.status;
   if (meta.status === 'retired') return 'retired';
   const usage = sanitizeUsage(meta.usage);
-  const weight = learnedWeight(usage, now);
-  if (usage.losses >= 3 && weight < 0.35) return 'retired';
-  // Confirmed lessons (historical proven or with verified wins) do not expire from inactivity alone. Unconfirmed
-  // ones age from the last confirmation or their creation: being exposed again does not renew them.
-  const confirmed = meta.status === 'proven' || (usage.verifiedWins ?? 0) > 0;
+  if (meta.status === 'proven') {
+    // Advisory feedback (MCP, opinions) may lower a proven lesson's rank but never retires it: only externally
+    // verified failures can, by the same Laplace bar that retires a candidate. Nor does it expire from inactivity.
+    const wins = usage.verifiedWins ?? 0, losses = usage.verifiedLosses ?? 0;
+    return losses >= 3 && (wins + 1) / (wins + losses + 2) < 0.35 ? 'retired' : 'proven';
+  }
+  if (usage.losses >= 3 && learnedWeight(usage, now) < 0.35) return 'retired';
+  // Lessons with verified wins do not expire from inactivity alone. Unconfirmed ones age from the last
+  // confirmation or their creation: being exposed again does not renew them.
+  const confirmed = (usage.verifiedWins ?? 0) > 0;
   const since = Date.parse(usage.lastVerified ?? meta.created);
   if (!confirmed && Number.isFinite(since) && (now.getTime() - since) / 86_400_000 >= INACTIVITY_DAYS) return 'retired';
-  if (meta.status === 'proven') return 'proven';
   if (isVerifiedLesson(usage)) return 'proven';
   return meta.status ?? 'candidate';
 }
