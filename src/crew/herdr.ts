@@ -116,13 +116,13 @@ export async function dispatchPane(job: CrewJob, options: HerdrOptions & { brain
       if (!/agent_not_ready/.test(errorMessage(error))) throw error;
       agentStarted = true;
       const question = await lastPaneLines(paneId, options).catch(() => '');
-      return store.update(job.id, {
+      return await store.update(job.id, {
         status: 'running', paneId, agentName, pendingPrompt: prompt,
         note: `${job.cli} is waiting for your answer in herdr pane ${paneId}. Answer it there; Edu sends the task as soon as it is ready.${question ? `\n${question}` : ''}`,
       });
     }
     await sendPrompt(runner, agentName, prompt);
-    return store.update(job.id, { status: 'running', paneId, agentName, note: where, ...await promptBaseline(agentName, paneId, options, now) });
+    return await store.update(job.id, { status: 'running', paneId, agentName, note: where, ...await promptBaseline(agentName, paneId, options, now) });
   } catch (error) {
     let summary = errorMessage(error);
     if (paneId && !agentStarted) {

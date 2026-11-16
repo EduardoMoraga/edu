@@ -68,7 +68,7 @@ export async function dispatchHeadless(job: CrewJob, options: { brainRoot?: stri
     });
     child.once('error', error => { void store.update(job.id, { status: 'failed', endedAt: new Date().toISOString(), summary: error.message }); });
     child.unref();
-    return store.update(job.id, { pid: child.pid });
+    return await store.update(job.id, { pid: child.pid });
   } finally {
     await log.close();
   }
@@ -141,7 +141,7 @@ export async function runWorker(jobId: string, options: WorkerOptions = {}): Pro
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await store.appendEvent(job.id, { type: 'error', message, at: iso(now) }).catch(() => undefined);
-    return store.update(job.id, { status: 'failed', endedAt: iso(now), summary: message, usage });
+    return await store.update(job.id, { status: 'failed', endedAt: iso(now), summary: message, usage });
   } finally {
     clearTimeout(timer);
   }
