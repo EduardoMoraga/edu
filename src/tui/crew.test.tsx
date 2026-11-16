@@ -7,6 +7,7 @@ import type { EduEvent } from '../core/contracts.js';
 import { UNICODE_GLYPHS, createTheme } from '../identity/index.js';
 import { App } from './App.js';
 import { fsCrewSource, watchCrew, type CrewJobInfo } from './crew.js';
+import { until } from '../test-support/ink.js';
 
 const JOB_A = '11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const JOB_B = '22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -99,16 +100,16 @@ describe('watchCrew', () => {
     const done = (async () => {
       for await (const e of watchCrew(fsCrewSource(root), { pollMs: 10, signal: abort.signal })) seen.push(e);
     })();
-    await new Promise((r) => setTimeout(r, 40));
+    // Append only once the watcher has seen the job, so the event really arrives late.
+    await until(() => expect(seen.some((e) => e.type === 'agent.spawn' && e.agentId === JOB_A)).toBe(true));
     await appendFile(join(root, 'crew', `${JOB_A}.jsonl`), `${JSON.stringify({ type: 'agent.text', agentId: 'e', text: 'late', at: at(3) })}\n`);
     await writeJob({ id: JOB_B, cli: 'pi', task: 'b', status: 'queued', createdAt: at(4) });
-    const until = Date.now() + 5000;
-    const ready = () => seen.some((e) => e.type === 'agent.text' && e.text === 'late') && seen.some((e) => e.type === 'agent.spawn' && e.agentId === JOB_B);
-    while (Date.now() < until && !ready()) await new Promise((r) => setTimeout(r, 25));
+    await until(() => {
+      expect(seen.some((e) => e.type === 'agent.text' && e.text === 'late')).toBe(true);
+      expect(seen.some((e) => e.type === 'agent.spawn' && e.agentId === JOB_B)).toBe(true);
+    });
     abort.abort();
     await done;
-    expect(seen.some((e) => e.type === 'agent.text' && e.text === 'late')).toBe(true);
-    expect(seen.some((e) => e.type === 'agent.spawn' && e.agentId === JOB_B)).toBe(true);
   });
 
   it('renders several jobs as several agents in the live view', async () => {
@@ -121,8 +122,7 @@ describe('watchCrew', () => {
       <App events={watchCrew(fsCrewSource(root), { pollMs: 10, signal: abort.signal })} crew theme={createTheme(0)} glyphs={UNICODE_GLYPHS} columns={100} rows={30} view="list" />,
     );
     // Poll instead of a fixed sleep: slower runners (Windows CI) need more than one poll cycle.
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && !view.lastFrame()?.includes('claude 222222')) await new Promise((r) => setTimeout(r, 25));
+    await until(() => expect(view.lastFrame()).toContain('claude 222222'));
     const frame = view.lastFrame()!;
     expect(frame).toContain('codex 111111');
     expect(frame).toContain('claude 222222');

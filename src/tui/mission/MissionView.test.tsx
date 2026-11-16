@@ -20,9 +20,9 @@ import { reduceAll } from '../state.js';
 import { CARD_HEIGHT, constellationLines, placeCards } from './constellation.js';
 import { overlaps } from './canvas.js';
 import { missionLayout } from './layout.js';
+import { press } from '../../test-support/ink.js';
 
 const plain = createTheme(0);
-const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
 /** Demo events up to (and including) the builder's write approval. */
 function atWriteApproval(): EduEvent[] {
@@ -110,13 +110,10 @@ describe('mission control rendering', () => {
     instance = mount({ columns: 160, rows: 48, onApprove });
     const last = () => instance!.lastFrame()!.split('\n').at(-1)!;
     expect(last()).toMatch(/^ ◆ APPROVAL  builder-1 · builder-1 wants to write 3 files\s+y approve · n reject · d details$/);
-    await tick();
-    instance.stdin.write('d');
-    await tick();
+    await press(instance, 'd');
     expect(instance.lastFrame()).toContain('─ details · builder-1 wants to write 3 files ─');
     expect(instance.lastFrame()).toContain('src/routes/callback.ts');
-    instance.stdin.write('y');
-    await tick();
+    await press(instance, 'y');
     expect(onApprove).toHaveBeenCalledWith('write-files', true);
     expect(last()).toMatch(/^ ● running · 2\/5 agents/);
   });
@@ -137,16 +134,12 @@ describe('mission control rendering', () => {
   it('scrolls the bus with page keys and shows how many rows are newer', async () => {
     instance = render(<App events={demoEvents()} theme={plain} glyphs={UNICODE_GLYPHS} columns={160} rows={48} />);
     expect(instance.lastFrame()).toMatch(/─ message bus ─+ \d+ ─╮/);
-    await tick();
-    instance.stdin.write('\u001B[5~');
-    await tick();
+    await press(instance, '\u001B[5~');
     expect(instance.lastFrame()).toMatch(/─ message bus ─+ \d+ newer ↓ end ─╮/);
   });
   it('opens the help overlay in place of the stage and keeps the bus and status bar', async () => {
     instance = mount({ columns: 160, rows: 48 });
-    await tick();
-    instance.stdin.write('?');
-    await tick();
+    await press(instance, '?');
     const frame = instance.lastFrame()!;
     expect(frame).toContain('KEYS');
     expect(frame).not.toContain('─ constellation ─');
