@@ -40,7 +40,7 @@ it('persists bounded verified feedback for long note ids independently per note'
       brain, config: { ...defaultConfig('claude'), playbook: 'local', approvals: 'auto' },
       context: { build: async () => ({ text: contextText, tokens: 100, budgetTokens: 8000, sections: [{ title: 'Lessons', text: contextText, tokens: 100, noteIds: notes.map(note => note.meta.id) }], deferred: [] }) },
       engines: () => engine, available: ['claude'], cwd, runsDir: join(root, 'runs'),
-      autoApprove: true, onEvent: () => {}, approve: async () => true,
+      autoApprove: true, allowUnregisteredChecks: true, onEvent: () => {}, approve: async () => true,
     });
     expect(result.ok, result.summary).toBe(true);
     expect(result.events).toContainEqual(expect.objectContaining({ type: 'verify.result', kind: 'deterministic', checkId: 'node-check', ok: true }));

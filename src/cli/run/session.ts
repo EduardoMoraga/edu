@@ -4,7 +4,7 @@
  */
 import { join } from 'node:path';
 import type { CliId, EduEvent, Engine, HarnessLevel, OrchestrationMode } from '../../core/contracts.js';
-import type { ApprovalRequest, RunResult } from '../../orchestrator/index.js';
+import type { ApprovalAnswer, ApprovalRequest, RunResult } from '../../orchestrator/index.js';
 import type { CliContext } from '../context.js';
 import { t, type Lang } from '../i18n.js';
 import { packageTemplatesDir } from '../package.js';
@@ -19,9 +19,11 @@ export interface RunSetup {
   harnessLevel?: HarnessLevel;
   playbook?: string;
   autoApprove?: boolean;
+  /** `--allow-unregistered-checks`: planner-proposed checks run without a person approving them. */
+  allowUnregisteredChecks?: boolean;
   cli?: CliId;
   onEvent(event: EduEvent): void | Promise<void>;
-  approve(request: ApprovalRequest): Promise<boolean>;
+  approve(request: ApprovalRequest): Promise<boolean | ApprovalAnswer>;
   signal?: AbortSignal;
   /** Engine factory override (tests); defaults to the real CLI adapters. */
   engines?: (cli: CliId) => Engine;
@@ -60,6 +62,7 @@ export async function executeRun(ctx: CliContext, setup: RunSetup): Promise<RunR
     harnessLevel: setup.harnessLevel,
     playbookName: setup.playbook,
     autoApprove: setup.autoApprove,
+    allowUnregisteredChecks: setup.allowUnregisteredChecks,
     runsDir: join(ws.primary.root, 'runs'),
   });
 }

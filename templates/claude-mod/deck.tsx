@@ -746,7 +746,10 @@ async function decideCrew($: EngineInterface): Promise<void> {
   await change($, t => confirmCleared(t))
   const w = wordsFor(lang).edu
   if (!isJobRef(ask.jobId)) return
-  const result = await runEdu($, verdictArgs(ask.jobId, ask.verdict), 60_000).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
+  // The gate the pane showed: the CLI refuses it if another gate opened since.
+  const shown = lastEdu ?? (await read($, eduData).catch(() => undefined))
+  const requestId = shown?.jobs.find(job => job.id === ask.jobId)?.requestId
+  const result = await runEdu($, verdictArgs(ask.jobId, ask.verdict, requestId), 60_000).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
   if (isMissing(result)) {
     $.ui.toast(w.missing)
     return

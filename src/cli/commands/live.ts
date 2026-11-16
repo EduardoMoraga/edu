@@ -13,7 +13,7 @@ import { createPlainFormatter } from '../run/plain.js';
 import { identityName, lessonCount, openWorkspace } from '../workspace.js';
 import { parseCli } from './setup.js';
 
-interface RunOpts { resume?: string; solo?: boolean; crew?: boolean; cli?: string; yes?: boolean; harness?: string; playbook?: string; detach?: boolean }
+interface RunOpts { resume?: string; solo?: boolean; crew?: boolean; cli?: string; yes?: boolean; allowUnregisteredChecks?: boolean; harness?: string; playbook?: string; detach?: boolean }
 interface UiOpts { replay?: string; speed?: string }
 interface DemoOpts { speed?: string; save?: string }
 
@@ -69,7 +69,8 @@ export function registerLive(program: Command, ctx: CliContext): void {
     .option('--harness <level>', 'evidence support level: H0 | H1 | H2 | H3')
     .option('--playbook <name>', 'method to use for this run')
     .option('--detach', 'run as a watchable crew job')
-    .option('-y, --yes', 'approve every step automatically')
+    .option('-y, --yes', 'approve every step automatically (planner-proposed checks still need a person, or the next flag)')
+    .option('--allow-unregistered-checks', 'run checks the planner proposed (not in .edu/harness/checks.json) through the shell without asking')
     .action(
       action<RunOpts>(ctx, async ({ g, opts }, goal) => {
         const mode = modeFrom(opts);
@@ -86,7 +87,7 @@ export function registerLive(program: Command, ctx: CliContext): void {
           const { createCrew } = await import('../../crew/index.js');
           const ws = await openWorkspace(ctx, g.cwd);
           const job = await createCrew({ brainRoot: ws.primary.root, locations: ws.locations, workspaceRoot: g.cwd, engineFactory: ctx.engineFactory, detectClis: ctx.detectClis }).orchestrate({
-            goal: text, cwd: g.cwd, mode, cli, harnessLevel, playbook: opts.playbook, autoApprove: Boolean(opts.yes),
+            goal: text, cwd: g.cwd, mode, cli, harnessLevel, playbook: opts.playbook, autoApprove: Boolean(opts.yes), allowUnregisteredChecks: Boolean(opts.allowUnregisteredChecks),
           });
           ctx.out(JSON.stringify(job));
           return;
@@ -94,12 +95,12 @@ export function registerLive(program: Command, ctx: CliContext): void {
         if (ctx.isTTY) {
           const ws = await openWorkspace(ctx, g.cwd);
           const { runInTui } = await import('../run/live.js');
-          const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, playbook: opts.playbook, autoApprove: Boolean(opts.yes), name: await identityName(ws.primary.root) });
+          const result = await runInTui(ctx, { goal: text, cwd: g.cwd, lang: g.lang, mode, harnessLevel, cli, playbook: opts.playbook, autoApprove: Boolean(opts.yes), allowUnregisteredChecks: Boolean(opts.allowUnregisteredChecks), name: await identityName(ws.primary.root) });
           if (result) ctx.out(t(g.lang, 'run.done', { status: t(g.lang, result.ok ? 'run.ok' : 'run.failed'), summary: result.summary }));
           if (!result?.ok) ctx.setExitCode(1);
           return;
         }
-        await runPlain(ctx, g, text, mode, cli, harnessLevel, opts.playbook, Boolean(opts.yes));
+        await runPlain(ctx, g, text, mode, cli, harnessLevel, opts.playbook, Boolean(opts.yes), Boolean(opts.allowUnregisteredChecks));
       }),
     );
 
@@ -155,6 +156,7 @@ async function runPlain(
   harnessLevel: HarnessLevel | undefined,
   playbook: string | undefined,
   yes: boolean,
+  allowUnregisteredChecks = false,
 ): Promise<void> {
   const available = ctx.availableClis ?? await ctx.detectClis();
   if (!available.length) throw new Error(t(g.lang, 'run.noCli'));
@@ -177,6 +179,7 @@ async function runPlain(
       harnessLevel,
       playbook,
       autoApprove: yes,
+      allowUnregisteredChecks,
       engines: ctx.engineFactory,
       available,
       signal: abort.signal,

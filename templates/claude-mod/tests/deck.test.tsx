@@ -15,7 +15,7 @@ const SNAPSHOT = {
   maintenance: { lastRun: 1000, promoted: 0, retired: 0, overdue: 2 },
   spec: { name: 'deck-spec', requirements: 3, checks: 2 },
   jobs: [
-    { id: 'abcd1234', cli: 'codex', task: 'Build the deck', status: 'awaiting-approval', mode: 'run', startedAt: 1000, endedAt: null, tokens: 0, tokensKnown: false },
+    { id: 'abcd1234', cli: 'codex', task: 'Build the deck', status: 'awaiting-approval', mode: 'run', startedAt: 1000, endedAt: null, tokens: 0, tokensKnown: false, requestId: 'req-abcd-1234' },
     { id: 'beef5678', cli: 'pi', task: 'Review the tests', status: 'running', mode: 'headless', startedAt: 2000, endedAt: null, tokens: 1500, tokensKnown: true },
     { id: 'cafe9012', cli: 'claude', task: 'Old work', status: 'done', mode: 'pane', startedAt: 500, endedAt: 900, tokens: 0, tokensKnown: false },
   ],
@@ -226,7 +226,7 @@ describe('Edu Deck', () => {
     expect(await screen(ui)).toMatch(/Approve crew run abcd1234\? It starts other agents\./)
     expect(seen.runs.some(argv => argv[1] === 'crew')).toBe(false)
     await ui.press({ key: 'edu:confirm' })
-    expect(seen.runs).toContainEqual(['edu', 'crew', 'approve', 'abcd1234'])
+    expect(seen.runs).toContainEqual(['edu', 'crew', 'approve', 'abcd1234', '--via', 'deck', '--request', 'req-abcd-1234'])
     expect(seen.toasts).toContain('Edu: crew run abcd1234 approved')
     expect(await screen(ui)).not.toMatch(/It starts other agents/)
     await ui.press({ key: 'tab:log' })

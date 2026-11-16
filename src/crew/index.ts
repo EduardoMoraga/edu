@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import { homedir } from 'node:os';
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { Autonomy, BrainLocation, CliId, CrewJob, CrewJobMode, Engine, HarnessLevel, OrchestrationMode } from '../core/contracts.js';
+import type { Autonomy, BrainLocation, CliId, CrewDecisionBy, CrewJob, CrewJobMode, Engine, HarnessLevel, OrchestrationMode } from '../core/contracts.js';
 import { detectEngines, createEngine } from '../engine/index.js';
 import { truncateToTokens } from '../context/index.js';
 import { dispatchHeadless, runWorker } from './headless.js';
@@ -28,7 +28,8 @@ export interface CrewOptions {
   startHeadless?: (job: CrewJob, options: { brainRoot: string }) => Promise<CrewJob>;
 }
 export interface DispatchInput { cli: CliId; task: string; mode?: CrewJobMode; cwd?: string; autonomy?: Autonomy }
-export interface OrchestrationInput { goal: string; cwd?: string; cli?: CliId; mode?: OrchestrationMode; playbook?: string; harnessLevel?: HarnessLevel; autoApprove?: boolean }
+/** `autoApprove` and `allowUnregisteredChecks` are human CLI flags; the MCP tools never pass them. */
+export interface OrchestrationInput { goal: string; cwd?: string; cli?: CliId; mode?: OrchestrationMode; playbook?: string; harnessLevel?: HarnessLevel; autoApprove?: boolean; allowUnregisteredChecks?: boolean }
 export interface ReviewInput { cli?: CliId; base?: string; callerCli?: CliId }
 
 export function createCrew(options: CrewOptions = {}) {
@@ -52,7 +53,7 @@ export function createCrew(options: CrewOptions = {}) {
       const available = await detect();
       const cli = input.cli ?? available[0];
       if (!cli || !available.includes(cli)) throw new Error('No available CLI for orchestration');
-      const job = await store.create({ cli, task: input.goal.trim(), goal: input.goal.trim(), kind: 'orchestration', mode: 'headless', cwd, autonomy: 'auto', orchestrationMode: input.mode, playbook: input.playbook, harnessLevel: input.harnessLevel, autoApprove: input.autoApprove });
+      const job = await store.create({ cli, task: input.goal.trim(), goal: input.goal.trim(), kind: 'orchestration', mode: 'headless', cwd, autonomy: 'auto', orchestrationMode: input.mode, playbook: input.playbook, harnessLevel: input.harnessLevel, autoApprove: input.autoApprove, allowUnregisteredChecks: input.allowUnregisteredChecks });
       await store.update(job.id, { status: 'running' });
       try { return await (options.startHeadless ?? dispatchHeadless)(job, { brainRoot: root }); }
       catch (error) {
@@ -60,9 +61,14 @@ export function createCrew(options: CrewOptions = {}) {
         throw error;
       }
     },
-    async approve(jobId: string, approved: boolean): Promise<CrewJob> {
-      await store.decide(jobId, approved);
-      return (await store.get(jobId))!;
+    /** Decides the open gate. Without a `requestId` it decides the gate open right now (a person at the CLI). */
+    async approve(jobId: string, approved: boolean, decision: { by: CrewDecisionBy; requestId?: string; env?: NodeJS.ProcessEnv }): Promise<CrewJob> {
+      const job = await store.get(jobId);
+      if (!job) throw new Error(`Crew job not found: ${jobId}`);
+      const requestId = decision.requestId ?? job.approval?.requestId;
+      if (!requestId) throw new Error(`Crew job is not awaiting approval: ${jobId}`);
+      await store.decide(job.id, approved, { requestId, by: decision.by, env: decision.env });
+      return (await store.get(job.id))!;
     },
     async dispatch(input: DispatchInput): Promise<CrewJob> {
       if (!input.task.trim()) throw new Error('Crew task must not be empty');

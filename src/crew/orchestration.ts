@@ -34,11 +34,12 @@ export async function runOrchestration(job: CrewJob, options: OrchestrationWorke
     await store.appendEvent(job.id, event);
     if (event.type === 'spec.ready') { await flushSpec(); pendingSpec = event.path; return; }
     if (event.type === 'approval.request' && !job.autoApprove) {
-      await store.update(job.id, { ...specPatch(), status: 'awaiting-approval' });
+      // Every gate gets a fresh requestId; only a decision naming it (written after this point) applies.
+      await store.openApproval(job.id, { title: event.title, ...(event.unregisteredChecks?.length ? { unregisteredChecks: event.unregisteredChecks } : {}) }, specPatch());
       await store.appendEvent(job.id, { type: 'agent.status', agentId: job.id, status: 'awaiting-approval', at: event.at });
     }
     await flushSpec();
-    if (event.type === 'approval.resolve') await store.update(job.id, { status: 'running' });
+    if (event.type === 'approval.resolve') await store.update(job.id, { status: 'running', approval: undefined });
     if (event.type === 'verify.result' && event.kind !== 'reproduction') {
       latestChecks.set(event.checkId ?? event.method ?? 'unknown', event.ok);
       const passed = [...latestChecks.values()].filter(Boolean).length;
@@ -59,13 +60,13 @@ export async function runOrchestration(job: CrewJob, options: OrchestrationWorke
     const result = await executeRun(context, {
       goal: job.goal ?? job.task, cwd: job.cwd, lang: 'en', mode: job.orchestrationMode,
       cli: job.cli, harnessLevel: job.harnessLevel, playbook: job.playbook,
-      autoApprove: job.autoApprove, engines: options.engineFactory, available,
+      autoApprove: job.autoApprove, allowUnregisteredChecks: job.allowUnregisteredChecks, engines: options.engineFactory, available,
       onEvent,
       approve: async () => {
         if (job.autoApprove) return true;
         while (true) {
           const decision = await store.takeDecision(job.id);
-          if (decision !== undefined) return decision;
+          if (decision !== undefined) return { approved: decision.approve, by: decision.by };
           await sleep(250);
         }
       },

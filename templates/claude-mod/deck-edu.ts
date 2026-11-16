@@ -46,6 +46,7 @@ function jobFrom(value: unknown): DeckEduJob | undefined {
   if (!id) return undefined
   const startedAt = time(value.startedAt) ?? 0
   const endedAt = time(value.endedAt)
+  const requestId = text(value.requestId)
   return {
     id,
     cli: text(value.cli, '?') || '?',
@@ -56,6 +57,7 @@ function jobFrom(value: unknown): DeckEduJob | undefined {
     ...(endedAt !== undefined ? { endedAt } : {}),
     tokens: count(value.tokens),
     tokensKnown: value.tokensKnown === true,
+    ...(isRequestId(requestId) ? { requestId } : {}),
   }
 }
 
@@ -184,8 +186,14 @@ export function isJobRef(id: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$/.test(id)
 }
 
-export function verdictArgs(jobId: string, verdict: 'approve' | 'reject'): string[] {
-  return ['crew', verdict, jobId]
+/** The nonce of the approval gate the pane showed (`edu deck --json`); anything else never reaches argv. */
+export function isRequestId(id: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/.test(id)
+}
+
+/** With the gate's requestId the CLI decides exactly the gate the person saw, and records the Deck as the channel. */
+export function verdictArgs(jobId: string, verdict: 'approve' | 'reject', requestId?: string): string[] {
+  return ['crew', verdict, jobId, '--via', 'deck', ...(requestId && isRequestId(requestId) ? ['--request', requestId] : [])]
 }
 
 export function totalNotes(brain: DeckEduBrain | undefined): number {

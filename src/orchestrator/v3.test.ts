@@ -128,4 +128,39 @@ describe('v3 orchestration', () => {
       expect(await readFile(spec!.path, 'utf8')).toContain("write('safe')");
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
+
+  it('shows unregistered check commands first and never runs them on a --yes or host-LLM approval', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'edu-unregistered-'));
+    const root = join(dir, '.edu');
+    const marker = join(dir, 'ran');
+    const plan = { requirements: [{ id: 'R-1', text: 'works' }], checks: [{ id: 'invented', requirementIds: ['R-1'], command: nodeCommand("require('fs').writeFileSync('ran', 'x')"), expect: { exitCode: 0 }, timeoutMs: 10000 }], steps: [] };
+    const runtime: Engine = { cli: 'claude', available: async () => true, async *run(request, id) {
+      const output = request.prompt.includes('Create a safe') ? JSON.stringify(plan) : '{"verdict":"pass","issues":[]}';
+      yield* new FakeEngine([{ type: 'agent.text', agentId: id, text: output, at }, { type: 'agent.end', agentId: id, ok: true, summary: 'done', at }]).run(request, id);
+    } };
+    const run = (extra: Record<string, unknown>) => orchestrate('Goal', { config: defaultConfig('claude'), brain, context, engines: () => runtime, available: ['claude'], cwd: dir, runsDir: join(root, 'runs'), onEvent: () => {}, approve: async () => true, ...extra });
+    try {
+      await mkdir(join(root, 'playbooks'), { recursive: true });
+      await writeFile(join(root, 'playbooks', 'default.md'), playbook('default', 'Plan.'));
+      let detail = '';
+      const policy = await run({ autoApprove: true, approve: async (request: { detail: string }) => { detail = request.detail; return true; } });
+      expect(detail.split('\n')[0]).toContain('Unregistered checks: approving runs these exact commands');
+      expect(detail).toContain(`- invented: ${plan.checks[0]!.command}`);
+      expect(policy.ok).toBe(true);
+      expect(policy.events.some(event => event.type === 'verify.result')).toBe(false);
+      await expect(readFile(marker)).rejects.toThrow();
+      const host = await run({ approve: async () => ({ approved: true, by: 'host-llm' }) });
+      expect(host.events).toContainEqual(expect.objectContaining({ type: 'approval.resolve', approved: true, by: 'host-llm' }));
+      await expect(readFile(marker)).rejects.toThrow();
+      const task = JSON.parse(await readFile(join(host.episodeDir!, 'task.json'), 'utf8'));
+      expect(task.limitations.join('\n')).toContain('Unregistered check(s) not run: invented');
+      // A person at the prompt (a plain boolean answer) authorizes them; so does the explicit flag under --yes.
+      const person = await run({});
+      expect(person.ok, person.summary).toBe(true);
+      expect(await readFile(marker, 'utf8')).toBe('x');
+      await rm(marker);
+      await run({ autoApprove: true, allowUnregisteredChecks: true });
+      expect(await readFile(marker, 'utf8')).toBe('x');
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
 });

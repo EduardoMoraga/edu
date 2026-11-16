@@ -194,6 +194,8 @@ export type DeckEduJob = {
   endedAt?: number
   tokens: number
   tokensKnown: boolean
+  /** The approval gate's nonce while the job awaits approval; the Deck passes it back to `edu crew approve`. */
+  requestId?: string
 }
 
 export type DeckEduBrain = {

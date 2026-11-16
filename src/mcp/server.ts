@@ -359,22 +359,22 @@ export function createEduMcpServer(opts: EduMcpOptions): McpServer {
   });
 
   register('edu_orchestrate', 'Start a detached orchestration (visible spec and crew job)', {
-    goal: z.string().min(1), playbook: z.string().optional(), mode: z.enum(['solo', 'crew']).optional(),
-    autoApprove: z.boolean().optional(), maxTokens: tokenLimit,
-  }, async ({ goal, playbook, mode, autoApprove }) => {
-    const job = await crew.orchestrate({ goal, playbook, mode, autoApprove });
+    goal: z.string().min(1), playbook: z.string().optional(), mode: z.enum(['solo', 'crew']).optional(), maxTokens: tokenLimit,
+  }, async ({ goal, playbook, mode }) => {
+    // No auto-approval from MCP: every gate waits for a decision naming its requestId.
+    const job = await crew.orchestrate({ goal, playbook, mode });
     const deadline = Date.now() + 60_000;
     let current = job;
     while (!current.specPath && !['done', 'failed', 'cancelled'].includes(current.status) && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 250));
       current = await crew.status(job.id) as typeof job;
     }
-    return JSON.stringify({ jobId: job.id, status: current.status, specPath: current.specPath, outcome: current.outcome, verificationSummary: current.verificationSummary });
+    return JSON.stringify({ jobId: job.id, status: current.status, specPath: current.specPath, ...(current.approval ? { requestId: current.approval.requestId } : {}), outcome: current.outcome, verificationSummary: current.verificationSummary });
   });
 
-  register('edu_crew_approve', 'Approve or reject a pending orchestration spec', {
-    jobId: z.string().min(1), approve: z.boolean(), maxTokens: tokenLimit,
-  }, async ({ jobId, approve }) => JSON.stringify(await crew.approve(jobId, approve)));
+  register('edu_crew_approve', 'Approve or reject the approval gate a crew job is waiting on (recorded as the host LLM\'s decision)', {
+    jobId: z.string().min(1), requestId: z.string().min(1).describe('The requestId of the open gate (edu_orchestrate or edu_crew_status)'), approve: z.boolean(), maxTokens: tokenLimit,
+  }, async ({ jobId, requestId, approve }) => JSON.stringify(await crew.approve(jobId, approve, { by: 'host-llm', requestId, env })));
 
   register('edu_crew_review', 'Read-only review by a different available CLI', {
     cli: cliIds.optional(), base: z.string().optional(), maxTokens: tokenLimit,

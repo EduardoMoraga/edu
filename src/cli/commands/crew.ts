@@ -2,6 +2,7 @@
 import type { Command } from 'commander';
 import type { CliId } from '../../core/contracts.js';
 import { createCrew, runWorker } from '../../crew/index.js';
+import { isCrewWorker } from '../../crew/store.js';
 import { globalHome, type CliContext } from '../context.js';
 import { action } from '../kit.js';
 import { openWorkspace } from '../workspace.js';
@@ -45,8 +46,13 @@ export function registerCrew(program: Command, ctx: CliContext): void {
   for (const [name, approved] of [['approve', true], ['reject', false]] as const) {
     root.command(`${name} <id>`)
       .description(`${name} the pending orchestration approval`)
-      .action(action<Record<string, never>>(ctx, async ({ g }, id) => {
-        ctx.out(JSON.stringify(await (await crew(g.cwd)).approve(id!, approved)));
+      .option('--request <requestId>', 'the approval request you reviewed (see `edu crew status <id>`); refused if another gate is open now')
+      .option('--via <channel>', 'who is deciding: cli (default) or deck', 'cli')
+      .action(action<{ request?: string; via?: string }>(ctx, async ({ g, opts }, id) => {
+        // A crew worker carries EDU_CREW_JOB; it may never approve, whatever flags it passes.
+        if (isCrewWorker(ctx.env)) throw new Error(`A crew worker cannot ${name} crew jobs`);
+        if (opts.via !== 'cli' && opts.via !== 'deck') throw new Error('--via must be cli or deck');
+        ctx.out(JSON.stringify(await (await crew(g.cwd)).approve(id!, approved, { by: opts.via, requestId: opts.request, env: ctx.env })));
       }));
   }
   root.command('worker <id>')

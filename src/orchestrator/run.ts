@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import type { Brain } from '../brain/index.js';
-import type { ApprovalPolicy, CliId, ContextPack, EduConfig, EduEvent, Engine, EngineRunRequest, FeedbackContext, HarnessLevel, OutcomeLabel, RoleId } from '../core/contracts.js';
+import { HUMAN_APPROVERS, type ApprovalBy, type ApprovalPolicy, type CliId, type ContextPack, type EduConfig, type EduEvent, type Engine, type EngineRunRequest, type FeedbackContext, type HarnessLevel, type OutcomeLabel, type RoleId } from '../core/contracts.js';
 import { buildEpisodePackage } from '../evidence/package.js';
 import { diagnosePackage } from '../evidence/classify.js';
 import { loadChecks, loadTools, runCheck } from '../evidence/registry.js';
@@ -21,14 +21,21 @@ import { writeSpec } from './spec.js';
 import { BudgetExhausted, RunBudget } from './budget.js';
 
 export interface ApprovalRequest { agentId: string; stepId: string; title: string; detail: string }
+/** An approval callback answers with a boolean (a person at the in-process prompt, or `policy` under --yes) or names its channel. */
+export interface ApprovalAnswer { approved: boolean; by: ApprovalBy }
 export interface OrchestrateDeps {
   config: EduConfig; brain: Brain; context: ContextProvider; engines: (cli: CliId) => Engine;
   available: CliId[]; cwd: string; onEvent(event: EduEvent): void | Promise<void>;
-  approve(request: ApprovalRequest): Promise<boolean>; signal?: AbortSignal; runsDir: string; now?: () => Date;
+  approve(request: ApprovalRequest): Promise<boolean | ApprovalAnswer>; signal?: AbortSignal; runsDir: string; now?: () => Date;
   harnessLevel?: HarnessLevel;
   playbookName?: string;
   /** True when an upstream --yes policy, rather than a human, answers approval prompts. */
   autoApprove?: boolean;
+  /**
+   * Run planner-proposed checks that are not in `.edu/harness/checks.json` without a human gate (CLI
+   * `--allow-unregistered-checks`). Otherwise they run only after a person approved the spec listing them.
+   */
+  allowUnregisteredChecks?: boolean;
   composerMessages?: AsyncIterable<string>;
 }
 export interface StepResult { id: string; ok: boolean; summary: string; skipped?: boolean }
@@ -184,18 +191,26 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     }
     const spec = await writeSpec(dirname(deps.runsDir), goal, playbook.name, harnessLevel, plan, activeDeps.config, deps.available, deps.now?.() ?? new Date(), runId);
     await emit({ type: 'spec.ready', path: spec.path, requirements, checks: plan.checks, steps: plan.steps.map(step => ({ id: step.id, role: step.role, cli: assignCli(step.role, activeDeps.config, deps.available), task: step.task })), at: at() });
-    const hasProposedChecks = plan.checks.some(check => !registeredChecks.some(registered => sameCheck(registered, check)));
-    if (playbook.requireSpecApproval || hasProposedChecks) {
+    const unregistered = effectiveChecks.filter(check => !registeredChecks.some(registered => sameCheck(registered, check)));
+    let unregisteredApproved = Boolean(deps.allowUnregisteredChecks);
+    if (playbook.requireSpecApproval || unregistered.length) {
       const agentId = `${runId}-lead`;
       const approvalId = `${runId}-approval-spec`;
-      await emit({ type: 'approval.request', agentId, approvalId, title: 'Approve spec', detail: spec.markdown, at: at() });
-      let approved = false;
-      try { approved = await awaitApproval(deps.approve({ agentId, stepId: 'spec', title: 'Approve spec', detail: spec.markdown }), deps.signal); }
+      // The exact commands come first: approving this gate is what lets them run through the shell.
+      const detail = unregistered.length && !deps.allowUnregisteredChecks
+        ? `Unregistered checks: approving runs these exact commands through the shell in ${deps.cwd}:\n${unregistered.map(check => `- ${check.id}: ${check.command}`).join('\n')}\n\n${spec.markdown}`
+        : spec.markdown;
+      await emit({ type: 'approval.request', agentId, approvalId, title: 'Approve spec', detail, ...(unregistered.length ? { unregisteredChecks: unregistered.map(check => check.command) } : {}), at: at() });
+      const policyApproval = deps.autoApprove || activeDeps.config.approvals === 'auto';
+      let answer: ApprovalAnswer = { approved: false, by: policyApproval ? 'policy' : 'user' };
+      try { answer = answerOf(await awaitApproval(deps.approve({ agentId, stepId: 'spec', title: 'Approve spec', detail }), deps.signal), answer.by); }
       catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
       if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting spec approval.');
-      const policyApproval = deps.autoApprove || activeDeps.config.approvals === 'auto';
-      await emit({ type: 'approval.resolve', approvalId, approved, by: policyApproval ? 'policy' : 'user', at: at() });
-      if (!policyApproval) await recordApprovalIntervention(approved, 'spec approval');
+      const approved = answer.approved;
+      await emit({ type: 'approval.resolve', approvalId, approved, by: answer.by, at: at() });
+      if (isHuman(answer.by)) await recordApprovalIntervention(approved, 'spec approval');
+      // A person who saw the commands may authorize them; --yes, a policy or the host LLM may not.
+      unregisteredApproved ||= approved && !deps.autoApprove && answer.by !== 'host-llm';
       if (!approved) {
         summary = 'spec rejected';
         for (const step of plan.steps) steps.push({ id: step.id, ok: false, summary: 'Not run because the spec was rejected.', skipped: true });
@@ -203,17 +218,16 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
         return await finish(false);
       }
     }
+    if (unregistered.length && !unregisteredApproved) {
+      effectiveChecks = effectiveChecks.filter(check => !unregistered.includes(check));
+      limitations.push(`Unregistered check(s) not run: ${unregistered.map(check => check.id).join(', ')}. They need a person to approve the spec that lists them, or --allow-unregistered-checks; register them in .edu/harness/checks.json to run them every time.`);
+    }
     const approvals = plan.steps.filter(step => needsApproval(activeDeps.config.approvals, activeDeps.config.roles.find(role => role.id === step.role)?.autonomy ?? 'readonly'));
     for (const step of approvals) {
       const agentId = `${runId}-${step.id}`;
       const approvalId = `${runId}-approval-${step.id}`;
       await emit({ type: 'approval.request', agentId, approvalId, title: `Approve ${step.role} step`, detail: step.task, at: at() });
-      let approved = false;
-      try { approved = await awaitApproval(deps.approve({ agentId, stepId: step.id, title: `Approve ${step.role} step`, detail: step.task }), deps.signal); }
-      catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
-      if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting approval.');
-      await emit({ type: 'approval.resolve', approvalId, approved, by: deps.autoApprove ? 'policy' : 'user', at: at() });
-      if (!deps.autoApprove) await recordApprovalIntervention(approved, step.task);
+      const { approved } = await resolveGate(agentId, approvalId, { agentId, stepId: step.id, title: `Approve ${step.role} step`, detail: step.task }, step.task, 'Run cancelled while awaiting approval.');
       if (!approved) {
         for (const candidate of plan.steps) steps.push({ id: candidate.id, ok: false, summary: candidate.id === step.id ? 'Approval rejected.' : 'Not run because approval was rejected.', skipped: true });
         summary = `Run stopped: approval rejected for step '${step.id}'.`;
@@ -272,9 +286,10 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
         const detail = `Consult ${advisorCli} with the goal and requirement IDs only. This CLI may inspect the workspace read-only; this is not a tool-free advisor. Usage may be unavailable. No automatic follow-up consultations. The existing local run event log and episode package retain raw output (unlike sanitized Crew artifacts); workspace secrets could appear there. Do not approve for sensitive workspaces.`;
         const approvalId = `${runId}-approval-advisor`;
         await emit({ type: 'approval.request', agentId: `${runId}-advisor`, approvalId, title: 'Approve advisor disclosure', detail, at: at() });
-        const approved = await awaitApproval(deps.approve({ agentId: `${runId}-advisor`, stepId: 'advisor', title: 'Approve advisor disclosure', detail }), deps.signal);
-        await emit({ type: 'approval.resolve', approvalId, approved, by: 'user', at: at() });
-        if (approved) {
+        const answer = answerOf(await awaitApproval(deps.approve({ agentId: `${runId}-advisor`, stepId: 'advisor', title: 'Approve advisor disclosure', detail }), deps.signal), 'user');
+        await emit({ type: 'approval.resolve', approvalId, approved: answer.approved, by: answer.by, at: at() });
+        if (answer.approved && !isHuman(answer.by)) limitations.push(`Advisor skipped: the disclosure was approved by ${answer.by}, not a person.`);
+        if (answer.approved && isHuman(answer.by)) {
           budget.advisorCalls++;
           const advice = await runText(activeDeps, emit, advisorCli, `${runId}-advisor`, 'advisor', `Give one bounded second opinion on risks and verification. Do not delegate, modify files, or write memory. Goal: ${goal}\nRequirement IDs: ${requirements.map(r => r.id).join(', ')}`, 'readonly', '', '');
           advisorEvidence = advice.text.slice(0, 4000) + (advice.text.length > 4000 ? '\n[Advisor output truncated; full consultation is in the run event log.]' : '');
@@ -302,12 +317,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
             const title = 'Approve deterministic-verification correction';
             const detail = `A deterministic check failed; authorize bounded builder correction ${round}/${playbook.maxFixRounds}.\n${details}`;
             await emit({ type: 'approval.request', agentId, approvalId, title, detail, at: at() });
-            let approved = false;
-            try { approved = await awaitApproval(deps.approve({ agentId, stepId: `verification-fix-${round}`, title, detail }), deps.signal); }
-            catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
-            if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting verification correction approval.');
-            await emit({ type: 'approval.resolve', approvalId, approved, by: deps.autoApprove ? 'policy' : 'user', at: at() });
-            if (!deps.autoApprove) await recordApprovalIntervention(approved, detail);
+            const { approved } = await resolveGate(agentId, approvalId, { agentId, stepId: `verification-fix-${round}`, title, detail }, detail, 'Run cancelled while awaiting verification correction approval.');
             if (!approved) throw new Error('Run stopped: deterministic-verification correction was rejected.');
           }
           const fix = await runText(activeDeps, emit, assignCli('builder', activeDeps.config, deps.available), `${runId}-verification-fix-${round}`, 'builder',
@@ -335,12 +345,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
         const title = 'Approve review-fix builder step';
         const detail = verdict.issues.join('; ') || 'Apply the review-requested correction.';
         await emit({ type: 'approval.request', agentId, approvalId, title, detail, at: at() });
-        let approved = false;
-        try { approved = await awaitApproval(deps.approve({ agentId, stepId: 'review-fix', title, detail }), deps.signal); }
-        catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
-        if (deps.signal?.aborted) throw new Error('Run cancelled while awaiting review-fix approval.');
-        await emit({ type: 'approval.resolve', approvalId, approved, by: deps.autoApprove ? 'policy' : 'user', at: at() });
-        if (!deps.autoApprove) await recordApprovalIntervention(approved, detail);
+        const { approved } = await resolveGate(agentId, approvalId, { agentId, stepId: 'review-fix', title, detail }, detail, 'Run cancelled while awaiting review-fix approval.');
         if (!approved) {
           summary = 'Run stopped: approval rejected for review-requested builder fix.';
           await closeEpisode(sessionId, summary);
@@ -415,7 +420,7 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
     const verified = requirements.length > 0 && verifiedRequirements.length === requirements.length;
     // A later review or a different check on the same requirement cannot erase a failure.
     success &&= [...latestChecks.values()].every(result => result.ok && !result.timedOut);
-    const hasIntervention = evidenceEvents.some(event => event.type === 'intervention' || (event.type === 'approval.resolve' && event.by !== 'policy'));
+    const hasIntervention = evidenceEvents.some(event => event.type === 'intervention' || (event.type === 'approval.resolve' && isHuman(event.by)));
     let label: OutcomeLabel = entropyUnsafe ? 'unsafe_invalid' : !success ? 'failed' : !verified ? 'unverified_success' : hasIntervention ? 'assisted_verified_success' : 'autonomous_verified_success';
     const outcome: Extract<EduEvent, { type: 'outcome' }> = { type: 'outcome', label, metrics: { harnessLevel, cli: activeDeps.config.defaultCli, role: 'builder', verifiedRequirements, entropySeverity: evidenceEvents.filter(event => event.type === 'entropy.finding').reduce((severity, event) => Math.max(severity, event.severity), 0), elapsedMs: Date.parse(at()) - Date.parse(events[0]?.at ?? at()) }, at: at() };
     const end: Extract<EduEvent, { type: 'run.end' }> = { type: 'run.end', runId, ok: success, summary, at: at() };
@@ -455,6 +460,17 @@ export async function orchestrate(goal: string, deps: OrchestrateDeps): Promise<
 
   async function persistStatus(success: boolean, detail: string) {
     await atomicWrite(join(deps.runsDir, `${runId}.status.json`), `${JSON.stringify({ runId, cwd: deps.cwd, goal, sessionId, status: success ? 'completed' : terminalStatus, summary: detail, steps, budget: { ...budget.limits, spawns: budget.spawns, advisorCalls: budget.advisorCalls }, updatedAt: at() }, null, 2)}\n`);
+  }
+
+  /** Waits for one step gate and records it with the channel that answered. A failed approval is a rejection. */
+  async function resolveGate(agentId: string, approvalId: string, request: ApprovalRequest, interventionDetail: string, cancelled: string): Promise<ApprovalAnswer> {
+    let answer: ApprovalAnswer = { approved: false, by: deps.autoApprove ? 'policy' : 'user' };
+    try { answer = answerOf(await awaitApproval(deps.approve(request), deps.signal), answer.by); }
+    catch (error) { await emit({ type: 'error', agentId, message: `Approval failed: ${String(error)}`, at: at() }); }
+    if (deps.signal?.aborted) throw new Error(cancelled);
+    await emit({ type: 'approval.resolve', approvalId, approved: answer.approved, by: answer.by, at: at() });
+    if (isHuman(answer.by)) await recordApprovalIntervention(answer.approved, interventionDetail);
+    return answer;
   }
 
   async function recordApprovalIntervention(approved: boolean, detail: string): Promise<void> {
@@ -533,10 +549,17 @@ function needsApproval(policy: ApprovalPolicy, autonomy: string): boolean {
   return policy === 'always-ask' || (policy === 'ask-on-write' && (autonomy === 'auto' || autonomy === 'full'));
 }
 
-async function awaitApproval(approval: Promise<boolean>, signal?: AbortSignal): Promise<boolean> {
+const isHuman = (by: ApprovalBy) => HUMAN_APPROVERS.includes(by);
+
+/** A boolean answer comes from the in-process prompt (or the --yes policy): `fallback` names it. */
+function answerOf(value: boolean | ApprovalAnswer, fallback: ApprovalBy): ApprovalAnswer {
+  return typeof value === 'boolean' ? { approved: value, by: fallback } : { approved: value.approved === true, by: value.by };
+}
+
+async function awaitApproval<T>(approval: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return approval;
   if (signal.aborted) throw new Error('Run cancelled while awaiting approval.');
-  return Promise.race([approval, new Promise<boolean>((_, reject) => {
+  return Promise.race([approval, new Promise<T>((_, reject) => {
     signal.addEventListener('abort', () => reject(new Error('Run cancelled while awaiting approval.')), { once: true });
   })]);
 }

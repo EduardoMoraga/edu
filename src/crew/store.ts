@@ -4,13 +4,18 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { atomicWrite } from '../brain/store.js';
 import { WorkerOutputFilter, boundedWorkerPreview, createCrewArtifacts, redactWorkerOutput } from '../context/artifacts.js';
-import type { Autonomy, CliId, CrewJob, CrewJobMode, CrewJobStatus, EduEvent } from '../core/contracts.js';
+import type { Autonomy, CliId, CrewDecisionBy, CrewJob, CrewJobMode, CrewJobStatus, EduEvent } from '../core/contracts.js';
 
 export interface NewCrewJob extends Pick<CrewJob, 'cli' | 'task' | 'mode' | 'cwd' | 'autonomy'> {
   kind?: CrewJob['kind']; goal?: string; playbook?: string; orchestrationMode?: CrewJob['orchestrationMode'];
-  harnessLevel?: CrewJob['harnessLevel']; autoApprove?: boolean;
+  harnessLevel?: CrewJob['harnessLevel']; autoApprove?: boolean; allowUnregisteredChecks?: boolean;
 }
-export type CrewJobPatch = Partial<Pick<CrewJob, 'status' | 'pid' | 'paneId' | 'agentName' | 'endedAt' | 'pendingPrompt' | 'observedWorking' | 'promptSeq' | 'promptPaneHash' | 'promptedAt' | 'summary' | 'usage' | 'note' | 'outcome' | 'specPath' | 'verificationSummary'>>;
+export type CrewJobPatch = Partial<Pick<CrewJob, 'status' | 'approval' | 'pid' | 'paneId' | 'agentName' | 'endedAt' | 'pendingPrompt' | 'observedWorking' | 'promptSeq' | 'promptPaneHash' | 'promptedAt' | 'summary' | 'usage' | 'note' | 'outcome' | 'specPath' | 'verificationSummary'>>;
+
+/** A decision for one approval gate: it must name that gate's `requestId`. */
+export interface CrewDecisionInput { requestId: string; by: CrewDecisionBy; env?: NodeJS.ProcessEnv }
+export interface CrewDecision { approve: boolean; by: CrewDecisionBy }
+export interface OpenApprovalInput { title: string; unregisteredChecks?: string[] }
 
 export interface CrewStore {
   create(input: NewCrewJob): Promise<CrewJob>;
@@ -20,11 +25,21 @@ export interface CrewStore {
   appendEvent(id: string, event: EduEvent): Promise<void>;
   flushOutput(id: string): Promise<void>;
   events(id: string): Promise<EduEvent[]>;
-  decide(id: string, approve: boolean): Promise<void>;
-  takeDecision(id: string): Promise<boolean | undefined>;
+  /** Opens an approval gate: a fresh `requestId`, status `awaiting-approval`, and no earlier decision left. */
+  openApproval(id: string, gate: OpenApprovalInput, patch?: CrewJobPatch): Promise<CrewJob>;
+  /** Records a human or host decision for the open gate. Refused inside a crew worker. */
+  decide(id: string, approve: boolean, input: CrewDecisionInput): Promise<void>;
+  /** The decision for the open gate, once; stale, forged or early decision files are discarded. */
+  takeDecision(id: string): Promise<CrewDecision | undefined>;
   artifact(id: string, kind: 'output' | 'summary', offset?: number, maxBytes?: number): ReturnType<ReturnType<typeof createCrewArtifacts>['read']>;
 }
 
+/** A crew worker (or any agent it starts) carries EDU_CREW_JOB; it may never approve anything. */
+export function isCrewWorker(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.EDU_CREW_JOB?.trim() || env.ALBERT_CREW_JOB?.trim());
+}
+
+const DECISION_BY = new Set<CrewDecisionBy>(['cli', 'deck', 'host-llm']);
 const statuses = new Set<CrewJobStatus>(['queued', 'running', 'awaiting-approval', 'done', 'failed', 'cancelled']);
 const safeId = (id: string) => {
   if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error(`Invalid crew job id: ${id}`);
@@ -141,23 +156,47 @@ export function createCrewStore(brainRoot: string): CrewStore {
       const text = await readFile(eventPath(job.id), 'utf8');
       return text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line) as EduEvent);
     },
-    async decide(id, approve) {
+    async openApproval(id, gate, patch = {}) {
+      const job = await this.get(id);
+      if (!job) throw new Error(`Crew job not found: ${id}`);
+      // Anything written before this gate opened can never apply to it.
+      await unlink(decisionPath(job.id)).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+      const approval = { requestId: randomUUID(), openedAt: new Date().toISOString(), title: gate.title, ...(gate.unregisteredChecks?.length ? { unregisteredChecks: gate.unregisteredChecks } : {}) };
+      return this.update(job.id, { ...patch, status: 'awaiting-approval', approval });
+    },
+    async decide(id, approve, input) {
+      if (isCrewWorker(input.env ?? process.env)) throw new Error('A crew worker cannot approve or reject crew jobs');
+      if (!DECISION_BY.has(input.by)) throw new Error(`Invalid approval channel: ${String(input.by)}`);
       const job = await this.get(id);
       if (!job || job.kind !== 'orchestration') throw new Error(`Orchestration job not found: ${id}`);
-      if (job.status !== 'awaiting-approval') throw new Error(`Crew job is not awaiting approval: ${id}`);
-      await writeFile(decisionPath(job.id), approve ? 'approve' : 'reject', { flag: 'wx' });
+      if (job.status !== 'awaiting-approval' || !job.approval) throw new Error(`Crew job is not awaiting approval: ${id}`);
+      if (input.requestId !== job.approval.requestId) throw new Error(`Approval request ${input.requestId} is not the one job ${job.id.slice(0, 8)} is waiting on; read the current requestId with edu crew status`);
+      const decision = { requestId: input.requestId, approve, by: input.by, at: new Date().toISOString() };
+      await writeFile(decisionPath(job.id), `${JSON.stringify(decision)}\n`, { flag: 'wx' });
     },
     async takeDecision(id) {
-      const path = decisionPath(id);
-      let value: string;
-      try { value = await readFile(path, 'utf8'); }
+      const job = await this.get(id);
+      if (!job) throw new Error(`Crew job not found: ${id}`);
+      const path = decisionPath(job.id);
+      let text: string;
+      try { text = await readFile(path, 'utf8'); }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
-      if (value !== 'approve' && value !== 'reject') throw new Error(`Invalid approval decision for crew job: ${id}`);
+      const gate = job.status === 'awaiting-approval' ? job.approval : undefined;
+      let value: unknown;
+      try { value = JSON.parse(text); } catch { value = undefined; }
+      const decision = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+      const valid = gate !== undefined && decision.requestId === gate.requestId && typeof decision.approve === 'boolean'
+        && DECISION_BY.has(decision.by as CrewDecisionBy) && typeof decision.at === 'string' && Date.parse(decision.at) >= Date.parse(gate.openedAt);
+      if (!valid) {
+        // Not for this gate (a bare legacy "approve", another gate, written before it opened): discard it.
+        await unlink(path).catch(() => undefined);
+        return undefined;
+      }
       // Close the decision window before removing the one-shot file, so a
       // second command cannot authorize the next approval by accident.
-      await this.update(id, { status: 'running' });
+      await this.update(job.id, { status: 'running', approval: undefined });
       await unlink(path);
-      return value === 'approve';
+      return { approve: decision.approve as boolean, by: decision.by as CrewDecisionBy };
     },
     async artifact(id, kind, offset, maxBytes) {
       const job = await this.get(id);

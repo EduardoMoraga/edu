@@ -1,9 +1,10 @@
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EduEvent, Engine } from '../core/contracts.js';
 import { createCrew } from './index.js';
+import { saveChecks } from '../evidence/registry.js';
 
 const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -20,6 +21,8 @@ function fakeEngine(): Engine {
   } };
 }
 
+const passCheck = { id: 'pass', requirementIds: ['R-1'], command: 'node -e "process.exit(0)"', expect: { exitCode: 0 }, timeoutMs: 10000 };
+
 async function setup() {
   const cwd = await mkdtemp(join(tmpdir(), 'edu-orchestration-'));
   roots.push(cwd);
@@ -27,7 +30,7 @@ async function setup() {
   await mkdir(brainRoot);
   const crew = createCrew({ brainRoot, workspaceRoot: cwd, engineFactory: () => fakeEngine(), detectClis: async () => ['claude'],
     startHeadless: async job => job, sleep: async () => new Promise(resolve => setTimeout(resolve, 2)) });
-  return { crew, cwd };
+  return { crew, cwd, brainRoot };
 }
 
 async function awaiting(crew: Awaited<ReturnType<typeof setup>>['crew'], id: string) {
@@ -42,13 +45,25 @@ async function awaiting(crew: Awaited<ReturnType<typeof setup>>['crew'], id: str
 }
 
 describe('detached orchestration', () => {
-  it('auto-approves the detached spec without entering a paused state', async () => {
+  it('auto-approves the detached spec (edu run --detach --yes) and runs registered checks', async () => {
     const { crew, cwd } = await setup();
+    await saveChecks(cwd, [passCheck]);
     const job = await crew.orchestrate({ goal: 'Check automatically', cwd, autoApprove: true });
     const result = await crew.runWorker(job.id);
     expect(result.status).toBe('done');
     expect(result.outcome).toBe('autonomous_verified_success');
     expect((await crew.store.events(job.id)).some(event => event.type === 'agent.status' && event.status === 'awaiting-approval')).toBe(false);
+  });
+
+  it('never auto-runs a planner-proposed check under --yes unless --allow-unregistered-checks is given', async () => {
+    const { crew, cwd } = await setup();
+    const skipped = await crew.runWorker((await crew.orchestrate({ goal: 'Check automatically', cwd, autoApprove: true })).id);
+    expect(skipped.status).toBe('done');
+    expect(skipped.outcome).toBe('unverified_success');
+    expect((await crew.store.events(skipped.id)).some(event => event.type === 'verify.result')).toBe(false);
+    const allowed = await crew.runWorker((await crew.orchestrate({ goal: 'Check automatically', cwd, autoApprove: true, allowUnregisteredChecks: true })).id);
+    expect(allowed.outcome).toBe('autonomous_verified_success');
+    expect(allowed.verificationSummary).toBe('1 passed, 0 failed');
   });
 
   it('pauses on a spec, resumes from a one-shot decision, and records outcome evidence', async () => {
@@ -57,12 +72,16 @@ describe('detached orchestration', () => {
     const worker = crew.runWorker(job.id);
     const paused = await awaiting(crew, job.id);
     expect(paused.specPath.replace(/\\/g, '/')).toContain('/specs/');
-    await crew.approve(job.id, true);
+    expect(paused.approval).toMatchObject({ requestId: expect.stringMatching(/^[0-9a-f-]{36}$/), title: 'Approve spec', unregisteredChecks: ['node -e "process.exit(0)"'] });
+    await crew.approve(job.id, true, { by: 'cli', requestId: paused.approval!.requestId });
     const result = await worker;
     expect(result.status).toBe('done');
+    expect(result.approval).toBeUndefined();
     expect(result.outcome).toBe('assisted_verified_success');
     expect(result.verificationSummary).toContain('passed');
-    expect((await crew.store.events(job.id)).some(event => event.type === 'spec.ready')).toBe(true);
+    const events = await crew.store.events(job.id);
+    expect(events.some(event => event.type === 'spec.ready')).toBe(true);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'approval.resolve', approved: true, by: 'cli' }));
   });
 
   it('publishes the spec path together with the awaiting-approval status', async () => {
@@ -73,8 +92,8 @@ describe('detached orchestration', () => {
     const job = await crew.orchestrate({ goal: 'Check the command', cwd });
     const worker = crew.runWorker(job.id);
     await awaiting(crew, job.id);
-    expect(patches.find(patch => 'specPath' in patch)).toMatchObject({ status: 'awaiting-approval' });
-    await crew.approve(job.id, true);
+    expect(patches.find(patch => 'specPath' in patch)).toMatchObject({ status: 'awaiting-approval', approval: { title: 'Approve spec' } });
+    await crew.approve(job.id, true, { by: 'deck' });
     expect((await worker).status).toBe('done');
   });
 
@@ -83,10 +102,58 @@ describe('detached orchestration', () => {
     const job = await crew.orchestrate({ goal: 'Reject the command', cwd });
     const worker = crew.runWorker(job.id);
     await awaiting(crew, job.id);
-    await crew.approve(job.id, false);
+    await crew.approve(job.id, false, { by: 'cli' });
     const result = await worker;
     expect(result.status).toBe('failed');
     expect(result.summary).toBe('spec rejected');
     expect((await crew.store.events(job.id)).some(event => event.type === 'verify.result')).toBe(false);
+  });
+
+  it('ignores decision files that do not name the open gate, including ones written before it opened', async () => {
+    const { crew, cwd, brainRoot } = await setup();
+    const job = await crew.orchestrate({ goal: 'Check the command', cwd });
+    const decisionFile = join(brainRoot, 'crew', `${job.id}.decision`);
+    // Written ahead of the gate: the legacy bare word, and a well-formed decision with a guessed id.
+    await writeFile(decisionFile, 'approve');
+    const worker = crew.runWorker(job.id);
+    const paused = await awaiting(crew, job.id);
+    await expect(readFile(decisionFile, 'utf8')).rejects.toThrow(); // cleared when the gate opened
+    await writeFile(decisionFile, JSON.stringify({ requestId: 'guessed', approve: true, by: 'cli', at: new Date().toISOString() }));
+    expect(await crew.store.takeDecision(job.id)).toBeUndefined();
+    // An early timestamp with the right id is refused too.
+    await writeFile(decisionFile, JSON.stringify({ requestId: paused.approval!.requestId, approve: true, by: 'cli', at: '2000-01-01T00:00:00.000Z' }));
+    expect(await crew.store.takeDecision(job.id)).toBeUndefined();
+    expect((await crew.status(job.id) as typeof paused).status).toBe('awaiting-approval');
+    await expect(crew.approve(job.id, true, { by: 'cli', requestId: 'stale-request' })).rejects.toThrow('is not the one');
+    await crew.approve(job.id, false, { by: 'cli', requestId: paused.approval!.requestId });
+    expect((await worker).summary).toBe('spec rejected');
+  });
+
+  it('refuses every approval from inside a crew worker', async () => {
+    const { crew, cwd } = await setup();
+    const job = await crew.orchestrate({ goal: 'Check the command', cwd });
+    const worker = crew.runWorker(job.id);
+    const paused = await awaiting(crew, job.id);
+    for (const env of [{ EDU_CREW_JOB: 'job-1' }, { ALBERT_CREW_JOB: 'job-1' }]) {
+      await expect(crew.approve(job.id, true, { by: 'cli', requestId: paused.approval!.requestId, env })).rejects.toThrow('crew worker cannot approve');
+    }
+    expect((await crew.status(job.id) as typeof paused).status).toBe('awaiting-approval');
+    await crew.approve(job.id, false, { by: 'cli' });
+    await worker;
+  });
+
+  it('records a host LLM approval honestly and never lets it authorize unregistered checks', async () => {
+    const { crew, cwd } = await setup();
+    const job = await crew.orchestrate({ goal: 'Check the command', cwd });
+    const worker = crew.runWorker(job.id);
+    const paused = await awaiting(crew, job.id);
+    await crew.approve(job.id, true, { by: 'host-llm', requestId: paused.approval!.requestId });
+    const result = await worker;
+    expect(result.status).toBe('done');
+    // Not a person (not "assisted"), and the planner's own shell command never ran.
+    expect(result.outcome).toBe('unverified_success');
+    const events = await crew.store.events(job.id);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'approval.resolve', approved: true, by: 'host-llm' }));
+    expect(events.some(event => event.type === 'verify.result' || event.type === 'intervention')).toBe(false);
   });
 });

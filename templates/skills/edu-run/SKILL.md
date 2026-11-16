@@ -16,15 +16,18 @@ description: "Hand a goal to Edu's orchestrator: Edu writes a spec with requirem
 
 1. Call `edu_orchestrate` with `goal` set to the user's request, verbatim. Add
    `playbook` only if the user named one (`default`, `quick`, `research`, or their own),
-   and `mode` (`solo` | `crew`) only if they asked. Never set `autoApprove` unless the
-   user explicitly said to skip approval.
+   and `mode` (`solo` | `crew`) only if they asked. There is no auto-approval over MCP;
+   a person who wants it runs `edu run --detach --yes` in a terminal.
 2. Show the user the job id and the **spec path**, and summarize the spec: its
    requirements (`R1`…) and the checks Edu will run. Tell them `edu watch` shows the run
    live.
 3. Ask the user to approve the spec, then STOP and wait. Do not approve on their behalf.
-   - Approved: call `edu_crew_approve` with `jobId` and `approve: true`.
-   - Rejected: call `edu_crew_approve` with `approve: false`; ask what to change in the
-     goal or the playbook and offer to start a new run.
+   - Approved: call `edu_crew_approve` with `jobId`, the gate's `requestId` (from
+     `edu_orchestrate` or `edu_crew_status`) and `approve: true`. It is recorded as your
+     decision (host LLM), not the user's, and it does not authorize checks the planner
+     invented: those run only when a person approves with `edu crew approve` or the Edu Deck.
+   - Rejected: call `edu_crew_approve` with `jobId`, `requestId` and `approve: false`; ask
+     what to change in the goal or the playbook and offer to start a new run.
 4. Poll `edu_crew_status` with the `jobId` until the job is `done`, `failed` or
    `cancelled`. Keep doing useful work between polls; do not poll in a tight loop.
    If it pauses at `awaiting-approval` again, show what is being asked and go back to 3.
