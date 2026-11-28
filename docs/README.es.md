@@ -377,7 +377,7 @@ Guarde el cerebro en un repositorio Git (por ejemplo `~/Edu`, con `~/.edu/brain`
 
 ```bash
 edu sync                              # commit, rebase sobre GitHub, push (nunca forzado)
-edu sync --install                    # cada 5 min: timer de systemd, LaunchAgent o Programador de tareas
+edu sync --install                    # personal cada 5 min, cheil cada 15: systemd, LaunchAgent o Programador de tareas
 edu sync --install --replace-legacy   # además retira un agente de sync hecho a mano (pregunta antes)
 edu sync --status                     # último resultado, programador, copias de conflicto; también en edu doctor
 edu sync --cloud                      # sandboxes en la nube: contadores y bases de Obsidian quedan locales
@@ -392,9 +392,15 @@ lados: la versión de GitHub mantiene la ruta y la suya se publica al lado como
 nota original, borre la copia y sincronice. `edu sync --status` termina con código 1 mientras
 quede una copia de conflicto.
 
+Cada perfil tiene su programador: `EduSync-personal` y `EduSync-cheil` en Windows,
+`edu-sync-<id>` en systemd y `dev.edu.sync.<id>` en launchd. El sync personal no empuja si
+`origin` es `cheil-vault` o si una ruta resuelve bajo `C:\Cheil`. El sync cheil no empuja
+`edu-vault`.
+
 Edu también informa un agente de sync antiguo para la misma bóveda (un LaunchAgent o una unidad
-de usuario de systemd que ejecuta un script `*-vault-sync` o nombra la bóveda).
-`--replace-legacy` lo quita, después de preguntar, una vez que el programador de Edu arrancó.
+de usuario de systemd que ejecuta un script `*-vault-sync` o nombra la bóveda), la tarea anterior
+`EduSync` y una tarea `CheilVaultSync`. `--replace-legacy` los quita, después de preguntar, una
+vez que el programador de Edu arrancó. Sin esa bandera se quedan.
 
 `edu join <repo>` conecta otra máquina o un sandbox en la nube al cerebro compartido, y
 `edu brain share <id>` mueve una nota al cerebro global. Las escrituras compartidas están

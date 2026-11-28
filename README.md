@@ -360,7 +360,7 @@ Keep the brain in a Git repository (for example `~/Edu`, with `~/.edu/brain` lin
 
 ```bash
 edu sync                              # commit, rebase on GitHub, push (never force)
-edu sync --install                    # every 5 min: systemd user timer, LaunchAgent or Task Scheduler
+edu sync --install                    # personal every 5 min, cheil every 15: systemd, LaunchAgent, or Task Scheduler
 edu sync --install --replace-legacy   # also retire a hand-made sync agent (asks first)
 edu sync --status                     # last result, scheduler, conflict copies; edu doctor shows it too
 edu sync --cloud                      # cloud sandboxes: keep usage counters and Obsidian bases local
@@ -373,9 +373,17 @@ yours is published beside it as `<name>.conflict-<host>-<sha>.md`, and your comm
 up to `sync-conflict/<host>-<sha>`. You get a desktop notification; merge what you need, delete
 the copy and sync. `edu sync --status` exits 1 while a conflict copy is tracked.
 
+Each profile gets its own scheduler, so two profiles on one machine do not share a task:
+`EduSync-personal` and `EduSync-cheil` on Windows, `edu-sync-<id>` on systemd, and
+`dev.edu.sync.<id>` on launchd. The script for each profile lives in that profile's home.
+A personal sync refuses to push when `origin` is `cheil-vault` or a changed path resolves under
+`C:\Cheil`. A cheil sync refuses `edu-vault`, and a Windows path that resolves outside the cheil
+vault into the personal tree.
+
 Edu also reports an older sync agent for the same vault (a LaunchAgent or systemd user unit that
-runs a `*-vault-sync` script or names the vault). `--replace-legacy` removes it, after asking, once
-Edu's own schedule has started.
+runs a `*-vault-sync` script or names the vault), the previous unsuffixed `EduSync` task, and a
+`CheilVaultSync` task. `--replace-legacy` removes them, after asking, once Edu's own schedule has
+started. Without that flag they stay.
 
 `edu join <repo>` attaches another machine or a cloud sandbox to the shared brain, and
 `edu brain share <id>` moves a note to the global brain. Shared writes are hash-guarded (`edu_read`

@@ -3,8 +3,9 @@ import {
 } from "./chunk-ERXEPRYO.js";
 import {
   scheduleFiles,
+  scheduleUnitName,
   uninstallSchedule
-} from "./chunk-76KIILAA.js";
+} from "./chunk-OUJLA7GR.js";
 import {
   setupManifestPath,
   uninstallSetup
@@ -158,10 +159,10 @@ async function removeSchedules(options, home, cwd, eduHome) {
   const dreams = await uninstallDreamSchedules({ home, eduHome, platform, ...run ? { run } : {}, ...options.scope === "project" ? { cwd } : {} });
   const schedules = dreams.map((dream) => ({ ...dream }));
   if (options.scope === "project") return schedules;
-  const sync = scheduleFiles(home, eduHome, platform);
+  const sync = scheduleFiles(home, eduHome, platform, options.profileId);
   if (sync && (await Promise.all(sync.files.map(present))).some(Boolean)) {
-    const result = await uninstallSchedule({ home, eduHome, platform, ...run ? { run } : {} });
-    const name = result.kind === "schtasks" ? "EduSync" : result.kind === "launchd" ? "dev.edu.sync" : "edu-sync";
+    const result = await uninstallSchedule({ home, eduHome, platform, profileId: options.profileId, ...run ? { run } : {} });
+    const name = scheduleUnitName(result.kind, options.profileId);
     schedules.push({ kind: result.kind, name, removed: result.removed, stopped: result.stopped });
   }
   return schedules;
@@ -170,4 +171,4 @@ export {
   assertPurgeableBrain,
   uninstallEdu
 };
-//# sourceMappingURL=uninstall-DLQE2OOJ.js.map
+//# sourceMappingURL=uninstall-LDROKM4X.js.map

@@ -10,6 +10,7 @@
  * - Append-only files (`0-index/log.md`) merge as the union of both sides, in chronological order.
  * - Cloud mode keeps usage counters and Obsidian bases local and never publishes empty session notes.
  * - The local exposure ledger (`.edu-local/`) is always ignored and never published.
+ * - A profile never pushes the other profile's remote, or a path that resolves into the other profile.
  */
 import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
@@ -21,6 +22,7 @@ import { withLogLock, withUsageLock } from '../brain/note-lock.js';
 import { withHostLock } from '../platform/file-lock.js';
 import { git, gitLines as lines, redact } from './git.js';
 import { keepBothCopy } from './keep-both.js';
+import { loadSessionProfile, pathBelongsToOtherProfile, ProfileError, remoteBelongsToOtherProfile, type Profile } from '../profile/profile.js';
 import { assertSafeTarget } from './safe-path.js';
 
 export type SyncState = 'ok' | 'conflict' | 'offline' | 'busy' | 'error';
@@ -55,7 +57,9 @@ export interface SyncOptions {
   reason?: string;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
-  /** Test seams. */
+  /** Session profile. When omitted, sync reads `<eduHome>/profile.json` (missing file means personal). */
+  profile?: Profile;
+  resolvePath?: (file: string) => Promise<string>;
   hooks?: SyncHooks;
 }
 
@@ -242,8 +246,17 @@ export async function syncBrain(options: SyncOptions): Promise<SyncResult> {
   try {
     // Lock order: this host lock first, then the brain's usage lock, then its log lock. Brain writers take the
     // usage lock and then the log lock, and never the host lock, so the order is the same everywhere.
+    let profile = options.profile;
+    if (!profile) {
+      try {
+        profile = await loadSessionProfile({ env: { ...env, EDU_HOME: options.eduHome } });
+      } catch (error) {
+        if (error instanceof ProfileError) return { ...base, vault, state: 'error', message: error.message };
+        throw error;
+      }
+    }
     return await withHostLock(options.eduHome, 'sync', vault, async () =>
-      run(vault, host, Boolean(options.cloud), env, base, await brainLock(options.eduHome, vault), options.hooks ?? {}), 3000);
+      run(vault, host, Boolean(options.cloud), env, base, await brainLock(options.eduHome, vault), options.hooks ?? {}, profile, options.resolvePath), 3000);
   } catch (error) {
     const message = (error as Error).message;
     const brainBusy = /timed out waiting for the brain (usage|log) lock/.test(message);
@@ -272,19 +285,53 @@ type Base = Pick<SyncResult, 'resolved' | 'reason' | 'at'> & { merged: string[];
 
 type Step = { error: string } | { ok: true };
 
-async function run(vault: string, host: string, cloud: boolean, env: NodeJS.ProcessEnv, base: Base, critical: Critical, hooks: SyncHooks): Promise<SyncResult> {
+function porcelainPaths(text: string): string[] {
+  const parts = text.split('\0').filter(part => part !== '');
+  const paths: string[] = [];
+  for (let index = 0; index < parts.length; index++) {
+    const entry = parts[index]!;
+    const path = entry.slice(3);
+    if (path) paths.push(path);
+    const kind = entry.slice(0, 2);
+    if (kind.includes('R') || kind.includes('C')) {
+      const renamed = parts[++index];
+      if (renamed) paths.push(renamed);
+    }
+  }
+  return paths;
+}
+
+async function foreignSync(profile: Profile, vault: string, env: NodeJS.ProcessEnv, resolvePath?: (file: string) => Promise<string>): Promise<string | undefined> {
+  const url = (await git(vault, ['remote', 'get-url', 'origin'], env)).out.trim();
+  if (url && remoteBelongsToOtherProfile(profile, url)) {
+    const other = profile.id === 'personal' ? 'cheil' : 'personal';
+    return `refusing to sync: origin belongs to the ${other} profile`;
+  }
+  const status = await git(vault, ['status', '--porcelain=v1', '-z'], env);
+  if (status.code !== 0) return 'refusing to sync: cannot read vault status';
+  for (const rel of porcelainPaths(status.out)) {
+    const absolute = resolve(vault, rel);
+    const resolved = resolvePath ? await resolvePath(absolute) : await realpath(absolute).catch(() => absolute);
+    if (pathBelongsToOtherProfile(profile, resolved, { vault })) return `refusing to sync: ${rel} resolves inside the other profile`;
+  }
+  return undefined;
+}
+
+async function run(vault: string, host: string, cloud: boolean, env: NodeJS.ProcessEnv, base: Base, critical: Critical, hooks: SyncHooks, profile: Profile, resolvePath?: (file: string) => Promise<string>): Promise<SyncResult> {
   const g = (...args: string[]) => git(vault, args, env);
   const done = async (state: SyncState, message: string, extra: Partial<SyncResult> = {}): Promise<SyncResult> =>
     ({ ...base, vault, state, message: redact(message, env), head: (await g('rev-parse', '--short', 'HEAD')).out.trim() || undefined, ...extra });
 
   if (await rebasing(vault)) await g('rebase', '--abort');
+  const blocked = await foreignSync(profile, vault, env, resolvePath);
+  if (blocked) return done('error', blocked);
   const branch = (await g('symbolic-ref', '--short', 'HEAD')).out.trim();
   if (!branch) return done('error', 'the vault is not on a branch');
 
-  /** Commits this machine's changes; returns an error message on failure. Must run under `critical`. */
   const commitLocal = async (): Promise<string | undefined> => {
+    const blockedNow = await foreignSync(profile, vault, env, resolvePath);
+    if (blockedNow) return blockedNow;
     if (cloud) {
-      // Obsidian views depend on each machine's vault: never publish new ones, undo edits to tracked ones.
       const exclude = resolve(vault, (await g('rev-parse', '--git-path', 'info/exclude')).out.trim());
       const rules = await readFile(exclude, 'utf8').catch(() => '');
       if (!rules.split('\n').includes('*.base')) {
@@ -344,6 +391,8 @@ async function run(vault: string, host: string, cloud: boolean, env: NodeJS.Proc
       return { ok: true };
     });
     if ('error' in step) return done('error', step.error);
+    const beforePush = await foreignSync(profile, vault, env, resolvePath);
+    if (beforePush) return done('error', beforePush);
     if (base.conflictCopies.length && (await g('push', '-q', 'origin', `${saved}:refs/heads/${saved}`)).code !== 0)
       return done('error', `conflict copies are in the vault, but pushing backup ${saved} failed`, { branch: saved });
     if ((await g('rev-list', '--count', `${upstream}..HEAD`)).out.trim() === '0') {

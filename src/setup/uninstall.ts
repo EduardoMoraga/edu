@@ -9,7 +9,7 @@ import { getManifestPath, uninstall } from '../adapters/installer.js';
 import { withInstallLock } from '../adapters/install-lock.js';
 import { setupManifestPath, uninstallSetup, type SetupRunner } from './index.js';
 import { uninstallDreamSchedules } from '../reflect/dream-schedule.js';
-import { scheduleFiles, uninstallSchedule } from '../vault/sync-service.js';
+import { scheduleFiles, scheduleUnitName, uninstallSchedule, type SyncProfileId } from '../vault/sync-service.js';
 
 export interface UninstallEduOptions {
   home: string;
@@ -25,6 +25,8 @@ export interface UninstallEduOptions {
   platform?: NodeJS.Platform;
   /** Runs systemctl/launchctl/schtasks for the schedules; injectable so tests never touch the service manager. */
   serviceRun?: (cmd: string, args: string[]) => Promise<number>;
+  /** Profile whose sync schedule to remove. Defaults to personal. */
+  profileId?: SyncProfileId;
 }
 
 export interface UninstallEduReport {
@@ -174,10 +176,10 @@ async function removeSchedules(options: UninstallEduOptions, home: string, cwd: 
   const dreams = await uninstallDreamSchedules({ home, eduHome, platform, ...(run ? { run } : {}), ...(options.scope === 'project' ? { cwd } : {}) });
   const schedules: UninstallEduReport['schedules'] = dreams.map(dream => ({ ...dream }));
   if (options.scope === 'project') return schedules;
-  const sync = scheduleFiles(home, eduHome, platform);
+  const sync = scheduleFiles(home, eduHome, platform, options.profileId);
   if (sync && (await Promise.all(sync.files.map(present))).some(Boolean)) {
-    const result = await uninstallSchedule({ home, eduHome, platform, ...(run ? { run } : {}) });
-    const name = result.kind === 'schtasks' ? 'EduSync' : result.kind === 'launchd' ? 'dev.edu.sync' : 'edu-sync';
+    const result = await uninstallSchedule({ home, eduHome, platform, profileId: options.profileId, ...(run ? { run } : {}) });
+    const name = scheduleUnitName(result.kind, options.profileId);
     schedules.push({ kind: result.kind, name, removed: result.removed, stopped: result.stopped });
   }
   return schedules;

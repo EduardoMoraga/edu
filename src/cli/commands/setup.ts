@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Command } from 'commander';
 import { exists } from '../workspace.js';
 import type { CliId, InstallScope } from '../../core/contracts.js';
+import { loadSessionProfile } from '../../profile/profile.js';
 import { globalHome, type CliContext } from '../context.js';
 import { t } from '../i18n.js';
 import { action, printJson } from '../kit.js';
@@ -147,7 +148,8 @@ export function registerSetup(program: Command, ctx: CliContext): void {
           }
         }
         const { uninstallEdu } = await import('../../setup/uninstall.js');
-        const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain });
+        const profile = await loadSessionProfile({ env: { ...ctx.env, EDU_HOME: brainRoot } });
+        const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain, profileId: profile.id });
         if (g.json) { printJson(ctx, report); return; }
         if (!report.removed.length) ctx.out(es ? 'Nada que eliminar: no hay instalación de Edu registrada.' : 'Nothing to remove: no recorded Edu installation.');
         for (const scopeName of [...new Set(report.removed.map(r => r.scope))]) ctx.out(t(g.lang, 'uninstall.done', { scope: scopeName }));

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, relative, sep, win32 as windows } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listLocation } from '../brain/store.js';
-import { CHEIL_REMOTE, PERSONAL_REMOTE, ProfileError, loadSessionProfile, parseProfile, type Profile } from './profile.js';
+import { CHEIL_REMOTE, PERSONAL_REMOTE, ProfileError, loadSessionProfile, parseProfile, pathBelongsToOtherProfile, remoteBelongsToOtherProfile, type Profile } from './profile.js';
 
 const missing = () => Promise.reject(Object.assign(new Error('missing'), { code: 'ENOENT' }));
 const noLink = () => undefined;
@@ -255,6 +255,32 @@ describe('two profiles on one machine', () => {
       else process.env.EDU_CEILING_DIRECTORIES = previous;
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('the other profile', () => {
+  const personalProfile = parseProfile(personal, win32);
+  const cheilProfile = parseProfile({
+    id: 'cheil', home: 'D:\\edu-cheil', brain: 'C:\\Cheil\\_CONOCIMIENTO', remote: CHEIL_REMOTE,
+  }, win32);
+
+  it('recognizes the other vault in the accepted remote forms, including a credential', () => {
+    expect(remoteBelongsToOtherProfile(personalProfile, 'https://github.com/EduardoMCheil/cheil-vault.git')).toBe(true);
+    expect(remoteBelongsToOtherProfile(personalProfile, 'https://x-access-token:s3cret@github.com/EduardoMCheil/cheil-vault.git')).toBe(true);
+    expect(remoteBelongsToOtherProfile(personalProfile, 'git@github.com:EduardoMoraga/edu-vault.git')).toBe(false);
+    expect(remoteBelongsToOtherProfile(cheilProfile, 'git@github.com:EduardoMoraga/edu-vault.git')).toBe(true);
+    expect(remoteBelongsToOtherProfile(cheilProfile, `ssh://git@github.com/${CHEIL_REMOTE}.git`)).toBe(false);
+    expect(remoteBelongsToOtherProfile(personalProfile, '/tmp/remote.git')).toBe(false);
+  });
+
+  it('treats C:\\Cheil as Cheil and a path outside the cheil vault as personal', () => {
+    expect(pathBelongsToOtherProfile(personalProfile, 'C:\\Cheil\\_CONOCIMIENTO\\a.md')).toBe(true);
+    expect(pathBelongsToOtherProfile(personalProfile, 'c:\\cheil\\notes\\a.md')).toBe(true);
+    expect(pathBelongsToOtherProfile(personalProfile, 'D:\\notes\\a.md')).toBe(false);
+    expect(pathBelongsToOtherProfile(cheilProfile, 'C:\\Cheil\\_CONOCIMIENTO\\a.md')).toBe(false);
+    expect(pathBelongsToOtherProfile(cheilProfile, 'D:\\cheil-vault\\a.md', { vault: 'D:\\cheil-vault' })).toBe(false);
+    expect(pathBelongsToOtherProfile(cheilProfile, 'C:\\Users\\edu\\notes\\a.md', { vault: 'C:\\Cheil\\_CONOCIMIENTO' })).toBe(true);
+    expect(pathBelongsToOtherProfile(cheilProfile, '/tmp/vault/a.md', { vault: '/tmp/vault' })).toBe(false);
   });
 });
 

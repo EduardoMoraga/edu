@@ -3,8 +3,9 @@ import { realpathSync } from 'node:fs';
 import type { Command } from 'commander';
 import { globalHome, type CliContext } from '../context.js';
 import { action, printJson } from '../kit.js';
+import { loadSessionProfile, type Profile } from '../../profile/profile.js';
 import { conflictBranches, findVault, readSyncState, remoteUrl, syncBrain, trackedConflictCopies, writeSyncState, type SyncResult } from '../../vault/sync.js';
-import { installSchedule, legacySchedules, notify, replaceLegacySchedules, scheduleStatus, uninstallSchedule, type ScheduleResult, type ScheduleStatus } from '../../vault/sync-service.js';
+import { defaultSyncMinutes, installSchedule, legacySchedules, notify, replaceLegacySchedules, scheduleStatus, uninstallSchedule, type ScheduleResult, type ScheduleStatus, type SyncProfileId } from '../../vault/sync-service.js';
 
 interface SyncOpts { status?: boolean; install?: boolean; uninstall?: boolean; replaceLegacy?: boolean; yes?: boolean; minutes?: string; cloud?: boolean; host?: string; vault?: string; reason?: string; json?: boolean }
 
@@ -17,21 +18,26 @@ export function describeSync(result: SyncResult | undefined, now = Date.now()): 
   return `${result.state} ${age}: ${result.message}${result.head ? ` (${result.head})` : ''}`;
 }
 
-/** The user's home for per-user schedules (USERPROFILE on Windows). */
 const userHome = (ctx: CliContext) => process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home;
 
+async function sessionProfile(ctx: CliContext, eduHome: string): Promise<Profile> {
+  return loadSessionProfile({ env: { ...ctx.env, EDU_HOME: eduHome } });
+}
+
 /** Schedules `edu sync` with this node and CLI; keeps a non-default EDU_HOME and cloud mode. */
-export async function scheduleSync(ctx: CliContext, options: { minutes: number; cloud?: boolean; vault?: string }): Promise<ScheduleResult> {
+export async function scheduleSync(ctx: CliContext, options: { minutes: number; cloud?: boolean; vault?: string; profileId?: SyncProfileId }): Promise<ScheduleResult> {
   const eduHome = globalHome(ctx);
+  const profileId = options.profileId ?? (await sessionProfile(ctx, eduHome)).id;
   const vault = options.vault ?? await findVault(eduHome, ctx.env).catch(() => undefined);
   return installSchedule({
     home: userHome(ctx), eduHome, node: process.execPath, cli: realpathSync(process.argv[1] ?? ''), minutes: options.minutes, path: ctx.env.PATH,
-    args: options.cloud ? ['--cloud'] : [], env: ctx.env.EDU_HOME ? { EDU_HOME: eduHome } : {}, vault,
+    args: options.cloud ? ['--cloud'] : [], env: ctx.env.EDU_HOME ? { EDU_HOME: eduHome } : {}, vault, profileId,
   });
 }
 
-export function parseMinutes(value: string | undefined): number {
-  const minutes = Number(value ?? '5');
+export function parseMinutes(value: string | undefined, profileId: SyncProfileId = 'personal'): number {
+  if (value === undefined) return defaultSyncMinutes(profileId);
+  const minutes = Number(value);
   if (!Number.isInteger(minutes) || minutes < 1) throw new Error('--minutes must be a whole number of minutes');
   return minutes;
 }
@@ -48,14 +54,15 @@ export interface SyncStatus {
   conflictCopies: { path: string; local: string }[];
 }
 
-export async function syncStatus(ctx: CliContext, vaultOption?: string): Promise<SyncStatus> {
+export async function syncStatus(ctx: CliContext, vaultOption?: string, profileId?: SyncProfileId): Promise<SyncStatus> {
   const eduHome = globalHome(ctx);
+  const id = profileId ?? (await sessionProfile(ctx, eduHome)).id;
   const last = await readSyncState(eduHome) ?? null;
   const vault = vaultOption ?? last?.vault ?? await findVault(eduHome, ctx.env).catch(() => undefined);
   return {
     last, vault: vault ?? null,
     remote: vault ? await remoteUrl(vault, ctx.env) ?? null : null,
-    scheduler: await scheduleStatus({ home: userHome(ctx), eduHome, vault }),
+    scheduler: await scheduleStatus({ home: userHome(ctx), eduHome, vault, profileId: id }),
     conflictBranches: vault ? await conflictBranches(vault, ctx.env) : [],
     conflictCopies: vault ? await trackedConflictCopies(vault, ctx.env) : [],
   };
@@ -77,7 +84,7 @@ export function registerSync(program: Command, ctx: CliContext): void {
     .option('--uninstall', 'remove the scheduled sync')
     .option('--replace-legacy', 'with --install, remove detected older sync agents after confirmation')
     .option('-y, --yes', 'confirm --replace-legacy without prompting')
-    .option('--minutes <n>', 'schedule interval with --install', '5')
+    .option('--minutes <n>', 'schedule interval with --install (default 5 for personal, 15 for cheil)')
     .option('--cloud', 'cloud sandbox: keep usage counters and Obsidian bases local')
     .option('--host <name>', 'machine label in commit messages and conflict branches')
     .option('--vault <dir>', 'vault repository (default: the repository holding ~/.edu/brain)')
@@ -85,11 +92,12 @@ export function registerSync(program: Command, ctx: CliContext): void {
     .option('--json', 'machine-readable output')
     .action(action<SyncOpts>(ctx, async ({ g, opts }) => {
       const eduHome = globalHome(ctx);
+      const profile = await sessionProfile(ctx, eduHome);
       const json = g.json || opts.json;
       const cloud = Boolean(opts.cloud) || ctx.env.EDU_SYNC_CLOUD === '1';
       if (opts.replaceLegacy && !opts.install) throw new Error('--replace-legacy requires --install');
       if (opts.status) {
-        const status = await syncStatus(ctx, opts.vault);
+        const status = await syncStatus(ctx, opts.vault, profile.id);
         if (json) return printJson(ctx, status);
         const last = status.last ?? undefined;
         ctx.out(`Sync: ${describeSync(last)}`);
@@ -103,15 +111,15 @@ export function registerSync(program: Command, ctx: CliContext): void {
         return;
       }
       if (opts.uninstall) {
-        const result = await uninstallSchedule({ home: userHome(ctx), eduHome });
+        const result = await uninstallSchedule({ home: userHome(ctx), eduHome, profileId: profile.id });
         if (json) return printJson(ctx, result);
         ctx.out(result.removed.length ? `Removed the scheduled sync (${result.kind}): ${result.removed.join(', ')}` : `No scheduled sync files found (${result.kind}).`);
         return;
       }
       if (opts.install) {
-        const minutes = parseMinutes(opts.minutes);
+        const minutes = parseMinutes(opts.minutes, profile.id);
         const vault = opts.vault ?? await findVault(eduHome, ctx.env).catch(() => undefined);
-        const legacy = await legacySchedules({ home: userHome(ctx), vault });
+        const legacy = await legacySchedules({ home: userHome(ctx), vault, profileId: profile.id });
         let removedLegacy: string[] = [];
         if (opts.replaceLegacy && legacy.length) {
           if (!opts.yes) {
@@ -119,9 +127,9 @@ export function registerSync(program: Command, ctx: CliContext): void {
             if (!(await ctx.confirm(`Unload and remove ${legacy.length} legacy sync ${legacy.length === 1 ? 'agent' : 'agents'}?`))) { ctx.out('Cancelled. Nothing was changed.'); return; }
           }
         }
-        const result = await scheduleSync(ctx, { minutes, cloud, vault });
+        const result = await scheduleSync(ctx, { minutes, cloud, vault, profileId: profile.id });
         if (opts.replaceLegacy && result.started) {
-          removedLegacy = await replaceLegacySchedules({ home: userHome(ctx), vault });
+          removedLegacy = await replaceLegacySchedules({ home: userHome(ctx), vault, profileId: profile.id });
           result.legacy = [];
         }
         if (json) return printJson(ctx, { ...result, removedLegacy });
@@ -131,9 +139,8 @@ export function registerSync(program: Command, ctx: CliContext): void {
         for (const file of result.legacy) ctx.out(`Legacy sync agent also runs: ${file} (use --replace-legacy to remove it)`);
         return;
       }
-      const result = await syncBrain({ eduHome, vault: opts.vault, host: opts.host, cloud, reason: opts.reason, env: ctx.env });
+      const result = await syncBrain({ eduHome, vault: opts.vault, host: opts.host, cloud, reason: opts.reason, env: ctx.env, profile });
       const previous = await writeSyncState(eduHome, result);
-      // Alert once per new problem, not every five minutes.
       if (!cloud && ALERT.has(result.state) && (previous?.state !== result.state || previous?.branch !== result.branch)) {
         await notify(result.state === 'conflict' ? 'Edu: conflicto de sincronización' : 'Edu: el sync falló', result.message);
       }
