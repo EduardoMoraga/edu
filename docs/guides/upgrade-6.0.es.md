@@ -306,7 +306,9 @@ edu sync --install --replace-legacy     # pregunta antes; agregue --yes en scrip
 
 Edu quita el agente antiguo solo después de que su propio programador arrancó. En macOS lo
 descarga con `launchctl` y borra el plist; en Linux desactiva el timer, detiene el servicio, borra
-ambas unidades y recarga systemd. `--json` informa `removedLegacy`.
+ambas unidades y recarga systemd. En Windows también informa una tarea `CheilVaultSync` y la tarea
+anterior `EduSync`, y las borra solo con `--replace-legacy`. Cada perfil conserva la suya
+(`EduSync-personal`, `EduSync-cheil`). `--json` informa `removedLegacy`.
 
 ## Scripts de pruebas (para quienes contribuyen)
 

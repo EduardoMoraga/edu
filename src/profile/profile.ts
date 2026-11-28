@@ -144,6 +144,48 @@ function requiredRemote(id: ProfileId): typeof PERSONAL_REMOTE | typeof CHEIL_RE
   return id === 'personal' ? PERSONAL_REMOTE : CHEIL_REMOTE;
 }
 
+const OTHER_REMOTE: Record<ProfileId, typeof PERSONAL_REMOTE | typeof CHEIL_REMOTE> = {
+  personal: CHEIL_REMOTE,
+  cheil: PERSONAL_REMOTE,
+};
+
+function withoutUserInfo(raw: string): string {
+  return raw.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/i, '$1');
+}
+
+/** True when `remote` names the other profile's GitHub vault, in any accepted URL form. */
+export function remoteBelongsToOtherProfile(profile: Profile, remote: string): boolean {
+  const canonical = canonicalRemote(withoutUserInfo(remote));
+  return canonical !== undefined && canonical.toLowerCase() === OTHER_REMOTE[profile.id].toLowerCase();
+}
+
+function windowsPath(file: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(file) || file.startsWith('\\\\');
+}
+
+function containsPath(parent: string, child: string): boolean {
+  if (windowsPath(parent) !== windowsPath(child)) return false;
+  const paths = windowsPath(child) ? path.win32 : path.posix;
+  const fold = (value: string) => {
+    const resolved = paths.resolve(value);
+    return windowsPath(child) ? resolved.replace(/\//g, '\\').toLowerCase() : resolved;
+  };
+  const rel = paths.relative(fold(parent), fold(child));
+  return rel === '' || (!paths.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..\\') && !rel.startsWith('../'));
+}
+
+/**
+ * True when `resolved` sits in the other profile's filesystem territory.
+ * Personal territory is outside `C:\Cheil`. Cheil territory is `C:\Cheil` plus this profile's home,
+ * brain, and vault, so a cheil vault that lives on another drive is still its own.
+ */
+export function pathBelongsToOtherProfile(profile: Profile, resolved: string, anchors: { vault?: string } = {}): boolean {
+  if (profile.id === 'personal') return underCheil(resolved);
+  if (underCheil(resolved) || containsPath(profile.home, resolved) || containsPath(profile.brain, resolved)) return false;
+  if (anchors.vault && containsPath(anchors.vault, resolved)) return false;
+  return windowsPath(resolved);
+}
+
 function absolutePath(field: 'home' | 'brain', value: string, paths: Paths): string {
   if (!paths.isAbsolute(value)) throw new ProfileError('invalid', `${field} must be an absolute path`);
   return paths.resolve(value);

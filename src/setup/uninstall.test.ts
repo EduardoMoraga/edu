@@ -233,16 +233,16 @@ describe('uninstall removes machine schedules', () => {
     const dream = await installDreamSchedule({ home, eduHome: brainRoot, node: 'node', cli: 'cli.js', cwd: join(home, 'project'), platform: 'linux', run: serviceRun });
     const unitDir = join(home, '.config', 'systemd', 'user');
     await writeFile(join(unitDir, 'edu-dream-0badf00d.timer'), '[Timer]\n');
-    await writeFile(join(unitDir, 'edu-sync.service'), '[Service]\n');
-    await writeFile(join(unitDir, 'edu-sync.timer'), '[Timer]\n');
+    await writeFile(join(unitDir, 'edu-sync-personal.service'), '[Service]\n');
+    await writeFile(join(unitDir, 'edu-sync-personal.timer'), '[Timer]\n');
     await writeFile(join(unitDir, 'other.timer'), '[Timer]\n');
     calls.length = 0;
 
     const report = await uninstallEdu({ home, cwd: home, brainRoot, platform: 'linux', serviceRun });
-    expect(report.schedules.map(s => s.name).sort()).toEqual([dream.name, 'edu-dream-0badf00d', 'edu-sync'].sort());
+    expect(report.schedules.map(s => s.name).sort()).toEqual([dream.name, 'edu-dream-0badf00d', 'edu-sync-personal'].sort());
     expect(calls).toContainEqual(['systemctl', '--user', 'disable', '--now', `${dream.name}.timer`]);
     expect(calls).toContainEqual(['systemctl', '--user', 'disable', '--now', 'edu-dream-0badf00d.timer']);
-    expect(calls).toContainEqual(['systemctl', '--user', 'disable', '--now', 'edu-sync.timer']);
+    expect(calls).toContainEqual(['systemctl', '--user', 'disable', '--now', 'edu-sync-personal.timer']);
     expect(calls).toContainEqual(['systemctl', '--user', 'daemon-reload']);
     expect(await readdir(unitDir)).toEqual(['other.timer']);
 

@@ -24,13 +24,14 @@ import {
   uiLang
 } from "./chunk-YLMSGSHR.js";
 import {
+  defaultSyncMinutes,
   installSchedule,
   legacySchedules,
   notify,
   replaceLegacySchedules,
   scheduleStatus,
   uninstallSchedule
-} from "./chunk-76KIILAA.js";
+} from "./chunk-GLIYKTY6.js";
 import {
   SIGNATURES,
   TOOL_IDS,
@@ -216,9 +217,9 @@ function contextTable(c) {
     `MCP tools (memory) ${String(c.mcp.memory.tokens).padStart(6)}  (${c.mcp.memory.tools} tools)`
   ];
 }
-async function writeOut(path, value) {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}
+async function writeOut(path2, value) {
+  await mkdir(dirname(path2), { recursive: true });
+  await writeFile(path2, `${JSON.stringify(value, null, 2)}
 `);
 }
 function registerBench(program, ctx) {
@@ -250,8 +251,8 @@ function registerBench(program, ctx) {
       const { loadCorpus, runRetrievalBench } = await import("./retrieval-ALVJOUIJ.js");
       let options = {};
       if (opts.corpus) {
-        const path = resolve(g.cwd, opts.corpus);
-        const corpus = await loadCorpus(path);
+        const path2 = resolve(g.cwd, opts.corpus);
+        const corpus = await loadCorpus(path2);
         options = { notes: corpus.notes, queries: corpus.queries, source: opts.corpus, version: corpus.version };
       }
       if (opts.alt === false) options.useAlt = false;
@@ -510,11 +511,11 @@ async function createVaultLink(link, target, platform = process.platform) {
 // src/cli/commands/brain/sources.ts
 function registerBrainSources(brain, ctx) {
   brain.command("import").description("import an Albert vault or MORAGENT memory (read-only on the source)").argument("<source>", "albert | moragent").argument("<path>", "source directory").option("--json", "machine-readable output").action(
-    action(ctx, async ({ g, opts }, source, path) => {
+    action(ctx, async ({ g, opts }, source, path2) => {
       const kind = oneOf(source ?? "", ["albert", "moragent"], "source");
       const ws = await writableWorkspace(ctx, g.cwd, g.lang);
       const { importAlbert, importMoragent } = await import("./brain-KGF2GOCU.js");
-      const report = await (kind === "albert" ? importAlbert : importMoragent)(resolve3(g.cwd, path ?? ""), ws.brain);
+      const report = await (kind === "albert" ? importAlbert : importMoragent)(resolve3(g.cwd, path2 ?? ""), ws.brain);
       if (g.json || opts.json) return printJson(ctx, { imported: report.imported.map((n) => n.meta.id), skipped: report.skipped, errors: report.errors, warnings: report.warnings });
       ctx.out(t(g.lang, "brain.imported", { imported: report.imported.length, skipped: report.skipped.length, errors: report.errors.length, warnings: report.warnings.length }));
       for (const warning of report.warnings) ctx.err(`  ${t(g.lang, "brain.importWarning", { warning })}`);
@@ -572,14 +573,14 @@ function registerBrainUpkeep(brain, ctx) {
       }
       const staleDays = parseIntOption(opts.staleDays ?? "30", "--stale-days");
       const plan = await planTidy(ws.brain, ws.primary, { staleDays });
-      const path = await saveTidyPlan(ws.primary, plan);
-      if (g.json || opts.json) return printJson(ctx, { ...plan, path });
+      const path2 = await saveTidyPlan(ws.primary, plan);
+      if (g.json || opts.json) return printJson(ctx, { ...plan, path: path2 });
       if (!plan.sessions.length && !plan.hypotheses.length && !plan.aliases.length && !plan.manual.length) return ctx.out(t(g.lang, "brain.tidyNothing"));
       ctx.out(t(g.lang, "brain.tidyPlan", { sessions: plan.sessions.length, hypotheses: plan.hypotheses.length, days: staleDays, aliases: plan.aliases.length, manual: plan.manual.length, unresolved: plan.unresolved }));
       for (const h of plan.hypotheses) ctx.out(`  H ${h.created.slice(0, 10)} ${h.title}`);
       for (const a of plan.aliases) ctx.out(`  A ${a.id} \u2190 ${a.add.join(", ")}`);
       for (const m of plan.manual) ctx.out(`  ! [[${m.link}]] \u2192 ${m.target} (${m.reason})`);
-      ctx.out(t(g.lang, "brain.tidySaved", { path }));
+      ctx.out(t(g.lang, "brain.tidySaved", { path: path2 }));
     })
   );
   brain.command("lint").description("read-only health check: orphans, missing pages, possible contradictions, stale claims, overdue commitments, duplicates").option("--stale-days <n>", 'age in days after which a time-sensitive claim without "(as of YYYY-MM-DD)" is stale', "90").option("--strict", "exit with code 1 when a finding has severity error").option("--json", "machine-readable output").action(
@@ -642,6 +643,176 @@ import { join as join6, relative, resolve as resolve4 } from "path";
 
 // src/cli/commands/setup.ts
 import { join as join5 } from "path";
+
+// src/profile/profile.ts
+import { realpathSync } from "fs";
+import { readFile as readFile2 } from "fs/promises";
+import { homedir as osHomedir } from "os";
+import path from "path";
+import { z } from "zod";
+var PERSONAL_REMOTE = "EduardoMoraga/edu-vault";
+var CHEIL_REMOTE = "EduardoMCheil/cheil-vault";
+var CHEIL_ROOT = "c:\\cheil";
+var ProfileError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.name = "ProfileError";
+    this.code = code;
+  }
+};
+var ProfileFileSchema = z.object({
+  id: z.enum(["personal", "cheil"], { error: "must be personal or cheil" }),
+  home: z.string({ error: "must be text" }).trim().min(1, { error: "is required" }),
+  brain: z.string({ error: "must be text" }).trim().min(1, { error: "is required" }),
+  remote: z.string({ error: "must be text" }).trim().min(1, { error: "is required" })
+}).strict();
+var pathsFor = (platform) => platform === "win32" ? path.win32 : path.posix;
+var present = (value) => {
+  const text = value?.trim();
+  return text ? text : void 0;
+};
+function defaultRealpath(file) {
+  try {
+    return realpathSync(file);
+  } catch {
+    return void 0;
+  }
+}
+function invalidMessage(error) {
+  return error.issues.slice(0, 3).map((issue) => {
+    const field = issue.path.length ? issue.path.join(".") : "profile";
+    return `${field} ${issue.message}`;
+  }).join("; ");
+}
+function underCheil(file) {
+  if (!/^[a-zA-Z]:[\\/]/.test(file)) return false;
+  const folded = path.win32.resolve(file).replace(/\//g, "\\").toLowerCase();
+  const rel = path.win32.relative(CHEIL_ROOT, folded);
+  return rel === "" || !path.win32.isAbsolute(rel) && rel !== ".." && !rel.startsWith("..\\");
+}
+function assertOutsideCheil(field, file, realpath6) {
+  const linked = realpath6(file);
+  if (underCheil(file) || linked !== void 0 && underCheil(linked)) {
+    throw new ProfileError("cheil-root", `personal profile ${field} must stay outside C:\\Cheil`);
+  }
+}
+function canonicalRemote(raw) {
+  const text = raw.trim();
+  const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/]*)/i.exec(text)?.[1];
+  if (authority?.includes("@")) {
+    const user = authority.slice(0, authority.lastIndexOf("@"));
+    if (user !== "git") return void 0;
+  }
+  const stripped = text.endsWith(".git") ? text.slice(0, -4) : text;
+  const ownerRepo = /^git@github\.com:(.+)$/.exec(stripped)?.[1] ?? /^ssh:\/\/git@github\.com\/(.+)$/.exec(stripped)?.[1] ?? /^https:\/\/github\.com\/(.+)$/.exec(stripped)?.[1] ?? (/^[^:\s]+\/[^/\s]+$/.test(stripped) ? stripped : void 0);
+  if (!ownerRepo) return void 0;
+  const parts = ownerRepo.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return void 0;
+  return `${parts[0]}/${parts[1]}`;
+}
+function requiredRemote(id) {
+  return id === "personal" ? PERSONAL_REMOTE : CHEIL_REMOTE;
+}
+var OTHER_REMOTE = {
+  personal: CHEIL_REMOTE,
+  cheil: PERSONAL_REMOTE
+};
+function withoutUserInfo(raw) {
+  return raw.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/i, "$1");
+}
+function remoteBelongsToOtherProfile(profile, remote) {
+  const canonical = canonicalRemote(withoutUserInfo(remote));
+  return canonical !== void 0 && canonical.toLowerCase() === OTHER_REMOTE[profile.id].toLowerCase();
+}
+function windowsPath(file) {
+  return /^[a-zA-Z]:[\\/]/.test(file) || file.startsWith("\\\\");
+}
+function containsPath(parent, child) {
+  if (windowsPath(parent) !== windowsPath(child)) return false;
+  const paths = windowsPath(child) ? path.win32 : path.posix;
+  const fold = (value) => {
+    const resolved = paths.resolve(value);
+    return windowsPath(child) ? resolved.replace(/\//g, "\\").toLowerCase() : resolved;
+  };
+  const rel = paths.relative(fold(parent), fold(child));
+  return rel === "" || !paths.isAbsolute(rel) && rel !== ".." && !rel.startsWith("..\\") && !rel.startsWith("../");
+}
+function pathBelongsToOtherProfile(profile, resolved, anchors = {}) {
+  if (profile.id === "personal") return underCheil(resolved);
+  if (underCheil(resolved) || containsPath(profile.home, resolved) || containsPath(profile.brain, resolved)) return false;
+  if (anchors.vault && containsPath(anchors.vault, resolved)) return false;
+  return windowsPath(resolved);
+}
+function absolutePath(field, value, paths) {
+  if (!paths.isAbsolute(value)) throw new ProfileError("invalid", `${field} must be an absolute path`);
+  return paths.resolve(value);
+}
+function parseProfile(input, options = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new ProfileError("invalid", "profile must be an object");
+  const parsed = ProfileFileSchema.safeParse(input);
+  if (!parsed.success) throw new ProfileError("invalid", invalidMessage(parsed.error));
+  const paths = pathsFor(options.platform ?? process.platform);
+  const realpath6 = options.realpath ?? defaultRealpath;
+  const home = absolutePath("home", parsed.data.home, paths);
+  const brain = absolutePath("brain", parsed.data.brain, paths);
+  const remote = canonicalRemote(parsed.data.remote);
+  const required = requiredRemote(parsed.data.id);
+  if (remote !== required) throw new ProfileError("remote-mismatch", `${parsed.data.id} profile remote must be ${required}`);
+  if (parsed.data.id === "personal") {
+    assertOutsideCheil("home", home, realpath6);
+    assertOutsideCheil("brain", brain, realpath6);
+    return { id: "personal", home, brain, remote: PERSONAL_REMOTE };
+  }
+  return { id: "cheil", home, brain, remote: CHEIL_REMOTE };
+}
+function sessionHome(env, paths, homedir2) {
+  const eduHome = present(env.EDU_HOME);
+  if (eduHome) return paths.resolve(eduHome);
+  const user = present(env.HOME) || present(env.USERPROFILE) || homedir2();
+  return paths.resolve(paths.join(user, ".edu"));
+}
+function sameHome(left, right, platform) {
+  return platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+function implicitPersonal(home, paths, realpath6) {
+  const brain = paths.resolve(paths.join(home, "brain"));
+  assertOutsideCheil("home", home, realpath6);
+  assertOutsideCheil("brain", brain, realpath6);
+  return { id: "personal", home, brain, remote: PERSONAL_REMOTE };
+}
+function errorCode(error) {
+  return error !== null && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : void 0;
+}
+async function loadSessionProfile(source) {
+  const platform = source.platform ?? process.platform;
+  const paths = pathsFor(platform);
+  const realpath6 = source.realpath ?? defaultRealpath;
+  const home = sessionHome(source.env, paths, source.homedir ?? osHomedir);
+  const file = paths.join(home, "profile.json");
+  const read = source.readFile ?? ((file2) => readFile2(file2, "utf8"));
+  let text;
+  try {
+    text = await read(file);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return implicitPersonal(home, paths, realpath6);
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new ProfileError("unreadable", `unable to read ${file}: ${detail}`);
+  }
+  let raw;
+  try {
+    raw = JSON.parse(text.replace(/^\uFEFF/, ""));
+  } catch {
+    throw new ProfileError("invalid", `profile.json is not valid JSON: ${file}`);
+  }
+  const profile = parseProfile(raw, { platform, realpath: realpath6 });
+  if (!sameHome(profile.home, home, platform)) {
+    throw new ProfileError("home-mismatch", `profile.json home ${profile.home} does not match the session home ${home}`);
+  }
+  return profile;
+}
+
+// src/cli/commands/setup.ts
 var CLI_CHOICES = ["claude", "codex", "pi", "opencode", "agy"];
 function parseCli(value) {
   const id = value.trim().toLowerCase();
@@ -697,7 +868,7 @@ function registerSetup(program, ctx) {
         printJson(ctx, {
           scope: plan.scope,
           root: plan.root,
-          actions: plan.actions.map(({ cli, clis: shared, kind, path, description }) => ({ cli, clis: shared ?? [cli], kind, path, description })),
+          actions: plan.actions.map(({ cli, clis: shared, kind, path: path2, description }) => ({ cli, clis: shared ?? [cli], kind, path: path2, description })),
           notes: plan.notes
         });
         return;
@@ -733,7 +904,7 @@ function registerSetup(program, ctx) {
       const brainRoot = globalHome(ctx);
       let purgeBrain = false;
       if (opts.purgeBrain) {
-        const { assertPurgeableBrain } = await import("./uninstall-DLQE2OOJ.js");
+        const { assertPurgeableBrain } = await import("./uninstall-I3BJHRSO.js");
         if (await exists(join5(brainRoot, "EDU.md"))) {
           await assertPurgeableBrain(brainRoot, ctx.home);
           const question = es ? `\xBFBorrar el cerebro ${brainRoot} con todas sus notas? Esto no se puede deshacer.` : `Delete the brain ${brainRoot} and all its notes? This cannot be undone.`;
@@ -743,8 +914,9 @@ function registerSetup(program, ctx) {
           if (!purgeBrain) ctx.out(es ? "El cerebro se conserva." : "Keeping the brain.");
         }
       }
-      const { uninstallEdu } = await import("./uninstall-DLQE2OOJ.js");
-      const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain });
+      const { uninstallEdu } = await import("./uninstall-I3BJHRSO.js");
+      const profile = await loadSessionProfile({ env: { ...ctx.env, EDU_HOME: brainRoot } });
+      const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain, profileId: profile.id });
       if (g.json) {
         printJson(ctx, report);
         return;
@@ -809,7 +981,7 @@ function registerCreate(program, ctx, deps = {}) {
   program.command("create").description("turn documents (.md .txt .docx .pdf) into a self-contained, Obsidian-ready workspace with a named agent").argument("[docs...]", "documents to learn from (never modified)").option("--name <agent>", "the agent's name, e.g. Albert (also the folder name)").option("--dir <parent>", "folder that will hold the workspace (default ~/Edu)").option("--lang <lang>", "folder and README language: es | en (default EDU_LANG, then locale, then es)").option("--cli <cli>", "CLI that extracts the knowledge: claude, codex, pi or opencode (default: first installed)").option("--no-llm", "deterministic extraction by headings, no LLM").option("--add", "add the documents to the workspace you are in").option("-y, --yes", "use the target folder even if it is not empty").option("--json", "machine-readable result").action(action(ctx, async ({ g, opts, cmd }) => {
     const { addDocuments, createWorkspace } = await import("./create-EPSXIG4I.js");
     const { workspaceLang } = await import("./layout-DNW2UEBT.js");
-    const docs = cmd.args.map((path) => resolve4(g.cwd, path));
+    const docs = cmd.args.map((path2) => resolve4(g.cwd, path2));
     const lang = workspaceLang(opts.lang ?? cmd.optsWithGlobals().lang, ctx.env);
     const m = M[lang];
     const lk = look(ctx);
@@ -867,13 +1039,13 @@ function notesLine(lang, report) {
 // src/cli/commands/connect.ts
 import { createHash as createHash2 } from "crypto";
 import { existsSync as existsSync2 } from "fs";
-import { readFile as readFile3 } from "fs/promises";
+import { readFile as readFile4 } from "fs/promises";
 import { dirname as dirname4 } from "path";
 
 // src/connect/hermes.ts
 import { createHash, randomUUID } from "crypto";
 import { existsSync } from "fs";
-import { chmod, mkdir as mkdir3, readdir, readFile as readFile2, rename, rm, stat, writeFile as writeFile2 } from "fs/promises";
+import { chmod, mkdir as mkdir3, readdir, readFile as readFile3, rename, rm, stat, writeFile as writeFile2 } from "fs/promises";
 import { dirname as dirname3, isAbsolute, join as join7, resolve as resolve5 } from "path";
 import { isMap as isMap2, isScalar as isScalar2, isSeq as isSeq2 } from "yaml";
 
@@ -1032,33 +1204,33 @@ function planHermesConnect(before, input) {
 }
 var sha256 = (data) => createHash("sha256").update(data).digest("hex");
 var backupRoot = (eduHome) => join7(eduHome, "backups", "connect");
-async function atomicWrite2(path, data) {
-  const temp = `${path}.${randomUUID()}.tmp`;
+async function atomicWrite2(path2, data) {
+  const temp = `${path2}.${randomUUID()}.tmp`;
   let mode = 384;
   try {
-    mode = (await stat(path)).mode & 511;
+    mode = (await stat(path2)).mode & 511;
   } catch {
   }
   try {
     await writeFile2(temp, data, { mode });
     await chmod(temp, mode);
-    await rename(temp, path);
+    await rename(temp, path2);
   } catch (error) {
     await rm(temp, { force: true });
     throw error;
   }
 }
-async function applyHermesPlan(eduHome, path, plan) {
-  const original = await readFile2(path);
-  if (original.toString("utf8") !== plan.before) throw new Error(`Hermes config changed since planning: ${path}`);
+async function applyHermesPlan(eduHome, path2, plan) {
+  const original = await readFile3(path2);
+  if (original.toString("utf8") !== plan.before) throw new Error(`Hermes config changed since planning: ${path2}`);
   const id = `hermes-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
   const dir = join7(backupRoot(eduHome), id);
   await mkdir3(dir, { recursive: true });
   await writeFile2(join7(dir, "config.yaml"), original, { mode: 384 });
-  const manifest2 = { id, target: "hermes", path, createdAt: (/* @__PURE__ */ new Date()).toISOString(), sha256Before: sha256(original), sha256After: sha256(plan.after), changes: plan.changes };
+  const manifest2 = { id, target: "hermes", path: path2, createdAt: (/* @__PURE__ */ new Date()).toISOString(), sha256Before: sha256(original), sha256After: sha256(plan.after), changes: plan.changes };
   await writeFile2(join7(dir, "manifest.json"), `${JSON.stringify(manifest2, null, 2)}
 `);
-  await atomicWrite2(path, plan.after);
+  await atomicWrite2(path2, plan.after);
   return manifest2;
 }
 async function listHermesBackups(eduHome) {
@@ -1072,7 +1244,7 @@ async function listHermesBackups(eduHome) {
   const manifests = [];
   for (const id of ids) {
     try {
-      manifests.push(JSON.parse(await readFile2(join7(backupRoot(eduHome), id, "manifest.json"), "utf8")));
+      manifests.push(JSON.parse(await readFile3(join7(backupRoot(eduHome), id, "manifest.json"), "utf8")));
     } catch {
     }
   }
@@ -1083,11 +1255,11 @@ async function undoHermes(eduHome, input = {}) {
   const manifest2 = input.id ? active.find((m) => m.id === input.id) : active.find((m) => !input.path || resolve5(m.path) === resolve5(input.path));
   if (!manifest2) throw new Error("No Hermes connect backup to restore.");
   const dir = join7(backupRoot(eduHome), manifest2.id);
-  const original = await readFile2(join7(dir, "config.yaml"));
+  const original = await readFile3(join7(dir, "config.yaml"));
   if (sha256(original) !== manifest2.sha256Before) throw new Error(`Backup checksum mismatch: ${dir}`);
   let current;
   try {
-    current = await readFile2(manifest2.path);
+    current = await readFile3(manifest2.path);
   } catch {
     current = void 0;
   }
@@ -1133,8 +1305,8 @@ function registerConnect(program, ctx, deps = {}) {
   connect.command("hermes").description("add Edu as an MCP server in Hermes so Telegram and other Hermes chats can use it").option("--project <name|path>", 'pin a workspace (registry name, agent name, path, or "global")').option("--config <path>", "Hermes config.yaml (default: $HERMES_HOME/config.yaml or ~/.hermes/config.yaml)").option("--remove-dead", "also remove MCP servers whose command no longer exists").option("--no-test", "skip `hermes mcp test edu`").option("--restart", "run `hermes gateway restart` afterwards (kills running Hermes agents)").option("--dry-run", "show the planned edits without writing").option("--undo [id]", "restore the Hermes config saved by the latest (or named) connect").option("--list", "list active connect backups").option("--force", "with --undo: restore even if the config changed since").action(action(ctx, async ({ g, opts }) => {
     const es = g.lang === "es";
     const eduHome = globalHome(ctx);
-    const path = hermesConfigPath(ctx.env, ctx.home, opts.config);
-    const env = { ...ctx.env, HERMES_HOME: dirname4(path) };
+    const path2 = hermesConfigPath(ctx.env, ctx.home, opts.config);
+    const env = { ...ctx.env, HERMES_HOME: dirname4(path2) };
     const hermes = whichSync("hermes", ctx.env);
     const reloadHint = es ? "Para que el gateway cargue el cambio: escribe /reload-mcp en Telegram, o reinicia con `hermes gateway restart` (o `edu connect hermes --restart`)." : "To load the change in the gateway: send /reload-mcp in Telegram, or restart with `hermes gateway restart` (or `edu connect hermes --restart`).";
     if (opts.list) {
@@ -1143,20 +1315,20 @@ function registerConnect(program, ctx, deps = {}) {
       return;
     }
     if (opts.undo !== void 0) {
-      const restored = await undoHermes(eduHome, { id: typeof opts.undo === "string" ? opts.undo : void 0, path, force: opts.force });
+      const restored = await undoHermes(eduHome, { id: typeof opts.undo === "string" ? opts.undo : void 0, path: path2, force: opts.force });
       ctx.out(es ? `Restaurado ${restored.path} desde ${restored.id} (id\xE9ntico byte a byte).` : `Restored ${restored.path} from ${restored.id} (byte-for-byte).`);
       ctx.out(reloadHint);
       return;
     }
-    if (!existsSync2(path)) throw new Error(es ? `No encontr\xE9 la configuraci\xF3n de Hermes en ${path}. Instala Hermes o usa --config.` : `Hermes config not found at ${path}. Install Hermes or pass --config.`);
+    if (!existsSync2(path2)) throw new Error(es ? `No encontr\xE9 la configuraci\xF3n de Hermes en ${path2}. Instala Hermes o usa --config.` : `Hermes config not found at ${path2}. Install Hermes or pass --config.`);
     if (opts.project) {
       const { selectWorkspace } = await import("./projects-4PLKWXCY.js");
       await selectWorkspace(opts.project, { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home }, g.cwd, { create: true });
     }
     const entry = hermesEntry(eduServiceMcpLaunch({ env: ctx.env }), opts.project);
-    const before = await readFile3(path, "utf8");
+    const before = await readFile4(path2, "utf8");
     const plan = planHermesConnect(before, { entry, removeDead: opts.removeDead, commandExists: commandExistsOn(ctx.env, ctx.home) });
-    ctx.out(`Hermes: ${path}`);
+    ctx.out(`Hermes: ${path2}`);
     ctx.out(`  mcp_servers.${HERMES_SERVER}: ${entry.command} ${entry.args.join(" ")}`);
     for (const change of plan.changes) ctx.out(`  + ${change}`);
     for (const dead of plan.dead) ctx.out(es ? `  ! ${dead.name}: ${dead.command} no existe (qu\xEDtalo con --remove-dead)` : `  ! ${dead.name}: ${dead.command} does not exist (remove it with --remove-dead)`);
@@ -1166,18 +1338,18 @@ function registerConnect(program, ctx, deps = {}) {
       ctx.out(es ? "Simulaci\xF3n: no se escribi\xF3 nada." : "Dry run: nothing was written.");
       return;
     } else {
-      const manifest2 = await applyHermesPlan(eduHome, path, plan);
+      const manifest2 = await applyHermesPlan(eduHome, path2, plan);
       ctx.out(es ? `Aplicado. Respaldo: ${manifest2.id}. Revertir: edu connect hermes --undo` : `Applied. Backup: ${manifest2.id}. Undo: edu connect hermes --undo`);
     }
     if (opts.test !== false) {
       if (!hermes) ctx.out(es ? "  hermes no est\xE1 en el PATH: omit\xED `hermes mcp test edu`." : "  hermes is not on PATH: skipped `hermes mcp test edu`.");
       else {
-        const hashBefore = sha2562(await readFile3(path));
+        const hashBefore = sha2562(await readFile4(path2));
         const result = await runner2(hermes, ["mcp", "test", HERMES_SERVER], env);
         const passed = result.ok && /Connected \(\d+ms\)/.test(result.output) && !/Connection failed|not found in config/i.test(result.output);
         ctx.out(`${passed ? "\u2713" : "\u2717"} hermes mcp test ${HERMES_SERVER}
 ${tail(result.output)}`);
-        if (sha2562(await readFile3(path)) !== hashBefore) ctx.out(es ? "  ! Hermes reescribi\xF3 su configuraci\xF3n durante la prueba." : "  ! Hermes rewrote its config during the test.");
+        if (sha2562(await readFile4(path2)) !== hashBefore) ctx.out(es ? "  ! Hermes reescribi\xF3 su configuraci\xF3n durante la prueba." : "  ! Hermes rewrote its config during the test.");
         if (!passed) ctx.setExitCode(1);
       }
     }
@@ -1308,18 +1480,18 @@ function registerCrew(program, ctx) {
 }
 
 // src/cli/commands/deck.ts
-import { readFile as readFile4, readdir as readdir2, stat as stat2 } from "fs/promises";
+import { readFile as readFile5, readdir as readdir2, stat as stat2 } from "fs/promises";
 import { basename as basename2, dirname as dirname5, join as join8, resolve as resolve6 } from "path";
 async function files(dir, recursive = false) {
   try {
     const entries = await readdir2(dir, { withFileTypes: true });
     const groups = await Promise.all(entries.map(async (entry) => {
-      const path = join8(dir, entry.name);
-      if (entry.isDirectory() && recursive) return files(path, true);
+      const path2 = join8(dir, entry.name);
+      if (entry.isDirectory() && recursive) return files(path2, true);
       if (!entry.isFile()) return [];
       try {
-        const info = await stat2(path);
-        return [{ path, name: entry.name, at: info.mtimeMs }];
+        const info = await stat2(path2);
+        return [{ path: path2, name: entry.name, at: info.mtimeMs }];
       } catch {
         return [];
       }
@@ -1349,7 +1521,7 @@ async function latestSpec(root) {
   const newest = candidates.sort((a, b) => b.at - a.at)[0];
   if (!newest) return null;
   try {
-    const source = await readFile4(newest.path, "utf8");
+    const source = await readFile5(newest.path, "utf8");
     return {
       name: newest.name.slice(0, -3),
       requirements: (source.match(/^- \*\*R-/gm) ?? []).length,
@@ -1365,7 +1537,7 @@ async function crewJobs(root) {
   const newest = (await files(join8(root, "crew"))).filter((file) => file.name.endsWith(".json")).sort((a, b) => b.at - a.at).slice(0, 8);
   const parsed = await Promise.all(newest.map(async (file) => {
     try {
-      const job = JSON.parse(await readFile4(file.path, "utf8"));
+      const job = JSON.parse(await readFile5(file.path, "utf8"));
       if (!object(job)) return null;
       const usage = object(job.usage) ? job.usage : {};
       const started = Date.parse(string(job.createdAt));
@@ -1427,7 +1599,7 @@ async function deckSnapshot(root, env = process.env, options = {}) {
     ))).flat();
     const notes = await Promise.all(noteFiles.map(async (file) => {
       try {
-        return { ...file, ...noteText(await readFile4(file.path, "utf8")) };
+        return { ...file, ...noteText(await readFile5(file.path, "utf8")) };
       } catch {
         return { ...file, title: "", status: "", kind: "", id: "", tags: [] };
       }
@@ -1486,7 +1658,7 @@ function registerDeck(program, ctx) {
 import { join as join15 } from "path";
 
 // src/doctor/context.ts
-import { lstat as lstat2, readFile as readFile5, readdir as readdir3, realpath as realpath2 } from "fs/promises";
+import { lstat as lstat2, readFile as readFile6, readdir as readdir3, realpath as realpath2 } from "fs/promises";
 import { join as join10, relative as relative2, resolve as resolve7, sep } from "path";
 import { parse } from "jsonc-parser";
 
@@ -1520,8 +1692,8 @@ function hostFiles(home, env = {}, hosts = HOST_IDS) {
   const root = env.USERPROFILE || home;
   return hosts.flatMap((host) => FILES[host].map(([relative6, kind]) => {
     const pathJoin = /^[A-Za-z]:\\|^\\\\/.test(root) ? win32.join : join9;
-    const path = host === "opencode" && env.APPDATA && relative6.startsWith(".config/opencode/") ? (/^[A-Za-z]:\\|^\\\\/.test(env.APPDATA) ? win32.join : join9)(env.APPDATA, relative6.slice(".config/".length)) : pathJoin(root, relative6);
-    return { host, path, relative: relative6, kind };
+    const path2 = host === "opencode" && env.APPDATA && relative6.startsWith(".config/opencode/") ? (/^[A-Za-z]:\\|^\\\\/.test(env.APPDATA) ? win32.join : join9)(env.APPDATA, relative6.slice(".config/".length)) : pathJoin(root, relative6);
+    return { host, path: path2, relative: relative6, kind };
   }));
 }
 function parseHosts(value) {
@@ -1536,16 +1708,16 @@ function parseHosts(value) {
 var add = (counts, owner, amount = 1) => {
   counts[owner] = (counts[owner] ?? 0) + amount;
 };
-async function safeText(path, home) {
-  const lexical = relative2(resolve7(home), resolve7(path));
+async function safeText(path2, home) {
+  const lexical = relative2(resolve7(home), resolve7(path2));
   if (lexical === ".." || lexical.startsWith(`..${sep}`)) return void 0;
   try {
-    const info = await lstat2(path);
+    const info = await lstat2(path2);
     if (!info.isFile() && !info.isSymbolicLink()) return void 0;
-    const target = await realpath2(path);
+    const target = await realpath2(path2);
     const rel = relative2(await realpath2(home), target);
     if (rel === ".." || rel.startsWith(`..${sep}`)) return void 0;
-    return await readFile5(path, "utf8");
+    return await readFile6(path2, "utf8");
   } catch (error) {
     if (error.code === "ENOENT") return void 0;
     throw error;
@@ -1626,9 +1798,9 @@ function scanObject(value, report, owners) {
 }
 function scanToml(text, report, owners) {
   for (const line of scanTomlLines(text)) {
-    const path = line.header?.path ?? (line.key ? [...line.table, ...line.key] : void 0);
-    if (line.continuation || !path) continue;
-    const [root, name] = path;
+    const path2 = line.header?.path ?? (line.key ? [...line.table, ...line.key] : void 0);
+    if (line.continuation || !path2) continue;
+    const [root, name] = path2;
     if (root === "mcp_servers" && name && !report.mcpServers.names.includes(name)) {
       report.mcpServers.names.push(name);
       const owner = ownerOf(name, "mcp");
@@ -1693,10 +1865,10 @@ async function scanContext(input) {
       for (const key of SIGNATURES.engram.extras?.codexInstructionKeys ?? []) {
         const value = tomlPathValue(codexToml, key);
         if (!value || !value.toLowerCase().includes("engram")) continue;
-        const path = value.startsWith("~/") ? join10(home, value.slice(2)) : resolve7(home, value);
-        if (seen.has(path)) continue;
-        seen.add(path);
-        const text = await safeText(path, home);
+        const path2 = value.startsWith("~/") ? join10(home, value.slice(2)) : resolve7(home, value);
+        if (seen.has(path2)) continue;
+        seen.add(path2);
+        const text = await safeText(path2, home);
         if (text) {
           const count = Math.round(text.length / 4);
           add(report.tokens.byOwner, "engram", count);
@@ -1725,7 +1897,7 @@ async function scanContext(input) {
 }
 
 // src/doctor/integrations.ts
-import { readFile as readFile6 } from "fs/promises";
+import { readFile as readFile7 } from "fs/promises";
 import { join as join11 } from "path";
 var OPTIONAL_INTEGRATIONS = [
   { id: "pi-subagents", capability: "delegation", license: "unverified", state: "optional", overlap: "Edu Crew owns execution; child recursion and memory writes must be disabled." },
@@ -1740,7 +1912,7 @@ async function integrationPreflight(home, env = {}) {
   let sources = [];
   let configuration = "missing";
   try {
-    const settings = JSON.parse(await readFile6(join11(dir, "settings.json"), "utf8"));
+    const settings = JSON.parse(await readFile7(join11(dir, "settings.json"), "utf8"));
     configuration = "read";
     if (Array.isArray(settings.packages)) sources = settings.packages.flatMap((entry) => {
       const value = typeof entry === "string" ? entry : entry && typeof entry === "object" ? entry.source : void 0;
@@ -1758,7 +1930,7 @@ async function integrationPreflight(home, env = {}) {
 }
 
 // src/vault/sync.ts
-import { access, mkdir as mkdir4, readFile as readFile8, realpath as realpath3, writeFile as writeFile4 } from "fs/promises";
+import { access, mkdir as mkdir4, readFile as readFile9, realpath as realpath3, writeFile as writeFile4 } from "fs/promises";
 import { hostname } from "os";
 import { extname as extname2, join as join14, resolve as resolve9 } from "path";
 
@@ -1879,7 +2051,7 @@ function sameRemote(a, b) {
 var gitLines = (text) => text.split("\n").map((line) => line.trim()).filter(Boolean);
 
 // src/vault/keep-both.ts
-import { readFile as readFile7, writeFile as writeFile3 } from "fs/promises";
+import { readFile as readFile8, writeFile as writeFile3 } from "fs/promises";
 import { extname, join as join13 } from "path";
 
 // src/vault/safe-path.ts
@@ -1891,10 +2063,10 @@ var UnsafePathError = class extends Error {
     this.name = "UnsafePathError";
   }
 };
-async function assertSafeTarget(root, path) {
-  const rel = relative3(resolve8(root), resolve8(path));
+async function assertSafeTarget(root, path2) {
+  const rel = relative3(resolve8(root), resolve8(path2));
   if (rel === "" || isAbsolute2(rel) || rel === ".." || rel.startsWith(`..${sep2}`)) {
-    throw new UnsafePathError(`refusing to write ${path}: it is outside the repository ${root}`);
+    throw new UnsafePathError(`refusing to write ${path2}: it is outside the repository ${root}`);
   }
   let current = resolve8(root);
   const parts = rel.split(sep2);
@@ -1913,14 +2085,14 @@ async function assertSafeTarget(root, path) {
 }
 
 // src/vault/keep-both.ts
-function localCopyName(path, host) {
-  const ext = extname(path);
-  return `${ext ? path.slice(0, -ext.length) : path}.local-${host}${ext}`;
+function localCopyName(path2, host) {
+  const ext = extname(path2);
+  return `${ext ? path2.slice(0, -ext.length) : path2}.local-${host}${ext}`;
 }
-async function keepBothCopy(root, path, suffix, nameFor, contentFor) {
+async function keepBothCopy(root, path2, suffix, nameFor, contentFor) {
   for (let n = 1; n <= 100; n++) {
     const candidate = n === 1 ? suffix : `${suffix}-${n}`;
-    const name = nameFor(path, candidate);
+    const name = nameFor(path2, candidate);
     const target = join13(root, name);
     const content = contentFor(candidate);
     await assertSafeTarget(root, target);
@@ -1929,21 +2101,21 @@ async function keepBothCopy(root, path, suffix, nameFor, contentFor) {
       return name;
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
-      if ((await readFile7(target).catch(() => void 0))?.equals(content)) return name;
+      if ((await readFile8(target).catch(() => void 0))?.equals(content)) return name;
     }
   }
-  throw new Error(`no free name for a local copy of ${path}`);
+  throw new Error(`no free name for a local copy of ${path2}`);
 }
 
 // src/vault/sync.ts
 var COUNTER = /^(usage|uses|wins|losses|lastUsed|updated):/;
 var DASHBOARDS = Object.values(DASHBOARD_PATHS);
-function isAppendOnly(path) {
-  return /(^|\/)0-index\/log\.md$/.test(path);
+function isAppendOnly(path2) {
+  return /(^|\/)0-index\/log\.md$/.test(path2);
 }
-function isGenerated(path) {
-  if (isAppendOnly(path)) return false;
-  return /(^|\/)0-index\//.test(path) || DASHBOARDS.some((dash) => path === dash || path.endsWith(`/${dash}`)) || path.endsWith(".base");
+function isGenerated(path2) {
+  if (isAppendOnly(path2)) return false;
+  return /(^|\/)0-index\//.test(path2) || DASHBOARDS.some((dash) => path2 === dash || path2.endsWith(`/${dash}`)) || path2.endsWith(".base");
 }
 var LOG_ENTRY = /^## \[(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)\]/;
 function mergeAppendOnly(upstream, local) {
@@ -1979,9 +2151,9 @@ async function ensureRepoFiles(vault, env) {
   const changed = [];
   const file = join14(vault, ".gitignore");
   await assertSafeTarget(vault, file);
-  const text = await readFile8(file, "utf8").catch(() => "");
-  const present = new Set(text.split(/\r?\n/).map((line) => line.trim().replace(/^\//, "").replace(/\/$/, "")));
-  const missing = REPO_IGNORES.filter((rule) => !present.has(rule.replace(/\/$/, "")));
+  const text = await readFile9(file, "utf8").catch(() => "");
+  const present2 = new Set(text.split(/\r?\n/).map((line) => line.trim().replace(/^\//, "").replace(/\/$/, "")));
+  const missing = REPO_IGNORES.filter((rule) => !present2.has(rule.replace(/\/$/, "")));
   if (missing.length) {
     await writeFile4(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}${missing.join("\n")}
 `);
@@ -2001,8 +2173,8 @@ async function trackedConflictCopies(vault, env) {
   const result = await git(vault, ["-c", "core.quotepath=off", "ls-files"], env);
   if (result.code !== 0) return [];
   return gitLines(result.out).flatMap((local) => {
-    const path = local.replace(/\.conflict-[^/]+-[0-9a-f]{7,}(?:-\d+)?(?=\.[^./]+$|$)/, "");
-    return path === local ? [] : [{ path, local }];
+    const path2 = local.replace(/\.conflict-[^/]+-[0-9a-f]{7,}(?:-\d+)?(?=\.[^./]+$|$)/, "");
+    return path2 === local ? [] : [{ path: path2, local }];
   });
 }
 async function remoteUrl(vault, env) {
@@ -2062,7 +2234,7 @@ function statePath(eduHome) {
 }
 async function readSyncState(eduHome) {
   try {
-    return JSON.parse(await readFile8(statePath(eduHome), "utf8"));
+    return JSON.parse(await readFile9(statePath(eduHome), "utf8"));
   } catch {
     return void 0;
   }
@@ -2080,7 +2252,16 @@ async function syncBrain(options) {
   }
   const host = options.host ?? `${options.cloud ? "cloud-" : ""}${hostname().split(".")[0]}`;
   try {
-    return await withHostLock(options.eduHome, "sync", vault, async () => run(vault, host, Boolean(options.cloud), env, base, await brainLock(options.eduHome, vault), options.hooks ?? {}), 3e3);
+    let profile = options.profile;
+    if (!profile) {
+      try {
+        profile = await loadSessionProfile({ env: { ...env, EDU_HOME: options.eduHome } });
+      } catch (error) {
+        if (error instanceof ProfileError) return { ...base, vault, state: "error", message: error.message };
+        throw error;
+      }
+    }
+    return await withHostLock(options.eduHome, "sync", vault, async () => run(vault, host, Boolean(options.cloud), env, base, await brainLock(options.eduHome, vault), options.hooks ?? {}, profile, options.resolvePath), 3e3);
   } catch (error) {
     const message = error.message;
     const brainBusy = /timed out waiting for the brain (usage|log) lock/.test(message);
@@ -2100,16 +2281,50 @@ async function brainLock(eduHome, vault) {
   if (!home || !brain || !isInside(repo, brain)) return (body) => body();
   return (body) => withUsageLock(home, () => withLogLock(brain, body));
 }
-async function run(vault, host, cloud, env, base, critical, hooks) {
+function porcelainPaths(text) {
+  const parts = text.split("\0").filter((part) => part !== "");
+  const paths = [];
+  for (let index = 0; index < parts.length; index++) {
+    const entry = parts[index];
+    const path2 = entry.slice(3);
+    if (path2) paths.push(path2);
+    const kind = entry.slice(0, 2);
+    if (kind.includes("R") || kind.includes("C")) {
+      const renamed = parts[++index];
+      if (renamed) paths.push(renamed);
+    }
+  }
+  return paths;
+}
+async function foreignSync(profile, vault, env, resolvePath) {
+  const url = (await git(vault, ["remote", "get-url", "origin"], env)).out.trim();
+  if (url && remoteBelongsToOtherProfile(profile, url)) {
+    const other = profile.id === "personal" ? "cheil" : "personal";
+    return `refusing to sync: origin belongs to the ${other} profile`;
+  }
+  const status = await git(vault, ["status", "--porcelain=v1", "-z"], env);
+  if (status.code !== 0) return "refusing to sync: cannot read vault status";
+  for (const rel of porcelainPaths(status.out)) {
+    const absolute = resolve9(vault, rel);
+    const resolved = resolvePath ? await resolvePath(absolute) : await realpath3(absolute).catch(() => absolute);
+    if (pathBelongsToOtherProfile(profile, resolved, { vault })) return `refusing to sync: ${rel} resolves inside the other profile`;
+  }
+  return void 0;
+}
+async function run(vault, host, cloud, env, base, critical, hooks, profile, resolvePath) {
   const g = (...args) => git(vault, args, env);
   const done = async (state, message, extra = {}) => ({ ...base, vault, state, message: redact(message, env), head: (await g("rev-parse", "--short", "HEAD")).out.trim() || void 0, ...extra });
   if (await rebasing(vault)) await g("rebase", "--abort");
+  const blocked = await foreignSync(profile, vault, env, resolvePath);
+  if (blocked) return done("error", blocked);
   const branch = (await g("symbolic-ref", "--short", "HEAD")).out.trim();
   if (!branch) return done("error", "the vault is not on a branch");
   const commitLocal = async () => {
+    const blockedNow = await foreignSync(profile, vault, env, resolvePath);
+    if (blockedNow) return blockedNow;
     if (cloud) {
       const exclude = resolve9(vault, (await g("rev-parse", "--git-path", "info/exclude")).out.trim());
-      const rules = await readFile8(exclude, "utf8").catch(() => "");
+      const rules = await readFile9(exclude, "utf8").catch(() => "");
       if (!rules.split("\n").includes("*.base")) {
         await mkdir4(resolve9(exclude, ".."), { recursive: true });
         await writeFile4(exclude, `${rules}${rules && !rules.endsWith("\n") ? "\n" : ""}*.base
@@ -2118,7 +2333,7 @@ async function run(vault, host, cloud, env, base, critical, hooks) {
       await g("restore", "--source=HEAD", "--staged", "--worktree", "--", ":(glob)**/*.base");
       for (const file of gitLines((await g("-c", "core.quotepath=off", "diff", "--name-only", "--", "*.md")).out)) {
         const before = (await g("show", `HEAD:${file}`)).out;
-        const now = await readFile8(join14(vault, file), "utf8").catch(() => void 0);
+        const now = await readFile9(join14(vault, file), "utf8").catch(() => void 0);
         if (now !== void 0 && withoutCounters(before) === withoutCounters(now)) await g("restore", "--", file);
       }
     }
@@ -2126,7 +2341,7 @@ async function run(vault, host, cloud, env, base, critical, hooks) {
     await g("add", "-A");
     for (const file of gitLines((await g("-c", "core.quotepath=off", "diff", "--cached", "--name-only", "--diff-filter=A")).out)) {
       if (!/(^|\/)2-episodic\/[^/]+\.md$/.test(file)) continue;
-      const text = await readFile8(join14(vault, file), "utf8").catch(() => "");
+      const text = await readFile9(join14(vault, file), "utf8").catch(() => "");
       if (isEmptySession(text)) await g("reset", "-q", "--", file);
     }
     if ((await g("diff", "--cached", "--quiet")).code !== 0) {
@@ -2170,6 +2385,8 @@ async function run(vault, host, cloud, env, base, critical, hooks) {
       return { ok: true };
     });
     if ("error" in step) return done("error", step.error);
+    const beforePush = await foreignSync(profile, vault, env, resolvePath);
+    if (beforePush) return done("error", beforePush);
     if (base.conflictCopies.length && (await g("push", "-q", "origin", `${saved}:refs/heads/${saved}`)).code !== 0)
       return done("error", `conflict copies are in the vault, but pushing backup ${saved} failed`, { branch: saved });
     if ((await g("rev-list", "--count", `${upstream}..HEAD`)).out.trim() === "0") {
@@ -2186,8 +2403,8 @@ async function run(vault, host, cloud, env, base, critical, hooks) {
 }
 async function rebasing(vault) {
   for (const name of ["rebase-merge", "rebase-apply"]) {
-    const path = (await git(vault, ["rev-parse", "--git-path", name])).out.trim();
-    if (path && await access(resolve9(vault, path)).then(() => true, () => false)) return true;
+    const path2 = (await git(vault, ["rev-parse", "--git-path", name])).out.trim();
+    if (path2 && await access(resolve9(vault, path2)).then(() => true, () => false)) return true;
   }
   return false;
 }
@@ -2220,7 +2437,7 @@ async function settle(vault, env, host, sha, base, hooks) {
         const up = upstream2.code === 0 ? upstream2.out : "";
         const mine = local2.code === 0 ? local2.out : "";
         let text = mergeAppendOnly(up, mine);
-        const extra = newEntries(await readFile8(target, "utf8").catch(() => ""), up, mine);
+        const extra = newEntries(await readFile9(target, "utf8").catch(() => ""), up, mine);
         if (extra) text = mergeAppendOnly(text, extra);
         await writeFile4(target, text);
         await g("add", "--", file);
@@ -2249,7 +2466,7 @@ async function settle(vault, env, host, sha, base, hooks) {
           vault,
           file,
           `${host.replace(/[^\w.-]+/g, "-")}-${sha}`,
-          (path, suffix) => `${ext ? path.slice(0, -ext.length) : path}.conflict-${suffix}${ext}`,
+          (path2, suffix) => `${ext ? path2.slice(0, -ext.length) : path2}.conflict-${suffix}${ext}`,
           (suffix) => Buffer.from(parsed ? serializeMarkdown({ ...parsed.meta, id: `${originalId}-conflict-${suffix}`, conflict_of: originalId }, parsed.body) : local.out)
         );
         await g("add", "--", copy);
@@ -2274,7 +2491,7 @@ async function writeSyncState(eduHome, result) {
 }
 
 // src/cli/commands/sync.ts
-import { realpathSync } from "fs";
+import { realpathSync as realpathSync2 } from "fs";
 var ALERT = /* @__PURE__ */ new Set(["conflict", "error"]);
 function describeSync(result, now = Date.now()) {
   if (!result) return "never synced on this machine";
@@ -2283,35 +2500,42 @@ function describeSync(result, now = Date.now()) {
   return `${result.state} ${age2}: ${result.message}${result.head ? ` (${result.head})` : ""}`;
 }
 var userHome = (ctx) => process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home;
+async function sessionProfile(ctx, eduHome) {
+  return loadSessionProfile({ env: { ...ctx.env, EDU_HOME: eduHome } });
+}
 async function scheduleSync(ctx, options) {
   const eduHome = globalHome(ctx);
+  const profileId = options.profileId ?? (await sessionProfile(ctx, eduHome)).id;
   const vault = options.vault ?? await findVault(eduHome, ctx.env).catch(() => void 0);
   return installSchedule({
     home: userHome(ctx),
     eduHome,
     node: process.execPath,
-    cli: realpathSync(process.argv[1] ?? ""),
+    cli: realpathSync2(process.argv[1] ?? ""),
     minutes: options.minutes,
     path: ctx.env.PATH,
     args: options.cloud ? ["--cloud"] : [],
     env: ctx.env.EDU_HOME ? { EDU_HOME: eduHome } : {},
-    vault
+    vault,
+    profileId
   });
 }
-function parseMinutes(value) {
-  const minutes = Number(value ?? "5");
+function parseMinutes(value, profileId = "personal") {
+  if (value === void 0) return defaultSyncMinutes(profileId);
+  const minutes = Number(value);
   if (!Number.isInteger(minutes) || minutes < 1) throw new Error("--minutes must be a whole number of minutes");
   return minutes;
 }
-async function syncStatus(ctx, vaultOption) {
+async function syncStatus(ctx, vaultOption, profileId) {
   const eduHome = globalHome(ctx);
+  const id = profileId ?? (await sessionProfile(ctx, eduHome)).id;
   const last = await readSyncState(eduHome) ?? null;
   const vault = vaultOption ?? last?.vault ?? await findVault(eduHome, ctx.env).catch(() => void 0);
   return {
     last,
     vault: vault ?? null,
     remote: vault ? await remoteUrl(vault, ctx.env) ?? null : null,
-    scheduler: await scheduleStatus({ home: userHome(ctx), eduHome, vault }),
+    scheduler: await scheduleStatus({ home: userHome(ctx), eduHome, vault, profileId: id }),
     conflictBranches: vault ? await conflictBranches(vault, ctx.env) : [],
     conflictCopies: vault ? await trackedConflictCopies(vault, ctx.env) : []
   };
@@ -2324,13 +2548,14 @@ function printSync(ctx, result) {
   if (result.branch) ctx.out(`  conflict branch: ${result.branch}`);
 }
 function registerSync(program, ctx) {
-  program.command("sync").description("sync the shared brain with GitHub: conflicting notes keep both versions").option("--status", "show the last sync, remote, scheduler and open conflict branches").option("--install", "run the sync on a schedule (systemd user timer, macOS LaunchAgent or Windows Task Scheduler)").option("--uninstall", "remove the scheduled sync").option("--replace-legacy", "with --install, remove detected older sync agents after confirmation").option("-y, --yes", "confirm --replace-legacy without prompting").option("--minutes <n>", "schedule interval with --install", "5").option("--cloud", "cloud sandbox: keep usage counters and Obsidian bases local").option("--host <name>", "machine label in commit messages and conflict branches").option("--vault <dir>", "vault repository (default: the repository holding ~/.edu/brain)").option("--reason <why>", "what triggered the sync (timer, start, stop...)", "manual").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }) => {
+  program.command("sync").description("sync the shared brain with GitHub: conflicting notes keep both versions").option("--status", "show the last sync, remote, scheduler and open conflict branches").option("--install", "run the sync on a schedule (systemd user timer, macOS LaunchAgent or Windows Task Scheduler)").option("--uninstall", "remove the scheduled sync").option("--replace-legacy", "with --install, remove detected older sync agents after confirmation").option("-y, --yes", "confirm --replace-legacy without prompting").option("--minutes <n>", "schedule interval with --install (default 5 for personal, 15 for cheil)").option("--cloud", "cloud sandbox: keep usage counters and Obsidian bases local").option("--host <name>", "machine label in commit messages and conflict branches").option("--vault <dir>", "vault repository (default: the repository holding ~/.edu/brain)").option("--reason <why>", "what triggered the sync (timer, start, stop...)", "manual").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }) => {
     const eduHome = globalHome(ctx);
+    const profile = await sessionProfile(ctx, eduHome);
     const json2 = g.json || opts.json;
     const cloud = Boolean(opts.cloud) || ctx.env.EDU_SYNC_CLOUD === "1";
     if (opts.replaceLegacy && !opts.install) throw new Error("--replace-legacy requires --install");
     if (opts.status) {
-      const status = await syncStatus(ctx, opts.vault);
+      const status = await syncStatus(ctx, opts.vault, profile.id);
       if (json2) return printJson(ctx, status);
       const last = status.last ?? void 0;
       ctx.out(`Sync: ${describeSync(last)}`);
@@ -2344,15 +2569,15 @@ function registerSync(program, ctx) {
       return;
     }
     if (opts.uninstall) {
-      const result2 = await uninstallSchedule({ home: userHome(ctx), eduHome });
+      const result2 = await uninstallSchedule({ home: userHome(ctx), eduHome, profileId: profile.id });
       if (json2) return printJson(ctx, result2);
       ctx.out(result2.removed.length ? `Removed the scheduled sync (${result2.kind}): ${result2.removed.join(", ")}` : `No scheduled sync files found (${result2.kind}).`);
       return;
     }
     if (opts.install) {
-      const minutes = parseMinutes(opts.minutes);
+      const minutes = parseMinutes(opts.minutes, profile.id);
       const vault = opts.vault ?? await findVault(eduHome, ctx.env).catch(() => void 0);
-      const legacy = await legacySchedules({ home: userHome(ctx), vault });
+      const legacy = await legacySchedules({ home: userHome(ctx), vault, profileId: profile.id });
       let removedLegacy = [];
       if (opts.replaceLegacy && legacy.length) {
         if (!opts.yes) {
@@ -2363,9 +2588,9 @@ function registerSync(program, ctx) {
           }
         }
       }
-      const result2 = await scheduleSync(ctx, { minutes, cloud, vault });
+      const result2 = await scheduleSync(ctx, { minutes, cloud, vault, profileId: profile.id });
       if (opts.replaceLegacy && result2.started) {
-        removedLegacy = await replaceLegacySchedules({ home: userHome(ctx), vault });
+        removedLegacy = await replaceLegacySchedules({ home: userHome(ctx), vault, profileId: profile.id });
         result2.legacy = [];
       }
       if (json2) return printJson(ctx, { ...result2, removedLegacy });
@@ -2375,7 +2600,7 @@ function registerSync(program, ctx) {
       for (const file of result2.legacy) ctx.out(`Legacy sync agent also runs: ${file} (use --replace-legacy to remove it)`);
       return;
     }
-    const result = await syncBrain({ eduHome, vault: opts.vault, host: opts.host, cloud, reason: opts.reason, env: ctx.env });
+    const result = await syncBrain({ eduHome, vault: opts.vault, host: opts.host, cloud, reason: opts.reason, env: ctx.env, profile });
     const previous = await writeSyncState(eduHome, result);
     if (!cloud && ALERT.has(result.state) && (previous?.state !== result.state || previous?.branch !== result.branch)) {
       await notify(result.state === "conflict" ? "Edu: conflicto de sincronizaci\xF3n" : "Edu: el sync fall\xF3", result.message);
@@ -2504,7 +2729,7 @@ function registerDoctor(program, ctx) {
 }
 
 // src/cli/commands/dream.ts
-import { realpathSync as realpathSync2 } from "fs";
+import { realpathSync as realpathSync3 } from "fs";
 import { join as join16 } from "path";
 function registerDream(program, ctx) {
   program.command("dream").description("consolidate recent sessions from every host into a reviewable plan (new lessons, promotions, archive, link and claim fixes); nothing changes until --apply").option("--days <n>", "closed sessions from the last <n> days", "14").option("--stale-days <n>", 'age after which a time-sensitive claim needs an "(as of YYYY-MM-DD)" marker', "90").option("--unused-days <n>", "propose archiving candidate lessons and open hypotheses unused this long", "90").option("--min-sessions <n>", "sessions a topic must recur in to become a new-lesson proposal", "3").option("--model", "also ask the default agent CLI for proposals over the same evidence (uses a model)").option("--budget <n>", "prompt token budget with --model", "8000").option("--apply", "apply the checked proposals of the saved plan (edit the checkboxes first)").option("--install", "write the plan every night (systemd user timer or macOS LaunchAgent); never applies it").option("--uninstall", "stop and delete the nightly dream of this project (edu uninstall removes all of them)").option("--hour <n>", "hour of the nightly run with --install (0-23)", "3").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }) => {
@@ -2525,7 +2750,7 @@ function registerDream(program, ctx) {
     if (opts.install) {
       const hour = Number(opts.hour ?? "3");
       const { installDreamSchedule } = await import("./dream-schedule-T24IUDA5.js");
-      const result = await installDreamSchedule({ home: ctx.home, eduHome: globalHome(ctx), node: process.execPath, cli: realpathSync2(process.argv[1] ?? ""), cwd: g.cwd, hour, path: ctx.env.PATH });
+      const result = await installDreamSchedule({ home: ctx.home, eduHome: globalHome(ctx), node: process.execPath, cli: realpathSync3(process.argv[1] ?? ""), cwd: g.cwd, hour, path: ctx.env.PATH });
       if (json2) return printJson(ctx, result);
       ctx.out(`Scheduled a nightly dream (${result.kind}, ${String(hour).padStart(2, "0")}:30): ${result.files.join(", ")}`);
       ctx.out("Each run only writes the plan; review it and run edu dream --apply yourself.");
@@ -2559,29 +2784,29 @@ function registerDream(program, ctx) {
       minSessions: parseIntOption(opts.minSessions ?? "3", "--min-sessions"),
       ...engine ? { engine, budgetTokens: parseIntOption(opts.budget ?? "8000", "--budget") } : {}
     });
-    const path = await plans.saveDreamPlan(ws.primary, plan);
-    if (json2) return printJson(ctx, { ...plan, path });
+    const path2 = await plans.saveDreamPlan(ws.primary, plan);
+    if (json2) return printJson(ctx, { ...plan, path: path2 });
     const checked = plan.proposals.filter((p) => p.checked).length;
     ctx.out(`Dream over ${plan.sessions} session(s) from the last ${plan.days} days: ${plan.proposals.length} proposal(s) (${checked} checked), ${plan.findings.length} lint finding(s).`);
     for (const p of plan.proposals) ctx.out(`  [${p.checked ? "x" : " "}] ${p.id} ${p.kind.padEnd(16)} ${p.title} (prevalence ${p.prevalence})`);
     if (plan.model?.dropped.length) ctx.out(`  ${plan.model.dropped.length} model proposal(s) dropped (see the plan file).`);
-    ctx.out(`Plan: ${path}`);
+    ctx.out(`Plan: ${path2}`);
     ctx.out("Review the checkboxes, then run: edu dream --apply");
   }));
 }
 
 // src/detach/engine.ts
 import { createHash as createHash3, randomUUID as randomUUID2 } from "crypto";
-import { lstat as lstat4, mkdir as mkdir5, readFile as readFile9, readdir as readdir4, rename as rename2, stat as stat3, writeFile as writeFile5 } from "fs/promises";
+import { lstat as lstat4, mkdir as mkdir5, readFile as readFile10, readdir as readdir4, rename as rename2, stat as stat3, writeFile as writeFile5 } from "fs/promises";
 import { dirname as dirname6, join as join17, relative as relative4, resolve as resolve10, sep as sep3 } from "path";
 var hash = (bytes) => createHash3("sha256").update(bytes).digest("hex");
 var backupRoot2 = (home) => join17(home, ".edu", "backups");
-async function existingFile(path) {
+async function existingFile(path2) {
   try {
-    const info = await lstat4(path);
-    if (info.isSymbolicLink()) throw new Error(`Refusing symlinked host configuration: ${path}`);
+    const info = await lstat4(path2);
+    if (info.isSymbolicLink()) throw new Error(`Refusing symlinked host configuration: ${path2}`);
     if (!info.isFile()) return void 0;
-    return await readFile9(path);
+    return await readFile10(path2);
   } catch (error) {
     if (error.code === "ENOENT") return void 0;
     throw error;
@@ -2593,19 +2818,19 @@ async function referencedTokens(home, config, changes) {
     if (!changes.includes(`config: ${key}`)) continue;
     const value = new RegExp(`^\\s*${key}\\s*=\\s*["']([^"']+)["']`, "m").exec(config)?.[1];
     if (!value) continue;
-    const path = value.startsWith("~/") ? join17(home, value.slice(2)) : resolve10(home, value);
+    const path2 = value.startsWith("~/") ? join17(home, value.slice(2)) : resolve10(home, value);
     try {
-      inside(home, path);
-      const bytes = await existingFile(path);
+      inside(home, path2);
+      const bytes = await existingFile(path2);
       if (bytes) tokens += Math.round(bytes.toString("utf8").length / 4);
     } catch {
     }
   }
   return tokens;
 }
-function inside(home, path) {
-  const rel = relative4(resolve10(home), resolve10(path));
-  if (!rel || rel === ".." || rel.startsWith(`..${sep3}`) || rel.startsWith(sep3)) throw new Error(`Host file is outside the supplied home: ${path}`);
+function inside(home, path2) {
+  const rel = relative4(resolve10(home), resolve10(path2));
+  if (!rel || rel === ".." || rel.startsWith(`..${sep3}`) || rel.startsWith(sep3)) throw new Error(`Host file is outside the supplied home: ${path2}`);
   return rel;
 }
 async function createDetachPlan(input) {
@@ -2625,12 +2850,12 @@ async function createDetachPlan(input) {
   }
   return { home, hosts: input.hosts, tools, files: files2, tokensSaved: files2.reduce((n, file) => n + file.tokensSaved, 0) };
 }
-async function atomicWrite3(path, bytes) {
-  const temp = join17(dirname6(path), `.edu-detach-${randomUUID2()}.tmp`);
-  const mode = (await stat3(path)).mode;
+async function atomicWrite3(path2, bytes) {
+  const temp = join17(dirname6(path2), `.edu-detach-${randomUUID2()}.tmp`);
+  const mode = (await stat3(path2)).mode;
   try {
     await writeFile5(temp, bytes, { mode });
-    await withFsRetry(() => rename2(temp, path));
+    await withFsRetry(() => rename2(temp, path2));
   } catch (error) {
     await import("fs/promises").then((fs) => fs.rm(temp, { force: true }));
     throw error;
@@ -2673,7 +2898,7 @@ async function listDetachBackups(home) {
     const active = [];
     for (const id of ids) {
       try {
-        const manifest2 = JSON.parse(await readFile9(join17(backupRoot2(home), id, "manifest.json"), "utf8"));
+        const manifest2 = JSON.parse(await readFile10(join17(backupRoot2(home), id, "manifest.json"), "utf8"));
         if (!manifest2.undoneAt) active.push(id);
       } catch {
       }
@@ -2688,17 +2913,17 @@ async function undoDetach(input) {
   const id = input.id ?? (await listDetachBackups(input.home))[0];
   if (!id || !/^detach-[\w-]+$/.test(id)) throw new Error("No matching detach backup found.");
   const root = join17(backupRoot2(input.home), id);
-  const manifest2 = JSON.parse(await readFile9(join17(root, "manifest.json"), "utf8"));
+  const manifest2 = JSON.parse(await readFile10(join17(root, "manifest.json"), "utf8"));
   if (manifest2.id !== id || manifest2.undoneAt) throw new Error("Detach backup is invalid or already restored.");
   const restore = [];
   for (const file of manifest2.files) {
-    const path = join17(input.home, file.path);
-    inside(input.home, path);
-    const before = await readFile9(join17(root, file.path));
+    const path2 = join17(input.home, file.path);
+    inside(input.home, path2);
+    const before = await readFile10(join17(root, file.path));
     if (hash(before) !== file.sha256Before) throw new Error(`Backup checksum mismatch: ${file.path}`);
-    const current = await existingFile(path);
+    const current = await existingFile(path2);
     if (!current || !input.force && hash(current) !== file.sha256After) throw new Error(`Refusing drifted file: ${file.path}; use --force to overwrite`);
-    restore.push({ path, before });
+    restore.push({ path: path2, before });
   }
   for (const file of restore) await atomicWrite3(file.path, file.before);
   manifest2.undoneAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -2753,7 +2978,7 @@ function registerDetach(program, ctx) {
 }
 
 // src/cli/commands/evidence.ts
-import { readdir as readdir5, readFile as readFile10 } from "fs/promises";
+import { readdir as readdir5, readFile as readFile11 } from "fs/promises";
 import { join as join18 } from "path";
 
 // src/evidence/metrics.ts
@@ -2975,17 +3200,17 @@ function countRecoveredTools(events) {
   }
   return recovered;
 }
-async function json(path) {
+async function json(path2) {
   try {
-    return object2(JSON.parse(await readFile10(path, "utf8")));
+    return object2(JSON.parse(await readFile11(path2, "utf8")));
   } catch (error) {
     if (error instanceof SyntaxError || error.code === "ENOENT") return {};
     throw error;
   }
 }
-async function jsonl(path) {
+async function jsonl(path2) {
   try {
-    return (await readFile10(path, "utf8")).split(/\r?\n/).filter((line) => line.trim()).map((line) => {
+    return (await readFile11(path2, "utf8")).split(/\r?\n/).filter((line) => line.trim()).map((line) => {
       try {
         return object2(JSON.parse(line));
       } catch {
@@ -3024,27 +3249,27 @@ function pct2(value) {
 }
 
 // src/cli/commands/experiment.ts
-import { lstat as lstat5, readFile as readFile11 } from "fs/promises";
+import { lstat as lstat5, readFile as readFile12 } from "fs/promises";
 import { resolve as resolve11 } from "path";
 var runner = () => import("./run-M44N2NF4.js");
-async function manifest(path) {
-  const info = await lstat5(path);
+async function manifest(path2) {
+  const info = await lstat5(path2);
   if (!info.isFile() || info.size > 2 * 1024 * 1024) throw new Error("Manifest must be a regular UTF-8 JSON file <= 2 MiB");
-  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await readFile11(path));
+  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await readFile12(path2));
 }
 function registerExperiment(program, ctx) {
   const command = program.command("experiment").description("explicitly approved trusted commands in disposable workspace copies (no OS sandbox)");
-  command.command("inspect").argument("<manifest>").description("read-only manifest, inventory and approval hash; prints JSON").action(action(ctx, async ({ g }, path) => {
-    printJson(ctx, await (await runner()).inspectExperiment(await manifest(resolve11(g.cwd, path))));
+  command.command("inspect").argument("<manifest>").description("read-only manifest, inventory and approval hash; prints JSON").action(action(ctx, async ({ g }, path2) => {
+    printJson(ctx, await (await runner()).inspectExperiment(await manifest(resolve11(g.cwd, path2))));
   }));
-  command.command("run").argument("<manifest>").description("run both approved arms; retain JSON evidence without activating changes").requiredOption("--approve <sha256>", "SHA-256 of the exact inspected manifest bytes").requiredOption("--evidence <directory>", "explicit retained evidence directory outside the original source tree").action(action(ctx, async ({ g, opts }, path) => {
+  command.command("run").argument("<manifest>").description("run both approved arms; retain JSON evidence without activating changes").requiredOption("--approve <sha256>", "SHA-256 of the exact inspected manifest bytes").requiredOption("--evidence <directory>", "explicit retained evidence directory outside the original source tree").action(action(ctx, async ({ g, opts }, path2) => {
     const controller = new AbortController();
     const cancel = () => controller.abort();
     process.on("SIGINT", cancel);
     process.on("SIGTERM", cancel);
     try {
       const { runExperiment } = await runner();
-      const result = await runExperiment(await manifest(resolve11(g.cwd, path)), { approve: opts.approve, evidenceRoot: resolve11(g.cwd, opts.evidence), signal: controller.signal });
+      const result = await runExperiment(await manifest(resolve11(g.cwd, path2)), { approve: opts.approve, evidenceRoot: resolve11(g.cwd, opts.evidence), signal: controller.signal });
       printJson(ctx, result);
       if (Object.values(result.arms).some((arm) => arm.status !== "ok")) ctx.setExitCode(1);
     } finally {
@@ -3055,13 +3280,13 @@ function registerExperiment(program, ctx) {
 }
 
 // src/cli/commands/eval.ts
-import { readFile as readFile12 } from "fs/promises";
+import { readFile as readFile13 } from "fs/promises";
 import { resolve as resolve12 } from "path";
 function registerEvaluation(program, ctx) {
   const evaluation = program.command("eval").description("honest evaluation of memory: trial aggregation and a deterministic behaviour suite (no model calls)");
   evaluation.command("aggregate").description("aggregate recorded trials (native-clean, edu-cold, memory-static, memory-adaptive) for one model and harness").argument("<file>", 'JSON file: an array of trials or { "trials": [...] }').option("--min-trials <n>", "minimum trials per arm before a comparison is reported", String(DEFAULT_MIN_TRIALS)).option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, file) => {
     const { aggregateTrials, parseTrials } = await import("./eval-UNG35DZJ.js");
-    const trials = parseTrials(JSON.parse(await readFile12(resolve12(g.cwd, file ?? ""), "utf8")));
+    const trials = parseTrials(JSON.parse(await readFile13(resolve12(g.cwd, file ?? ""), "utf8")));
     const report = aggregateTrials(trials, { minTrialsPerArm: parseIntOption(opts.minTrials ?? String(DEFAULT_MIN_TRIALS), "--min-trials") });
     if (opts.json || g.json) return printJson(ctx, report);
     ctx.out(`status: ${report.status}${report.reasons.length ? ` (${report.reasons.join(", ")})` : ""}`);
@@ -3279,20 +3504,20 @@ function registerWatch(program, ctx) {
 import { join as join21, resolve as resolve14 } from "path";
 
 // src/orchestrator/resume.ts
-import { readFile as readFile13 } from "fs/promises";
+import { readFile as readFile14 } from "fs/promises";
 import { hostname as hostname2 } from "os";
 import { join as join20, resolve as resolve13 } from "path";
-import { z } from "zod";
-var Snapshot = z.object({
-  runId: z.string().uuid(),
-  cwd: z.string(),
-  goal: z.string().min(1).max(32e3),
-  status: z.enum(["running", "completed", "blocked", "cancelled", "budget_exhausted"]),
-  summary: z.string().max(32e3),
+import { z as z2 } from "zod";
+var Snapshot = z2.object({
+  runId: z2.string().uuid(),
+  cwd: z2.string(),
+  goal: z2.string().min(1).max(32e3),
+  status: z2.enum(["running", "completed", "blocked", "cancelled", "budget_exhausted"]),
+  summary: z2.string().max(32e3),
   /** The process that wrote a `running` snapshot. Older snapshots have none. */
-  owner: z.object({ pid: z.number().int().positive(), host: z.string() }).optional(),
-  updatedAt: z.string().optional(),
-  budget: z.object({ timeoutMs: z.number().positive() }).passthrough().optional()
+  owner: z2.object({ pid: z2.number().int().positive(), host: z2.string() }).optional(),
+  updatedAt: z2.string().optional(),
+  budget: z2.object({ timeoutMs: z2.number().positive() }).passthrough().optional()
 });
 var STALE_GRACE_MS = 6e4;
 var DEFAULT_TIMEOUT_MS = 18e5;
@@ -3303,8 +3528,8 @@ function interrupted(prior, probes) {
   return (probes.now ?? Date.now)() > updated + (prior.budget?.timeoutMs ?? DEFAULT_TIMEOUT_MS) + STALE_GRACE_MS;
 }
 async function resumeGoal(runsDir, runId, cwd, probes = {}) {
-  if (!z.string().uuid().safeParse(runId).success) throw new Error("Invalid run ID.");
-  const raw = await readFile13(join20(runsDir, `${runId}.status.json`), "utf8");
+  if (!z2.string().uuid().safeParse(runId).success) throw new Error("Invalid run ID.");
+  const raw = await readFile14(join20(runsDir, `${runId}.status.json`), "utf8");
   if (Buffer.byteLength(raw) > 1048576) throw new Error("Run checkpoint exceeds the resume limit.");
   const prior = Snapshot.parse(JSON.parse(raw));
   if (prior.runId !== runId || resolve13(prior.cwd) !== resolve13(cwd)) throw new Error("Run checkpoint belongs to another workspace or run.");
@@ -3469,15 +3694,15 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes, al
 import { resolve as resolve16 } from "path";
 
 // src/vault/join.ts
-import { copyFile, lstat as lstat6, mkdir as mkdir6, readdir as readdir6, readFile as readFile14, readlink as readlink2, realpath as realpath4, rename as rename3, symlink as symlink2, writeFile as writeFile6 } from "fs/promises";
+import { copyFile, lstat as lstat6, mkdir as mkdir6, readdir as readdir6, readFile as readFile15, readlink as readlink2, realpath as realpath4, rename as rename3, symlink as symlink2, writeFile as writeFile6 } from "fs/promises";
 import { hostname as hostname3 } from "os";
 import { dirname as dirname7, join as join22, relative as relative5, resolve as resolve15, sep as sep4 } from "path";
-var exists2 = (path) => lstat6(path).then(() => true, () => false);
-async function keepLocalCopy(root, path, content, host) {
-  return keepBothCopy(root, path, host, localCopyName, () => content);
+var exists2 = (path2) => lstat6(path2).then(() => true, () => false);
+async function keepLocalCopy(root, path2, content, host) {
+  return keepBothCopy(root, path2, host, localCopyName, () => content);
 }
-async function writeInside(root, path, content) {
-  const target = join22(root, path);
+async function writeInside(root, path2, content) {
+  const target = join22(root, path2);
   await assertSafeTarget(root, target);
   await writeFile6(target, content);
 }
@@ -3488,17 +3713,17 @@ async function brainIn(repo, subdir) {
   await mkdir6(brain, { recursive: true });
   return brain;
 }
-var isLineSet = (path) => /(^|\/)\.git(ignore|attributes)$/.test(path);
+var isLineSet = (path2) => /(^|\/)\.git(ignore|attributes)$/.test(path2);
 function unionLines(remote, local) {
   const seen = /* @__PURE__ */ new Set();
   const keep = [...remote.split(/\r?\n/), ...local.split(/\r?\n/)].filter((line) => line.trim() === "" ? false : !seen.has(line) && Boolean(seen.add(line)));
   return `${keep.join("\n")}
 `;
 }
-function autoMerge(path, remote, local) {
-  if (isAppendOnly(path)) return mergeAppendOnly(remote, local);
-  if (isLineSet(path)) return unionLines(remote, local);
-  if (isGenerated(path)) return remote;
+function autoMerge(path2, remote, local) {
+  if (isAppendOnly(path2)) return mergeAppendOnly(remote, local);
+  if (isLineSet(path2)) return unionLines(remote, local);
+  if (isGenerated(path2)) return remote;
   return void 0;
 }
 async function joinBrain(options) {
@@ -3573,10 +3798,10 @@ async function join_(options, givenEnv) {
   }
   return result;
 }
-async function isInside2(path, eduHome, repo) {
+async function isInside2(path2, eduHome, repo) {
   const home = await realpath4(eduHome).catch(() => resolve15(eduHome));
   const rel = relative5(repo, home);
-  return rel !== "" && !rel.startsWith("..") && path.startsWith(home + sep4);
+  return rel !== "" && !rel.startsWith("..") && path2.startsWith(home + sep4);
 }
 async function samePath2(a, b) {
   return await realpath4(a).catch(() => resolve15(a)) === await realpath4(b).catch(() => resolve15(b));
@@ -3626,7 +3851,7 @@ async function mergeRemote(dir, url, branch, host, env) {
   }
   await ensureIdentity(dir, host, env);
   const exclude = resolve15(dir, (await g("rev-parse", "--git-path", "info/exclude")).out.trim());
-  const rules = await readFile14(exclude, "utf8").catch(() => "");
+  const rules = await readFile15(exclude, "utf8").catch(() => "");
   if (!rules.split(/\r?\n/).includes(".edu-local/")) {
     await mkdir6(dirname7(exclude), { recursive: true });
     await writeFile6(exclude, `${rules}${rules && !rules.endsWith("\n") ? "\n" : ""}.edu-local/
@@ -3705,12 +3930,12 @@ async function mergeUpstream(dir, upstream, host, env, keptBoth) {
 async function importInto(src, dest, host, rel = "") {
   const out = { added: [], keptBoth: [] };
   for (const entry of await readdir6(join22(src, rel), { withFileTypes: true })) {
-    const path = rel ? `${rel}/${entry.name}` : entry.name;
+    const path2 = rel ? `${rel}/${entry.name}` : entry.name;
     if (entry.name === ".git") continue;
-    const from = join22(src, path);
-    const to = join22(dest, path);
+    const from = join22(src, path2);
+    const to = join22(dest, path2);
     if (entry.isDirectory()) {
-      const nested = await importInto(src, dest, host, path);
+      const nested = await importInto(src, dest, host, path2);
       out.added.push(...nested.added);
       out.keptBoth.push(...nested.keptBoth);
       continue;
@@ -3721,18 +3946,18 @@ async function importInto(src, dest, host, rel = "") {
       await mkdir6(dirname7(to), { recursive: true });
       if (entry.isSymbolicLink()) await symlink2(await readlink2(from), to);
       else await copyFile(from, to);
-      out.added.push(path);
+      out.added.push(path2);
       continue;
     }
     if (entry.isSymbolicLink()) continue;
-    const [mine, theirs] = await Promise.all([readFile14(from), readFile14(to).catch(() => void 0)]);
+    const [mine, theirs] = await Promise.all([readFile15(from), readFile15(to).catch(() => void 0)]);
     if (theirs && mine.equals(theirs)) continue;
-    const merged = theirs ? autoMerge(path, theirs.toString("utf8"), mine.toString("utf8")) : void 0;
+    const merged = theirs ? autoMerge(path2, theirs.toString("utf8"), mine.toString("utf8")) : void 0;
     if (merged !== void 0) {
       if (merged !== theirs.toString("utf8")) await writeFile6(to, merged);
       continue;
     }
-    out.keptBoth.push({ path, local: await keepLocalCopy(dest, path, mine, host) });
+    out.keptBoth.push({ path: path2, local: await keepLocalCopy(dest, path2, mine, host) });
   }
   return out;
 }
@@ -3927,9 +4152,9 @@ async function installVerified(deps, release, tarball, onStep, downloaded) {
   if (!migrateFirst) await migrateWorkspaces();
   return done({ ok: steps.every((s) => s.status === "ok"), installed: true, ...migrations ? { migrations } : {} });
 }
-async function fileExists(path) {
+async function fileExists(path2) {
   try {
-    await access2(path);
+    await access2(path2);
     return true;
   } catch {
     return false;
@@ -4108,18 +4333,18 @@ import { join as join24, resolve as resolve18 } from "path";
 
 // src/vault/vault.ts
 import { randomBytes } from "crypto";
-import { access as access3, copyFile as copyFile2, mkdir as mkdir7, readFile as readFile15, readdir as readdir7, realpath as realpath5, writeFile as writeFile8 } from "fs/promises";
+import { access as access3, copyFile as copyFile2, mkdir as mkdir7, readFile as readFile16, readdir as readdir7, realpath as realpath5, writeFile as writeFile8 } from "fs/promises";
 import { basename as basename3, dirname as dirname8, join as join23, posix as posix2, resolve as resolve17, win32 as win323 } from "path";
 var START = "<!-- edu:projects -->";
 var END = "<!-- /edu:projects -->";
 var IGNORED = ["runs/", "crew/", "proposals/", "backups/"];
-function pathParts(path, platform) {
+function pathParts(path2, platform) {
   const api = platform === "win32" ? win323 : posix2;
-  return api.resolve(path).split(/[\\/]+/).filter(Boolean).map((part) => platform === "win32" ? part.toLowerCase() : part);
+  return api.resolve(path2).split(/[\\/]+/).filter(Boolean).map((part) => platform === "win32" ? part.toLowerCase() : part);
 }
-function unsafeVaultPathReason(path, home, platform) {
+function unsafeVaultPathReason(path2, home, platform) {
   const api = platform === "win32" ? win323 : posix2;
-  const vault = api.resolve(path);
+  const vault = api.resolve(path2);
   const userHome2 = api.resolve(home);
   const compare = (value) => platform === "win32" ? value.toLowerCase() : value;
   if (compare(vault) === compare(api.parse(vault).root)) return "a drive or filesystem root";
@@ -4141,19 +4366,19 @@ function unsafeVaultPathReason(path, home, platform) {
   if (top && system.has(top) && !(platform !== "win32" && isTempPath(vault))) return "an application, system, or project-brain folder";
   return void 0;
 }
-function isTempPath(path) {
-  return /^\/(private\/)?(var\/folders|tmp)\//.test(path);
+function isTempPath(path2) {
+  return /^\/(private\/)?(var\/folders|tmp)\//.test(path2);
 }
-async function exists3(path) {
+async function exists3(path2) {
   try {
-    await access3(path);
+    await access3(path2);
     return true;
   } catch {
     return false;
   }
 }
-async function physicalCandidate(path) {
-  let ancestor = path;
+async function physicalCandidate(path2) {
+  let ancestor = path2;
   const suffix = [];
   while (true) {
     try {
@@ -4199,40 +4424,40 @@ function refreshProjects(text, projects) {
 ${projectList(projects)}
 ${text.slice(end)}`;
 }
-async function validatePath(path, home, platform) {
-  const reason = unsafeVaultPathReason(path, home, platform);
+async function validatePath(path2, home, platform) {
+  const reason = unsafeVaultPathReason(path2, home, platform);
   if (reason) throw new Error(`Unsafe vault path (${reason}): Obsidian walks the whole tree and can hit EPERM or become very slow`);
-  const physical = await physicalCandidate(path);
+  const physical = await physicalCandidate(path2);
   const physicalHome = await physicalCandidate(home).catch(() => home);
   const physicalReason = unsafeVaultPathReason(physical, physicalHome, platform);
   if (physicalReason) throw new Error(`Unsafe vault path (${physicalReason}): ${physical}`);
-  if (await exists3(path)) {
-    if (await exists3(join23(path, ".edu"))) throw new Error("Unsafe vault path: this folder contains a project brain (.edu/)");
+  if (await exists3(path2)) {
+    if (await exists3(join23(path2, ".edu"))) throw new Error("Unsafe vault path: this folder contains a project brain (.edu/)");
   }
 }
 async function createVault(options) {
   const platform = options.platform ?? process.platform;
-  const path = resolve17(options.path);
-  await validatePath(path, options.home, platform);
+  const path2 = resolve17(options.path);
+  await validatePath(path2, options.home, platform);
   const projects = (await readProjects(options.eduHome)).projects;
-  const current = await readdir7(path).catch((error) => {
+  const current = await readdir7(path2).catch((error) => {
     if (error.code === "ENOENT") return [];
     throw error;
   });
-  const homeFile = join23(path, "Home.md");
-  if (current.length && !(await exists3(homeFile) && (await readFile15(homeFile, "utf8")).includes(START))) {
-    throw new Error(`Folder is not empty and is not an Edu vault: ${path}`);
+  const homeFile = join23(path2, "Home.md");
+  if (current.length && !(await exists3(homeFile) && (await readFile16(homeFile, "utf8")).includes(START))) {
+    throw new Error(`Folder is not empty and is not an Edu vault: ${path2}`);
   }
-  await mkdir7(join23(path, ".obsidian"), { recursive: true });
-  await mkdir7(join23(path, "Edu"), { recursive: true });
-  await mkdir7(join23(path, "Notes"), { recursive: true });
-  const appFile = join23(path, ".obsidian", "app.json");
+  await mkdir7(join23(path2, ".obsidian"), { recursive: true });
+  await mkdir7(join23(path2, "Edu"), { recursive: true });
+  await mkdir7(join23(path2, "Notes"), { recursive: true });
+  const appFile = join23(path2, ".obsidian", "app.json");
   if (!await exists3(appFile)) await writeFile8(appFile, `${JSON.stringify({ userIgnoreFilters: IGNORED }, null, 2)}
 `);
-  const notesReadme = join23(path, "Notes", "README.md");
+  const notesReadme = join23(path2, "Notes", "README.md");
   if (!await exists3(notesReadme)) await writeFile8(notesReadme, "# Notes\n\nKeep your own notes and drafts here. Edu does not write memory into this folder.\n");
   const name = options.name?.trim() || "Edu";
-  const original = await readFile15(homeFile, "utf8").catch((error) => {
+  const original = await readFile16(homeFile, "utf8").catch((error) => {
     if (error.code === "ENOENT") return void 0;
     throw error;
   });
@@ -4250,7 +4475,7 @@ async function createVault(options) {
       missingProjects.push(entry.name);
       continue;
     }
-    const link = join23(path, "Edu", entry.name);
+    const link = join23(path2, "Edu", entry.name);
     try {
       await createVaultLink(link, entry.target, platform);
       linked.push(entry.name);
@@ -4260,14 +4485,14 @@ async function createVault(options) {
       conflicts.push(link);
     }
   }
-  const registration = options.register === false ? "skipped (--no-register)" : await registerObsidianVault(path, { home: options.home, platform, env: options.env ?? process.env, now: options.now });
-  return { path, name, linked, conflicts, missingProjects, registration };
+  const registration = options.register === false ? "skipped (--no-register)" : await registerObsidianVault(path2, { home: options.home, platform, env: options.env ?? process.env, now: options.now });
+  return { path: path2, name, linked, conflicts, missingProjects, registration };
 }
 async function registerObsidianVault(vault, options) {
   const config = options.platform === "win32" ? join23(options.env.APPDATA || join23(options.home, "AppData", "Roaming"), "obsidian") : options.platform === "darwin" ? join23(options.home, "Library", "Application Support", "obsidian") : join23(options.home, ".config", "obsidian");
   const configFile = join23(config, "obsidian.json");
   if (!await exists3(configFile)) return "skipped (Obsidian not installed)";
-  const parsed = JSON.parse(await readFile15(configFile, "utf8"));
+  const parsed = JSON.parse(await readFile16(configFile, "utf8"));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid Obsidian obsidian.json");
   const data = parsed;
   if (data.vaults !== void 0 && (!data.vaults || typeof data.vaults !== "object" || Array.isArray(data.vaults))) throw new Error("Invalid Obsidian vault list");
@@ -4291,10 +4516,10 @@ async function countNotes(dir) {
   return count;
 }
 async function checkVault(options) {
-  const path = resolve17(options.path);
+  const path2 = resolve17(options.path);
   const platform = options.platform ?? process.platform;
-  const physical = await physicalCandidate(path).catch(() => path);
-  const unsafe = unsafeVaultPathReason(path, options.home, platform) ?? unsafeVaultPathReason(physical, await physicalCandidate(options.home).catch(() => options.home), platform) ?? (await exists3(join23(path, ".edu")) ? "contains a project brain" : void 0);
+  const physical = await physicalCandidate(path2).catch(() => path2);
+  const unsafe = unsafeVaultPathReason(path2, options.home, platform) ?? unsafeVaultPathReason(physical, await physicalCandidate(options.home).catch(() => options.home), platform) ?? (await exists3(join23(path2, ".edu")) ? "contains a project brain" : void 0);
   const projects = (await readProjects(options.eduHome)).projects;
   const entries = [
     ...projects.map((project) => ({ name: segment(project.name), target: project.brain, project: true })),
@@ -4303,29 +4528,29 @@ async function checkVault(options) {
   const links = [];
   const missingProjects = [];
   for (const entry of entries) {
-    const present = await exists3(entry.target);
-    if (!present && entry.project) missingProjects.push(entry.name);
-    const state = await linkState(join23(path, "Edu", entry.name), entry.target);
+    const present2 = await exists3(entry.target);
+    if (!present2 && entry.project) missingProjects.push(entry.name);
+    const state = await linkState(join23(path2, "Edu", entry.name), entry.target);
     links.push({
       name: entry.name,
-      state: state === "conflict" ? "conflict" : state === "missing" || !present ? "broken" : "ok",
-      notes: present ? await countNotes(entry.target) : 0
+      state: state === "conflict" ? "conflict" : state === "missing" || !present2 ? "broken" : "ok",
+      notes: present2 ? await countNotes(entry.target) : 0
     });
   }
   const warnings = [];
-  for (const entry of await readdir7(path, { withFileTypes: true }).catch(() => [])) {
+  for (const entry of await readdir7(path2, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isDirectory() || ["Edu", "Notes", ".obsidian"].includes(entry.name)) continue;
-    const notes = await countNotes(join23(path, entry.name));
+    const notes = await countNotes(join23(path2, entry.name));
     if (notes >= 20) warnings.push(`${entry.name}/ contains ${notes} notes outside Edu/ and Notes/; another tool may be writing generated notes`);
   }
-  return { path, unsafe, links, missingProjects, warnings };
+  return { path: path2, unsafe, links, missingProjects, warnings };
 }
 
 // src/cli/commands/vault.ts
 function registerVault(program, ctx) {
-  program.command("vault").description("create or check a safe Obsidian window onto registered project brains").argument("[path]", "vault directory (default ~/EduVault)").option("--name <name>", "vault title", "Edu").option("--no-register", "do not add the vault to Obsidian").option("--check", "report unsafe paths, broken links and note counts without writing").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, path) => {
+  program.command("vault").description("create or check a safe Obsidian window onto registered project brains").argument("[path]", "vault directory (default ~/EduVault)").option("--name <name>", "vault title", "Edu").option("--no-register", "do not add the vault to Obsidian").option("--check", "report unsafe paths, broken links and note counts without writing").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, path2) => {
     const home = process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home;
-    const vaultPath = path ? resolve18(g.cwd, path) : join24(home, "EduVault");
+    const vaultPath = path2 ? resolve18(g.cwd, path2) : join24(home, "EduVault");
     const common = { path: vaultPath, home, eduHome: globalHome(ctx) };
     if (opts.check) {
       const report2 = await checkVault(common);
@@ -4418,4 +4643,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-GAVXJJNS.js.map
+//# sourceMappingURL=chunk-N4JNWZMU.js.map

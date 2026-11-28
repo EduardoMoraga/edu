@@ -44,7 +44,7 @@ export const MODULES: Readonly<Record<string, ModuleSpec>> = {
   detach: { layer: 'service', purpose: 'Removes other tools from host configs, with backups and undo', mayImport: ['adapters', 'platform'] },
   doctor: { layer: 'service', purpose: 'Health checks: CLI integration, native plugins, context weight', mayImport: ['adapters', 'core', 'detach', 'platform'] },
   release: { layer: 'service', purpose: 'Release capabilities of the running version', mayImport: ['platform'] },
-  vault: { layer: 'service', purpose: 'Obsidian vault link and Git sync with conflict copies', mayImport: ['brain', 'core', 'platform'] },
+  vault: { layer: 'service', purpose: 'Obsidian vault link and Git sync with conflict copies', mayImport: ['brain', 'core', 'platform', 'profile'] },
   update: { layer: 'service', purpose: 'Verified self-update and workspace migrations', mayImport: ['brain', 'platform', 'release'] },
   reflect: { layer: 'service', purpose: 'Self-improvement: reflection, consolidation, dreams, skill proposals, auto-maintain', mayImport: ['adapters', 'brain', 'context', 'core', 'engine', 'platform', 'skills'] },
   workspace: { layer: 'service', purpose: 'Workspaces: init, config, create, scaffold, ingest and readers', mayImport: ['adapters', 'brain', 'core', 'engine', 'platform'] },
@@ -60,7 +60,7 @@ export const MODULES: Readonly<Record<string, ModuleSpec>> = {
   tui: { layer: 'delivery', purpose: 'Ink views: live run, watch and mission deck', mayImport: ['core', 'crew', 'identity'] },
   cli: {
     layer: 'delivery', purpose: 'The `edu` command and host hooks',
-    mayImport: ['adapters', 'bench', 'brain', 'chat', 'connect', 'context', 'core', 'crew', 'detach', 'doctor', 'engine', 'eval', 'evidence', 'experiment', 'identity', 'mcp', 'orchestrator', 'platform', 'reflect', 'release', 'setup', 'tui', 'update', 'vault', 'workspace'],
+    mayImport: ['adapters', 'bench', 'brain', 'chat', 'connect', 'context', 'core', 'crew', 'detach', 'doctor', 'engine', 'eval', 'evidence', 'experiment', 'identity', 'mcp', 'orchestrator', 'platform', 'profile', 'reflect', 'release', 'setup', 'tui', 'update', 'vault', 'workspace'],
   },
   index: { layer: 'delivery', purpose: 'Package entry: the contracts and createProgram', mayImport: ['cli', 'core'] },
 };

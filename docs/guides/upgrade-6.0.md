@@ -298,7 +298,9 @@ edu sync --install --replace-legacy     # asks first; add --yes in scripts
 
 Edu removes the old agent only after its own schedule has started. On macOS it unloads the agent
 with `launchctl` and deletes the plist; on Linux it disables the timer, stops the service, deletes
-both units and reloads systemd. `--json` reports `removedLegacy`.
+both units and reloads systemd. On Windows it also reports a `CheilVaultSync` task and the previous
+unsuffixed `EduSync` task, and deletes those tasks only when you pass `--replace-legacy`. Each
+profile then keeps its own task (`EduSync-personal`, `EduSync-cheil`). `--json` reports `removedLegacy`.
 
 ## Test scripts (for contributors)
 

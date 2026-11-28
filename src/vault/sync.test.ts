@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendLog } from '../brain/catalog.js';
 import { logLockDir } from '../brain/note-lock.js';
+import { CHEIL_REMOTE } from '../profile/profile.js';
 import { conflictBranches, ensureRepoFiles, isAppendOnly, isEmptySession, isGenerated, mergeAppendOnly, mergeCounters, remoteUrl, syncBrain, trackedConflictCopies, withoutCounters } from './sync.js';
 
 const env = { ...process.env, GIT_AUTHOR_NAME: 'Edu', GIT_AUTHOR_EMAIL: 'edu@example.com', GIT_COMMITTER_NAME: 'Edu', GIT_COMMITTER_EMAIL: 'edu@example.com', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '' };
@@ -303,6 +304,72 @@ describe('edu sync', () => {
     const offline = await sync(b, 'b');
     expect(offline.state).toBe('offline');
     expect(offline.message).not.toContain('s3cretT0ken');
+  });
+});
+
+describe('profile isolation', () => {
+  const published = () => git(join(root, 'remote.git'), 'rev-parse', 'main');
+
+  it('refuses a personal sync whose origin is cheil-vault and does not push', async () => {
+    const before = published();
+    git(a.vault, 'remote', 'set-url', 'origin', 'https://github.com/EduardoMCheil/cheil-vault.git');
+    write(a, '01-CONOCIMIENTO/1-canonical/D-z.md', note('leak'));
+    git(a.vault, 'add', '-A');
+    const result = await sync(a, 'a');
+    expect(result.state).toBe('error');
+    expect(result.message).toContain('cheil profile');
+    expect(published()).toBe(before);
+    expect(git(a.vault, 'log', '-1', '--format=%s')).toBe('seed');
+  });
+
+  it('refuses a personal sync when a staged path resolves under C:\\Cheil', async () => {
+    const before = published();
+    write(a, '01-CONOCIMIENTO/1-canonical/D-z.md', note('leak'));
+    git(a.vault, 'add', '-A');
+    const result = await syncBrain({
+      eduHome: a.home, host: 'a', env,
+      resolvePath: async () => 'C:\\Cheil\\_CONOCIMIENTO\\D-z.md',
+    });
+    expect(result.state).toBe('error');
+    expect(result.message).toContain('D-z.md');
+    expect(published()).toBe(before);
+    expect(git(a.vault, 'log', '-1', '--format=%s')).toBe('seed');
+  });
+
+  it('refuses a cheil sync whose origin is edu-vault and does not push', async () => {
+    writeFileSync(join(a.home, 'profile.json'), JSON.stringify({
+      id: 'cheil', home: a.home, brain: join(a.home, 'brain'), remote: CHEIL_REMOTE,
+    }));
+    const before = published();
+    git(a.vault, 'remote', 'set-url', 'origin', 'git@github.com:EduardoMoraga/edu-vault.git');
+    write(a, '01-CONOCIMIENTO/1-canonical/D-z.md', note('leak'));
+    const result = await sync(a, 'a');
+    expect(result.state).toBe('error');
+    expect(result.message).toContain('personal profile');
+    expect(published()).toBe(before);
+    expect(git(a.vault, 'log', '-1', '--format=%s')).toBe('seed');
+  });
+
+  it('refuses a cheil sync when a conflicted path resolves outside the cheil vault', async () => {
+    writeFileSync(join(b.home, 'profile.json'), JSON.stringify({
+      id: 'cheil', home: b.home, brain: join(b.home, 'brain'), remote: CHEIL_REMOTE,
+    }));
+    write(a, '01-CONOCIMIENTO/1-canonical/D-x.md', note('from a'));
+    await sync(a, 'a');
+    write(b, '01-CONOCIMIENTO/1-canonical/D-x.md', note('from b'));
+    git(b.vault, 'commit', '-am', 'local');
+    let conflicted = false;
+    try { git(b.vault, 'pull', '--no-rebase', 'origin', 'main'); }
+    catch { conflicted = true; }
+    expect(conflicted).toBe(true);
+    const before = published();
+    const result = await syncBrain({
+      eduHome: b.home, host: 'b', env,
+      resolvePath: async file => file.endsWith('D-x.md') ? 'C:\\Users\\edu\\notes\\D-x.md' : file,
+    });
+    expect(result.state).toBe('error');
+    expect(result.message).toContain('D-x.md');
+    expect(published()).toBe(before);
   });
 });
 

@@ -74,6 +74,8 @@ A session has one profile, `personal` or `cheil`. The profile binds the Edu home
 
 A parsed profile cannot swap those bindings. `profile.json` in the home declares the profile. No `profile.json` means the implicit `personal` profile. The home is `EDU_HOME` when set, and otherwise `~/.edu` (`HOME`, then `USERPROFILE`). The brain is `<home>/brain`.
 
+`edu sync` refuses to push when `origin` is the other profile's vault, or when a dirty path resolves into the other profile's territory (`C:\Cheil` for personal; any other Windows path outside the cheil home, brain, and vault). Each profile has its own scheduler name: `EduSync-personal` and `EduSync-cheil` on Windows, `edu-sync-<id>` on systemd, and `dev.edu.sync.<id>` on launchd.
+
 ## 3. Layers
 
 Every top-level folder of `src/` is one module, and every module sits in one layer. A module may import
@@ -119,7 +121,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | detach | service | adapters, platform |
 | doctor | service | adapters, core, detach, platform |
 | release | service | platform |
-| vault | service | brain, core, platform |
+| vault | service | brain, core, platform, profile |
 | update | service | brain, platform, release |
 | reflect | service | adapters, brain, context, core, engine, platform, skills |
 | workspace | service | adapters, brain, core, engine, platform |
@@ -133,7 +135,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | connect | service | platform |
 | mcp | delivery | brain, context, core, crew, platform, reflect, release |
 | tui | delivery | core, crew, identity |
-| cli | delivery | adapters, bench, brain, chat, connect, context, core, crew, detach, doctor, engine, eval, evidence, experiment, identity, mcp, orchestrator, platform, reflect, release, setup, tui, update, vault, workspace |
+| cli | delivery | adapters, bench, brain, chat, connect, context, core, crew, detach, doctor, engine, eval, evidence, experiment, identity, mcp, orchestrator, platform, profile, reflect, release, setup, tui, update, vault, workspace |
 | index | delivery | cli, core |
 <!-- /generated:dependencies -->
 
