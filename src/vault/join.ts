@@ -15,14 +15,14 @@
  * credentials in the URL itself are never stored as the remote.
  * Every write lands inside the repository: a path through a symbolic link the remote committed is refused.
  */
-import { copyFile, lstat, mkdir, readdir, readFile, readlink, realpath, rename, symlink, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readdir, readFile, readlink, rename, symlink, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import {
   assertProfileRemote, assertProfileVault, defaultVaultDir, profileJson, readHomeProfile, sameProfileHome,
   ProfileError, type JoinBinding,
 } from '../profile/profile.js';
-import { createVaultLink } from './link.js';
+import { canonicalPath, createVaultLink } from './link.js';
 import { git, gitLines, redact, sameRemote, withoutCredentials } from './git.js';
 import { keepBothCopy, localCopyName } from './keep-both.js';
 import { assertSafeTarget } from './safe-path.js';
@@ -85,7 +85,7 @@ function guardVault(binding: JoinBinding | undefined, repo: string, brain: strin
 
 async function saveProfile(binding: JoinBinding, brain: string, platform: NodeJS.Platform): Promise<void> {
   const paths = pathsFor(platform);
-  const resolvedBrain = await realpath(brain).catch(() => paths.resolve(brain));
+  const resolvedBrain = await canonicalPath(brain).catch(() => paths.resolve(brain));
   const profile = binding.id === 'personal'
     ? { ...binding, brain: resolvedBrain }
     : { ...binding, brain: resolvedBrain };
@@ -186,7 +186,7 @@ async function join_(options: JoinOptions, givenEnv: NodeJS.ProcessEnv): Promise
 
   let result: JoinReport;
   if (await exists(link)) {
-    const current = await realpath(link).catch(() => { throw new Error(`${link} is a broken link; fix or remove it, then run edu join again`); });
+    const current = await canonicalPath(link).catch(() => { throw new Error(`${link} is a broken link; fix or remove it, then run edu join again`); });
     const top = await git(current, ['rev-parse', '--show-toplevel'], env);
     if (top.code === 0 && !await isInside(current, options.eduHome, top.out.trim())) {
       const repo = top.out.trim();
@@ -247,13 +247,17 @@ async function join_(options: JoinOptions, givenEnv: NodeJS.ProcessEnv): Promise
 
 /** True when `path` is inside `eduHome` but its repository is a parent of `eduHome` (e.g. a dotfiles repo). */
 async function isInside(path: string, eduHome: string, repo: string): Promise<boolean> {
-  const home = await realpath(eduHome).catch(() => resolve(eduHome));
-  const rel = relative(repo, home);
-  return rel !== '' && !rel.startsWith('..') && path.startsWith(home + sep);
+  const [here, home, top] = await Promise.all([
+    canonicalPath(path).catch(() => resolve(path)),
+    canonicalPath(eduHome).catch(() => resolve(eduHome)),
+    canonicalPath(repo).catch(() => resolve(repo)),
+  ]);
+  const rel = relative(top, home);
+  return rel !== '' && !rel.startsWith('..') && here.startsWith(home + sep);
 }
 
 async function samePath(a: string, b: string): Promise<boolean> {
-  return (await realpath(a).catch(() => resolve(a))) === (await realpath(b).catch(() => resolve(b)));
+  return (await canonicalPath(a).catch(() => resolve(a))) === (await canonicalPath(b).catch(() => resolve(b)));
 }
 
 interface Prepared { action: 'cloned' | 'merged' | 'already-joined'; added: string[]; keptBoth: KeptBoth[] }

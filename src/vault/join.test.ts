@@ -31,7 +31,7 @@ const published = () => git(root, '--git-dir', remote, 'ls-tree', '-r', '--name-
 const remoteFile = (path: string) => git(root, '--git-dir', remote, 'show', `main:${path}`);
 
 beforeEach(() => {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'edu-join-')));
+  root = realpathSync.native(mkdtempSync(join(tmpdir(), 'edu-join-')));
   env.GIT_CONFIG_GLOBAL = join(root, 'gitconfig');
   writeFileSync(env.GIT_CONFIG_GLOBAL, '');
   remote = join(root, 'remote.git');
@@ -250,7 +250,7 @@ describe('edu join --profile', () => {
     }
     const saved = JSON.parse(read(eduHome, 'profile.json')) as { id: string; home: string; brain: string; remote: string };
     expect(saved).toMatchObject({ id: 'personal', home: eduHome, remote: PERSONAL_REMOTE });
-    expect(realpathSync(saved.brain)).toBe(realpathSync(report.brain));
+    expect(realpathSync.native(saved.brain)).toBe(realpathSync.native(report.brain));
     const head = git(brain, 'rev-parse', 'HEAD');
     const second = await joinBrain({
       url: remote, eduHome, subdir: '01-CONOCIMIENTO', host: 'laptop', binding, env: sandboxEnv(),
