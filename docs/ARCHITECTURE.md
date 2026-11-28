@@ -119,7 +119,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | evidence | domain | brain, core, platform |
 | adapters | service | brain, core, platform, skills |
 | detach | service | adapters, platform |
-| doctor | service | adapters, core, detach, platform |
+| doctor | service | adapters, brain, core, detach, platform, profile |
 | release | service | platform |
 | vault | service | brain, core, platform, profile |
 | update | service | brain, platform, release |
@@ -155,7 +155,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | `src/evidence/` | domain | Episode packages, check registry, attribution and metrics |
 | `src/adapters/` | service | Per-host install plans: managed blocks, JSON/TOML merges, manifests, host files |
 | `src/detach/` | service | Removes other tools from host configs, with backups and undo |
-| `src/doctor/` | service | Health checks: CLI integration, native plugins, context weight |
+| `src/doctor/` | service | Health checks: CLI integration, native plugins, context weight, profile copies |
 | `src/release/` | service | Release capabilities of the running version |
 | `src/vault/` | service | Obsidian vault link and Git sync with conflict copies |
 | `src/update/` | service | Verified self-update and workspace migrations |
@@ -253,7 +253,7 @@ Top-level commands, grouped as `edu --help` shows them. `edu help <command>` sho
 | `edu install` | Connect Edu to coding CLIs through managed files (reversible) |
 | `edu uninstall` | Remove what `edu setup` and `edu install` added; the brain is kept |
 | `edu update` | Update to the latest verified GitHub release |
-| `edu doctor` | Check Node, coding CLIs, integrations, brains and the Obsidian link |
+| `edu doctor` | Check Node, coding CLIs, integrations, brains, profiles and the Obsidian link |
 | `edu detach` | Reversibly remove competing instructions, hooks, MCP servers and plugins |
 | `edu capabilities` | Describe this version, its limits and restart needs (alias `whats-new`) |
 | **Work** | |

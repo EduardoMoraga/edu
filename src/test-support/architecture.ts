@@ -42,7 +42,7 @@ export const MODULES: Readonly<Record<string, ModuleSpec>> = {
   evidence: { layer: 'domain', purpose: 'Episode packages, check registry, attribution and metrics', mayImport: ['brain', 'core', 'platform'] },
   adapters: { layer: 'service', purpose: 'Per-host install plans: managed blocks, JSON/TOML merges, manifests, host files', mayImport: ['brain', 'core', 'platform', 'skills'] },
   detach: { layer: 'service', purpose: 'Removes other tools from host configs, with backups and undo', mayImport: ['adapters', 'platform'] },
-  doctor: { layer: 'service', purpose: 'Health checks: CLI integration, native plugins, context weight', mayImport: ['adapters', 'core', 'detach', 'platform'] },
+  doctor: { layer: 'service', purpose: 'Health checks: CLI integration, native plugins, context weight, profile copies', mayImport: ['adapters', 'brain', 'core', 'detach', 'platform', 'profile'] },
   release: { layer: 'service', purpose: 'Release capabilities of the running version', mayImport: ['platform'] },
   vault: { layer: 'service', purpose: 'Obsidian vault link and Git sync with conflict copies', mayImport: ['brain', 'core', 'platform', 'profile'] },
   update: { layer: 'service', purpose: 'Verified self-update and workspace migrations', mayImport: ['brain', 'platform', 'release'] },

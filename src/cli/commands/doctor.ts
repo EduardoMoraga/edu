@@ -1,4 +1,4 @@
-/** `edu doctor`: Node, CLIs (+ sign-in hint), integrations, brains, Obsidian link. */
+/** `edu doctor`: Node, CLIs (+ sign-in hint), integrations, brains, profiles, Obsidian link. */
 import { join } from 'node:path';
 import type { Command } from 'commander';
 import { brainPath, openBrain } from '../../brain/index.js';
@@ -6,6 +6,7 @@ import type { BrainLocation, CliId } from '../../core/contracts.js';
 import { globalHome, type CliContext } from '../context.js';
 import { t } from '../i18n.js';
 import { action, look, printJson, statusLine, type Level } from '../kit.js';
+import { formatProfileLines, inspectCopies, isolationExitCode, type ProfileLine } from '../../doctor/profiles.js';
 import { brainDir, linkPath, linkState } from '../../vault/link.js';
 import { effectiveConfig, exists, openWorkspace } from '../workspace.js';
 import { readProjects } from '../../brain/registry.js';
@@ -28,6 +29,8 @@ export const AUTH_HINTS: Record<CliId, string> = {
 export interface DoctorLine {
   level: Level;
   text: string;
+  /** Section text. No status glyph, so a heading stays a heading on a narrow terminal. */
+  plain?: true;
 }
 
 export function nodeLine(version: string, lang: 'en' | 'es'): DoctorLine {
@@ -40,7 +43,7 @@ export function nodeLine(version: string, lang: 'en' | 'es'): DoctorLine {
 export function registerDoctor(program: Command, ctx: CliContext): void {
   program
     .command('doctor')
-    .description('check Node, coding CLIs, integrations, brains and the Obsidian link')
+    .description('check Node, coding CLIs, integrations, brains, profiles and the Obsidian link')
     .option('--json', 'machine-readable output')
     .option('--context', 'measure startup instructions and competing integrations')
     .option('--integrations', 'nonmutating optional integration policy and configuration preflight')
@@ -77,6 +80,7 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         lines.push(await binaryOnPath('edu', ctx.env)
           ? { level: 'ok', text: lang === 'es' ? '`edu` está en el PATH' : '`edu` is on PATH' }
           : { level: 'fail', text: lang === 'es' ? '`edu` no está en el PATH: los hosts no pueden iniciar `edu mcp` ni los hooks. Agregue el bin global de npm (npm prefix -g) al PATH.' : '`edu` is not on PATH: hosts cannot start `edu mcp` or its hooks. Add the npm global bin directory (npm prefix -g) to PATH.' });
+        const profileAt = lines.length;
         const { diagnose, installProblems, quarantineProblem } = await import('../../doctor/diagnose.js');
         const diagnoseOptions = { root: g.cwd, home: process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, env: ctx.env, packageRoot: packageRoot() };
         const clis = await diagnose(diagnoseOptions);
@@ -118,25 +122,60 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         }
 
         let vault: { link?: string; state: string } = { state: 'none' };
+        const userHome = process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home;
+        const vaultRoots: string[] = [];
+        let obsidianRoot: string | undefined;
         if (await exists(join(ws.primary.root, 'config.json'))) {
           const config = await effectiveConfig(ws.primary.root, []);
           if (config.brain.obsidianVault) {
+            obsidianRoot = config.brain.obsidianVault;
             const link = linkPath(config.brain.obsidianVault, ws.primary);
             vault = { link, state: await linkState(link, brainDir(ws.primary)) };
           }
         }
-        if (vault.state === 'none') {
-          const defaultVault = join(process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home, 'EduVault');
-          if (await exists(join(defaultVault, 'Home.md'))) {
-            const link = linkPath(defaultVault, ws.primary);
-            vault = { link, state: await linkState(link, brainDir(ws.primary)) };
-          }
+        const defaultVault = join(userHome, 'EduVault');
+        if (vault.state === 'none' && await exists(join(defaultVault, 'Home.md'))) {
+          const link = linkPath(defaultVault, ws.primary);
+          vault = { link, state: await linkState(link, brainDir(ws.primary)) };
         }
+        if (await exists(defaultVault)) vaultRoots.push(defaultVault);
+        if (obsidianRoot) vaultRoots.push(obsidianRoot);
         if (vault.state === 'none') lines.push({ level: 'warn', text: t(lang, 'doctor.vaultNone') });
         else if (vault.state === 'ok') lines.push({ level: 'ok', text: t(lang, 'doctor.vaultOk', { link: vault.link! }) });
         else lines.push({ level: 'fail', text: t(lang, 'doctor.vaultBroken', { link: vault.link! }) });
 
         const sync = await readSyncState(globalHome(ctx));
+        if (sync?.vault) vaultRoots.push(sync.vault);
+        const session = globalHome(ctx);
+        const fallbackHome = join(userHome, '.edu');
+        const sameHome = process.platform === 'win32' ? session.toLowerCase() === fallbackHome.toLowerCase() : session === fallbackHome;
+        const homes = [session];
+        if (!sameHome && await exists(fallbackHome)) homes.push(fallbackHome);
+        const extraProjects: { name: string; brain: string; home: string }[] = [];
+        for (const home of homes) {
+          if (home === session) continue;
+          try {
+            const registry = await readProjects(home);
+            extraProjects.push(...registry.projects.map(project => ({ name: project.name, brain: project.brain, home })));
+          } catch {
+            // A second home with a broken registry still shows its profile. Doctor does not rewrite it.
+          }
+        }
+        const profileReport = await inspectCopies({
+          platform: process.platform,
+          env: ctx.env,
+          homes,
+          vaults: vaultRoots,
+          projects: [
+            ...projects.projects.map(project => ({ name: project.name, brain: project.brain, home: session })),
+            ...extraProjects,
+          ],
+        });
+        if (isolationExitCode(profileReport) === 1) ctx.setExitCode(1);
+        const profileLines: DoctorLine[] = formatProfileLines(profileReport, lang).map((line: ProfileLine) => (
+          line.plain ? { level: line.level, text: line.text, plain: true } : { level: line.level, text: line.text }
+        ));
+        lines.splice(profileAt, 0, ...profileLines);
         if (sync) {
           const stale = Date.now() - Date.parse(sync.at) > 30 * 60_000;
           const level: Level = sync.state === 'conflict' || sync.state === 'error' ? 'fail' : stale || sync.state !== 'ok' ? 'warn' : 'ok';
@@ -144,13 +183,14 @@ export function registerDoctor(program: Command, ctx: CliContext): void {
         }
 
         if (g.json || opts.json) {
-          printJson(ctx, { node: process.version, clis, problems, projects: projects.projects, brains, vault, sync: sync ?? null, lines });
+          printJson(ctx, { node: process.version, clis, problems, projects: projects.projects, brains, vault, sync: sync ?? null, profileReport, lines });
           return;
         }
         const style = look(ctx);
         ctx.out(t(lang, 'doctor.title'));
         for (const line of lines) {
-          ctx.out(line.text.startsWith('  ') ? `  ${line.text.trim()}` : statusLine(style, line.level, line.text));
+          if (line.plain) ctx.out(line.text);
+          else ctx.out(line.text.startsWith('  ') ? `  ${line.text.trim()}` : statusLine(style, line.level, line.text));
         }
       }),
     );
