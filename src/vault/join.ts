@@ -20,7 +20,7 @@ import { hostname } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import {
   assertProfileRemote, assertProfileVault, defaultVaultDir, profileJson, readHomeProfile, sameProfileHome,
-  CHEIL_REMOTE, PERSONAL_REMOTE, ProfileError, type JoinBinding, type Profile,
+  ProfileError, type JoinBinding,
 } from '../profile/profile.js';
 import { createVaultLink } from './link.js';
 import { git, gitLines, redact, sameRemote, withoutCredentials } from './git.js';
@@ -33,12 +33,8 @@ export type JoinAction = 'cloned' | 'merged' | 'imported' | 'already-joined';
 export interface JoinOptions {
   url: string;
   eduHome: string;
-  /**
-   * Profile this home joins. The home is that profile's `EDU_HOME`, not a shared folder.
-   * Absent keeps today's join and does not write `profile.json`.
-   */
   binding?: JoinBinding;
-  /** Where the repository lives; default the brain folder itself (or `<eduHome>/vault` with `subdir`). Cheil on Windows defaults to `C:\\Cheil`. */
+  /** Where the repository lives; default the brain folder itself (or `<eduHome>/vault` with `subdir`). */
   path?: string;
   /** Folder inside the repository that holds the brain (for example `01-CONOCIMIENTO`). */
   subdir?: string;
@@ -87,13 +83,12 @@ function guardVault(binding: JoinBinding | undefined, repo: string, brain: strin
   if (binding) assertProfileVault(binding, repo, brain, { platform });
 }
 
-/** Records the joined profile beside the brain. A second join with the same text does not rewrite it. */
 async function saveProfile(binding: JoinBinding, brain: string, platform: NodeJS.Platform): Promise<void> {
   const paths = pathsFor(platform);
   const resolvedBrain = await realpath(brain).catch(() => paths.resolve(brain));
-  const profile: Profile = binding.id === 'personal'
-    ? { id: 'personal', home: binding.home, brain: resolvedBrain, remote: PERSONAL_REMOTE }
-    : { id: 'cheil', home: binding.home, brain: resolvedBrain, remote: CHEIL_REMOTE };
+  const profile = binding.id === 'personal'
+    ? { ...binding, brain: resolvedBrain }
+    : { ...binding, brain: resolvedBrain };
   const next = profileJson(profile, { platform });
   const file = paths.join(binding.home, 'profile.json');
   const current = await readFile(file, 'utf8').catch((error: NodeJS.ErrnoException) => {

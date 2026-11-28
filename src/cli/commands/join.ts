@@ -1,4 +1,3 @@
-/** `edu join <repo>`: attach this machine or a cloud sandbox to one profile's shared brain. */
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import { globalHome, type CliContext } from '../context.js';
@@ -11,7 +10,6 @@ import { parseMinutes, printSync, scheduleSync } from './sync.js';
 
 interface JoinOpts { path?: string; subdir?: string; branch?: string; cloud?: boolean; install?: boolean; minutes?: string; host?: string; json?: boolean; profile?: string }
 
-/** Removed when each profile has its own Windows task. Until then EduSync is one name. */
 const CHEIL_SCHEDULE_REFUSED = 'edu join --install is refused for a cheil profile until each profile has its own Windows task. EduSync is still one name. Run edu sync by hand.';
 
 async function resolveJoinBinding(ctx: CliContext, flag: string | undefined): Promise<JoinBinding | undefined> {

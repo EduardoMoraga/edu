@@ -18,7 +18,6 @@ export const PERSONAL_REMOTE = 'EduardoMoraga/edu-vault' as const;
 export const CHEIL_REMOTE = 'EduardoMCheil/cheil-vault' as const;
 
 const CHEIL_ROOT = 'c:\\cheil';
-/** Cheil's vault on the Windows machine. Join uses this as the default path. */
 export const CHEIL_VAULT_DIR = 'C:\\Cheil';
 
 export type ProfileErrorCode = 'invalid' | 'unreadable' | 'remote-mismatch' | 'cheil-root' | 'vault-root' | 'home-mismatch';
@@ -69,12 +68,9 @@ export interface SessionSource extends ProfileOptions {
 type Paths = typeof path.win32;
 export type ProfileId = Profile['id'];
 
-/** The profile a join attaches, before the vault path exists. The remote is the profile's, not the URL's. */
-export interface JoinBinding {
-  readonly id: ProfileId;
-  readonly home: string;
-  readonly remote: typeof PERSONAL_REMOTE | typeof CHEIL_REMOTE;
-}
+export type JoinBinding =
+  | { readonly id: 'personal'; readonly home: string; readonly remote: typeof PERSONAL_REMOTE }
+  | { readonly id: 'cheil'; readonly home: string; readonly remote: typeof CHEIL_REMOTE };
 
 const ProfileFileSchema = z.object({
   id: z.enum(['personal', 'cheil'], { error: 'must be personal or cheil' }),
@@ -171,12 +167,14 @@ export function parseProfileId(value: string): ProfileId {
   throw new ProfileError('invalid', 'profile must be personal or cheil');
 }
 
-/** The session home joined as `id`. A personal home inside `C:\\Cheil` is refused. */
 export function joinBinding(id: ProfileId, home: string, options: ProfileOptions = {}): JoinBinding {
   const platform = options.platform ?? process.platform;
   const resolved = absolutePath('home', home, pathsFor(platform));
-  if (id === 'personal') assertOutsideCheil('home', resolved, options.realpath ?? defaultRealpath);
-  return { id, home: resolved, remote: requiredRemote(id) };
+  if (id === 'personal') {
+    assertOutsideCheil('home', resolved, options.realpath ?? defaultRealpath);
+    return { id, home: resolved, remote: PERSONAL_REMOTE };
+  }
+  return { id, home: resolved, remote: CHEIL_REMOTE };
 }
 
 export function sameProfileHome(left: string, right: string, platform: NodeJS.Platform = process.platform): boolean {
@@ -184,17 +182,13 @@ export function sameProfileHome(left: string, right: string, platform: NodeJS.Pl
   return sameHome(paths.resolve(left), paths.resolve(right), platform);
 }
 
-/** Refuses a GitHub remote that belongs to the other profile. A filesystem path has no GitHub identity. */
 export function assertProfileRemote(binding: JoinBinding, url: string): void {
-  const stripped = url.trim().replace(/^(https?:\/\/)[^/\s@]+@/i, '$1');
-  const canonical = canonicalRemote(stripped);
-  if (canonical === binding.remote) return;
-  if (canonical || /github\.com/i.test(url)) {
-    throw new ProfileError('remote-mismatch', `${binding.id} profile remote must be ${binding.remote}`);
-  }
+  const withoutUserinfo = url.trim().replace(/^(https?:\/\/)[^/\s@]+@/i, '$1');
+  const github = canonicalRemote(withoutUserinfo);
+  if (github === undefined && !/github\.com/i.test(url)) return;
+  if (github !== binding.remote) throw new ProfileError('remote-mismatch', `${binding.id} profile remote must be ${binding.remote}`);
 }
 
-/** Cheil on Windows clones into `C:\\Cheil` when the caller does not pass a path. */
 export function defaultVaultDir(binding: JoinBinding, platform: NodeJS.Platform): string | undefined {
   return binding.id === 'cheil' && platform === 'win32' ? CHEIL_VAULT_DIR : undefined;
 }
@@ -204,10 +198,6 @@ function insideCheil(file: string, realpath: (file: string) => string | undefine
   return underCheil(file) || (linked !== undefined && underCheil(linked));
 }
 
-/**
- * Where this profile may keep its vault. On Windows, cheil stays inside `C:\\Cheil` and personal stays outside.
- * Other platforms have no `C:\\Cheil` ceiling; the remote check still applies.
- */
 export function assertProfileVault(binding: JoinBinding, repo: string, brain: string, options: ProfileOptions = {}): void {
   const platform = options.platform ?? process.platform;
   if (platform !== 'win32') return;
@@ -222,7 +212,6 @@ export function assertProfileVault(binding: JoinBinding, repo: string, brain: st
   }
 }
 
-/** `profile.json` text for a binding that already passed `parseProfile`. */
 export function profileJson(profile: Profile, options: ProfileOptions = {}): string {
   const parsed = parseProfile(
     { id: profile.id, home: profile.home, brain: profile.brain, remote: profile.remote },
@@ -259,10 +248,6 @@ export function resolveSessionHome(source: Pick<SessionSource, 'env' | 'platform
   return sessionHome(source.env, pathsFor(platform), source.homedir ?? osHomedir);
 }
 
-/**
- * The profile declared in this home, or undefined when `profile.json` is absent.
- * A missing file is not the implicit personal profile; `loadSessionProfile` adds that.
- */
 export async function readHomeProfile(source: SessionSource): Promise<Profile | undefined> {
   const platform = source.platform ?? process.platform;
   const paths = pathsFor(platform);

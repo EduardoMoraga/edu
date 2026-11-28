@@ -3569,20 +3569,21 @@ function parseProfileId(value) {
 function joinBinding(id, home, options = {}) {
   const platform = options.platform ?? process.platform;
   const resolved = absolutePath("home", home, pathsFor(platform));
-  if (id === "personal") assertOutsideCheil("home", resolved, options.realpath ?? defaultRealpath);
-  return { id, home: resolved, remote: requiredRemote(id) };
+  if (id === "personal") {
+    assertOutsideCheil("home", resolved, options.realpath ?? defaultRealpath);
+    return { id, home: resolved, remote: PERSONAL_REMOTE };
+  }
+  return { id, home: resolved, remote: CHEIL_REMOTE };
 }
 function sameProfileHome(left, right, platform = process.platform) {
   const paths = pathsFor(platform);
   return sameHome(paths.resolve(left), paths.resolve(right), platform);
 }
 function assertProfileRemote(binding, url) {
-  const stripped = url.trim().replace(/^(https?:\/\/)[^/\s@]+@/i, "$1");
-  const canonical = canonicalRemote(stripped);
-  if (canonical === binding.remote) return;
-  if (canonical || /github\.com/i.test(url)) {
-    throw new ProfileError("remote-mismatch", `${binding.id} profile remote must be ${binding.remote}`);
-  }
+  const withoutUserinfo = url.trim().replace(/^(https?:\/\/)[^/\s@]+@/i, "$1");
+  const github = canonicalRemote(withoutUserinfo);
+  if (github === void 0 && !/github\.com/i.test(url)) return;
+  if (github !== binding.remote) throw new ProfileError("remote-mismatch", `${binding.id} profile remote must be ${binding.remote}`);
 }
 function defaultVaultDir(binding, platform) {
   return binding.id === "cheil" && platform === "win32" ? CHEIL_VAULT_DIR : void 0;
@@ -3673,7 +3674,7 @@ function guardVault(binding, repo, brain, platform) {
 async function saveProfile(binding, brain, platform) {
   const paths = pathsFor2(platform);
   const resolvedBrain = await realpath4(brain).catch(() => paths.resolve(brain));
-  const profile = binding.id === "personal" ? { id: "personal", home: binding.home, brain: resolvedBrain, remote: PERSONAL_REMOTE } : { id: "cheil", home: binding.home, brain: resolvedBrain, remote: CHEIL_REMOTE };
+  const profile = binding.id === "personal" ? { ...binding, brain: resolvedBrain } : { ...binding, brain: resolvedBrain };
   const next = profileJson(profile, { platform });
   const file = paths.join(binding.home, "profile.json");
   const current = await readFile15(file, "utf8").catch((error) => {
@@ -4670,4 +4671,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-RHH4DKSO.js.map
+//# sourceMappingURL=chunk-BXAA3EBQ.js.map
