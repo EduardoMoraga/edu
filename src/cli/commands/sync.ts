@@ -21,12 +21,12 @@ export function describeSync(result: SyncResult | undefined, now = Date.now()): 
 const userHome = (ctx: CliContext) => process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home;
 
 /** Schedules `edu sync` with this node and CLI; keeps a non-default EDU_HOME and cloud mode. */
-export async function scheduleSync(ctx: CliContext, options: { minutes: number; cloud?: boolean; vault?: string }): Promise<ScheduleResult> {
-  const eduHome = globalHome(ctx);
+export async function scheduleSync(ctx: CliContext, options: { minutes: number; cloud?: boolean; vault?: string; eduHome?: string }): Promise<ScheduleResult> {
+  const eduHome = options.eduHome ?? globalHome(ctx);
   const vault = options.vault ?? await findVault(eduHome, ctx.env).catch(() => undefined);
   return installSchedule({
     home: userHome(ctx), eduHome, node: process.execPath, cli: realpathSync(process.argv[1] ?? ''), minutes: options.minutes, path: ctx.env.PATH,
-    args: options.cloud ? ['--cloud'] : [], env: ctx.env.EDU_HOME ? { EDU_HOME: eduHome } : {}, vault,
+    args: options.cloud ? ['--cloud'] : [], env: ctx.env.EDU_HOME || options.eduHome ? { EDU_HOME: eduHome } : {}, vault,
   });
 }
 

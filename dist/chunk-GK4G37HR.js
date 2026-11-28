@@ -1,6 +1,6 @@
 import {
   getCapabilities
-} from "./chunk-W7AWSQHQ.js";
+} from "./chunk-UKEAGCUS.js";
 import {
   readProjects
 } from "./chunk-KDSAKUP2.js";
@@ -296,4 +296,4 @@ export {
   backupUpgradeFiles,
   migrateWorkspaces
 };
-//# sourceMappingURL=chunk-MHUVV55D.js.map
+//# sourceMappingURL=chunk-GK4G37HR.js.map

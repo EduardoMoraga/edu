@@ -15,7 +15,7 @@ import {
   registerPluginSetup,
   resolveGlobals,
   statusLine
-} from "./chunk-PXRO3UBO.js";
+} from "./chunk-YSGPCXME.js";
 import {
   fsCrewSource
 } from "./chunk-NGZ663P7.js";
@@ -38,7 +38,7 @@ import {
   editContent,
   editInstructions,
   ownerOf
-} from "./chunk-AJIDT4OC.js";
+} from "./chunk-VFHYB4RU.js";
 import {
   CHECKSUMS_ASSET,
   UpdateError,
@@ -49,10 +49,10 @@ import {
   sha256Hex,
   trustedAssetUrl,
   whatsNew
-} from "./chunk-MHUVV55D.js";
+} from "./chunk-GK4G37HR.js";
 import {
   getCapabilities
-} from "./chunk-W7AWSQHQ.js";
+} from "./chunk-UKEAGCUS.js";
 import {
   LINT_KINDS,
   TIDY_KINDS,
@@ -470,7 +470,8 @@ function registerBrainReview(brain, ctx) {
 import { join as join4, resolve as resolve3 } from "path";
 
 // src/vault/link.ts
-import { lstat, mkdir as mkdir2, readlink, realpath, symlink } from "fs/promises";
+import { realpathSync } from "fs";
+import { lstat, mkdir as mkdir2, readlink, symlink } from "fs/promises";
 import { basename, dirname as dirname2, join as join3, resolve as resolve2 } from "path";
 function linkName(location) {
   return location.scope === "global" ? "_global" : basename(dirname2(location.root)) || "project";
@@ -481,12 +482,18 @@ function brainDir(location) {
 function linkPath(vault, location) {
   return join3(resolve2(vault), "Edu", linkName(location));
 }
+function plainAbsolute(path3) {
+  if (/^\\\\\?\\UNC\\/i.test(path3)) return `\\\\${path3.slice(8)}`;
+  if (/^\\\\\?\\[A-Za-z]:\\/.test(path3)) return path3.slice(4);
+  return path3;
+}
+async function canonicalPath(path3) {
+  return plainAbsolute(realpathSync.native(path3));
+}
 async function samePath(a, b) {
-  try {
-    return await realpath(a) === await realpath(b);
-  } catch {
-    return resolve2(a) === resolve2(b);
-  }
+  const left = await canonicalPath(a).catch(() => plainAbsolute(resolve2(a)));
+  const right = await canonicalPath(b).catch(() => plainAbsolute(resolve2(b)));
+  return left === right;
 }
 async function linkState(link, target) {
   let info;
@@ -735,7 +742,7 @@ function registerSetup(program, ctx) {
       const brainRoot = globalHome(ctx);
       let purgeBrain = false;
       if (opts.purgeBrain) {
-        const { assertPurgeableBrain } = await import("./uninstall-DLQE2OOJ.js");
+        const { assertPurgeableBrain } = await import("./uninstall-5CMHU7ZL.js");
         if (await exists(join5(brainRoot, "EDU.md"))) {
           await assertPurgeableBrain(brainRoot, ctx.home);
           const question = es ? `\xBFBorrar el cerebro ${brainRoot} con todas sus notas? Esto no se puede deshacer.` : `Delete the brain ${brainRoot} and all its notes? This cannot be undone.`;
@@ -745,7 +752,7 @@ function registerSetup(program, ctx) {
           if (!purgeBrain) ctx.out(es ? "El cerebro se conserva." : "Keeping the brain.");
         }
       }
-      const { uninstallEdu } = await import("./uninstall-DLQE2OOJ.js");
+      const { uninstallEdu } = await import("./uninstall-5CMHU7ZL.js");
       const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain });
       if (g.json) {
         printJson(ctx, report);
@@ -1488,12 +1495,12 @@ function registerDeck(program, ctx) {
 import { join as join15 } from "path";
 
 // src/doctor/profiles.ts
-import { realpathSync as realpathSync2 } from "fs";
+import { realpathSync as realpathSync3 } from "fs";
 import { readdir as readdir3, readFile as readFile6 } from "fs/promises";
 import path2 from "path";
 
 // src/profile/profile.ts
-import { realpathSync } from "fs";
+import { realpathSync as realpathSync2 } from "fs";
 import { readFile as readFile5 } from "fs/promises";
 import { homedir as osHomedir } from "os";
 import path from "path";
@@ -1501,6 +1508,7 @@ import { z } from "zod";
 var PERSONAL_REMOTE = "EduardoMoraga/edu-vault";
 var CHEIL_REMOTE = "EduardoMCheil/cheil-vault";
 var CHEIL_ROOT = "c:\\cheil";
+var CHEIL_VAULT_DIR = "C:\\Cheil";
 var ProfileError = class extends Error {
   code;
   constructor(code, message) {
@@ -1522,7 +1530,7 @@ var present = (value) => {
 };
 function defaultRealpath(file) {
   try {
-    return realpathSync(file);
+    return realpathSync2(file);
   } catch {
     return void 0;
   }
@@ -1542,16 +1550,16 @@ function underCheil(file) {
   const parent = `..${path.win32.sep}`;
   return rel === "" || !path.win32.isAbsolute(rel) && rel !== ".." && !rel.startsWith(parent);
 }
-function linkedPath(file, realpath6) {
+function linkedPath(file, realpath4) {
   try {
-    const found = realpath6(file);
+    const found = realpath4(file);
     return found || void 0;
   } catch {
     return void 0;
   }
 }
-function assertOutsideCheil(field, file, realpath6) {
-  const linked = linkedPath(file, realpath6);
+function assertOutsideCheil(field, file, realpath4) {
+  const linked = linkedPath(file, realpath4);
   if (underCheil(file) || linked !== void 0 && underCheil(linked)) {
     throw new ProfileError("cheil-root", `personal profile ${field} must stay outside C:\\Cheil`);
   }
@@ -1582,18 +1590,70 @@ function parseProfile(input, options = {}) {
   const parsed = ProfileFileSchema.safeParse(input);
   if (!parsed.success) throw new ProfileError("invalid", invalidMessage(parsed.error));
   const paths = pathsFor(options.platform ?? process.platform);
-  const realpath6 = options.realpath ?? defaultRealpath;
+  const realpath4 = options.realpath ?? defaultRealpath;
   const home = absolutePath("home", parsed.data.home, paths);
   const brain = absolutePath("brain", parsed.data.brain, paths);
   const remote = canonicalRemote(parsed.data.remote);
   const required = requiredRemote(parsed.data.id);
   if (remote !== required) throw new ProfileError("remote-mismatch", `${parsed.data.id} profile remote must be ${required}`);
   if (parsed.data.id === "personal") {
-    assertOutsideCheil("home", home, realpath6);
-    assertOutsideCheil("brain", brain, realpath6);
+    assertOutsideCheil("home", home, realpath4);
+    assertOutsideCheil("brain", brain, realpath4);
     return { id: "personal", home, brain, remote: PERSONAL_REMOTE };
   }
   return { id: "cheil", home, brain, remote: CHEIL_REMOTE };
+}
+function parseProfileId(value) {
+  const id = value.trim();
+  if (id === "personal" || id === "cheil") return id;
+  throw new ProfileError("invalid", "profile must be personal or cheil");
+}
+function joinBinding(id, home, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const resolved = absolutePath("home", home, pathsFor(platform));
+  if (id === "personal") {
+    assertOutsideCheil("home", resolved, options.realpath ?? defaultRealpath);
+    return { id, home: resolved, remote: PERSONAL_REMOTE };
+  }
+  return { id, home: resolved, remote: CHEIL_REMOTE };
+}
+function sameProfileHome(left, right, platform = process.platform) {
+  const paths = pathsFor(platform);
+  return sameHome(paths.resolve(left), paths.resolve(right), platform);
+}
+function assertProfileRemote(binding, url) {
+  const withoutUserinfo = url.trim().replace(/^(https?:\/\/)[^/\s@]+@/i, "$1");
+  const github = canonicalRemote(withoutUserinfo);
+  if (github === void 0 && !/github\.com/i.test(url)) return;
+  if (github !== binding.remote) throw new ProfileError("remote-mismatch", `${binding.id} profile remote must be ${binding.remote}`);
+}
+function defaultVaultDir(binding, platform) {
+  return binding.id === "cheil" && platform === "win32" ? CHEIL_VAULT_DIR : void 0;
+}
+function insideCheil(file, realpath4) {
+  const linked = linkedPath(file, realpath4);
+  return underCheil(file) || linked !== void 0 && underCheil(linked);
+}
+function assertProfileVault(binding, repo, brain, options = {}) {
+  const platform = options.platform ?? process.platform;
+  if (platform !== "win32") return;
+  const realpath4 = options.realpath ?? defaultRealpath;
+  if (binding.id === "personal") {
+    assertOutsideCheil("vault", repo, realpath4);
+    assertOutsideCheil("brain", brain, realpath4);
+    return;
+  }
+  if (!insideCheil(repo, realpath4) || !insideCheil(brain, realpath4)) {
+    throw new ProfileError("vault-root", `cheil vault must stay inside ${CHEIL_VAULT_DIR}`);
+  }
+}
+function profileJson(profile, options = {}) {
+  const parsed = parseProfile(
+    { id: profile.id, home: profile.home, brain: profile.brain, remote: profile.remote },
+    options
+  );
+  return `${JSON.stringify({ id: parsed.id, home: parsed.home, brain: parsed.brain, remote: parsed.remote }, null, 2)}
+`;
 }
 function sessionHome(env, paths, homedir2) {
   const eduHome = present(env.EDU_HOME);
@@ -1604,27 +1664,31 @@ function sessionHome(env, paths, homedir2) {
 function sameHome(left, right, platform) {
   return platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
-function implicitPersonal(home, paths, realpath6) {
+function implicitPersonal(home, paths, realpath4) {
   const brain = paths.resolve(paths.join(home, "brain"));
-  assertOutsideCheil("home", home, realpath6);
-  assertOutsideCheil("brain", brain, realpath6);
+  assertOutsideCheil("home", home, realpath4);
+  assertOutsideCheil("brain", brain, realpath4);
   return { id: "personal", home, brain, remote: PERSONAL_REMOTE };
 }
 function errorCode(error) {
   return error !== null && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : void 0;
 }
-async function loadSessionProfile(source) {
+function resolveSessionHome(source) {
+  const platform = source.platform ?? process.platform;
+  return sessionHome(source.env, pathsFor(platform), source.homedir ?? osHomedir);
+}
+async function readHomeProfile(source) {
   const platform = source.platform ?? process.platform;
   const paths = pathsFor(platform);
-  const realpath6 = source.realpath ?? defaultRealpath;
-  const home = sessionHome(source.env, paths, source.homedir ?? osHomedir);
+  const realpath4 = source.realpath ?? defaultRealpath;
+  const home = resolveSessionHome(source);
   const file = paths.join(home, "profile.json");
-  const read = source.readFile ?? ((file2) => readFile5(file2, "utf8"));
+  const read = source.readFile ?? ((target) => readFile5(target, "utf8"));
   let text;
   try {
     text = await read(file);
   } catch (error) {
-    if (errorCode(error) === "ENOENT") return implicitPersonal(home, paths, realpath6);
+    if (errorCode(error) === "ENOENT") return void 0;
     const detail = error instanceof Error ? error.message : String(error);
     throw new ProfileError("unreadable", `unable to read ${file}: ${detail}`);
   }
@@ -1634,11 +1698,17 @@ async function loadSessionProfile(source) {
   } catch {
     throw new ProfileError("invalid", `profile.json is not valid JSON: ${file}`);
   }
-  const profile = parseProfile(raw, { platform, realpath: realpath6 });
+  const profile = parseProfile(raw, { platform, realpath: realpath4 });
   if (!sameHome(profile.home, home, platform)) {
     throw new ProfileError("home-mismatch", `profile.json home ${profile.home} does not match the session home ${home}`);
   }
   return profile;
+}
+async function loadSessionProfile(source) {
+  const existing = await readHomeProfile(source);
+  if (existing) return existing;
+  const platform = source.platform ?? process.platform;
+  return implicitPersonal(resolveSessionHome(source), pathsFor(platform), source.realpath ?? defaultRealpath);
 }
 
 // src/doctor/profiles.ts
@@ -1651,7 +1721,7 @@ function isolationExitCode(report) {
 }
 function defaultRealpath2(file) {
   try {
-    return realpathSync2(file);
+    return realpathSync3(file);
   } catch {
     return void 0;
   }
@@ -1669,13 +1739,13 @@ function codeOf(error) {
 function samePath2(left, right, platform) {
   return platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
-function crossesCheil(file, field, realpath6) {
+function crossesCheil(file, field, realpath4) {
   const home = field === "home" ? file : PROBE_HOME;
   const brain = field === "brain" ? file : PROBE_BRAIN;
   try {
     parseProfile(
       { id: "personal", home, brain, remote: PERSONAL_REMOTE },
-      { platform: "win32", realpath: (candidate) => candidate === file ? realpath6(candidate) : void 0 }
+      { platform: "win32", realpath: (candidate) => candidate === file ? realpath4(candidate) : void 0 }
     );
     return false;
   } catch (error) {
@@ -1719,17 +1789,17 @@ function pickDeclared(raw, paths) {
   const id = record.id === "personal" || record.id === "cheil" ? record.id : void 0;
   return { id, home: showPath(text(record.home), paths), brain: showPath(text(record.brain), paths), remote: text(record.remote) };
 }
-function linkedPath2(file, realpath6) {
+function linkedPath2(file, realpath4) {
   try {
-    const found = realpath6(file);
+    const found = realpath4(file);
     return found || void 0;
   } catch {
     return void 0;
   }
 }
-function shownCheil(spelled, realpath6, paths) {
+function shownCheil(spelled, realpath4, paths) {
   const display = paths.isAbsolute(spelled) ? paths.resolve(spelled) : spelled;
-  const linked = linkedPath2(spelled, realpath6) ?? linkedPath2(display, realpath6);
+  const linked = linkedPath2(spelled, realpath4) ?? linkedPath2(display, realpath4);
   if (!linked) return display;
   const target = paths.isAbsolute(linked) ? paths.resolve(linked) : linked;
   const same = paths === path2.win32 ? display.toLowerCase() === target.toLowerCase() : display === target;
@@ -1818,9 +1888,9 @@ async function declaredFields(home, readText, paths) {
     return {};
   }
 }
-async function loadHome(home, platform, paths, realpath6, readText) {
+async function loadHome(home, platform, paths, realpath4, readText) {
   try {
-    const profile = await loadSessionProfile({ platform, env: { EDU_HOME: home }, readFile: readText, realpath: realpath6, homedir: () => home });
+    const profile = await loadSessionProfile({ platform, env: { EDU_HOME: home }, readFile: readText, realpath: realpath4, homedir: () => home });
     return { profile };
   } catch (error) {
     if (!(error instanceof ProfileError)) throw error;
@@ -1838,11 +1908,11 @@ async function loadHome(home, platform, paths, realpath6, readText) {
     };
   }
 }
-function rejectionFinding(rejection, realpath6, paths) {
+function rejectionFinding(rejection, realpath4, paths) {
   if (rejection.code === "cheil-root" && rejection.id === "personal") {
-    const field = crossesCheil(rejection.home, "home", realpath6) ? "home" : "brain";
+    const field = crossesCheil(rejection.home, "home", realpath4) ? "home" : "brain";
     const spelled = field === "home" ? rejection.home : rejection.brain ?? rejection.home;
-    return { code: "cheil-root", id: "personal", home: rejection.directory, brain: rejection.brain, field, path: shownCheil(spelled, realpath6, paths) };
+    return { code: "cheil-root", id: "personal", home: rejection.directory, brain: rejection.brain, field, path: shownCheil(spelled, realpath4, paths) };
   }
   if (rejection.code === "remote-mismatch" && rejection.id) {
     return {
@@ -1867,12 +1937,12 @@ function pushFinding(findings, seen, finding, platform) {
   seen.add(key);
   findings.push(finding);
 }
-function copyFinding(copy, realpath6, paths) {
+function copyFinding(copy, realpath4, paths) {
   const remoteId = copy.remote ? remoteOwner(copy.remote) : void 0;
-  const pathCheil = crossesCheil(copy.root, "brain", realpath6);
+  const pathCheil = crossesCheil(copy.root, "brain", realpath4);
   const home = copy.home ?? "";
   if ((copy.owner === "personal" || !copy.owner && remoteId === "personal") && pathCheil) {
-    return { code: "cheil-root", id: "personal", home, brain: copy.root, field: "brain", path: shownCheil(copy.root, realpath6, paths) };
+    return { code: "cheil-root", id: "personal", home, brain: copy.root, field: "brain", path: shownCheil(copy.root, realpath4, paths) };
   }
   if (copy.owner === "personal" && remoteId === "cheil") {
     return { code: "remote-mismatch", id: "personal", home, brain: copy.root, remote: CHEIL_REMOTE, expected: PERSONAL_REMOTE };
@@ -1886,7 +1956,7 @@ async function inspectCopies(request) {
   const platform = request.platform ?? process.platform;
   const paths = platform === "win32" ? path2.win32 : path2.posix;
   const env = request.env ?? {};
-  const realpath6 = request.realpath ?? defaultRealpath2;
+  const realpath4 = request.realpath ?? defaultRealpath2;
   const readText = request.readFile ?? ((file) => readFile6(file, "utf8"));
   const readDir = request.readDir ?? defaultReadDir;
   const homes = [];
@@ -1894,7 +1964,7 @@ async function inspectCopies(request) {
     const resolved = paths.resolve(home);
     if (!homes.some((item) => samePath2(item, resolved, platform))) homes.push(resolved);
   }
-  const loaded = await Promise.all(homes.map((home) => loadHome(home, platform, paths, realpath6, readText)));
+  const loaded = await Promise.all(homes.map((home) => loadHome(home, platform, paths, realpath4, readText)));
   const profiles = [];
   const rejected = [];
   const findings = [];
@@ -1903,7 +1973,7 @@ async function inspectCopies(request) {
     if ("profile" in item) profiles.push(item.profile);
     else {
       rejected.push(item.rejection);
-      const finding = rejectionFinding(item.rejection, realpath6, paths);
+      const finding = rejectionFinding(item.rejection, realpath4, paths);
       if (finding) pushFinding(findings, seen, finding, platform);
     }
   }
@@ -1915,7 +1985,7 @@ async function inspectCopies(request) {
   };
   const identity = (file) => {
     const resolved = paths.resolve(file);
-    const linked = linkedPath2(resolved, realpath6) ?? linkedPath2(file, realpath6);
+    const linked = linkedPath2(resolved, realpath4) ?? linkedPath2(file, realpath4);
     const value = linked ? paths.resolve(linked) : resolved;
     return platform === "win32" ? value.toLowerCase() : value;
   };
@@ -1957,7 +2027,7 @@ async function inspectCopies(request) {
       continue;
     }
     const owner = ownerId(candidate.directory);
-    const pathCheil = crossesCheil(candidate.root, "brain", realpath6);
+    const pathCheil = crossesCheil(candidate.root, "brain", realpath4);
     const remoteId = remote ? remoteOwner(remote) : void 0;
     built.push({
       kind: candidate.kind,
@@ -1971,7 +2041,7 @@ async function inspectCopies(request) {
     });
   }
   for (const copy of built) {
-    const finding = copyFinding(copy, realpath6, paths);
+    const finding = copyFinding(copy, realpath4, paths);
     if (finding) pushFinding(findings, seen, finding, platform);
   }
   const copies = built.map((copy) => publish(copy));
@@ -2046,7 +2116,7 @@ function formatProfileLines(report, lang) {
 }
 
 // src/doctor/context.ts
-import { lstat as lstat2, readFile as readFile7, readdir as readdir4, realpath as realpath2 } from "fs/promises";
+import { lstat as lstat2, readFile as readFile7, readdir as readdir4, realpath } from "fs/promises";
 import { join as join10, relative as relative2, resolve as resolve7, sep } from "path";
 import { parse } from "jsonc-parser";
 
@@ -2102,8 +2172,8 @@ async function safeText(path3, home) {
   try {
     const info = await lstat2(path3);
     if (!info.isFile() && !info.isSymbolicLink()) return void 0;
-    const target = await realpath2(path3);
-    const rel = relative2(await realpath2(home), target);
+    const target = await realpath(path3);
+    const rel = relative2(await realpath(home), target);
     if (rel === ".." || rel.startsWith(`..${sep}`)) return void 0;
     return await readFile7(path3, "utf8");
   } catch (error) {
@@ -2318,7 +2388,7 @@ async function integrationPreflight(home, env = {}) {
 }
 
 // src/vault/sync.ts
-import { access, mkdir as mkdir4, readFile as readFile10, realpath as realpath3, writeFile as writeFile4 } from "fs/promises";
+import { access, mkdir as mkdir4, readFile as readFile10, realpath as realpath2, writeFile as writeFile4 } from "fs/promises";
 import { hostname } from "os";
 import { extname as extname2, join as join14, resolve as resolve9 } from "path";
 
@@ -2612,7 +2682,7 @@ function isEmptySession(text) {
   return body.split("\n").every((line) => !line.trim() || /^Transcript: /.test(line) || / session .* ended \(.*\)\.$/.test(line));
 }
 async function findVault(eduHome, env) {
-  const brain = await realpath3(join14(eduHome, "brain")).catch(() => join14(eduHome, "brain"));
+  const brain = await realpath2(join14(eduHome, "brain")).catch(() => join14(eduHome, "brain"));
   const top = await git(brain, ["rev-parse", "--show-toplevel"], env);
   if (top.code !== 0) throw new Error(`the brain (${brain}) is not inside a Git repository`);
   return top.out.trim();
@@ -2654,9 +2724,9 @@ async function syncBrain(options) {
   }
 }
 async function brainLock(eduHome, vault) {
-  const home = await realpath3(eduHome).catch(() => void 0);
-  const brain = await realpath3(join14(eduHome, "brain")).catch(() => void 0);
-  const repo = await realpath3(vault).catch(() => resolve9(vault));
+  const home = await realpath2(eduHome).catch(() => void 0);
+  const brain = await realpath2(join14(eduHome, "brain")).catch(() => void 0);
+  const repo = await realpath2(vault).catch(() => resolve9(vault));
   if (!home || !brain || !isInside(repo, brain)) return (body) => body();
   return (body) => withUsageLock(home, () => withLogLock(brain, body));
 }
@@ -2834,7 +2904,7 @@ async function writeSyncState(eduHome, result) {
 }
 
 // src/cli/commands/sync.ts
-import { realpathSync as realpathSync3 } from "fs";
+import { realpathSync as realpathSync4 } from "fs";
 var ALERT = /* @__PURE__ */ new Set(["conflict", "error"]);
 function describeSync(result, now = Date.now()) {
   if (!result) return "never synced on this machine";
@@ -2844,17 +2914,17 @@ function describeSync(result, now = Date.now()) {
 }
 var userHome = (ctx) => process.platform === "win32" ? ctx.env.USERPROFILE || ctx.home : ctx.home;
 async function scheduleSync(ctx, options) {
-  const eduHome = globalHome(ctx);
+  const eduHome = options.eduHome ?? globalHome(ctx);
   const vault = options.vault ?? await findVault(eduHome, ctx.env).catch(() => void 0);
   return installSchedule({
     home: userHome(ctx),
     eduHome,
     node: process.execPath,
-    cli: realpathSync3(process.argv[1] ?? ""),
+    cli: realpathSync4(process.argv[1] ?? ""),
     minutes: options.minutes,
     path: ctx.env.PATH,
     args: options.cloud ? ["--cloud"] : [],
-    env: ctx.env.EDU_HOME ? { EDU_HOME: eduHome } : {},
+    env: ctx.env.EDU_HOME || options.eduHome ? { EDU_HOME: eduHome } : {},
     vault
   });
 }
@@ -3098,7 +3168,7 @@ function registerDoctor(program, ctx) {
 }
 
 // src/cli/commands/dream.ts
-import { realpathSync as realpathSync4 } from "fs";
+import { realpathSync as realpathSync5 } from "fs";
 import { join as join16 } from "path";
 function registerDream(program, ctx) {
   program.command("dream").description("consolidate recent sessions from every host into a reviewable plan (new lessons, promotions, archive, link and claim fixes); nothing changes until --apply").option("--days <n>", "closed sessions from the last <n> days", "14").option("--stale-days <n>", 'age after which a time-sensitive claim needs an "(as of YYYY-MM-DD)" marker', "90").option("--unused-days <n>", "propose archiving candidate lessons and open hypotheses unused this long", "90").option("--min-sessions <n>", "sessions a topic must recur in to become a new-lesson proposal", "3").option("--model", "also ask the default agent CLI for proposals over the same evidence (uses a model)").option("--budget <n>", "prompt token budget with --model", "8000").option("--apply", "apply the checked proposals of the saved plan (edit the checkboxes first)").option("--install", "write the plan every night (systemd user timer or macOS LaunchAgent); never applies it").option("--uninstall", "stop and delete the nightly dream of this project (edu uninstall removes all of them)").option("--hour <n>", "hour of the nightly run with --install (0-23)", "3").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }) => {
@@ -3119,7 +3189,7 @@ function registerDream(program, ctx) {
     if (opts.install) {
       const hour = Number(opts.hour ?? "3");
       const { installDreamSchedule } = await import("./dream-schedule-T24IUDA5.js");
-      const result = await installDreamSchedule({ home: ctx.home, eduHome: globalHome(ctx), node: process.execPath, cli: realpathSync4(process.argv[1] ?? ""), cwd: g.cwd, hour, path: ctx.env.PATH });
+      const result = await installDreamSchedule({ home: ctx.home, eduHome: globalHome(ctx), node: process.execPath, cli: realpathSync5(process.argv[1] ?? ""), cwd: g.cwd, hour, path: ctx.env.PATH });
       if (json2) return printJson(ctx, result);
       ctx.out(`Scheduled a nightly dream (${result.kind}, ${String(hour).padStart(2, "0")}:30): ${result.files.join(", ")}`);
       ctx.out("Each run only writes the plan; review it and run edu dream --apply yourself.");
@@ -3697,7 +3767,7 @@ function registerIntegrations(program, ctx) {
   );
   program.command("mcp").description("serve the brain over MCP (stdio) for any MCP-capable CLI").action(
     action(ctx, async ({ g }) => {
-      const { runStdioServer } = await import("./stdio-OQ2CJFQC.js");
+      const { runStdioServer } = await import("./stdio-3CAUC43E.js");
       await runStdioServer({ cwd: g.cwd, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3822,7 +3892,7 @@ function registerMcpProject(program, ctx) {
   mcp.option("--project <name|path>", 'serve this workspace: registry name, agent name, path, or "global" (env EDU_PROJECT)').option("--profile <full|memory>", "tool surface: full (default) or memory only (env EDU_MCP_PROFILE)").action(
     action(ctx, async ({ g, opts }) => {
       if (opts.profile && opts.profile !== "full" && opts.profile !== "memory") throw new Error("Unknown MCP tool profile; use full or memory");
-      const { runStdioServer } = await import("./stdio-OQ2CJFQC.js");
+      const { runStdioServer } = await import("./stdio-3CAUC43E.js");
       await runStdioServer({ cwd: g.cwd, project: opts.project, toolProfile: opts.profile, env: { ...ctx.env, HOME: ctx.env.HOME ?? ctx.home } });
     })
   );
@@ -3922,7 +3992,7 @@ function printPlain(ctx, events) {
   }
 }
 async function openHome(ctx, g) {
-  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-AGS22TTM.js");
+  const { shouldRunFirstSetup, runPluginSetup } = await import("./plugins-D3TIPIJL.js");
   if (await shouldRunFirstSetup(ctx)) {
     await runPluginSetup(ctx, g);
     return;
@@ -4063,10 +4133,34 @@ async function runPlain(ctx, g, goal, mode, cli, harnessLevel, playbook, yes, al
 import { resolve as resolve16 } from "path";
 
 // src/vault/join.ts
-import { copyFile, lstat as lstat6, mkdir as mkdir6, readdir as readdir7, readFile as readFile16, readlink as readlink2, realpath as realpath4, rename as rename3, symlink as symlink2, writeFile as writeFile6 } from "fs/promises";
+import { copyFile, lstat as lstat6, mkdir as mkdir6, readdir as readdir7, readFile as readFile16, readlink as readlink2, rename as rename3, symlink as symlink2, writeFile as writeFile6 } from "fs/promises";
 import { hostname as hostname3 } from "os";
-import { dirname as dirname7, join as join22, relative as relative5, resolve as resolve15, sep as sep4 } from "path";
+import { dirname as dirname7, join as join22, posix, relative as relative5, resolve as resolve15, sep as sep4, win32 as win322 } from "path";
 var exists2 = (path3) => lstat6(path3).then(() => true, () => false);
+var pathsFor2 = (platform) => platform === "win32" ? win322 : posix;
+function plannedVault(eduHome, link, subdir, vaultPath, platform) {
+  const paths = pathsFor2(platform);
+  const repo = paths.resolve(vaultPath ?? (subdir ? paths.join(eduHome, "vault") : link));
+  return { repo, brain: subdir ? paths.join(repo, subdir) : repo };
+}
+function guardVault(binding, repo, brain, platform) {
+  if (binding) assertProfileVault(binding, repo, brain, { platform });
+}
+async function saveProfile(binding, brain, platform) {
+  const paths = pathsFor2(platform);
+  const resolvedBrain = await canonicalPath(brain).catch(() => paths.resolve(brain));
+  const profile = binding.id === "personal" ? { ...binding, brain: resolvedBrain } : { ...binding, brain: resolvedBrain };
+  const next = profileJson(profile, { platform });
+  const file = paths.join(binding.home, "profile.json");
+  const current = await readFile16(file, "utf8").catch((error) => {
+    if (error.code === "ENOENT") return void 0;
+    throw error;
+  });
+  if (current === next) return;
+  const tmp = `${file}.${process.pid}.tmp`;
+  await writeFile6(tmp, next);
+  await rename3(tmp, file);
+}
 async function keepLocalCopy(root, path3, content, host) {
   return keepBothCopy(root, path3, host, localCopyName, () => content);
 }
@@ -4114,26 +4208,49 @@ async function join_(options, givenEnv) {
   const subdir = options.subdir?.replace(/[\\/]+$/, "") || void 0;
   if (subdir && (subdir.split(/[\\/]/).includes("..") || resolve15("/", subdir) === resolve15("/"))) throw new Error(`invalid --subdir: ${subdir}`);
   const link = join22(options.eduHome, "brain");
+  const platform = options.platform ?? process.platform;
+  const binding = options.binding;
+  const vaultPath = options.path ?? (binding ? defaultVaultDir(binding, platform) : void 0);
+  if (binding) {
+    assertProfileRemote(binding, url);
+    if (!sameProfileHome(binding.home, options.eduHome, platform)) {
+      throw new ProfileError("home-mismatch", `profile home ${binding.home} does not match the session home ${options.eduHome}`);
+    }
+    const planned = plannedVault(options.eduHome, link, subdir, vaultPath, platform);
+    guardVault(binding, planned.repo, planned.brain, platform);
+    const existing = await readHomeProfile({ env: { EDU_HOME: binding.home }, platform });
+    if (existing && existing.id !== binding.id) {
+      throw new ProfileError("invalid", `this home is a ${existing.id} profile; refusing to join it as ${binding.id}`);
+    }
+  }
   const report = (action2, repo, brain, extra = {}) => ({ action: action2, remote: redact(url, env), branch, repo, brain, link, added: [], keptBoth: [], setup: [...note], ...extra });
   let result;
   if (await exists2(link)) {
-    const current = await realpath4(link).catch(() => {
+    const current = await canonicalPath(link).catch(() => {
       throw new Error(`${link} is a broken link; fix or remove it, then run edu join again`);
     });
     const top = await git(current, ["rev-parse", "--show-toplevel"], env);
     if (top.code === 0 && !await isInside2(current, options.eduHome, top.out.trim())) {
       const repo = top.out.trim();
       const origin = (await git(repo, ["remote", "get-url", "origin"], env)).out.trim();
-      if (origin && sameRemote(origin, url)) result = report("already-joined", repo, current);
-      else if (origin) throw new Error(`the brain is already linked to ${redact(origin, env)}; refusing to change it`);
-      else result = report("merged", repo, current, await mergeRemote(repo, url, branch, host, env));
-    } else if (!subdir && (!options.path || await samePath3(options.path, current))) {
+      if (origin && sameRemote(origin, url)) {
+        guardVault(binding, repo, current, platform);
+        result = report("already-joined", repo, current);
+      } else if (origin) throw new Error(`the brain is already linked to ${redact(origin, env)}; refusing to change it`);
+      else {
+        guardVault(binding, repo, current, platform);
+        result = report("merged", repo, current, await mergeRemote(repo, url, branch, host, env));
+      }
+    } else if (!subdir && (!vaultPath || await samePath3(vaultPath, current))) {
+      guardVault(binding, current, current, platform);
       result = report("merged", current, current, await mergeRemote(current, url, branch, host, env));
     } else {
-      const repo = resolve15(options.path ?? join22(options.eduHome, "vault"));
+      const repo = resolve15(vaultPath ?? join22(options.eduHome, "vault"));
+      const brain = subdir ? join22(repo, subdir) : repo;
+      guardVault(binding, repo, brain, platform);
       const prepared = await prepareRepo(repo, url, branch, host, env);
-      const brain = await brainIn(repo, subdir);
-      const imported = await importInto(current, brain, host);
+      const placed = await brainIn(repo, subdir);
+      const imported = await importInto(current, placed, host);
       await ensureRepoFiles(repo, env);
       await git(repo, ["add", "-A"], env);
       if ((await git(repo, ["diff", "--cached", "--quiet"], env)).code !== 0) {
@@ -4143,37 +4260,44 @@ async function join_(options, givenEnv) {
       const stamp = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString().replace(/[:.]/g, "-");
       const backup = `${link}.pre-join-${stamp}`;
       await rename3(link, backup);
-      await createVaultLink(link, brain, options.platform);
-      result = report("imported", repo, brain, {
+      await createVaultLink(link, placed, platform);
+      result = report("imported", repo, placed, {
         added: [...prepared.added, ...imported.added],
         keptBoth: [...prepared.keptBoth, ...imported.keptBoth],
         backup
       });
     }
   } else {
-    const repo = resolve15(options.path ?? (subdir ? join22(options.eduHome, "vault") : link));
+    const repo = resolve15(vaultPath ?? (subdir ? join22(options.eduHome, "vault") : link));
+    const brain = subdir ? join22(repo, subdir) : repo;
+    guardVault(binding, repo, brain, platform);
     const prepared = await prepareRepo(repo, url, branch, host, env);
-    const brain = await brainIn(repo, subdir);
-    if (resolve15(brain) !== resolve15(link)) await createVaultLink(link, brain, options.platform);
-    result = report(prepared.action, repo, brain, { added: prepared.added, keptBoth: prepared.keptBoth });
+    const placed = await brainIn(repo, subdir);
+    if (resolve15(placed) !== resolve15(link)) await createVaultLink(link, placed, platform);
+    result = report(prepared.action, repo, placed, { added: prepared.added, keptBoth: prepared.keptBoth });
   }
   await ensureIdentity(result.repo, host, env);
   if ((await git(result.repo, ["config", "--local", "user.name"], env)).out.trim() === `Edu (${host})`) {
     result.setup.push(`Git identity for this repository: Edu (${host}) (no global identity was set)`);
   }
   result.setup.push(...await ensureRepoFiles(result.repo, env));
+  if (binding) await saveProfile(binding, result.brain, platform);
   if (options.sync !== false) {
     result.sync = await syncBrain({ eduHome: options.eduHome, host, cloud: options.cloud, reason: "join", env, now: options.now });
   }
   return result;
 }
 async function isInside2(path3, eduHome, repo) {
-  const home = await realpath4(eduHome).catch(() => resolve15(eduHome));
-  const rel = relative5(repo, home);
-  return rel !== "" && !rel.startsWith("..") && path3.startsWith(home + sep4);
+  const [here, home, top] = await Promise.all([
+    canonicalPath(path3).catch(() => resolve15(path3)),
+    canonicalPath(eduHome).catch(() => resolve15(eduHome)),
+    canonicalPath(repo).catch(() => resolve15(repo))
+  ]);
+  const rel = relative5(top, home);
+  return rel !== "" && !rel.startsWith("..") && here.startsWith(home + sep4);
 }
 async function samePath3(a, b) {
-  return await realpath4(a).catch(() => resolve15(a)) === await realpath4(b).catch(() => resolve15(b));
+  return await canonicalPath(a).catch(() => resolve15(a)) === await canonicalPath(b).catch(() => resolve15(b));
 }
 async function prepareRepo(repo, url, branch, host, env) {
   const entries = await readdir7(repo).catch(() => []);
@@ -4338,6 +4462,15 @@ async function ensureIdentity(repo, host, env) {
 }
 
 // src/cli/commands/join.ts
+var CHEIL_SCHEDULE_REFUSED = "edu join --install is refused for a cheil profile until each profile has its own Windows task. EduSync is still one name. Run edu sync by hand.";
+async function resolveJoinBinding(ctx, flag) {
+  const source = { env: ctx.env, platform: process.platform };
+  if (!flag) {
+    const existing = await readHomeProfile(source);
+    return existing ? joinBinding(existing.id, existing.home, { platform: process.platform }) : void 0;
+  }
+  return joinBinding(parseProfileId(flag), resolveSessionHome(source), { platform: process.platform });
+}
 var ALERT2 = /* @__PURE__ */ new Set(["conflict", "error"]);
 var SAID = {
   cloned: "cloned the shared brain",
@@ -4346,26 +4479,30 @@ var SAID = {
   "already-joined": "already joined; synced"
 };
 function registerJoin(program, ctx) {
-  program.command("join").description("attach this machine or a cloud sandbox to the shared brain repository (clone or merge, then sync)").argument("<repo-url>", "Git URL of the brain repository; credentials come from Git or GH_TOKEN").option("--path <dir>", "where the repository lives (default ~/.edu/brain, or ~/.edu/vault with --subdir)").option("--subdir <dir>", "folder inside the repository that holds the brain (for example 01-CONOCIMIENTO)").option("--branch <name>", "branch to follow", "main").option("--cloud", "cloud sandbox: keep usage counters and Obsidian bases local").option("--install", "also schedule `edu sync`").option("--minutes <n>", "schedule interval with --install", "5").option("--host <name>", "machine label in commits, conflict branches and kept local copies").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, url) => {
-    const eduHome = globalHome(ctx);
+  program.command("join").description("attach this profile's home to its shared brain (clone or merge, then sync). One home, one vault.").argument("<repo-url>", "Git URL of the brain repository; credentials come from Git or GH_TOKEN").option("--profile <personal|cheil>", "profile this home joins: personal (EduardoMoraga/edu-vault) or cheil (EduardoMCheil/cheil-vault)").option("--path <dir>", "where the repository lives (default ~/.edu/brain, ~/.edu/vault with --subdir, or C:\\Cheil for cheil on Windows)").option("--subdir <dir>", "folder inside the repository that holds the brain (personal: 01-CONOCIMIENTO, cheil: _CONOCIMIENTO)").option("--branch <name>", "branch to follow", "main").option("--cloud", "cloud sandbox: keep usage counters and Obsidian bases local").option("--install", "also schedule `edu sync` (refused for cheil until each profile has its own task; EduSync is still one name)").option("--minutes <n>", "schedule interval with --install", "5").option("--host <name>", "machine label in commits, conflict branches and kept local copies").option("--json", "machine-readable output").action(action(ctx, async ({ g, opts }, url) => {
+    const binding = await resolveJoinBinding(ctx, opts.profile);
+    const eduHome = binding?.home ?? globalHome(ctx);
+    if (opts.install && binding?.id === "cheil") throw new Error(CHEIL_SCHEDULE_REFUSED);
     const minutes = opts.install ? parseMinutes(opts.minutes) : 5;
     const cloud = Boolean(opts.cloud) || ctx.env.EDU_SYNC_CLOUD === "1";
     const report = await joinBrain({
       url,
       eduHome,
+      binding,
       path: opts.path ? resolve16(g.cwd, opts.path) : void 0,
       subdir: opts.subdir,
       branch: opts.branch,
       cloud,
       host: opts.host,
-      env: ctx.env
+      env: ctx.env,
+      platform: process.platform
     });
     if (report.sync) await writeSyncState(eduHome, report.sync);
     let schedule;
     let scheduleError;
     if (opts.install) {
       try {
-        schedule = await scheduleSync(ctx, { minutes, cloud });
+        schedule = await scheduleSync(ctx, { minutes, cloud, ...binding ? { eduHome } : {} });
       } catch (error) {
         scheduleError = error.message;
       }
@@ -4374,6 +4511,7 @@ function registerJoin(program, ctx) {
     if (failed) ctx.setExitCode(1);
     if (g.json || opts.json) return printJson(ctx, { ...report, schedule, scheduleError });
     ctx.out(`Joined ${report.remote} (${report.branch}): ${SAID[report.action]}`);
+    if (binding) ctx.out(`  profile: ${binding.id}`);
     ctx.out(`  repository: ${report.repo}`);
     ctx.out(`  brain: ${report.brain}${report.brain !== report.link ? ` (linked from ${report.link})` : ""}`);
     if (report.added.length) ctx.out(`  from this machine: ${report.added.length} file(s) added to the shared brain`);
@@ -4393,7 +4531,7 @@ function registerJoin(program, ctx) {
 // src/update/update.ts
 import { access as access2, mkdtemp, rm as rm2, writeFile as writeFile7 } from "fs/promises";
 import { tmpdir } from "os";
-import { join as hostJoin, posix, win32 as win322 } from "path";
+import { join as hostJoin, posix as posix2, win32 as win323 } from "path";
 async function download(deps, url) {
   let response;
   try {
@@ -4429,7 +4567,7 @@ async function checkForUpdate(deps, tag) {
   const cmp = compareVersions(release.version, deps.currentVersion);
   return { current: deps.currentVersion, release, relation: cmp > 0 ? "newer" : cmp < 0 ? "older" : "same" };
 }
-var pathFor = (platform) => platform === "win32" ? win322 : posix;
+var pathFor = (platform) => platform === "win32" ? win323 : posix2;
 async function resolveNpm(deps) {
   const { dirname: dirname9, join: join25 } = pathFor(deps.platform);
   const candidate = join25(dirname9(deps.execPath), deps.platform === "win32" ? "npm.cmd" : "npm");
@@ -4683,7 +4821,7 @@ function registerUpdate(program, ctx, overrides = {}) {
   const internal = program.command("internal", { hidden: true }).description("internal hooks used by edu update");
   internal.command("migrate-workspaces").description("back up and migrate managed contracts in global and registered project brains; preserves memory").option("--json", "machine-readable output").action(
     action(ctx, async ({ g, opts }) => {
-      const { migrateWorkspaces } = await import("./migrate-YUR7SUKA.js");
+      const { migrateWorkspaces } = await import("./migrate-AQJJVINP.js");
       const results = await migrateWorkspaces(globalHome(ctx));
       if (results.some((r) => r.status !== "migrated")) ctx.setExitCode(1);
       if (g.json || opts.json) return printJson(ctx, results);
@@ -4702,17 +4840,17 @@ import { join as join24, resolve as resolve18 } from "path";
 
 // src/vault/vault.ts
 import { randomBytes } from "crypto";
-import { access as access3, copyFile as copyFile2, mkdir as mkdir7, readFile as readFile17, readdir as readdir8, realpath as realpath5, writeFile as writeFile8 } from "fs/promises";
-import { basename as basename3, dirname as dirname8, join as join23, posix as posix2, resolve as resolve17, win32 as win323 } from "path";
+import { access as access3, copyFile as copyFile2, mkdir as mkdir7, readFile as readFile17, readdir as readdir8, realpath as realpath3, writeFile as writeFile8 } from "fs/promises";
+import { basename as basename3, dirname as dirname8, join as join23, posix as posix3, resolve as resolve17, win32 as win324 } from "path";
 var START = "<!-- edu:projects -->";
 var END = "<!-- /edu:projects -->";
 var IGNORED = ["runs/", "crew/", "proposals/", "backups/"];
 function pathParts(path3, platform) {
-  const api = platform === "win32" ? win323 : posix2;
+  const api = platform === "win32" ? win324 : posix3;
   return api.resolve(path3).split(/[\\/]+/).filter(Boolean).map((part) => platform === "win32" ? part.toLowerCase() : part);
 }
 function unsafeVaultPathReason(path3, home, platform) {
-  const api = platform === "win32" ? win323 : posix2;
+  const api = platform === "win32" ? win324 : posix3;
   const vault = api.resolve(path3);
   const userHome2 = api.resolve(home);
   const compare = (value) => platform === "win32" ? value.toLowerCase() : value;
@@ -4751,7 +4889,7 @@ async function physicalCandidate(path3) {
   const suffix = [];
   while (true) {
     try {
-      return resolve17(await realpath5(ancestor), ...suffix.reverse());
+      return resolve17(await realpath3(ancestor), ...suffix.reverse());
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
       const parent = dirname8(ancestor);
@@ -5012,4 +5150,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-6GRIYQYM.js.map
+//# sourceMappingURL=chunk-YHO4FUE3.js.map

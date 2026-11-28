@@ -18,8 +18,9 @@ export const PERSONAL_REMOTE = 'EduardoMoraga/edu-vault' as const;
 export const CHEIL_REMOTE = 'EduardoMCheil/cheil-vault' as const;
 
 const CHEIL_ROOT = 'c:\\cheil';
+export const CHEIL_VAULT_DIR = 'C:\\Cheil';
 
-export type ProfileErrorCode = 'invalid' | 'unreadable' | 'remote-mismatch' | 'cheil-root' | 'home-mismatch';
+export type ProfileErrorCode = 'invalid' | 'unreadable' | 'remote-mismatch' | 'cheil-root' | 'vault-root' | 'home-mismatch';
 
 export class ProfileError extends Error {
   readonly code: ProfileErrorCode;
@@ -65,7 +66,11 @@ export interface SessionSource extends ProfileOptions {
 }
 
 type Paths = typeof path.win32;
-type ProfileId = Profile['id'];
+export type ProfileId = Profile['id'];
+
+export type JoinBinding =
+  | { readonly id: 'personal'; readonly home: string; readonly remote: typeof PERSONAL_REMOTE }
+  | { readonly id: 'cheil'; readonly home: string; readonly remote: typeof CHEIL_REMOTE };
 
 const ProfileFileSchema = z.object({
   id: z.enum(['personal', 'cheil'], { error: 'must be personal or cheil' }),
@@ -114,7 +119,7 @@ function linkedPath(file: string, realpath: (file: string) => string | undefined
   }
 }
 
-function assertOutsideCheil(field: 'home' | 'brain', file: string, realpath: (file: string) => string | undefined): void {
+function assertOutsideCheil(field: 'home' | 'brain' | 'vault', file: string, realpath: (file: string) => string | undefined): void {
   const linked = linkedPath(file, realpath);
   if (underCheil(file) || (linked !== undefined && underCheil(linked))) {
     throw new ProfileError('cheil-root', `personal profile ${field} must stay outside C:\\Cheil`);
@@ -169,6 +174,65 @@ export function parseProfile(input: unknown, options: ProfileOptions = {}): Prof
   return { id: 'cheil', home, brain, remote: CHEIL_REMOTE };
 }
 
+export function parseProfileId(value: string): ProfileId {
+  const id = value.trim();
+  if (id === 'personal' || id === 'cheil') return id;
+  throw new ProfileError('invalid', 'profile must be personal or cheil');
+}
+
+export function joinBinding(id: ProfileId, home: string, options: ProfileOptions = {}): JoinBinding {
+  const platform = options.platform ?? process.platform;
+  const resolved = absolutePath('home', home, pathsFor(platform));
+  if (id === 'personal') {
+    assertOutsideCheil('home', resolved, options.realpath ?? defaultRealpath);
+    return { id, home: resolved, remote: PERSONAL_REMOTE };
+  }
+  return { id, home: resolved, remote: CHEIL_REMOTE };
+}
+
+export function sameProfileHome(left: string, right: string, platform: NodeJS.Platform = process.platform): boolean {
+  const paths = pathsFor(platform);
+  return sameHome(paths.resolve(left), paths.resolve(right), platform);
+}
+
+export function assertProfileRemote(binding: JoinBinding, url: string): void {
+  const withoutUserinfo = url.trim().replace(/^(https?:\/\/)[^/\s@]+@/i, '$1');
+  const github = canonicalRemote(withoutUserinfo);
+  if (github === undefined && !/github\.com/i.test(url)) return;
+  if (github !== binding.remote) throw new ProfileError('remote-mismatch', `${binding.id} profile remote must be ${binding.remote}`);
+}
+
+export function defaultVaultDir(binding: JoinBinding, platform: NodeJS.Platform): string | undefined {
+  return binding.id === 'cheil' && platform === 'win32' ? CHEIL_VAULT_DIR : undefined;
+}
+
+function insideCheil(file: string, realpath: (file: string) => string | undefined): boolean {
+  const linked = linkedPath(file, realpath);
+  return underCheil(file) || (linked !== undefined && underCheil(linked));
+}
+
+export function assertProfileVault(binding: JoinBinding, repo: string, brain: string, options: ProfileOptions = {}): void {
+  const platform = options.platform ?? process.platform;
+  if (platform !== 'win32') return;
+  const realpath = options.realpath ?? defaultRealpath;
+  if (binding.id === 'personal') {
+    assertOutsideCheil('vault', repo, realpath);
+    assertOutsideCheil('brain', brain, realpath);
+    return;
+  }
+  if (!insideCheil(repo, realpath) || !insideCheil(brain, realpath)) {
+    throw new ProfileError('vault-root', `cheil vault must stay inside ${CHEIL_VAULT_DIR}`);
+  }
+}
+
+export function profileJson(profile: Profile, options: ProfileOptions = {}): string {
+  const parsed = parseProfile(
+    { id: profile.id, home: profile.home, brain: profile.brain, remote: profile.remote },
+    options,
+  );
+  return `${JSON.stringify({ id: parsed.id, home: parsed.home, brain: parsed.brain, remote: parsed.remote }, null, 2)}\n`;
+}
+
 function sessionHome(env: NodeJS.ProcessEnv, paths: Paths, homedir: () => string): string {
   const eduHome = present(env.EDU_HOME);
   if (eduHome) return paths.resolve(eduHome);
@@ -191,21 +255,23 @@ function errorCode(error: unknown): string | undefined {
   return error !== null && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
 }
 
-/**
- * The one profile for this session. A missing `<home>/profile.json` is the implicit personal profile.
- * The home is `EDU_HOME` when set, otherwise `~/.edu`.
- */
-export async function loadSessionProfile(source: SessionSource): Promise<Profile> {
+/** The session home: `EDU_HOME`, otherwise `~/.edu` (`HOME`, then `USERPROFILE`). */
+export function resolveSessionHome(source: Pick<SessionSource, 'env' | 'platform' | 'homedir'>): string {
+  const platform = source.platform ?? process.platform;
+  return sessionHome(source.env, pathsFor(platform), source.homedir ?? osHomedir);
+}
+
+export async function readHomeProfile(source: SessionSource): Promise<Profile | undefined> {
   const platform = source.platform ?? process.platform;
   const paths = pathsFor(platform);
   const realpath = source.realpath ?? defaultRealpath;
-  const home = sessionHome(source.env, paths, source.homedir ?? osHomedir);
+  const home = resolveSessionHome(source);
   const file = paths.join(home, 'profile.json');
-  const read = source.readFile ?? (file => readFile(file, 'utf8'));
+  const read = source.readFile ?? (target => readFile(target, 'utf8'));
   let text: string;
   try { text = await read(file); }
   catch (error) {
-    if (errorCode(error) === 'ENOENT') return implicitPersonal(home, paths, realpath);
+    if (errorCode(error) === 'ENOENT') return undefined;
     const detail = error instanceof Error ? error.message : String(error);
     throw new ProfileError('unreadable', `unable to read ${file}: ${detail}`);
   }
@@ -217,4 +283,15 @@ export async function loadSessionProfile(source: SessionSource): Promise<Profile
     throw new ProfileError('home-mismatch', `profile.json home ${profile.home} does not match the session home ${home}`);
   }
   return profile;
+}
+
+/**
+ * The one profile for this session. A missing `<home>/profile.json` is the implicit personal profile.
+ * The home is `EDU_HOME` when set, otherwise `~/.edu`.
+ */
+export async function loadSessionProfile(source: SessionSource): Promise<Profile> {
+  const existing = await readHomeProfile(source);
+  if (existing) return existing;
+  const platform = source.platform ?? process.platform;
+  return implicitPersonal(resolveSessionHome(source), pathsFor(platform), source.realpath ?? defaultRealpath);
 }

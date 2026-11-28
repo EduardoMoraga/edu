@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CHEIL_REMOTE, PERSONAL_REMOTE, joinBinding } from '../profile/profile.js';
 import { joinBrain, localCopyName } from './join.js';
 
 const env = { ...process.env, GIT_AUTHOR_NAME: 'Edu', GIT_AUTHOR_EMAIL: 'edu@example.com', GIT_COMMITTER_NAME: 'Edu', GIT_COMMITTER_EMAIL: 'edu@example.com', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '' };
@@ -30,7 +31,7 @@ const published = () => git(root, '--git-dir', remote, 'ls-tree', '-r', '--name-
 const remoteFile = (path: string) => git(root, '--git-dir', remote, 'show', `main:${path}`);
 
 beforeEach(() => {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'edu-join-')));
+  root = realpathSync.native(mkdtempSync(join(tmpdir(), 'edu-join-')));
   env.GIT_CONFIG_GLOBAL = join(root, 'gitconfig');
   writeFileSync(env.GIT_CONFIG_GLOBAL, '');
   remote = join(root, 'remote.git');
@@ -218,6 +219,119 @@ describe('edu join', () => {
     expect(report.setup.join('\n')).toContain('Edu (grok)');
     expect(report.sync?.state).toBe('ok');
     expect(published()).toContain('local.md');
+  });
+});
+
+describe('edu join --profile', () => {
+  const sandboxEnv = () => ({ ...env, EDU_CEILING_DIRECTORIES: root });
+
+  it('links a personal profile to the vault subdir, keeps the old brain, and joins once', async () => {
+    seed({
+      '01-CONOCIMIENTO/1-canonical/D-remote.md': 'remote note\n',
+      '01-CONOCIMIENTO/1-canonical/D-both.md': 'remote version\n',
+    });
+    const brain = join(eduHome, 'brain');
+    put(brain, '1-canonical/D-local.md', 'local note\n');
+    put(brain, '1-canonical/D-both.md', 'local version\n');
+    const binding = joinBinding('personal', eduHome);
+    const report = await joinBrain({
+      url: remote, eduHome, subdir: '01-CONOCIMIENTO', host: 'laptop', binding, env: sandboxEnv(),
+    });
+    expect(report.action).toBe('imported');
+    expect(report.backup && read(report.backup, '1-canonical/D-local.md')).toBe('local note\n');
+    expect(read(brain, '1-canonical/D-local.md')).toBe('local note\n');
+    expect(read(brain, '1-canonical/D-both.md')).toBe('remote version\n');
+    expect(read(brain, '1-canonical/D-both.local-laptop.md')).toBe('local version\n');
+    expect(lstatSync(brain).isSymbolicLink()).toBe(true);
+    if (process.platform === 'win32') {
+      const listing = execFileSync('cmd.exe', ['/d', '/s', '/c', `dir /AL "${eduHome}"`], { encoding: 'utf8', windowsVerbatimArguments: true });
+      expect(listing).toContain('<JUNCTION>');
+      expect(listing).not.toContain('<SYMLINKD>');
+    }
+    const saved = JSON.parse(read(eduHome, 'profile.json')) as { id: string; home: string; brain: string; remote: string };
+    expect(saved).toMatchObject({ id: 'personal', home: eduHome, remote: PERSONAL_REMOTE });
+    expect(realpathSync.native(saved.brain)).toBe(realpathSync.native(report.brain));
+    const head = git(brain, 'rev-parse', 'HEAD');
+    const second = await joinBrain({
+      url: remote, eduHome, subdir: '01-CONOCIMIENTO', host: 'laptop', binding, env: sandboxEnv(),
+    });
+    expect(second.action).toBe('already-joined');
+    expect(git(brain, 'rev-parse', 'HEAD')).toBe(head);
+    expect(existsSync(join(report.brain, '1-canonical/D-both.local-laptop-2.md'))).toBe(false);
+    expect(readdirSync(eduHome).filter(name => name.endsWith('.tmp'))).toEqual([]);
+    expect(read(report.backup!, '1-canonical/D-local.md')).toBe('local note\n');
+  });
+
+  it('refuses a cheil join of the personal vault and a Windows vault outside C:\\Cheil', async () => {
+    put(join(eduHome, 'brain'), 'keep.md', 'keep\n');
+    const cheil = joinBinding('cheil', eduHome);
+    const wrong = await joinBrain({
+      url: 'https://user:s3cret@github.com/EduardoMoraga/edu-vault.git',
+      eduHome, subdir: '_CONOCIMIENTO', binding: cheil, env: sandboxEnv(), sync: false,
+    }).catch((error: Error) => error);
+    expect(wrong).toBeInstanceOf(Error);
+    expect((wrong as Error).message).toContain(CHEIL_REMOTE);
+    expect((wrong as Error).message).not.toContain('s3cret');
+    expect(read(join(eduHome, 'brain'), 'keep.md')).toBe('keep\n');
+    expect(existsSync(join(eduHome, 'profile.json'))).toBe(false);
+
+    const before = existsSync('C:\\Cheil');
+    const outside = await joinBrain({
+      url: 'https://github.com/EduardoMCheil/cheil-vault.git',
+      eduHome: 'D:\\edu-cheil', path: 'D:\\EduVault', subdir: '_CONOCIMIENTO',
+      binding: joinBinding('cheil', 'D:\\edu-cheil', { platform: 'win32', realpath: () => undefined }),
+      platform: 'win32', host: 'x', env: sandboxEnv(), sync: false,
+    }).catch((error: Error) => error);
+    expect(outside).toBeInstanceOf(Error);
+    expect((outside as Error).message).toContain('C:\\Cheil');
+    expect(existsSync('C:\\Cheil')).toBe(before);
+    expect(read(join(eduHome, 'brain'), 'keep.md')).toBe('keep\n');
+  });
+
+  it('joins cheil in its own home and leaves the personal brain untouched', async () => {
+    seed({ '01-CONOCIMIENTO/only.md': 'personal\n', '_CONOCIMIENTO/only.md': 'cheil\n' });
+    const personalHome = join(root, 'personal', '.edu');
+    const cheilHome = join(root, 'cheil', '.edu');
+    mkdirSync(personalHome, { recursive: true });
+    mkdirSync(cheilHome, { recursive: true });
+    put(join(personalHome, 'brain'), 'local.md', 'local personal\n');
+    const personalReport = await joinBrain({
+      url: remote, eduHome: personalHome, subdir: '01-CONOCIMIENTO', host: 'box',
+      binding: joinBinding('personal', personalHome), env: sandboxEnv(), sync: false,
+    });
+    expect(read(join(personalHome, 'brain'), 'local.md')).toBe('local personal\n');
+    expect(read(personalReport.brain, 'only.md')).toBe('personal\n');
+
+    const refused = await joinBrain({
+      url: 'https://github.com/EduardoMoraga/edu-vault.git', eduHome: cheilHome, subdir: '_CONOCIMIENTO',
+      binding: joinBinding('cheil', cheilHome), env: sandboxEnv(), sync: false,
+    }).catch((error: Error) => error);
+    expect((refused as Error).message).toContain(CHEIL_REMOTE);
+    expect(existsSync(join(cheilHome, 'brain'))).toBe(false);
+
+    const cheilRepo = join(root, 'cheil-vault');
+    const joined = joinBrain({
+      url: remote, eduHome: cheilHome, path: cheilRepo, subdir: '_CONOCIMIENTO', host: 'box',
+      binding: joinBinding('cheil', cheilHome), env: sandboxEnv(), sync: false,
+    });
+    if (process.platform === 'win32') {
+      await expect(joined).rejects.toThrow(/C:\\Cheil/);
+      expect(existsSync(cheilRepo)).toBe(false);
+    } else {
+      const report = await joined;
+      expect(report.action).toBe('cloned');
+      expect(read(join(cheilHome, 'brain'), 'only.md')).toBe('cheil\n');
+      expect(JSON.parse(read(cheilHome, 'profile.json')).id).toBe('cheil');
+      expect(lstatSync(join(cheilHome, 'brain')).isSymbolicLink()).toBe(true);
+      const second = await joinBrain({
+        url: remote, eduHome: cheilHome, path: cheilRepo, subdir: '_CONOCIMIENTO', host: 'box',
+        binding: joinBinding('cheil', cheilHome), env: sandboxEnv(), sync: false,
+      });
+      expect(second.action).toBe('already-joined');
+    }
+    expect(read(join(personalHome, 'brain'), 'local.md')).toBe('local personal\n');
+    expect(read(personalReport.brain, 'only.md')).toBe('personal\n');
+    expect(JSON.parse(read(personalHome, 'profile.json')).id).toBe('personal');
   });
 });
 
