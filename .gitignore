@@ -11,4 +11,7 @@ coverage/
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+# Copy-paste doors for hosts without MCP. The repository root AGENTS.md stays ignored.
+!templates/doors/**/AGENTS.md
+!plugins/doors/**/AGENTS.md
 .codegraph/
