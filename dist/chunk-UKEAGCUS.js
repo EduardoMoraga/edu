@@ -16,7 +16,7 @@ function getCapabilities(version = packageVersion()) {
       "edu dream: nightly reviewable consolidation plan over every host's sessions; nothing applies until you tick it",
       "Hash-guarded writes (edu_read shows the hash, expected_hash refuses a stale update) and provenance (host, agent, session)",
       "Secrets are redacted before any note is written",
-      "edu join <repo>: attach a machine or cloud sandbox to the shared brain in one command",
+      "edu join <repo> --profile personal|cheil: attach that profile home to its vault",
       "edu brain share <id>: move a note to the global brain (or back) with the same id",
       "edu create proposes every extracted canonical note for approval, verified or not",
       "edu sync: one Git sync for every machine; generated files and counter-only conflicts never block, real conflicts go to a sync-conflict branch",
@@ -71,4 +71,4 @@ function getCapabilities(version = packageVersion()) {
 export {
   getCapabilities
 };
-//# sourceMappingURL=chunk-W7AWSQHQ.js.map
+//# sourceMappingURL=chunk-UKEAGCUS.js.map

@@ -1,5 +1,5 @@
 /**
- * `edu join <repo>`: attach this machine (or a cloud sandbox) to the shared brain repository.
+ * `edu join <repo>`: attach this machine (or a cloud sandbox) to one profile's shared brain.
  *
  * Contract: non-interactive, idempotent, never deletes a local note.
  * - No brain yet: clone the repository (optionally the brain lives in `subdir`) and link
@@ -17,7 +17,11 @@
  */
 import { copyFile, lstat, mkdir, readdir, readFile, readlink, realpath, rename, symlink, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, posix, relative, resolve, sep, win32 } from 'node:path';
+import {
+  assertProfileRemote, assertProfileVault, defaultVaultDir, profileJson, readHomeProfile, sameProfileHome,
+  CHEIL_REMOTE, PERSONAL_REMOTE, ProfileError, type JoinBinding, type Profile,
+} from '../profile/profile.js';
 import { createVaultLink } from './link.js';
 import { git, gitLines, redact, sameRemote, withoutCredentials } from './git.js';
 import { keepBothCopy, localCopyName } from './keep-both.js';
@@ -29,7 +33,12 @@ export type JoinAction = 'cloned' | 'merged' | 'imported' | 'already-joined';
 export interface JoinOptions {
   url: string;
   eduHome: string;
-  /** Where the repository lives; default the brain folder itself (or `<eduHome>/vault` with `subdir`). */
+  /**
+   * Profile this home joins. The home is that profile's `EDU_HOME`, not a shared folder.
+   * Absent keeps today's join and does not write `profile.json`.
+   */
+  binding?: JoinBinding;
+  /** Where the repository lives; default the brain folder itself (or `<eduHome>/vault` with `subdir`). Cheil on Windows defaults to `C:\\Cheil`. */
   path?: string;
   /** Folder inside the repository that holds the brain (for example `01-CONOCIMIENTO`). */
   subdir?: string;
@@ -66,6 +75,36 @@ export interface JoinReport {
 }
 
 const exists = (path: string) => lstat(path).then(() => true, () => false);
+const pathsFor = (platform: NodeJS.Platform) => platform === 'win32' ? win32 : posix;
+
+function plannedVault(eduHome: string, link: string, subdir: string | undefined, vaultPath: string | undefined, platform: NodeJS.Platform): { repo: string; brain: string } {
+  const paths = pathsFor(platform);
+  const repo = paths.resolve(vaultPath ?? (subdir ? paths.join(eduHome, 'vault') : link));
+  return { repo, brain: subdir ? paths.join(repo, subdir) : repo };
+}
+
+function guardVault(binding: JoinBinding | undefined, repo: string, brain: string, platform: NodeJS.Platform): void {
+  if (binding) assertProfileVault(binding, repo, brain, { platform });
+}
+
+/** Records the joined profile beside the brain. A second join with the same text does not rewrite it. */
+async function saveProfile(binding: JoinBinding, brain: string, platform: NodeJS.Platform): Promise<void> {
+  const paths = pathsFor(platform);
+  const resolvedBrain = await realpath(brain).catch(() => paths.resolve(brain));
+  const profile: Profile = binding.id === 'personal'
+    ? { id: 'personal', home: binding.home, brain: resolvedBrain, remote: PERSONAL_REMOTE }
+    : { id: 'cheil', home: binding.home, brain: resolvedBrain, remote: CHEIL_REMOTE };
+  const next = profileJson(profile, { platform });
+  const file = paths.join(binding.home, 'profile.json');
+  const current = await readFile(file, 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+  if (current === next) return;
+  const tmp = `${file}.${process.pid}.tmp`;
+  await writeFile(tmp, next);
+  await rename(tmp, file);
+}
 
 export { localCopyName } from './keep-both.js';
 
@@ -132,6 +171,21 @@ async function join_(options: JoinOptions, givenEnv: NodeJS.ProcessEnv): Promise
   const subdir = options.subdir?.replace(/[\\/]+$/, '') || undefined;
   if (subdir && (subdir.split(/[\\/]/).includes('..') || resolve('/', subdir) === resolve('/'))) throw new Error(`invalid --subdir: ${subdir}`);
   const link = join(options.eduHome, 'brain');
+  const platform = options.platform ?? process.platform;
+  const binding = options.binding;
+  const vaultPath = options.path ?? (binding ? defaultVaultDir(binding, platform) : undefined);
+  if (binding) {
+    assertProfileRemote(binding, url);
+    if (!sameProfileHome(binding.home, options.eduHome, platform)) {
+      throw new ProfileError('home-mismatch', `profile home ${binding.home} does not match the session home ${options.eduHome}`);
+    }
+    const planned = plannedVault(options.eduHome, link, subdir, vaultPath, platform);
+    guardVault(binding, planned.repo, planned.brain, platform);
+    const existing = await readHomeProfile({ env: { EDU_HOME: binding.home }, platform });
+    if (existing && existing.id !== binding.id) {
+      throw new ProfileError('invalid', `this home is a ${existing.id} profile; refusing to join it as ${binding.id}`);
+    }
+  }
   const report = (action: JoinAction, repo: string, brain: string, extra: Partial<JoinReport> = {}): JoinReport =>
     ({ action, remote: redact(url, env), branch, repo, brain, link, added: [], keptBoth: [], setup: [...note], ...extra });
 
@@ -142,16 +196,24 @@ async function join_(options: JoinOptions, givenEnv: NodeJS.ProcessEnv): Promise
     if (top.code === 0 && !await isInside(current, options.eduHome, top.out.trim())) {
       const repo = top.out.trim();
       const origin = (await git(repo, ['remote', 'get-url', 'origin'], env)).out.trim();
-      if (origin && sameRemote(origin, url)) result = report('already-joined', repo, current);
-      else if (origin) throw new Error(`the brain is already linked to ${redact(origin, env)}; refusing to change it`);
-      else result = report('merged', repo, current, await mergeRemote(repo, url, branch, host, env));
-    } else if (!subdir && (!options.path || await samePath(options.path, current))) {
+      if (origin && sameRemote(origin, url)) {
+        guardVault(binding, repo, current, platform);
+        result = report('already-joined', repo, current);
+      } else if (origin) throw new Error(`the brain is already linked to ${redact(origin, env)}; refusing to change it`);
+      else {
+        guardVault(binding, repo, current, platform);
+        result = report('merged', repo, current, await mergeRemote(repo, url, branch, host, env));
+      }
+    } else if (!subdir && (!vaultPath || await samePath(vaultPath, current))) {
+      guardVault(binding, current, current, platform);
       result = report('merged', current, current, await mergeRemote(current, url, branch, host, env));
     } else {
-      const repo = resolve(options.path ?? join(options.eduHome, 'vault'));
+      const repo = resolve(vaultPath ?? join(options.eduHome, 'vault'));
+      const brain = subdir ? join(repo, subdir) : repo;
+      guardVault(binding, repo, brain, platform);
       const prepared = await prepareRepo(repo, url, branch, host, env);
-      const brain = await brainIn(repo, subdir);
-      const imported = await importInto(current, brain, host);
+      const placed = await brainIn(repo, subdir);
+      const imported = await importInto(current, placed, host);
       await ensureRepoFiles(repo, env);
       await git(repo, ['add', '-A'], env);
       if ((await git(repo, ['diff', '--cached', '--quiet'], env)).code !== 0) {
@@ -161,17 +223,19 @@ async function join_(options: JoinOptions, givenEnv: NodeJS.ProcessEnv): Promise
       const stamp = (options.now ?? (() => new Date()))().toISOString().replace(/[:.]/g, '-');
       const backup = `${link}.pre-join-${stamp}`;
       await rename(link, backup);
-      await createVaultLink(link, brain, options.platform);
-      result = report('imported', repo, brain, {
+      await createVaultLink(link, placed, platform);
+      result = report('imported', repo, placed, {
         added: [...prepared.added, ...imported.added], keptBoth: [...prepared.keptBoth, ...imported.keptBoth], backup,
       });
     }
   } else {
-    const repo = resolve(options.path ?? (subdir ? join(options.eduHome, 'vault') : link));
+    const repo = resolve(vaultPath ?? (subdir ? join(options.eduHome, 'vault') : link));
+    const brain = subdir ? join(repo, subdir) : repo;
+    guardVault(binding, repo, brain, platform);
     const prepared = await prepareRepo(repo, url, branch, host, env);
-    const brain = await brainIn(repo, subdir);
-    if (resolve(brain) !== resolve(link)) await createVaultLink(link, brain, options.platform);
-    result = report(prepared.action, repo, brain, { added: prepared.added, keptBoth: prepared.keptBoth });
+    const placed = await brainIn(repo, subdir);
+    if (resolve(placed) !== resolve(link)) await createVaultLink(link, placed, platform);
+    result = report(prepared.action, repo, placed, { added: prepared.added, keptBoth: prepared.keptBoth });
   }
 
   await ensureIdentity(result.repo, host, env);
@@ -179,6 +243,7 @@ async function join_(options: JoinOptions, givenEnv: NodeJS.ProcessEnv): Promise
     result.setup.push(`Git identity for this repository: Edu (${host}) (no global identity was set)`);
   }
   result.setup.push(...await ensureRepoFiles(result.repo, env));
+  if (binding) await saveProfile(binding, result.brain, platform);
   if (options.sync !== false) {
     result.sync = await syncBrain({ eduHome: options.eduHome, host, cloud: options.cloud, reason: 'join', env, now: options.now });
   }

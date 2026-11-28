@@ -74,6 +74,8 @@ A session has one profile, `personal` or `cheil`. The profile binds the Edu home
 
 A parsed profile cannot swap those bindings. `profile.json` in the home declares the profile. No `profile.json` means the implicit `personal` profile. The home is `EDU_HOME` when set, and otherwise `~/.edu` (`HOME`, then `USERPROFILE`). The brain is `<home>/brain`.
 
+`edu join --profile personal` attaches that home to `EduardoMoraga/edu-vault` (subdir `01-CONOCIMIENTO`). `edu join --profile cheil` attaches its own `EDU_HOME` to `EduardoMCheil/cheil-vault` (subdir `_CONOCIMIENTO`). On Windows the cheil vault defaults to `C:\Cheil`, and a cheil brain outside that root is refused. Join never deletes a note; an existing home brain is kept. `--install` is refused for cheil until each profile has its own Windows task (`EduSync` is still one name).
+
 ## 3. Layers
 
 Every top-level folder of `src/` is one module, and every module sits in one layer. A module may import
@@ -119,7 +121,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | detach | service | adapters, platform |
 | doctor | service | adapters, core, detach, platform |
 | release | service | platform |
-| vault | service | brain, core, platform |
+| vault | service | brain, core, platform, profile |
 | update | service | brain, platform, release |
 | reflect | service | adapters, brain, context, core, engine, platform, skills |
 | workspace | service | adapters, brain, core, engine, platform |
@@ -133,7 +135,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | connect | service | platform |
 | mcp | delivery | brain, context, core, crew, platform, reflect, release |
 | tui | delivery | core, crew, identity |
-| cli | delivery | adapters, bench, brain, chat, connect, context, core, crew, detach, doctor, engine, eval, evidence, experiment, identity, mcp, orchestrator, platform, reflect, release, setup, tui, update, vault, workspace |
+| cli | delivery | adapters, bench, brain, chat, connect, context, core, crew, detach, doctor, engine, eval, evidence, experiment, identity, mcp, orchestrator, platform, profile, reflect, release, setup, tui, update, vault, workspace |
 | index | delivery | cli, core |
 <!-- /generated:dependencies -->
 
@@ -247,7 +249,7 @@ Top-level commands, grouped as `edu --help` shows them. `edu help <command>` sho
 | `edu init` | Create a brain (`./.edu`, or `~/.edu` with `--global`) |
 | `edu vault` | Create or check a safe Obsidian window onto registered brains |
 | `edu sync` | Sync the shared brain with GitHub; conflicting notes keep both versions |
-| `edu join` | Attach this machine or a cloud sandbox to the shared brain repository |
+| `edu join` | Attach this profile's home to its vault (`--profile personal` or `--profile cheil`) |
 | `edu install` | Connect Edu to coding CLIs through managed files (reversible) |
 | `edu uninstall` | Remove what `edu setup` and `edu install` added; the brain is kept |
 | `edu update` | Update to the latest verified GitHub release |

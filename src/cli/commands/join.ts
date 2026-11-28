@@ -1,14 +1,27 @@
-/** `edu join <repo>`: attach this machine or a cloud sandbox to the shared brain in one command. */
+/** `edu join <repo>`: attach this machine or a cloud sandbox to one profile's shared brain. */
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import { globalHome, type CliContext } from '../context.js';
 import { action, printJson } from '../kit.js';
+import { joinBinding, parseProfileId, readHomeProfile, resolveSessionHome, type JoinBinding } from '../../profile/profile.js';
 import { joinBrain } from '../../vault/join.js';
 import { writeSyncState } from '../../vault/sync.js';
 import type { ScheduleResult } from '../../vault/sync-service.js';
 import { parseMinutes, printSync, scheduleSync } from './sync.js';
 
-interface JoinOpts { path?: string; subdir?: string; branch?: string; cloud?: boolean; install?: boolean; minutes?: string; host?: string; json?: boolean }
+interface JoinOpts { path?: string; subdir?: string; branch?: string; cloud?: boolean; install?: boolean; minutes?: string; host?: string; json?: boolean; profile?: string }
+
+/** Removed when each profile has its own Windows task. Until then EduSync is one name. */
+const CHEIL_SCHEDULE_REFUSED = 'edu join --install is refused for a cheil profile until each profile has its own Windows task. EduSync is still one name. Run edu sync by hand.';
+
+async function resolveJoinBinding(ctx: CliContext, flag: string | undefined): Promise<JoinBinding | undefined> {
+  const source = { env: ctx.env, platform: process.platform };
+  if (!flag) {
+    const existing = await readHomeProfile(source);
+    return existing ? joinBinding(existing.id, existing.home, { platform: process.platform }) : undefined;
+  }
+  return joinBinding(parseProfileId(flag), resolveSessionHome(source), { platform: process.platform });
+}
 
 const ALERT = new Set(['conflict', 'error']);
 
@@ -21,34 +34,38 @@ const SAID: Record<string, string> = {
 
 export function registerJoin(program: Command, ctx: CliContext): void {
   program.command('join')
-    .description('attach this machine or a cloud sandbox to the shared brain repository (clone or merge, then sync)')
+    .description('attach this profile\'s home to its shared brain (clone or merge, then sync). One home, one vault.')
     .argument('<repo-url>', 'Git URL of the brain repository; credentials come from Git or GH_TOKEN')
-    .option('--path <dir>', 'where the repository lives (default ~/.edu/brain, or ~/.edu/vault with --subdir)')
-    .option('--subdir <dir>', 'folder inside the repository that holds the brain (for example 01-CONOCIMIENTO)')
+    .option('--profile <personal|cheil>', 'profile this home joins: personal (EduardoMoraga/edu-vault) or cheil (EduardoMCheil/cheil-vault)')
+    .option('--path <dir>', 'where the repository lives (default ~/.edu/brain, ~/.edu/vault with --subdir, or C:\\Cheil for cheil on Windows)')
+    .option('--subdir <dir>', 'folder inside the repository that holds the brain (personal: 01-CONOCIMIENTO, cheil: _CONOCIMIENTO)')
     .option('--branch <name>', 'branch to follow', 'main')
     .option('--cloud', 'cloud sandbox: keep usage counters and Obsidian bases local')
-    .option('--install', 'also schedule `edu sync`')
+    .option('--install', 'also schedule `edu sync` (refused for cheil until each profile has its own task; EduSync is still one name)')
     .option('--minutes <n>', 'schedule interval with --install', '5')
     .option('--host <name>', 'machine label in commits, conflict branches and kept local copies')
     .option('--json', 'machine-readable output')
     .action(action<JoinOpts>(ctx, async ({ g, opts }, url) => {
-      const eduHome = globalHome(ctx);
+      const binding = await resolveJoinBinding(ctx, opts.profile);
+      const eduHome = binding?.home ?? globalHome(ctx);
+      if (opts.install && binding?.id === 'cheil') throw new Error(CHEIL_SCHEDULE_REFUSED);
       const minutes = opts.install ? parseMinutes(opts.minutes) : 5;
       const cloud = Boolean(opts.cloud) || ctx.env.EDU_SYNC_CLOUD === '1';
       const report = await joinBrain({
-        url: url!, eduHome, path: opts.path ? resolve(g.cwd, opts.path) : undefined, subdir: opts.subdir,
-        branch: opts.branch, cloud, host: opts.host, env: ctx.env,
+        url: url!, eduHome, binding, path: opts.path ? resolve(g.cwd, opts.path) : undefined, subdir: opts.subdir,
+        branch: opts.branch, cloud, host: opts.host, env: ctx.env, platform: process.platform,
       });
       if (report.sync) await writeSyncState(eduHome, report.sync);
       let schedule: ScheduleResult | undefined;
       let scheduleError: string | undefined;
       if (opts.install) {
-        try { schedule = await scheduleSync(ctx, { minutes, cloud }); } catch (error) { scheduleError = (error as Error).message; }
+        try { schedule = await scheduleSync(ctx, { minutes, cloud, ...(binding ? { eduHome } : {}) }); } catch (error) { scheduleError = (error as Error).message; }
       }
       const failed = (report.sync && ALERT.has(report.sync.state)) || scheduleError !== undefined;
       if (failed) ctx.setExitCode(1);
       if (g.json || opts.json) return printJson(ctx, { ...report, schedule, scheduleError });
       ctx.out(`Joined ${report.remote} (${report.branch}): ${SAID[report.action]}`);
+      if (binding) ctx.out(`  profile: ${binding.id}`);
       ctx.out(`  repository: ${report.repo}`);
       ctx.out(`  brain: ${report.brain}${report.brain !== report.link ? ` (linked from ${report.link})` : ''}`);
       if (report.added.length) ctx.out(`  from this machine: ${report.added.length} file(s) added to the shared brain`);

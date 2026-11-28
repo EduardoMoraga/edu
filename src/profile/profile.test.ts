@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, relative, sep } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listLocation } from '../brain/store.js';
-import { CHEIL_REMOTE, PERSONAL_REMOTE, ProfileError, loadSessionProfile, parseProfile, type Profile } from './profile.js';
+import {
+  CHEIL_REMOTE, CHEIL_VAULT_DIR, PERSONAL_REMOTE, ProfileError, assertProfileRemote, assertProfileVault,
+  defaultVaultDir, joinBinding, loadSessionProfile, parseProfile, parseProfileId, profileJson, type Profile,
+} from './profile.js';
 
 const missing = () => Promise.reject(Object.assign(new Error('missing'), { code: 'ENOENT' }));
 const noLink = () => undefined;
@@ -244,6 +247,53 @@ function note(id: string, title: string, body: string): string {
 function notesOf(profile: Profile): Promise<string[]> {
   return listLocation({ scope: 'global', root: profile.home, brainDir: profile.brain }).then(notes => notes.map(item => item.body));
 }
+
+describe('join binding', () => {
+  const cheil = () => joinBinding('cheil', 'D:\\edu-cheil', win32);
+  const personalBinding = () => joinBinding('personal', personal.home, win32);
+
+  it('parses only the two profile ids', () => {
+    expect(parseProfileId(' personal ')).toBe('personal');
+    expect(parseProfileId('cheil')).toBe('cheil');
+    expect(thrown(() => parseProfileId('work')).message).toContain('personal or cheil');
+  });
+
+  it('binds the profile remote and refuses a personal home inside C:\\Cheil', () => {
+    expect(personalBinding()).toEqual({ id: 'personal', home: personal.home, remote: PERSONAL_REMOTE });
+    expect(cheil()).toEqual({ id: 'cheil', home: 'D:\\edu-cheil', remote: CHEIL_REMOTE });
+    expect(thrown(() => joinBinding('personal', 'C:\\Cheil\\.edu', win32)).code).toBe('cheil-root');
+  });
+
+  it('refuses a cheil join of the personal vault without repeating a secret', () => {
+    const binding = cheil();
+    expect(() => assertProfileRemote(binding, `https://github.com/${CHEIL_REMOTE}.git`)).not.toThrow();
+    expect(() => assertProfileRemote(binding, 'C:\\temp\\remote.git')).not.toThrow();
+    const crossed = thrown(() => assertProfileRemote(binding, `https://user:s3cret@github.com/${PERSONAL_REMOTE}.git`));
+    expect(crossed.code).toBe('remote-mismatch');
+    expect(crossed.message).toContain(CHEIL_REMOTE);
+    expect(crossed.message).not.toContain('s3cret');
+    expect(thrown(() => assertProfileRemote(personalBinding(), CHEIL_REMOTE)).message).toContain(PERSONAL_REMOTE);
+  });
+
+  it('defaults the cheil vault to C:\\Cheil on Windows and refuses a vault outside it', () => {
+    expect(defaultVaultDir(cheil(), 'win32')).toBe(CHEIL_VAULT_DIR);
+    expect(defaultVaultDir(cheil(), 'linux')).toBeUndefined();
+    expect(defaultVaultDir(personalBinding(), 'win32')).toBeUndefined();
+    const outside = thrown(() => assertProfileVault(cheil(), 'D:\\EduVault', 'D:\\EduVault\\_CONOCIMIENTO', win32));
+    expect(outside.code).toBe('vault-root');
+    expect(outside.message).toContain(CHEIL_VAULT_DIR);
+    expect(() => assertProfileVault(cheil(), CHEIL_VAULT_DIR, `${CHEIL_VAULT_DIR}\\_CONOCIMIENTO`, win32)).not.toThrow();
+    expect(thrown(() => assertProfileVault(personalBinding(), `${CHEIL_VAULT_DIR}\\vault`, `${CHEIL_VAULT_DIR}\\vault\\01-CONOCIMIENTO`, win32)).code).toBe('cheil-root');
+    expect(() => assertProfileVault(cheil(), '/tmp/cheil-vault', '/tmp/cheil-vault/_CONOCIMIENTO', { platform: 'linux', realpath: noLink })).not.toThrow();
+  });
+
+  it('writes a profile file the parser accepts', () => {
+    const text = profileJson({ id: 'cheil', home: 'D:\\edu-cheil', brain: `${CHEIL_VAULT_DIR}\\_CONOCIMIENTO`, remote: CHEIL_REMOTE }, win32);
+    expect(parseProfile(JSON.parse(text), win32)).toEqual({
+      id: 'cheil', home: 'D:\\edu-cheil', brain: `${CHEIL_VAULT_DIR}\\_CONOCIMIENTO`, remote: CHEIL_REMOTE,
+    });
+  });
+});
 
 function inside(parent: string, child: string): boolean {
   const rel = relative(parent, child);

@@ -2,7 +2,7 @@ import {
   backupUpgradeFiles,
   compareVersions,
   migrateWorkspaces
-} from "./chunk-MHUVV55D.js";
+} from "./chunk-GK4G37HR.js";
 import {
   initBrain
 } from "./chunk-FMFRO2B7.js";
@@ -1582,4 +1582,4 @@ export {
   uninstallSetup,
   needsFirstRunSetup
 };
-//# sourceMappingURL=chunk-AJIDT4OC.js.map
+//# sourceMappingURL=chunk-VFHYB4RU.js.map
