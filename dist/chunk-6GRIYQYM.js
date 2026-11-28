@@ -1529,18 +1529,29 @@ function defaultRealpath(file) {
 }
 function invalidMessage(error) {
   return error.issues.slice(0, 3).map((issue) => {
+    if (issue.code === "unrecognized_keys") return `${issue.keys.join(", ")} is not a profile field`;
     const field = issue.path.length ? issue.path.join(".") : "profile";
     return `${field} ${issue.message}`;
   }).join("; ");
 }
 function underCheil(file) {
-  if (!/^[a-zA-Z]:[\\/]/.test(file)) return false;
+  const windowsAbsolute = /^[a-zA-Z]:[\\/]/.test(file) || /^[\\/]{2}[^\\/]/.test(file);
+  if (!windowsAbsolute) return false;
   const folded = path.win32.resolve(file).replace(/\//g, "\\").toLowerCase();
   const rel = path.win32.relative(CHEIL_ROOT, folded);
-  return rel === "" || !path.win32.isAbsolute(rel) && rel !== ".." && !rel.startsWith("..\\");
+  const parent = `..${path.win32.sep}`;
+  return rel === "" || !path.win32.isAbsolute(rel) && rel !== ".." && !rel.startsWith(parent);
+}
+function linkedPath(file, realpath6) {
+  try {
+    const found = realpath6(file);
+    return found || void 0;
+  } catch {
+    return void 0;
+  }
 }
 function assertOutsideCheil(field, file, realpath6) {
-  const linked = realpath6(file);
+  const linked = linkedPath(file, realpath6);
   if (underCheil(file) || linked !== void 0 && underCheil(linked)) {
     throw new ProfileError("cheil-root", `personal profile ${field} must stay outside C:\\Cheil`);
   }
@@ -1550,7 +1561,7 @@ function canonicalRemote(raw) {
   const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/]*)/i.exec(text)?.[1];
   if (authority?.includes("@")) {
     const user = authority.slice(0, authority.lastIndexOf("@"));
-    if (user !== "git") return void 0;
+    if (!(text.startsWith("ssh://") && user === "git")) return void 0;
   }
   const stripped = text.endsWith(".git") ? text.slice(0, -4) : text;
   const ownerRepo = /^git@github\.com:(.+)$/.exec(stripped)?.[1] ?? /^ssh:\/\/git@github\.com\/(.+)$/.exec(stripped)?.[1] ?? /^https:\/\/github\.com\/(.+)$/.exec(stripped)?.[1] ?? (/^[^:\s]+\/[^/\s]+$/.test(stripped) ? stripped : void 0);
@@ -1708,9 +1719,17 @@ function pickDeclared(raw, paths) {
   const id = record.id === "personal" || record.id === "cheil" ? record.id : void 0;
   return { id, home: showPath(text(record.home), paths), brain: showPath(text(record.brain), paths), remote: text(record.remote) };
 }
+function linkedPath2(file, realpath6) {
+  try {
+    const found = realpath6(file);
+    return found || void 0;
+  } catch {
+    return void 0;
+  }
+}
 function shownCheil(spelled, realpath6, paths) {
   const display = paths.isAbsolute(spelled) ? paths.resolve(spelled) : spelled;
-  const linked = realpath6(spelled) ?? realpath6(display);
+  const linked = linkedPath2(spelled, realpath6) ?? linkedPath2(display, realpath6);
   if (!linked) return display;
   const target = paths.isAbsolute(linked) ? paths.resolve(linked) : linked;
   const same = paths === path2.win32 ? display.toLowerCase() === target.toLowerCase() : display === target;
@@ -1896,7 +1915,7 @@ async function inspectCopies(request) {
   };
   const identity = (file) => {
     const resolved = paths.resolve(file);
-    const linked = realpath6(resolved) ?? realpath6(file);
+    const linked = linkedPath2(resolved, realpath6) ?? linkedPath2(file, realpath6);
     const value = linked ? paths.resolve(linked) : resolved;
     return platform === "win32" ? value.toLowerCase() : value;
   };
@@ -4993,4 +5012,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-PWKYMAUE.js.map
+//# sourceMappingURL=chunk-6GRIYQYM.js.map

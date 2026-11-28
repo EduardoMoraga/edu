@@ -202,9 +202,19 @@ function pickDeclared(raw: unknown, paths: Paths): { id?: Profile['id']; home?: 
   return { id, home: showPath(text(record.home), paths), brain: showPath(text(record.brain), paths), remote: text(record.remote) };
 }
 
+/** A junction target, or undefined when the path is missing or the lookup throws. */
+function linkedPath(file: string, realpath: RealPath): string | undefined {
+  try {
+    const found = realpath(file);
+    return found || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function shownCheil(spelled: string, realpath: RealPath, paths: Paths): string {
   const display = paths.isAbsolute(spelled) ? paths.resolve(spelled) : spelled;
-  const linked = realpath(spelled) ?? realpath(display);
+  const linked = linkedPath(spelled, realpath) ?? linkedPath(display, realpath);
   if (!linked) return display;
   const target = paths.isAbsolute(linked) ? paths.resolve(linked) : linked;
   const same = paths === path.win32 ? display.toLowerCase() === target.toLowerCase() : display === target;
@@ -403,7 +413,7 @@ export async function inspectCopies(request: CopiesRequest): Promise<CopiesRepor
 
   const identity = (file: string): string => {
     const resolved = paths.resolve(file);
-    const linked = realpath(resolved) ?? realpath(file);
+    const linked = linkedPath(resolved, realpath) ?? linkedPath(file, realpath);
     const value = linked ? paths.resolve(linked) : resolved;
     return platform === 'win32' ? value.toLowerCase() : value;
   };

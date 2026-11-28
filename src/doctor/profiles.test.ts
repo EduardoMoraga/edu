@@ -142,6 +142,21 @@ describe('profiles on win32 paths', () => {
     expect(personalRemote.findings[0]).toMatchObject({ code: 'remote-mismatch', id: 'personal', remote: CHEIL_REMOTE, expected: PERSONAL_REMOTE });
   });
 
+  it('keeps the spelled path when a junction lookup throws', async () => {
+    const report = await inspectCopies({
+      ...win32,
+      homes: [personalHome],
+      realpath: () => { throw new Error('junction denied'); },
+      ...disk(
+        { [w.join(personalHome, 'profile.json')]: profileFile('personal', personalHome, personalBrain, PERSONAL_REMOTE) },
+        withNotes(personalBrain, 1).dirs,
+      ),
+    });
+    expect(isolationExitCode(report)).toBe(0);
+    expect(report.profiles[0]).toMatchObject({ brain: personalBrain });
+    expect(report.copies[0]?.root).toBe(personalBrain);
+  });
+
   it('reports a junction into C:\\Cheil and keeps the spelled path', async () => {
     const spelled = w.resolve('D:\\vault\\brain');
     const report = await inspectCopies({
