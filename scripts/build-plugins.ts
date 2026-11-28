@@ -18,6 +18,7 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   const identity = await readFile(join(templates, 'EDU.md'), 'utf8');
   const core = extractCore(identity);
   const skills = await readSkills(join(templates, 'skills'));
+  const doors = await readDoors(join(templates, 'doors'));
   const agents = await readMarkdown(join(templates, 'agents'));
   const commands = await readMarkdown(join(templates, 'commands'));
   // Optional: the Edu Deck pane for Claude Code (absent in minimal template sets): the entry module
@@ -106,12 +107,13 @@ export async function buildPlugins(root = resolve(dirname(fileURLToPath(import.m
   }
   // agy skips agents without `name` and `description`; its `tools` is a list of agy tool names, so omit it.
   for (const agent of agents) add(`plugins/agy/agents/${agent.name}.md`, agyAgent(agent));
+  for (const door of doors) add(`plugins/doors/${door.id}/AGENTS.md`, door.content);
 
-  for (const path of ['.claude-plugin', '.agents/plugins', 'plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy', ...generated.keys()]) await assertContained(root, join(root, path));
+  for (const path of ['.claude-plugin', '.agents/plugins', 'plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy', 'plugins/doors', ...generated.keys()]) await assertContained(root, join(root, path));
   const changed = await findDrift(root, generated, exact);
   if (!options.check) {
     for (const path of generated.keys()) await assertWritableParent(join(root, path));
-    for (const dir of ['plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy']) {
+    for (const dir of ['plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy', 'plugins/doors']) {
       await rm(join(root, dir), { recursive: true, force: true });
     }
     for (const [path, content] of generated) {
@@ -142,7 +144,7 @@ async function assertWritableParent(target: string): Promise<void> {
 
 async function findDrift(root: string, generated: Generated, exact: Set<string>): Promise<string[]> {
   const actual = new Map<string, string>();
-  const roots = ['.claude-plugin', '.agents/plugins', 'plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy'];
+  const roots = ['.claude-plugin', '.agents/plugins', 'plugins/claude-code', 'plugins/codex', 'plugins/pi', 'plugins/opencode', 'plugins/agy', 'plugins/doors'];
   for (const path of roots) await scan(join(root, path), path, actual);
   const paths = new Set([...actual.keys(), ...generated.keys()]);
   const changed: string[] = [];
@@ -201,6 +203,27 @@ async function readMarkdown(directory: string): Promise<Array<{ name: string; co
     result.push({ name: file.slice(0, -3), content, frontmatter, body });
   }
   return result;
+}
+
+const DOOR_IDS = ['cheil', 'personal'] as const;
+type DoorId = (typeof DOOR_IDS)[number];
+
+/** Static host doors. A directory name that is not a profile id is refused, so a third vault cannot ship. */
+async function readDoors(directory: string): Promise<Array<{ id: DoorId; content: string }>> {
+  let names: string[];
+  try { names = await readdir(directory); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
+  const doors: Array<{ id: DoorId; content: string }> = [];
+  for (const name of names.sort()) {
+    if (!(DOOR_IDS as readonly string[]).includes(name)) throw new Error(`Door profile must be personal or cheil, got "${name}"`);
+    const id = name as DoorId;
+    try { doors.push({ id, content: await readFile(join(directory, id, 'AGENTS.md'), 'utf8') }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Door ${id} is missing AGENTS.md`);
+      throw error;
+    }
+  }
+  return doors;
 }
 
 async function readSkills(directory: string): Promise<SkillBundle[]> {

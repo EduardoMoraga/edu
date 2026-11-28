@@ -76,6 +76,8 @@ A parsed profile cannot swap those bindings. `profile.json` in the home declares
 
 `edu join --profile personal` attaches that home to `EduardoMoraga/edu-vault` (subdir `01-CONOCIMIENTO`). `edu join --profile cheil` attaches its own `EDU_HOME` to `EduardoMCheil/cheil-vault` (subdir `_CONOCIMIENTO`). On Windows the cheil vault defaults to `C:\Cheil`, and a cheil brain outside that root is refused. Join never deletes a note; an existing home brain is kept. `--install` is refused for cheil until each profile has its own Windows task (`EduSync` is still one name).
 
+A host without the MCP server copies one door, not both. Personal and Grok Bot copy `templates/doors/personal/AGENTS.md`. The `cheil-vault-edu` environment copies `templates/doors/cheil/AGENTS.md`. Each door names `edu brief`, `edu recall` (`edu brain recall`) and `edu join --cloud` with that profile, and it keeps `EDU_HOME`. `npm run build:plugins` writes the same files under `plugins/doors/`. The guide is `docs/guides/without-mcp.md`.
+
 ## 3. Layers
 
 Every top-level folder of `src/` is one module, and every module sits in one layer. A module may import

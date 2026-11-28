@@ -176,6 +176,9 @@ review · status**. Las skills reconocen frases en español ("ponme al día", "r
 Converse con sus espacios desde Telegram: `edu connect hermes --project <espacio>` agrega Edu a
 [Hermes](guides/hermes.md), y `--undo` lo revierte byte por byte.
 
+Un host sin el servidor MCP de Edu (Grok Bot, o un agente de Cursor en `cheil-vault-edu`)
+copia una puerta y usa la CLI: [Edu sin MCP](guides/without-mcp.md).
+
 ## El equipo (crew)
 
 Pida a Codex que escriba pruebas desde Claude y observe cómo trabaja:

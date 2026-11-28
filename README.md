@@ -168,6 +168,9 @@ review Â· status**. Per-CLI details: [Claude Code](docs/guides/claude-code.md) Â
 Chat with your workspaces from Telegram: `edu connect hermes --project <workspace>` adds Edu to
 [Hermes](docs/guides/hermes.md), and `--undo` reverts it byte for byte.
 
+A host without the Edu MCP server (Grok Bot, or a Cursor cloud agent in `cheil-vault-edu`)
+copies one door and uses the CLI: [Edu without MCP](docs/guides/without-mcp.md).
+
 ## The crew
 
 Ask Codex to write tests from inside Claude, and watch it work:

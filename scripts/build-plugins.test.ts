@@ -170,6 +170,23 @@ describe('buildPlugins', () => {
     expect(discover([{ ...shared, source: 'prompt' }])).toEqual({ skillPaths: [join(skills, 'edu-brief'), join(skills, 'edu-recall')] });
   });
 
+  it('copies the two profile doors and refuses a third profile', async () => {
+    const root = await fixture();
+    await mkdir(join(root, 'templates/doors/personal'), { recursive: true });
+    await mkdir(join(root, 'templates/doors/cheil'), { recursive: true });
+    await writeFile(join(root, 'templates/doors/personal/AGENTS.md'), '# personal\nedu brief\n');
+    await writeFile(join(root, 'templates/doors/cheil/AGENTS.md'), '# cheil\nedu brief\n');
+    await buildPlugins(root);
+    const personal = join(root, 'plugins/doors/personal/AGENTS.md');
+    expect(await readFile(personal, 'utf8')).toBe('# personal\nedu brief\n');
+    expect(await readFile(join(root, 'plugins/doors/cheil/AGENTS.md'), 'utf8')).toBe('# cheil\nedu brief\n');
+    await writeFile(personal, (await readFile(personal, 'utf8')).replace(/\n/g, '\r\n'));
+    await expect(buildPlugins(root, { check: true })).resolves.toEqual({ changed: false, files: [] });
+    await mkdir(join(root, 'templates/doors/work'), { recursive: true });
+    await writeFile(join(root, 'templates/doors/work/AGENTS.md'), '# work\n');
+    await expect(buildPlugins(root)).rejects.toThrow('Door profile must be personal or cheil');
+  });
+
   it('supports check mode and detects generated-file drift without writing', async () => {
     const root = await fixture();
     await buildPlugins(root);
