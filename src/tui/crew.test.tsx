@@ -148,10 +148,12 @@ describe('watchCrew', () => {
   });
 
   it('renders several jobs as several agents in the live view', async () => {
-    await writeJob({ id: JOB_A, cli: 'codex', task: 'write tests', status: 'running', createdAt: at(0) }, [
+    // Age is wall-clock. The October 2026 fixture no longer fits a 100-column row, so this test uses now.
+    const now = new Date().toISOString();
+    await writeJob({ id: JOB_A, cli: 'codex', task: 'write tests', status: 'running', createdAt: now }, [
       { type: 'agent.text', agentId: 'e', text: 'codex output', at: at(1) },
     ]);
-    await writeJob({ id: JOB_B, cli: 'claude', task: 'review diff', status: 'done', createdAt: at(1), summary: 'lgtm' });
+    await writeJob({ id: JOB_B, cli: 'claude', task: 'review diff', status: 'done', createdAt: now, summary: 'lgtm' });
     const abort = new AbortController();
     const view = render(
       <App events={watchCrew(fsCrewSource(root), { pollMs: 10, signal: abort.signal })} crew theme={createTheme(0)} glyphs={UNICODE_GLYPHS} columns={100} rows={30} view="list" />,
