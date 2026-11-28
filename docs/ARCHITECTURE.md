@@ -66,6 +66,14 @@ code changes, the test names what to update here.
 └── .edu-local/                 machine-local, never synced: usage ledger, parsed-note cache, locks
 ```
 
+### One profile per session
+
+A session has one profile, `personal` or `cheil`. The profile binds the Edu home (`EDU_HOME`), the brain root, and the git remote. Those three stay together.
+
+`personal` uses `EduardoMoraga/edu-vault`. Its home and its brain stay outside `C:\Cheil`. `cheil` uses `EduardoMCheil/cheil-vault`. On the FFM Windows machine the Cheil brain is `C:\Cheil\_CONOCIMIENTO`.
+
+A parsed profile cannot swap those bindings. `profile.json` in the home declares the profile. No `profile.json` means the implicit `personal` profile. The home is `EDU_HOME` when set, and otherwise `~/.edu` (`HOME`, then `USERPROFILE`). The brain is `<home>/brain`.
+
 ## 3. Layers
 
 Every top-level folder of `src/` is one module, and every module sits in one layer. A module may import
@@ -104,6 +112,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | skills | domain | core |
 | engine | domain | core, platform |
 | brain | domain | core, platform |
+| profile | domain | — |
 | context | domain | brain, core |
 | evidence | domain | brain, core, platform |
 | adapters | service | brain, core, platform, skills |
@@ -139,6 +148,7 @@ When a lower layer needs something only a higher one has, move the shared piece 
 | `src/skills/` | domain | Skill bundles: validation, limits and portable paths |
 | `src/engine/` | domain | One adapter per agent CLI: argv, autonomy flags, JSONL to EduEvent |
 | `src/brain/` | domain | The Markdown second brain: notes, recall, learning, lint, views, project registry |
+| `src/profile/` | domain | Session profile: personal or cheil, binding home, brain root, and git remote |
 | `src/context/` | domain | Token estimates, context packs and the session brief |
 | `src/evidence/` | domain | Episode packages, check registry, attribution and metrics |
 | `src/adapters/` | service | Per-host install plans: managed blocks, JSON/TOML merges, manifests, host files |

@@ -37,6 +37,7 @@ export const MODULES: Readonly<Record<string, ModuleSpec>> = {
   skills: { layer: 'domain', purpose: 'Skill bundles: validation, limits and portable paths', mayImport: ['core'] },
   engine: { layer: 'domain', purpose: 'One adapter per agent CLI: argv, autonomy flags, JSONL to EduEvent', mayImport: ['core', 'platform'] },
   brain: { layer: 'domain', purpose: 'The Markdown second brain: notes, recall, learning, lint, views, project registry', mayImport: ['core', 'platform'] },
+  profile: { layer: 'domain', purpose: 'Session profile: personal or cheil, binding home, brain root, and git remote', mayImport: [] },
   context: { layer: 'domain', purpose: 'Token estimates, context packs and the session brief', mayImport: ['brain', 'core'] },
   evidence: { layer: 'domain', purpose: 'Episode packages, check registry, attribution and metrics', mayImport: ['brain', 'core', 'platform'] },
   adapters: { layer: 'service', purpose: 'Per-host install plans: managed blocks, JSON/TOML merges, manifests, host files', mayImport: ['brain', 'core', 'platform', 'skills'] },
