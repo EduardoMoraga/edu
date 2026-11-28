@@ -3513,18 +3513,29 @@ function defaultRealpath(file) {
 }
 function invalidMessage(error) {
   return error.issues.slice(0, 3).map((issue) => {
+    if (issue.code === "unrecognized_keys") return `${issue.keys.join(", ")} is not a profile field`;
     const field = issue.path.length ? issue.path.join(".") : "profile";
     return `${field} ${issue.message}`;
   }).join("; ");
 }
 function underCheil(file) {
-  if (!/^[a-zA-Z]:[\\/]/.test(file)) return false;
+  const windowsAbsolute = /^[a-zA-Z]:[\\/]/.test(file) || /^[\\/]{2}[^\\/]/.test(file);
+  if (!windowsAbsolute) return false;
   const folded = path.win32.resolve(file).replace(/\//g, "\\").toLowerCase();
   const rel = path.win32.relative(CHEIL_ROOT, folded);
-  return rel === "" || !path.win32.isAbsolute(rel) && rel !== ".." && !rel.startsWith("..\\");
+  const parent = `..${path.win32.sep}`;
+  return rel === "" || !path.win32.isAbsolute(rel) && rel !== ".." && !rel.startsWith(parent);
+}
+function linkedPath(file, realpath4) {
+  try {
+    const found = realpath4(file);
+    return found || void 0;
+  } catch {
+    return void 0;
+  }
 }
 function assertOutsideCheil(field, file, realpath4) {
-  const linked = realpath4(file);
+  const linked = linkedPath(file, realpath4);
   if (underCheil(file) || linked !== void 0 && underCheil(linked)) {
     throw new ProfileError("cheil-root", `personal profile ${field} must stay outside C:\\Cheil`);
   }
@@ -3534,7 +3545,7 @@ function canonicalRemote(raw) {
   const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/]*)/i.exec(text)?.[1];
   if (authority?.includes("@")) {
     const user = authority.slice(0, authority.lastIndexOf("@"));
-    if (user !== "git") return void 0;
+    if (!(text.startsWith("ssh://") && user === "git")) return void 0;
   }
   const stripped = text.endsWith(".git") ? text.slice(0, -4) : text;
   const ownerRepo = /^git@github\.com:(.+)$/.exec(stripped)?.[1] ?? /^ssh:\/\/git@github\.com\/(.+)$/.exec(stripped)?.[1] ?? /^https:\/\/github\.com\/(.+)$/.exec(stripped)?.[1] ?? (/^[^:\s]+\/[^/\s]+$/.test(stripped) ? stripped : void 0);
@@ -3596,7 +3607,7 @@ function defaultVaultDir(binding, platform) {
   return binding.id === "cheil" && platform === "win32" ? CHEIL_VAULT_DIR : void 0;
 }
 function insideCheil(file, realpath4) {
-  const linked = realpath4(file);
+  const linked = linkedPath(file, realpath4);
   return underCheil(file) || linked !== void 0 && underCheil(linked);
 }
 function assertProfileVault(binding, repo, brain, options = {}) {
@@ -4682,4 +4693,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-ZWKS3VLN.js.map
+//# sourceMappingURL=chunk-Q4MLGG2E.js.map

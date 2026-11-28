@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, isAbsolute, join, relative, sep } from 'node:path';
+import { delimiter, isAbsolute, join, relative, sep, win32 as windows } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listLocation } from '../brain/store.js';
 import {
@@ -47,16 +47,20 @@ describe('parseProfile', () => {
     expect(brain).toMatchObject({ code: 'cheil-root' });
     expect(brain.message).toContain('brain');
     expect(brain.message).toContain('C:\\Cheil');
-    const folded = thrown(() => parseProfile({ ...personal, brain: 'c:\\CHEIL\\notes' }, win32));
+    const folded = thrown(() => parseProfile({ ...personal, brain: 'c:\\cheil\\notes' }, win32));
     expect(folded.code).toBe('cheil-root');
+    expect(folded.message).toContain('brain');
+    expect(folded.message).toContain('C:\\Cheil');
     const home = thrown(() => parseProfile({ ...personal, home: 'C:\\Cheil' }, win32));
     expect(home.code).toBe('cheil-root');
     expect(home.message).toContain('home');
+    expect(home.message).toContain('C:\\Cheil');
   });
 
   it('allows a personal folder whose name only starts with Cheil', () => {
     expect(parseProfile({ ...personal, brain: 'C:\\Cheilish\\notes' }, win32).brain).toBe('C:\\Cheilish\\notes');
     expect(parseProfile({ ...personal, brain: 'C:\\Cheil\\..\\Users\\notes' }, win32).brain).toBe('C:\\Users\\notes');
+    expect(parseProfile({ ...personal, brain: '\\\\server\\share\\notes' }, win32).brain).toBe(windows.resolve('\\\\server\\share\\notes'));
   });
 
   it('rejects a remote that belongs to the other profile', () => {
@@ -72,20 +76,31 @@ describe('parseProfile', () => {
   });
 
   it('rejects a credentialed remote without repeating the secret', () => {
-    const error = thrown(() => parseProfile({ ...personal, remote: 'https://user:s3cret@github.com/EduardoMCheil/cheil-vault.git' }, win32));
-    expect(error.code).toBe('remote-mismatch');
-    expect(error.message).toContain(PERSONAL_REMOTE);
-    expect(error.message).not.toContain('s3cret');
+    const wrong = thrown(() => parseProfile({ ...personal, remote: 'https://user:s3cret@github.com/EduardoMCheil/cheil-vault.git' }, win32));
+    expect(wrong.code).toBe('remote-mismatch');
+    expect(wrong.message).toContain(PERSONAL_REMOTE);
+    expect(wrong.message).not.toContain('s3cret');
+    const same = thrown(() => parseProfile({ ...personal, remote: 'https://user:s3cret@github.com/EduardoMoraga/edu-vault.git' }, win32));
+    expect(same.code).toBe('remote-mismatch');
+    expect(same.message).toContain(PERSONAL_REMOTE);
+    expect(same.message).not.toContain('s3cret');
+    expect(same.message).not.toContain('user:');
+    expect(thrown(() => parseProfile({ ...personal, remote: 'https://git@github.com/EduardoMoraga/edu-vault.git' }, win32)).code).toBe('remote-mismatch');
   });
 
   it('rejects a path that a junction resolves into C:\\Cheil', () => {
     const realpath = (file: string) => file === 'D:\\vault\\brain' ? 'C:\\Cheil\\_CONOCIMIENTO' : undefined;
     const personalError = thrown(() => parseProfile({ ...personal, brain: 'D:\\vault\\brain' }, { platform: 'win32', realpath }));
     expect(personalError.code).toBe('cheil-root');
+    expect(personalError.message).toContain('brain');
     expect(personalError.message).toContain('C:\\Cheil');
     expect(parseProfile({
       id: 'cheil', home: 'D:\\edu-cheil', brain: 'D:\\vault\\brain', remote: CHEIL_REMOTE,
     }, { platform: 'win32', realpath }).brain).toBe('D:\\vault\\brain');
+    const missingJunction = () => { throw new Error('missing junction'); };
+    const stillCheil = thrown(() => parseProfile({ ...personal, home: 'C:\\Cheil' }, { platform: 'win32', realpath: missingJunction }));
+    expect(stillCheil.code).toBe('cheil-root');
+    expect(parseProfile({ ...personal, brain: 'D:\\vault\\brain' }, { platform: 'win32', realpath: missingJunction }).brain).toBe('D:\\vault\\brain');
   });
 
   it('rejects a profile that is not a complete absolute object', () => {
@@ -140,7 +155,10 @@ describe('loadSessionProfile', () => {
       homedir: () => { throw new Error('homedir must not be called'); },
     });
     expect(profile).toEqual({
-      id: 'personal', home: 'C:\\Users\\Eduardo\\.edu', brain: 'C:\\Users\\Eduardo\\.edu\\brain', remote: PERSONAL_REMOTE,
+      id: 'personal',
+      home: windows.join('C:\\Users\\Eduardo', '.edu'),
+      brain: windows.join(windows.join('C:\\Users\\Eduardo', '.edu'), 'brain'),
+      remote: PERSONAL_REMOTE,
     });
   });
 
@@ -182,9 +200,12 @@ describe('loadSessionProfile', () => {
       platform: 'win32', env: { EDU_HOME: 'D:\\edu' }, realpath: noLink, readFile: () => Promise.resolve('not-json'),
     })).rejects.toMatchObject({ code: 'invalid' });
     await expect(loadSessionProfile({
+      platform: 'win32', env: { EDU_HOME: 'D:\\edu' }, realpath: noLink, readFile: () => Promise.resolve('[]'),
+    })).rejects.toMatchObject({ code: 'invalid', message: expect.stringContaining('object') as string });
+    await expect(loadSessionProfile({
       platform: 'win32', env: { EDU_HOME: 'D:\\edu' }, realpath: noLink,
       readFile: () => Promise.resolve(JSON.stringify({ id: 'cheil', home: 'D:\\other', brain: 'C:\\Cheil\\_CONOCIMIENTO', remote: CHEIL_REMOTE })),
-    })).rejects.toMatchObject({ code: 'home-mismatch' });
+    })).rejects.toMatchObject({ code: 'home-mismatch', message: expect.stringContaining('home') as string });
   });
 
   it('matches a Windows home without regard to case and accepts a BOM', async () => {
@@ -200,7 +221,7 @@ describe('two profiles on one machine', () => {
   it('reads each brain and does not open the other home', async () => {
     const root = await mkdtemp(join(tmpdir(), 'edu-profile-pair-'));
     const previous = process.env.EDU_CEILING_DIRECTORIES;
-    process.env.EDU_CEILING_DIRECTORIES = [root, process.env.EDU_CEILING_DIRECTORIES].filter(Boolean).join(delimiter);
+    process.env.EDU_CEILING_DIRECTORIES = [root].join(delimiter);
     try {
       const personalHome = join(root, 'personal-home');
       const personalBrain = join(root, 'personal-brain');
