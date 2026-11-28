@@ -31,7 +31,7 @@ import {
   replaceLegacySchedules,
   scheduleStatus,
   uninstallSchedule
-} from "./chunk-GLIYKTY6.js";
+} from "./chunk-OUJLA7GR.js";
 import {
   SIGNATURES,
   TOOL_IDS,
@@ -738,11 +738,13 @@ function containsPath(parent, child) {
   const rel = paths.relative(fold(parent), fold(child));
   return rel === "" || !paths.isAbsolute(rel) && rel !== ".." && !rel.startsWith("..\\") && !rel.startsWith("../");
 }
-function pathBelongsToOtherProfile(profile, resolved, anchors = {}) {
-  if (profile.id === "personal") return underCheil(resolved);
+function windowsPathOutsideCheil(profile, resolved, vault) {
   if (underCheil(resolved) || containsPath(profile.home, resolved) || containsPath(profile.brain, resolved)) return false;
-  if (anchors.vault && containsPath(anchors.vault, resolved)) return false;
+  if (vault !== void 0 && containsPath(vault, resolved)) return false;
   return windowsPath(resolved);
+}
+function pathBelongsToOtherProfile(profile, resolved, anchors = {}) {
+  return profile.id === "personal" ? underCheil(resolved) : windowsPathOutsideCheil(profile, resolved, anchors.vault);
 }
 function absolutePath(field, value, paths) {
   if (!paths.isAbsolute(value)) throw new ProfileError("invalid", `${field} must be an absolute path`);
@@ -904,7 +906,7 @@ function registerSetup(program, ctx) {
       const brainRoot = globalHome(ctx);
       let purgeBrain = false;
       if (opts.purgeBrain) {
-        const { assertPurgeableBrain } = await import("./uninstall-I3BJHRSO.js");
+        const { assertPurgeableBrain } = await import("./uninstall-LDROKM4X.js");
         if (await exists(join5(brainRoot, "EDU.md"))) {
           await assertPurgeableBrain(brainRoot, ctx.home);
           const question = es ? `\xBFBorrar el cerebro ${brainRoot} con todas sus notas? Esto no se puede deshacer.` : `Delete the brain ${brainRoot} and all its notes? This cannot be undone.`;
@@ -914,7 +916,7 @@ function registerSetup(program, ctx) {
           if (!purgeBrain) ctx.out(es ? "El cerebro se conserva." : "Keeping the brain.");
         }
       }
-      const { uninstallEdu } = await import("./uninstall-I3BJHRSO.js");
+      const { uninstallEdu } = await import("./uninstall-LDROKM4X.js");
       const profile = await loadSessionProfile({ env: { ...ctx.env, EDU_HOME: brainRoot } });
       const report = await uninstallEdu({ home: ctx.home, cwd: g.cwd, brainRoot, scope, force: Boolean(opts.force), purgeBrain, profileId: profile.id });
       if (g.json) {
@@ -4643,4 +4645,4 @@ function createProgram(overrides = {}, options = {}) {
 export {
   createProgram
 };
-//# sourceMappingURL=chunk-N4JNWZMU.js.map
+//# sourceMappingURL=chunk-4MWHWATA.js.map

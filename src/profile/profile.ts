@@ -153,7 +153,6 @@ function withoutUserInfo(raw: string): string {
   return raw.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/i, '$1');
 }
 
-/** True when `remote` names the other profile's GitHub vault, in any accepted URL form. */
 export function remoteBelongsToOtherProfile(profile: Profile, remote: string): boolean {
   const canonical = canonicalRemote(withoutUserInfo(remote));
   return canonical !== undefined && canonical.toLowerCase() === OTHER_REMOTE[profile.id].toLowerCase();
@@ -174,16 +173,14 @@ function containsPath(parent: string, child: string): boolean {
   return rel === '' || (!paths.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..\\') && !rel.startsWith('../'));
 }
 
-/**
- * True when `resolved` sits in the other profile's filesystem territory.
- * Personal territory is outside `C:\Cheil`. Cheil territory is `C:\Cheil` plus this profile's home,
- * brain, and vault, so a cheil vault that lives on another drive is still its own.
- */
-export function pathBelongsToOtherProfile(profile: Profile, resolved: string, anchors: { vault?: string } = {}): boolean {
-  if (profile.id === 'personal') return underCheil(resolved);
+function windowsPathOutsideCheil(profile: Profile, resolved: string, vault: string | undefined): boolean {
   if (underCheil(resolved) || containsPath(profile.home, resolved) || containsPath(profile.brain, resolved)) return false;
-  if (anchors.vault && containsPath(anchors.vault, resolved)) return false;
+  if (vault !== undefined && containsPath(vault, resolved)) return false;
   return windowsPath(resolved);
+}
+
+export function pathBelongsToOtherProfile(profile: Profile, resolved: string, anchors: { vault?: string } = {}): boolean {
+  return profile.id === 'personal' ? underCheil(resolved) : windowsPathOutsideCheil(profile, resolved, anchors.vault);
 }
 
 function absolutePath(field: 'home' | 'brain', value: string, paths: Paths): string {

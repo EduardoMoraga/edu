@@ -18,7 +18,6 @@ export function describeSync(result: SyncResult | undefined, now = Date.now()): 
   return `${result.state} ${age}: ${result.message}${result.head ? ` (${result.head})` : ''}`;
 }
 
-/** The user's home for per-user schedules (USERPROFILE on Windows). */
 const userHome = (ctx: CliContext) => process.platform === 'win32' ? ctx.env.USERPROFILE || ctx.home : ctx.home;
 
 async function sessionProfile(ctx: CliContext, eduHome: string): Promise<Profile> {
@@ -142,7 +141,6 @@ export function registerSync(program: Command, ctx: CliContext): void {
       }
       const result = await syncBrain({ eduHome, vault: opts.vault, host: opts.host, cloud, reason: opts.reason, env: ctx.env, profile });
       const previous = await writeSyncState(eduHome, result);
-      // Alert once per new problem, not every five minutes.
       if (!cloud && ALERT.has(result.state) && (previous?.state !== result.state || previous?.branch !== result.branch)) {
         await notify(result.state === 'conflict' ? 'Edu: conflicto de sincronización' : 'Edu: el sync falló', result.message);
       }

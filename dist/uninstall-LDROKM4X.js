@@ -5,7 +5,7 @@ import {
   scheduleFiles,
   scheduleUnitName,
   uninstallSchedule
-} from "./chunk-GLIYKTY6.js";
+} from "./chunk-OUJLA7GR.js";
 import {
   setupManifestPath,
   uninstallSetup
@@ -171,4 +171,4 @@ export {
   assertPurgeableBrain,
   uninstallEdu
 };
-//# sourceMappingURL=uninstall-I3BJHRSO.js.map
+//# sourceMappingURL=uninstall-LDROKM4X.js.map

@@ -59,9 +59,7 @@ export interface SyncOptions {
   now?: () => Date;
   /** Session profile. When omitted, sync reads `<eduHome>/profile.json` (missing file means personal). */
   profile?: Profile;
-  /** Resolves a dirty path to the location that would be published. Tests use this to simulate a junction. */
   resolvePath?: (file: string) => Promise<string>;
-  /** Test seams. */
   hooks?: SyncHooks;
 }
 
@@ -303,7 +301,6 @@ function porcelainPaths(text: string): string[] {
   return paths;
 }
 
-/** A refusal before any commit or push, or undefined when this profile may publish the vault. */
 async function foreignSync(profile: Profile, vault: string, env: NodeJS.ProcessEnv, resolvePath?: (file: string) => Promise<string>): Promise<string | undefined> {
   const url = (await git(vault, ['remote', 'get-url', 'origin'], env)).out.trim();
   if (url && remoteBelongsToOtherProfile(profile, url)) {
@@ -331,12 +328,10 @@ async function run(vault: string, host: string, cloud: boolean, env: NodeJS.Proc
   const branch = (await g('symbolic-ref', '--short', 'HEAD')).out.trim();
   if (!branch) return done('error', 'the vault is not on a branch');
 
-  /** Commits this machine's changes; returns an error message on failure. Must run under `critical`. */
   const commitLocal = async (): Promise<string | undefined> => {
     const blockedNow = await foreignSync(profile, vault, env, resolvePath);
     if (blockedNow) return blockedNow;
     if (cloud) {
-      // Obsidian views depend on each machine's vault: never publish new ones, undo edits to tracked ones.
       const exclude = resolve(vault, (await g('rev-parse', '--git-path', 'info/exclude')).out.trim());
       const rules = await readFile(exclude, 'utf8').catch(() => '');
       if (!rules.split('\n').includes('*.base')) {

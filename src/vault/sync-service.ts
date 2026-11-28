@@ -52,10 +52,8 @@ export interface ScheduleResult { kind: ScheduleKind; files: string[]; started: 
 
 export type SyncProfileId = Profile['id'];
 
-/** Windows Task Scheduler name of the hand-made Cheil sync on the FFM machine. */
 export const CHEIL_VAULT_SYNC_TASK = 'CheilVaultSync';
 
-/** Previous unsuffixed personal task, before each profile had its own name. */
 export const PREVIOUS_WINDOWS_TASK = 'EduSync';
 
 const LEGACY_WINDOWS_TASKS = [CHEIL_VAULT_SYNC_TASK, PREVIOUS_WINDOWS_TASK] as const;
@@ -70,7 +68,6 @@ export interface ScheduleIdentity {
   launchdPlist: string;
 }
 
-/** One naming scheme for every scheduler: the profile id is the suffix. */
 export function scheduleIdentity(profileId: SyncProfileId = 'personal'): ScheduleIdentity {
   return {
     profileId,
@@ -224,7 +221,6 @@ function taskName(entry: string): boolean {
   return !entry.includes('/') && !entry.includes('\\');
 }
 
-/** Older user agents: a `*-vault-sync` script, the previous unsuffixed Edu schedule, or `CheilVaultSync`. */
 export async function legacySchedules(options: Pick<ScheduleOptions, 'home' | 'platform' | 'vault' | 'profileId' | 'run'>): Promise<string[]> {
   const platform = options.platform ?? process.platform;
   const identity = scheduleIdentity(options.profileId);
@@ -261,7 +257,6 @@ export async function legacySchedules(options: Pick<ScheduleOptions, 'home' | 'p
   return found.sort();
 }
 
-/** Remove only agents that still match the legacy detection rule at removal time. */
 export async function replaceLegacySchedules(options: Pick<ScheduleOptions, 'home' | 'platform' | 'vault' | 'profileId' | 'run'>): Promise<string[]> {
   const platform = options.platform ?? process.platform;
   const call = options.run ?? run;
