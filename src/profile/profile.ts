@@ -88,21 +88,34 @@ function defaultRealpath(file: string): string | undefined {
 
 function invalidMessage(error: z.ZodError): string {
   return error.issues.slice(0, 3).map(issue => {
+    if (issue.code === 'unrecognized_keys') return `${issue.keys.join(', ')} is not a profile field`;
     const field = issue.path.length ? issue.path.join('.') : 'profile';
     return `${field} ${issue.message}`;
   }).join('; ');
 }
 
-/** True when `file` is `C:\Cheil` or a directory inside it. POSIX paths are never inside that root. */
+/** True when `file` is `C:\Cheil` or a directory inside it. A POSIX path is never inside that root. */
 function underCheil(file: string): boolean {
-  if (!/^[a-zA-Z]:[\\/]/.test(file)) return false;
+  const windowsAbsolute = /^[a-zA-Z]:[\\/]/.test(file) || /^[\\/]{2}[^\\/]/.test(file);
+  if (!windowsAbsolute) return false;
   const folded = path.win32.resolve(file).replace(/\//g, '\\').toLowerCase();
   const rel = path.win32.relative(CHEIL_ROOT, folded);
-  return rel === '' || (!path.win32.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..\\'));
+  const parent = `..${path.win32.sep}`;
+  return rel === '' || (!path.win32.isAbsolute(rel) && rel !== '..' && !rel.startsWith(parent));
+}
+
+/** A junction target, or undefined when the path is missing. A throw stays on the spelled path. */
+function linkedPath(file: string, realpath: (file: string) => string | undefined): string | undefined {
+  try {
+    const found = realpath(file);
+    return found || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function assertOutsideCheil(field: 'home' | 'brain', file: string, realpath: (file: string) => string | undefined): void {
-  const linked = realpath(file);
+  const linked = linkedPath(file, realpath);
   if (underCheil(file) || (linked !== undefined && underCheil(linked))) {
     throw new ProfileError('cheil-root', `personal profile ${field} must stay outside C:\\Cheil`);
   }
@@ -114,7 +127,7 @@ function canonicalRemote(raw: string): string | undefined {
   const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/]*)/i.exec(text)?.[1];
   if (authority?.includes('@')) {
     const user = authority.slice(0, authority.lastIndexOf('@'));
-    if (user !== 'git') return undefined;
+    if (!(text.startsWith('ssh://') && user === 'git')) return undefined;
   }
   const stripped = text.endsWith('.git') ? text.slice(0, -4) : text;
   const ownerRepo = /^git@github\.com:(.+)$/.exec(stripped)?.[1]
